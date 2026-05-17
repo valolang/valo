@@ -1,0 +1,30 @@
+Type User
+    Name As String
+    Age As Integer
+End Type
+
+Sub Main()
+    Dim numbers(3) As Integer
+    Dim names(1) As String
+    Dim users(2) As User
+    Dim i As Integer
+
+    numbers(0) = 10
+    numbers(1) = 20
+    i = 2
+    numbers(i) = numbers(0) + numbers(1)
+
+    names(0) = "Valo"
+    names(1) = "Runtime"
+
+    users(0).Name = "Valo"
+    users(0).Age = 1
+
+    Console.WriteLine(numbers(0))
+    Console.WriteLine(numbers(1))
+    Console.WriteLine(numbers(i))
+    Console.WriteLine(names(0) & " " & names(1))
+    Console.WriteLine(users(0).Name)
+    Console.WriteLine(users(0).Age)
+End Sub
+

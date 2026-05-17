@@ -1,0 +1,16 @@
+[package]
+name = "valo_cli"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "valo"
+path = "src/main.rs"
+
+[dependencies]
+valo_interpreter = { path = "../valo_interpreter" }
+valo_parser = { path = "../valo_parser" }
+valo_runtime = { path = "../valo_runtime" }
+valo_semantics = { path = "../valo_semantics" }
+

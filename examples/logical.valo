@@ -1,0 +1,29 @@
+Sub Main()
+    Dim age As Integer
+    Dim active As Boolean
+    Dim i As Integer
+
+    age = 20
+    active = True
+
+    If age >= 18 And active Then
+        Console.WriteLine("Allowed")
+    ElseIf age >= 18 Then
+        Console.WriteLine("Inactive")
+    Else
+        Console.WriteLine("Denied")
+    End If
+
+    If Not active Or age < 18 Then
+        Console.WriteLine("Blocked")
+    ElseIf active Then
+        Console.WriteLine("Still active")
+    End If
+
+    For i = 1 To 4
+        If i Mod 2 = 0 Then
+            Console.WriteLine(i & " is even")
+        End If
+    Next
+End Sub
+

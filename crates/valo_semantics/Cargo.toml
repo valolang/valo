@@ -1,0 +1,10 @@
+[package]
+name = "valo_semantics"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+valo_parser = { path = "../valo_parser" }
+valo_runtime = { path = "../valo_runtime" }
+

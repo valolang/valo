@@ -1,0 +1,19 @@
+Sub Main()
+    Dim i As Integer
+    Dim total As Integer
+
+    i = 1
+    total = 0
+
+    While i <= 5
+        total = total + i
+        i = i + 1
+    Wend
+
+    If total = 15 Then
+        Console.WriteLine("Total is " & total)
+    Else
+        Console.WriteLine("Unexpected total")
+    End If
+End Sub
+

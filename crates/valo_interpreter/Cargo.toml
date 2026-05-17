@@ -1,0 +1,12 @@
+[package]
+name = "valo_interpreter"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+valo_parser = { path = "../valo_parser" }
+valo_runtime = { path = "../valo_runtime" }
+
+[dev-dependencies]
+valo_semantics = { path = "../valo_semantics" }

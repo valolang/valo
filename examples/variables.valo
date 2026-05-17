@@ -1,0 +1,17 @@
+Sub Main()
+    Dim name As String
+    Dim count As Integer
+    Dim active As Boolean
+    Dim anything As Variant
+
+    name = "Valo"
+    count = 40 + 2
+    active = True
+    anything = "runtime"
+
+    Console.WriteLine("Name: " & name)
+    Console.WriteLine("Count: " & count)
+    Console.WriteLine("Active: " & active)
+    Console.WriteLine("Variant: " & anything)
+End Sub
+

@@ -1,0 +1,28 @@
+Type User
+    Name As String
+    Age As Integer
+    Active As Boolean
+End Type
+
+Function CreateUser(ByVal name As String, ByVal age As Integer) As User
+    Dim u As User
+    u.Name = name
+    u.Age = age
+    u.Active = True
+    Return u
+End Function
+
+Sub Activate(ByRef user As User)
+    user.Active = True
+End Sub
+
+Sub Main()
+    Dim user As User
+    user = CreateUser("Valo", 1)
+    Activate(user)
+
+    Console.WriteLine(user.Name)
+    Console.WriteLine(user.Age)
+    Console.WriteLine(user.Active)
+End Sub
+

@@ -1,0 +1,12 @@
+Sub Main()
+    Dim i As Integer
+
+    For i = 1 To 5
+        Console.WriteLine(i)
+    Next
+
+    For i = 10 To 1 Step -3
+        Console.WriteLine("down " & i)
+    Next
+End Sub
+

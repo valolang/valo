@@ -1,0 +1,19 @@
+Function Add(ByVal a As Integer, ByVal b As Integer) As Integer
+    Return a + b
+End Function
+
+Function Greeting(ByVal name As String) As String
+    Return "Hello, " & name
+End Function
+
+Sub Main()
+    Dim total As Integer
+    total = Add(10, 20)
+
+    Dim message As String
+    message = Greeting("Valo")
+
+    Console.WriteLine(total)
+    Console.WriteLine(message)
+End Sub
+
