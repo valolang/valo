@@ -90,6 +90,18 @@ pub enum Stmt {
         preserve: bool,
         span: Span,
     },
+    Label {
+        name: String,
+        span: Span,
+    },
+    GoTo {
+        label: String,
+        span: Span,
+    },
+    OnError {
+        mode: OnErrorMode,
+        span: Span,
+    },
     With {
         target: Expr,
         body: Vec<Stmt>,
@@ -99,6 +111,12 @@ pub enum Stmt {
         target: ExitTarget,
         span: Span,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnErrorMode {
+    ResumeNext,
+    GoToZero,
 }
 
 #[derive(Debug, Clone, PartialEq)]

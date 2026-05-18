@@ -1,5 +1,8 @@
 use crate::runtime::{Diagnostic, Value};
-use crate::{AssignTarget, CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, Stmt};
+use crate::{
+    AssignTarget, CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, Stmt,
+};
+use std::collections::HashMap;
 
 use super::values::{compare_case_values, values_equal};
 use super::{ControlFlow, Frame, Interpreter};
@@ -10,10 +13,23 @@ impl Interpreter {
         statements: &[Stmt],
         frame: &mut Frame,
     ) -> Result<ControlFlow, Diagnostic> {
-        for stmt in statements {
-            match self.exec_stmt(stmt, frame)? {
-                ControlFlow::Continue => {}
-                flow => return Ok(flow),
+        let labels = index_labels(statements);
+        let mut ip = 0;
+        while ip < statements.len() {
+            match self.exec_stmt(&statements[ip], frame) {
+                Ok(ControlFlow::Continue) => ip += 1,
+                Ok(ControlFlow::GoTo(label)) => {
+                    ip = labels
+                        .get(&super::values::key(&label))
+                        .copied()
+                        .expect("GoTo label validated");
+                }
+                Ok(flow) => return Ok(flow),
+                Err(error) if frame.resume_next() => {
+                    self.set_err(&error);
+                    ip += 1;
+                }
+                Err(error) => return Err(error),
             }
         }
         Ok(ControlFlow::Continue)
@@ -81,6 +97,14 @@ impl Interpreter {
                 args,
                 span,
             } => {
+                if let crate::ExprKind::Variable(name) = &object.kind
+                    && name.eq_ignore_ascii_case("Err")
+                    && method.eq_ignore_ascii_case("Clear")
+                    && args.is_empty()
+                {
+                    self.clear_err();
+                    return Ok(ControlFlow::Continue);
+                }
                 let object = self.eval_expr(object, frame)?;
                 self.call_method_sub(object, method, args, frame, *span)?;
                 Ok(ControlFlow::Continue)
@@ -275,6 +299,15 @@ impl Interpreter {
                 )?;
                 Ok(ControlFlow::Continue)
             }
+            Stmt::Label { .. } => Ok(ControlFlow::Continue),
+            Stmt::GoTo { label, .. } => Ok(ControlFlow::GoTo(label.clone())),
+            Stmt::OnError { mode, .. } => {
+                match mode {
+                    OnErrorMode::ResumeNext => frame.set_resume_next(true),
+                    OnErrorMode::GoToZero => frame.set_resume_next(false),
+                }
+                Ok(ControlFlow::Continue)
+            }
             Stmt::With { target, body, .. } => {
                 let target = self.eval_expr(target, frame)?;
                 frame.push_with_target(target);
@@ -354,4 +387,14 @@ impl Interpreter {
             }
         }
     }
+}
+
+fn index_labels(statements: &[Stmt]) -> HashMap<String, usize> {
+    let mut labels = HashMap::new();
+    for (index, stmt) in statements.iter().enumerate() {
+        if let Stmt::Label { name, .. } = stmt {
+            labels.insert(super::values::key(name), index + 1);
+        }
+    }
+    labels
 }

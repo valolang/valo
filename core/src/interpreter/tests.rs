@@ -195,6 +195,150 @@ End Sub
 }
 
 #[test]
+fn labels_and_goto_execute_case_insensitively() {
+    let output = run_source(
+        r#"
+Sub Main()
+    GoTo done
+    Console.WriteLine("skip")
+Done:
+    Console.WriteLine("done")
+    GoTo LAST
+    Console.WriteLine("skip2")
+last:
+    Console.WriteLine("last")
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["done", "last"]);
+}
+
+#[test]
+fn labels_reject_duplicate_and_unknown_goto() {
+    let duplicate = source_error(
+        r#"
+Sub Main()
+Start:
+start:
+    Console.WriteLine("bad")
+End Sub
+"#,
+    );
+    assert!(duplicate.contains("Label 'start' is already declared"));
+
+    let unknown = source_error(
+        r#"
+Sub Main()
+    GoTo Missing
+End Sub
+"#,
+    );
+    assert!(unknown.contains("Label 'Missing' is not declared"));
+}
+
+#[test]
+fn labels_do_not_break_select_case_colon_syntax() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Select Case 2
+    Case 1: Console.WriteLine("one")
+    Case 2: Console.WriteLine("two")
+    End Select
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["two"]);
+}
+
+#[test]
+fn on_error_resume_next_suppresses_runtime_errors_and_populates_err() {
+    let output = run_source(
+        r#"
+Class User
+    Public Name As String
+End Class
+
+Sub Main()
+    Dim x As Integer
+    Dim values(1) As Integer
+    Dim user As User
+
+    On Error Resume Next
+    x = 1 / 0
+    Console.WriteLine(Err.Number > 0)
+    Console.WriteLine(Err.Description)
+    Err.Clear()
+    Console.WriteLine(Err.Number)
+    Console.WriteLine(Err.Description)
+
+    Console.WriteLine(user.Name)
+    Console.WriteLine(Err.Number > 0)
+
+    values(2) = 10
+    Console.WriteLine(Err.Description)
+End Sub
+"#,
+    );
+
+    assert_eq!(
+        output,
+        vec![
+            "True",
+            "Division by zero",
+            "0",
+            "",
+            "True",
+            "Array index 2 is out of bounds for length 2",
+        ]
+    );
+}
+
+#[test]
+fn on_error_goto_zero_disables_runtime_suppression() {
+    let error = source_error(
+        r#"
+Sub Main()
+    Dim x As Integer
+    On Error Resume Next
+    x = 1 / 0
+    On Error GoTo 0
+    x = 1 / 0
+    Console.WriteLine("after")
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Division by zero"));
+}
+
+#[test]
+fn on_error_does_not_suppress_parse_or_semantic_errors() {
+    let parse = source_error(
+        r#"
+Sub Main()
+    On Error Resume Next
+    Dim x As Integer
+    x =
+End Sub
+"#,
+    );
+    assert!(parse.contains("Expected expression"));
+
+    let semantic = source_error(
+        r#"
+Sub Main()
+    On Error Resume Next
+    GoTo Missing
+End Sub
+"#,
+    );
+    assert!(semantic.contains("Label 'Missing' is not declared"));
+}
+
+#[test]
 fn reports_type_mismatch_errors() {
     let error = source_error(
         r#"

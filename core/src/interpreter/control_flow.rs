@@ -9,4 +9,5 @@ pub(crate) enum ControlFlow {
     ExitFor,
     ExitWhile,
     ExitDo,
+    GoTo(String),
 }

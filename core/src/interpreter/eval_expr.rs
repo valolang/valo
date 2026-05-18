@@ -28,6 +28,16 @@ impl Interpreter {
                 }
             }
             ExprKind::MemberAccess { object, field } => {
+                if let ExprKind::Variable(name) = &object.kind
+                    && name.eq_ignore_ascii_case("Err")
+                {
+                    if field.eq_ignore_ascii_case("Number") {
+                        return Ok(Value::Integer(self.err_number));
+                    }
+                    if field.eq_ignore_ascii_case("Description") {
+                        return Ok(Value::String(self.err_description.clone()));
+                    }
+                }
                 if let ExprKind::Variable(enum_name) = &object.kind
                     && let Some(enum_) = self.enums.get(&super::values::key(enum_name))
                 {

@@ -1,0 +1,26 @@
+Class User
+    Public Name As String
+End Class
+
+Sub Main()
+    Dim value As Integer
+    Dim user As User
+
+    On Error Resume Next
+    value = 1 / 0
+    Console.WriteLine("number " & Err.Number)
+    Console.WriteLine("description " & Err.Description)
+    Err.Clear()
+    Console.WriteLine("cleared " & Err.Number)
+
+    Console.WriteLine(user.Name)
+    If Err.Number > 0 Then
+        Console.WriteLine("nothing suppressed")
+    End If
+
+    GoTo Done
+    Console.WriteLine("skipped")
+Done:
+    On Error GoTo 0
+    Console.WriteLine("done")
+End Sub

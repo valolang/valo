@@ -51,9 +51,13 @@ impl Interpreter {
                 "Exit Function is only valid inside Function",
                 Some(accessor.span),
             )),
-            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
-                Diagnostic::new("Exit statement escaped its block", Some(span)),
-            ),
+            ControlFlow::ExitFor
+            | ControlFlow::ExitWhile
+            | ControlFlow::ExitDo
+            | ControlFlow::GoTo(_) => Err(Diagnostic::new(
+                "Exit statement escaped its block",
+                Some(span),
+            )),
         }
     }
 
@@ -129,9 +133,13 @@ impl Interpreter {
                 "Exit Function is only valid inside Function",
                 Some(accessor.span),
             )),
-            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
-                Diagnostic::new("Exit statement escaped its block", Some(span)),
-            ),
+            ControlFlow::ExitFor
+            | ControlFlow::ExitWhile
+            | ControlFlow::ExitDo
+            | ControlFlow::GoTo(_) => Err(Diagnostic::new(
+                "Exit statement escaped its block",
+                Some(span),
+            )),
         }
     }
 }

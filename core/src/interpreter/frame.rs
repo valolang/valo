@@ -13,6 +13,7 @@ use super::values::{coerce_assignment, default_value, key};
 pub(crate) struct Frame {
     variables: HashMap<String, Variable>,
     with_stack: Vec<Value>,
+    resume_next: bool,
 }
 
 impl Frame {
@@ -319,6 +320,14 @@ impl Frame {
             .with_primary_label("no active With target")
             .with_help("use dotted member access only inside a With block")
         })
+    }
+
+    pub(crate) fn set_resume_next(&mut self, enabled: bool) {
+        self.resume_next = enabled;
+    }
+
+    pub(crate) fn resume_next(&self) -> bool {
+        self.resume_next
     }
 }
 

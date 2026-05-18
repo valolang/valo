@@ -19,6 +19,8 @@ pub struct Interpreter {
     pub(crate) option_base: i64,
     pub(crate) option_compare: crate::OptionCompare,
     pub(crate) call_stack: Vec<String>,
+    pub(crate) err_number: i64,
+    pub(crate) err_description: String,
 }
 
 #[cfg(test)]
@@ -121,9 +123,13 @@ impl Interpreter {
                 "Exit Function is only valid inside Function",
                 Some(main.span),
             )),
-            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
-                Diagnostic::new("Exit statement escaped its block", Some(main.span)),
-            ),
+            ControlFlow::ExitFor
+            | ControlFlow::ExitWhile
+            | ControlFlow::ExitDo
+            | ControlFlow::GoTo(_) => Err(Diagnostic::new(
+                "Exit statement escaped its block",
+                Some(main.span),
+            )),
         }
     }
 }
@@ -139,6 +145,16 @@ impl Interpreter {
         } else {
             diagnostic.with_note(format!("while executing {}", self.call_stack.join(" -> ")))
         }
+    }
+
+    pub(crate) fn set_err(&mut self, diagnostic: &Diagnostic) {
+        self.err_number = 1;
+        self.err_description = diagnostic.message.clone();
+    }
+
+    pub(crate) fn clear_err(&mut self) {
+        self.err_number = 0;
+        self.err_description.clear();
     }
 
     fn eval_enum_const_expr(

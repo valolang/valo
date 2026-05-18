@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 
 pub(super) fn validate_statements(
     statements: &[Stmt],
@@ -9,6 +10,7 @@ pub(super) fn validate_statements(
     loop_context: LoopContext,
     in_with: bool,
 ) -> Result<(), Diagnostic> {
+    validate_labels(statements)?;
     for stmt in statements {
         if !in_with && stmt_uses_with_target(stmt) {
             return Err(Diagnostic::new(
@@ -92,6 +94,14 @@ pub(super) fn validate_statements(
                 args,
                 span,
             } => {
+                if let ExprKind::Variable(name) = &object.kind
+                    && name.eq_ignore_ascii_case("Err")
+                {
+                    if method.eq_ignore_ascii_case("Clear") && args.is_empty() {
+                        continue;
+                    }
+                    return Err(Diagnostic::new("Err only supports Clear()", Some(*span)));
+                }
                 let object_type = validate_expr(object, symbols, types, signatures)?;
                 validate_method_call(
                     &object_type,
@@ -377,6 +387,9 @@ pub(super) fn validate_statements(
                     upper_bound.span,
                 )?;
             }
+            Stmt::Label { .. } => {}
+            Stmt::GoTo { .. } => {}
+            Stmt::OnError { .. } => {}
             Stmt::With { target, body, .. } => {
                 validate_expr(target, symbols, types, signatures)?;
                 validate_statements(
@@ -395,6 +408,32 @@ pub(super) fn validate_statements(
         }
     }
 
+    Ok(())
+}
+
+fn validate_labels(statements: &[Stmt]) -> Result<(), Diagnostic> {
+    let mut labels = HashSet::new();
+    for stmt in statements {
+        if let Stmt::Label { name, span } = stmt {
+            let key = key(name);
+            if !labels.insert(key) {
+                return Err(Diagnostic::new(
+                    format!("Label '{}' is already declared", name),
+                    Some(*span),
+                ));
+            }
+        }
+    }
+    for stmt in statements {
+        if let Stmt::GoTo { label, span } = stmt
+            && !labels.contains(&key(label))
+        {
+            return Err(Diagnostic::new(
+                format!("Label '{}' is not declared", label),
+                Some(*span),
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -439,6 +478,9 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::For { span, .. }
         | Stmt::ForEach { span, .. }
         | Stmt::ReDim { span, .. }
+        | Stmt::Label { span, .. }
+        | Stmt::GoTo { span, .. }
+        | Stmt::OnError { span, .. }
         | Stmt::With { span, .. }
         | Stmt::Exit { span, .. } => *span,
     }
@@ -508,6 +550,7 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             expr_uses_with_target(iterable) || body.iter().any(stmt_uses_with_target)
         }
         Stmt::ReDim { upper_bound, .. } => expr_uses_with_target(upper_bound),
+        Stmt::Label { .. } | Stmt::GoTo { .. } | Stmt::OnError { .. } => false,
         Stmt::With { target, .. } => expr_uses_with_target(target),
         Stmt::Dim { .. } | Stmt::Exit { .. } => false,
     }

@@ -28,6 +28,8 @@ impl Parser {
             TokenKind::With => self.parse_with(),
             TokenKind::Do => self.parse_do_loop(),
             TokenKind::For => self.parse_for(),
+            TokenKind::GoTo => self.parse_goto(),
+            TokenKind::On => self.parse_on_error(),
             TokenKind::Exit => self.parse_exit(),
             TokenKind::ReDim => self.parse_redim(),
             TokenKind::Let => self.parse_let_assignment(),
@@ -147,6 +149,19 @@ impl Parser {
     }
 
     fn parse_identifier_statement(&mut self) -> Result<Stmt, Diagnostic> {
+        if matches!(self.peek_kind(), TokenKind::Identifier(_))
+            && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
+        {
+            let token = self.advance();
+            let TokenKind::Identifier(name) = token.kind else {
+                unreachable!("peek checked");
+            };
+            let colon = self.expect_simple(TokenKind::Colon, "Expected ':' after label")?;
+            return Ok(Stmt::Label {
+                name,
+                span: Span::new(token.span.start, colon.span.end),
+            });
+        }
         if matches!(self.peek_kind(), TokenKind::Dot) {
             return self.parse_member_assignment();
         }
@@ -679,6 +694,52 @@ impl Parser {
             name,
             upper_bound,
             preserve,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_goto(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::GoTo, "Expected 'GoTo'")?.span;
+        let token = self.advance();
+        let TokenKind::Identifier(label) = token.kind else {
+            return Err(Diagnostic::new(
+                "Expected label name after 'GoTo'",
+                Some(token.span),
+            ));
+        };
+        Ok(Stmt::GoTo {
+            label,
+            span: Span::new(start.start, token.span.end),
+        })
+    }
+
+    fn parse_on_error(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::On, "Expected 'On'")?.span;
+        self.expect_simple(TokenKind::Error, "Expected 'Error' after 'On'")?;
+        let mode = if self.match_simple(&TokenKind::Resume) {
+            self.expect_simple(TokenKind::Next, "Expected 'Next' after 'On Error Resume'")?;
+            OnErrorMode::ResumeNext
+        } else if self.match_simple(&TokenKind::GoTo) {
+            let token = self.advance();
+            let TokenKind::Integer(value) = token.kind else {
+                return Err(Diagnostic::new(
+                    "Only 'On Error GoTo 0' is supported",
+                    Some(token.span),
+                ));
+            };
+            if value != 0 {
+                return Err(Diagnostic::new(
+                    "Only 'On Error GoTo 0' is supported",
+                    Some(token.span),
+                ));
+            }
+            OnErrorMode::GoToZero
+        } else {
+            return Err(self.error_here("Expected 'Resume Next' or 'GoTo 0' after 'On Error'"));
+        };
+        let end = self.previous().span;
+        Ok(Stmt::OnError {
+            mode,
             span: Span::new(start.start, end.end),
         })
     }

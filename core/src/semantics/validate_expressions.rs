@@ -107,6 +107,7 @@ pub(super) fn validate_expr(
             Ok(TypeName::User(class_sig.name.clone()))
         }
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
+            _ if name.eq_ignore_ascii_case("Err") => Ok(TypeName::Variant),
             Some(VarType::Scalar(ty)) | Some(VarType::Const(ty)) => Ok(ty),
             Some(VarType::Array(_)) => Err(Diagnostic::new(
                 format!("Array variable '{}' cannot be used as a scalar", name),
@@ -124,6 +125,20 @@ pub(super) fn validate_expr(
             }
         },
         ExprKind::MemberAccess { object, field } => {
+            if let ExprKind::Variable(name) = &object.kind
+                && name.eq_ignore_ascii_case("Err")
+            {
+                if field.eq_ignore_ascii_case("Number") {
+                    return Ok(TypeName::Integer);
+                }
+                if field.eq_ignore_ascii_case("Description") {
+                    return Ok(TypeName::String);
+                }
+                return Err(Diagnostic::new(
+                    format!("Err has no member '{}'", field),
+                    Some(expr.span),
+                ));
+            }
             if let ExprKind::Variable(enum_name) = &object.kind
                 && let Some(enum_sig) = types.get_enum(enum_name)
             {
@@ -150,6 +165,17 @@ pub(super) fn validate_expr(
             method,
             args,
         } => {
+            if let ExprKind::Variable(name) = &object.kind
+                && name.eq_ignore_ascii_case("Err")
+            {
+                if method.eq_ignore_ascii_case("Clear") && args.is_empty() {
+                    return Ok(TypeName::Variant);
+                }
+                return Err(Diagnostic::new(
+                    "Err only supports Clear()",
+                    Some(expr.span),
+                ));
+            }
             let object_type = validate_expr(object, symbols, types, signatures)?;
             validate_method_call(
                 &object_type,
