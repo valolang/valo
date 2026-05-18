@@ -50,10 +50,7 @@ impl<'a> Lexer<'a> {
                 '>' => tokens.push(self.greater_or_equal()),
                 _ => {
                     let span = self.current_span();
-                    return Err(Diagnostic::new(
-                        format!("Unexpected character '{}'", ch),
-                        Some(span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, format!("Unexpected character '{}'", ch), Some(span),));
                 }
             }
         }
@@ -174,10 +171,7 @@ impl<'a> Lexer<'a> {
             if ch == ']' {
                 self.advance();
                 if text.is_empty() {
-                    return Err(Diagnostic::new(
-                        "Bracketed identifier cannot be empty",
-                        Some(Span::new(start, self.pos())),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Bracketed identifier cannot be empty", Some(Span::new(start, self.pos())),));
                 }
                 return Ok(Token {
                     kind: TokenKind::Identifier(text),
@@ -191,10 +185,7 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
 
-        Err(Diagnostic::new(
-            "Unterminated bracketed identifier",
-            Some(Span::new(start, self.pos())),
-        ))
+        Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Unterminated bracketed identifier", Some(Span::new(start, self.pos())),))
     }
 
     fn integer(&mut self) -> Result<Token, Diagnostic> {
@@ -211,10 +202,7 @@ impl<'a> Lexer<'a> {
         }
 
         let value = text.parse::<i64>().map_err(|_| {
-            Diagnostic::new(
-                format!("Integer literal '{}' is out of range", text),
-                Some(Span::new(start, self.pos())),
-            )
+            Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Integer literal '{}' is out of range", text), Some(Span::new(start, self.pos())),)
         })?;
 
         Ok(Token {
@@ -238,20 +226,14 @@ impl<'a> Lexer<'a> {
             }
 
             if ch == '\n' {
-                return Err(Diagnostic::new(
-                    "Unterminated string literal",
-                    Some(Span::new(start, self.pos())),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Unterminated string literal", Some(Span::new(start, self.pos())),));
             }
 
             value.push(ch);
             self.advance();
         }
 
-        Err(Diagnostic::new(
-            "Unterminated string literal",
-            Some(Span::new(start, self.pos())),
-        ))
+        Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Unterminated string literal", Some(Span::new(start, self.pos())),))
     }
 
     fn less_or_not_equal(&mut self) -> Token {

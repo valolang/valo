@@ -116,7 +116,7 @@ impl Interpreter {
             .iter()
             .find(|procedure| procedure.name.eq_ignore_ascii_case("main"))
         else {
-            return Err(Diagnostic::new("Program must contain Sub Main()", None));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Program must contain Sub Main()", None));
         };
 
         self.scope_stack.push(format!("Sub {}", main.name));
@@ -124,22 +124,13 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output),
-            ControlFlow::Return(_) => Err(Diagnostic::new(
-                "Return is only allowed inside Function",
-                Some(main.span),
-            )),
-            ControlFlow::ExitFunction => Err(Diagnostic::new(
-                "Exit Function is only valid inside Function",
-                Some(main.span),
-            )),
+            ControlFlow::Return(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Return is only allowed inside Function", Some(main.span),)),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Function is only valid inside Function", Some(main.span),)),
             ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
-            | ControlFlow::Resume(_) => Err(Diagnostic::new(
-                "Exit statement escaped its block",
-                Some(main.span),
-            )),
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit statement escaped its block", Some(main.span),)),
         }
     }
 }
@@ -192,10 +183,7 @@ impl Interpreter {
         match &expr.kind {
             ExprKind::Integer(value) => Ok(*value),
             ExprKind::Variable(name) => members.get(&key(name)).copied().ok_or_else(|| {
-                Diagnostic::new(
-                    format!("Enum member '{}' is not defined", name),
-                    Some(expr.span),
-                )
+                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Enum member '{}' is not defined", name), Some(expr.span),)
             }),
             ExprKind::Unary {
                 op: UnaryOp::Negate,
@@ -210,21 +198,15 @@ impl Interpreter {
                     BinaryOp::Multiply => Ok(left * right),
                     BinaryOp::Divide => {
                         if right == 0 {
-                            Err(Diagnostic::new("Division by zero", Some(expr.span)))
+                            Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Division by zero", Some(expr.span)))
                         } else {
                             Ok(left / right)
                         }
                     }
-                    _ => Err(Diagnostic::new(
-                        "Enum value expression must be numeric",
-                        Some(expr.span),
-                    )),
+                    _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Enum value expression must be numeric", Some(expr.span),)),
                 }
             }
-            _ => Err(Diagnostic::new(
-                "Enum value expression must be numeric",
-                Some(expr.span),
-            )),
+            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Enum value expression must be numeric", Some(expr.span),)),
         }
     }
 }

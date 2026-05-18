@@ -44,18 +44,12 @@ impl Parser {
                         }
                         let token = self.advance();
                         let TokenKind::Integer(value) = token.kind else {
-                            return Err(Diagnostic::new(
-                                "Option Base must be 0 or 1",
-                                Some(token.span),
-                            )
+                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::OPTION, "Option Base must be 0 or 1", Some(token.span),)
                             .with_primary_label("invalid Option Base value")
                             .with_help("use either 'Option Base 0' or 'Option Base 1'"));
                         };
                         if value != 0 && value != 1 {
-                            return Err(Diagnostic::new(
-                                "Option Base must be 0 or 1",
-                                Some(token.span),
-                            )
+                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::OPTION, "Option Base must be 0 or 1", Some(token.span),)
                             .with_primary_label("invalid Option Base value")
                             .with_help("use either 'Option Base 0' or 'Option Base 1'"));
                         }

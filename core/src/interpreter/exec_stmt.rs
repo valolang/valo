@@ -28,10 +28,7 @@ impl Interpreter {
                 }
                 Ok(ControlFlow::Resume(target)) => {
                     let Some(failing_ip) = frame.handled_error_ip() else {
-                        return Err(Diagnostic::new(
-                            "Resume is only valid after a handled runtime error",
-                            Some(stmt_span(&statements[ip])),
-                        )
+                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Resume is only valid after a handled runtime error", Some(stmt_span(&statements[ip])),)
                         .with_primary_label("no handled error is active"));
                     };
                     ip = match target {
@@ -139,10 +136,7 @@ impl Interpreter {
                 for arg in args {
                     let value = self.eval_expr(arg, frame)?;
                     if matches!(value, Value::Missing) {
-                        return Err(Diagnostic::new(
-                            "Missing optional argument cannot be used as a value",
-                            Some(arg.span),
-                        ));
+                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Missing optional argument cannot be used as a value", Some(arg.span),));
                     }
                     parts.push(
                         self.resolve_default_value(value, arg.span)?
@@ -312,7 +306,7 @@ impl Interpreter {
                 };
 
                 if step == 0 {
-                    return Err(Diagnostic::new("For Step cannot be zero", Some(*span)));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "For Step cannot be zero", Some(*span)));
                 }
 
                 loop {
@@ -510,7 +504,7 @@ impl Interpreter {
         };
 
         Ok(
-            Diagnostic::new(description.clone(), Some(span)).with_runtime_error(RuntimeErrorInfo {
+            Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, description.clone(), Some(span)).with_runtime_error(RuntimeErrorInfo {
                 number,
                 source,
                 description,
@@ -528,7 +522,7 @@ impl Interpreter {
     ) -> Result<String, Diagnostic> {
         match self.eval_expr(expr, frame)? {
             Value::String(value) => Ok(value),
-            _ => Err(Diagnostic::new(message, Some(expr.span))),
+            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(expr.span))),
         }
     }
 }

@@ -233,16 +233,10 @@ impl Parser {
             } else {
                 let size_token = self.advance();
                 let TokenKind::Integer(size) = size_token.kind else {
-                    return Err(Diagnostic::new(
-                        "Array size must be an Integer literal",
-                        Some(size_token.span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array size must be an Integer literal", Some(size_token.span),));
                 };
                 if size < 0 {
-                    return Err(Diagnostic::new(
-                        "Array size must be non-negative",
-                        Some(size_token.span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array size must be non-negative", Some(size_token.span),));
                 }
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
                 Some(ArrayDecl::Fixed(size))
@@ -401,10 +395,7 @@ impl Parser {
                 None
             };
             if is_param_array && (!array || ty != TypeName::Variant) {
-                return Err(Diagnostic::new(
-                    "ParamArray must be declared as Variant()",
-                    Some(Span::new(start.start, self.previous().span.end)),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "ParamArray must be declared as Variant()", Some(Span::new(start.start, self.previous().span.end)),));
             }
             let end = self.previous().span;
             params.push(Parameter {
@@ -433,7 +424,7 @@ impl Parser {
             TokenKind::BooleanType => Ok(TypeName::Boolean),
             TokenKind::VariantType => Ok(TypeName::Variant),
             TokenKind::Identifier(name) => Ok(TypeName::User(name)),
-            _ => Err(Diagnostic::new("Expected type name", Some(token.span))),
+            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected type name", Some(token.span))),
         }
     }
 }

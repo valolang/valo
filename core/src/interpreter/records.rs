@@ -11,29 +11,20 @@ pub(crate) fn read_field_member(
     if let Value::Object(object) = value {
         let object = object.borrow();
         return object.fields.get(&key(field)).cloned().ok_or_else(|| {
-            Diagnostic::new(
-                format!("Class '{}' has no field '{}'", object.class_name, field),
-                Some(span),
-            )
+            Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Class '{}' has no field '{}'", object.class_name, field), Some(span),)
         });
     }
     if matches!(value, Value::Nothing) {
-        return Err(Diagnostic::new("Object reference is Nothing", Some(span))
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, "Object reference is Nothing", Some(span))
             .with_primary_label("attempted to access a member on Nothing")
             .with_help("assign an object before accessing its members"));
     }
     let Value::Record { type_name, fields } = value else {
-        return Err(Diagnostic::new(
-            "Member access requires a user-defined Type value",
-            Some(span),
-        ));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Member access requires a user-defined Type value", Some(span),));
     };
 
     fields.get(&key(field)).cloned().ok_or_else(|| {
-        Diagnostic::new(
-            format!("Type '{}' has no field '{}'", type_name, field),
-            Some(span),
-        )
+        Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Type '{}' has no field '{}'", type_name, field), Some(span),)
     })
 }
 
@@ -46,32 +37,23 @@ pub(crate) fn write_member(
     if let Value::Object(object) = value {
         let mut object = object.borrow_mut();
         let Some(slot) = object.fields.get_mut(&key(field)) else {
-            return Err(Diagnostic::new(
-                format!("Class '{}' has no field '{}'", object.class_name, field),
-                Some(span),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Class '{}' has no field '{}'", object.class_name, field), Some(span),));
         };
         let ty = slot.type_name();
         *slot = coerce_assignment(&ty, new_value, span)?;
         return Ok(());
     }
     if matches!(value, Value::Nothing) {
-        return Err(Diagnostic::new("Object reference is Nothing", Some(span))
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, "Object reference is Nothing", Some(span))
             .with_primary_label("attempted to assign a member on Nothing")
             .with_help("assign an object before assigning its members"));
     }
     let Value::Record { type_name, fields } = value else {
-        return Err(Diagnostic::new(
-            "Member assignment requires a user-defined Type value",
-            Some(span),
-        ));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Member assignment requires a user-defined Type value", Some(span),));
     };
 
     let Some(slot) = fields.get_mut(&key(field)) else {
-        return Err(Diagnostic::new(
-            format!("Type '{}' has no field '{}'", type_name, field),
-            Some(span),
-        ));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Type '{}' has no field '{}'", type_name, field), Some(span),));
     };
 
     let ty = slot.type_name();

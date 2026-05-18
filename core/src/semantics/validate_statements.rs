@@ -13,10 +13,7 @@ pub(super) fn validate_statements(
     validate_labels(statements)?;
     for stmt in statements {
         if !in_with && stmt_uses_with_target(stmt) {
-            return Err(Diagnostic::new(
-                "Dot member access requires an active With block",
-                Some(stmt_span(stmt)),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Dot member access requires an active With block", Some(stmt_span(stmt)),));
         }
         match stmt {
             Stmt::Dim {
@@ -34,10 +31,7 @@ pub(super) fn validate_statements(
                 ensure_known_type(ty, types, *span)?;
                 let key = key(name);
                 if symbols.contains_key(&key) {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is already declared", name),
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(*span),));
                 }
                 let var_type = if array.is_some() {
                     VarType::Array(ty.clone())
@@ -59,10 +53,7 @@ pub(super) fn validate_statements(
                 ensure_assignable_expr(&const_type, &value_type, value, types, *span)?;
                 let key = key(name);
                 if symbols.contains_key(&key) {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is already declared", name),
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(*span),));
                 }
                 symbols.insert(key, VarType::Const(const_type));
             }
@@ -126,10 +117,7 @@ pub(super) fn validate_statements(
                         )?;
                         continue;
                     }
-                    return Err(Diagnostic::new(
-                        "Err only supports Clear() and Raise()",
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Err only supports Clear() and Raise()", Some(*span),));
                 }
                 let object_type = class_field_object_type(object, symbols, types, &context)
                     .map(Ok)
@@ -148,28 +136,19 @@ pub(super) fn validate_statements(
             }
             Stmt::RaiseEvent { name, args, span } => {
                 let Some(class_name) = context.current_class() else {
-                    return Err(Diagnostic::new(
-                        "RaiseEvent is only valid inside the declaring class",
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "RaiseEvent is only valid inside the declaring class", Some(*span),));
                 };
                 let class_sig = types
                     .get_class(class_name)
                     .expect("current class validated");
                 let Some(event_sig) = class_sig.events.get(&key(name)) else {
-                    return Err(Diagnostic::new(
-                        format!("Class '{}' has no event '{}'", class_sig.name, name),
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Class '{}' has no event '{}'", class_sig.name, name), Some(*span),));
                 };
                 validate_arguments("Event", event_sig, args, symbols, types, signatures, *span)?;
             }
             Stmt::Return { expr, span } => match &mut context {
                 Context::Sub | Context::MethodSub { .. } | Context::PropertyLetSet { .. } => {
-                    return Err(Diagnostic::new(
-                        "Return is only allowed inside Function or Property Get",
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Return is only allowed inside Function or Property Get", Some(*span),));
                 }
                 Context::Function {
                     return_type,
@@ -318,18 +297,12 @@ pub(super) fn validate_statements(
                 span,
             } => {
                 let Some(ty) = symbols.get(&key(variable)) else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", variable),
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", variable), Some(*span),));
                 };
 
                 if !matches!(ty.scalar_type(), Some(scalar) if scalar.same_type(&TypeName::Integer))
                 {
-                    return Err(Diagnostic::new(
-                        format!("For loop variable '{}' must be Integer", variable),
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, format!("For loop variable '{}' must be Integer", variable), Some(*span),));
                 }
 
                 ensure_assignable(
@@ -352,13 +325,10 @@ pub(super) fn validate_statements(
                 if let Some((next_variable, next_span)) = next_variable
                     && !next_variable.eq_ignore_ascii_case(variable)
                 {
-                    return Err(Diagnostic::new(
-                        format!(
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!(
                             "Next variable '{}' does not match For variable '{}'",
                             next_variable, variable
-                        ),
-                        Some(*next_span),
-                    ));
+                        ), Some(*next_span),));
                 }
                 validate_statements(
                     body,
@@ -378,29 +348,20 @@ pub(super) fn validate_statements(
                 span,
             } => {
                 let Some(loop_type) = symbols.get(&key(variable)).cloned() else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", variable),
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", variable), Some(*span),));
                 };
                 let Some(loop_type) = loop_type.scalar_type() else {
-                    return Err(Diagnostic::new(
-                        format!("Array variable '{}' cannot be used as a scalar", variable),
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, format!("Array variable '{}' cannot be used as a scalar", variable), Some(*span),));
                 };
                 let array_type = validate_array_expr(iterable, symbols, types, signatures)?;
                 ensure_assignable(&loop_type, &array_type, *span)?;
                 if let Some((next_variable, next_span)) = next_variable
                     && !next_variable.eq_ignore_ascii_case(variable)
                 {
-                    return Err(Diagnostic::new(
-                        format!(
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!(
                             "Next variable '{}' does not match For Each variable '{}'",
                             next_variable, variable
-                        ),
-                        Some(*next_span),
-                    ));
+                        ), Some(*next_span),));
                 }
                 validate_statements(
                     body,
@@ -419,16 +380,10 @@ pub(super) fn validate_statements(
                 ..
             } => {
                 let Some(var_type) = symbols.get(&key(name)).cloned() else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", name),
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(*span),));
                 };
                 if !matches!(var_type, VarType::Array(_)) {
-                    return Err(Diagnostic::new(
-                        "ReDim target must be a dynamic array",
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "ReDim target must be a dynamic array", Some(*span),));
                 }
                 ensure_assignable(
                     &TypeName::Integer,
@@ -467,10 +422,7 @@ fn validate_labels(statements: &[Stmt]) -> Result<(), Diagnostic> {
         if let Stmt::Label { name, span } = stmt {
             let key = key(name);
             if !labels.insert(key) {
-                return Err(Diagnostic::new(
-                    format!("Label '{}' is already declared", name),
-                    Some(*span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Label '{}' is already declared", name), Some(*span),));
             }
         }
     }
@@ -485,10 +437,7 @@ fn validate_labels(statements: &[Stmt]) -> Result<(), Diagnostic> {
                 mode: OnErrorMode::GoToLabel(label),
                 span,
             } if !labels.contains(&key(label)) => {
-                return Err(Diagnostic::new(
-                    format!("Label '{}' is not declared", label),
-                    Some(*span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Label '{}' is not declared", label), Some(*span),));
             }
             _ => {}
         }
@@ -506,15 +455,9 @@ fn validate_sub_call(
 ) -> Result<(), Diagnostic> {
     let Some(sub) = signatures.subs.get(&key(name)) else {
         if signatures.functions.contains_key(&key(name)) {
-            return Err(Diagnostic::new(
-                format!("Function '{}' cannot be called as a statement", name),
-                Some(span),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Function '{}' cannot be called as a statement", name), Some(span),));
         }
-        return Err(Diagnostic::new(
-            format!("Sub '{}' is not defined", name),
-            Some(span),
-        ));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Sub '{}' is not defined", name), Some(span),));
     };
 
     validate_arguments("Sub", sub, args, symbols, types, signatures, span)

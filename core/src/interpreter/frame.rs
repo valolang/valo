@@ -31,10 +31,7 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
-            return Err(Diagnostic::new(
-                format!("Variable '{}' is already declared", name),
-                Some(span),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(span),));
         }
 
         let dynamic_array = matches!(array, Some(ArrayDecl::Dynamic));
@@ -43,10 +40,7 @@ impl Frame {
             let allocated = match array {
                 ArrayDecl::Fixed(upper_bound) => {
                     if upper_bound < option_base {
-                        return Err(Diagnostic::new(
-                            "Array upper bound must be greater than or equal to Option Base",
-                            Some(span),
-                        ));
+                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::OPTION, "Array upper bound must be greater than or equal to Option Base", Some(span),));
                     }
                     for _ in option_base..=upper_bound {
                         elements.push(default_value(&ty, types, enums, span)?);
@@ -106,10 +100,7 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
-            return Err(Diagnostic::new(
-                format!("Variable '{}' is already declared", name),
-                Some(span),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(span),));
         }
         self.variables.insert(
             key,
@@ -155,20 +146,14 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
-            return Err(Diagnostic::new(
-                format!("Variable '{}' is already declared", name),
-                Some(span),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(span),));
         }
         if !variable.ty.same_type(&ty) {
-            return Err(Diagnostic::new(
-                format!(
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!(
                     "ByRef argument type {} must match parameter type {}",
                     variable.ty.display_name(),
                     ty.display_name()
-                ),
-                Some(span),
-            ));
+                ), Some(span),));
         }
 
         self.variables.insert(key, variable);
@@ -193,10 +178,7 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
-            return Err(Diagnostic::new(
-                format!("Variable '{}' is already declared", name),
-                Some(span),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(span),));
         }
         self.variables.insert(
             key,
@@ -218,15 +200,12 @@ impl Frame {
         span: Span,
     ) -> Result<(), Diagnostic> {
         let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
-            Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
+            Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(span))
                 .with_primary_label("unknown variable")
                 .with_help("declare the variable before using it")
         })?;
         if variable.is_const {
-            return Err(Diagnostic::new(
-                format!("Constant '{}' cannot be assigned", name),
-                Some(span),
-            )
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT, format!("Constant '{}' cannot be assigned", name), Some(span),)
             .with_primary_label("assignment to constant")
             .with_help("remove the assignment or use a non-Const variable"));
         }
@@ -237,7 +216,7 @@ impl Frame {
 
     pub(crate) fn assign_missing(&mut self, name: &str, span: Span) -> Result<(), Diagnostic> {
         let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
-            Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
+            Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(span))
         })?;
         *variable.cell.borrow_mut() = Value::Missing;
         Ok(())
@@ -248,7 +227,7 @@ impl Frame {
             .get(&key(name))
             .map(|variable| variable.cell.borrow().clone())
             .ok_or_else(|| {
-                Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
+                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(span))
                     .with_primary_label("unknown variable")
                     .with_help("declare the variable before using it")
             })
@@ -256,7 +235,7 @@ impl Frame {
 
     pub(crate) fn variable(&self, name: &str, span: Span) -> Result<Variable, Diagnostic> {
         self.variables.get(&key(name)).cloned().ok_or_else(|| {
-            Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
+            Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(span))
                 .with_primary_label("unknown variable")
                 .with_help("declare the variable before using it")
         })
@@ -302,7 +281,7 @@ impl Frame {
         let variable = self.variable(name, span)?;
         if !variable.dynamic_array {
             return Err(
-                Diagnostic::new("ReDim target must be a dynamic array", Some(span))
+                Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "ReDim target must be a dynamic array", Some(span))
                     .with_primary_label("ReDim target is not a dynamic array"),
             );
         }
@@ -323,12 +302,9 @@ impl Frame {
             ExprKind::Integer(value) => Ok(*value),
             ExprKind::Variable(name) => match self.get(name, expr.span)? {
                 Value::Integer(value) => Ok(value),
-                _ => Err(Diagnostic::new("Array index must be Integer", Some(span))),
+                _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array index must be Integer", Some(span))),
             },
-            _ => Err(Diagnostic::new(
-                "Array member assignment index must be an Integer literal or variable",
-                Some(span),
-            )),
+            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array member assignment index must be an Integer literal or variable", Some(span),)),
         }
     }
 
@@ -342,10 +318,7 @@ impl Frame {
 
     pub(crate) fn current_with_target(&self, span: Span) -> Result<Value, Diagnostic> {
         self.with_stack.last().cloned().ok_or_else(|| {
-            Diagnostic::new(
-                "Dot member access requires an active With block",
-                Some(span),
-            )
+            Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Dot member access requires an active With block", Some(span),)
             .with_primary_label("no active With target")
             .with_help("use dotted member access only inside a With block")
         })

@@ -19,43 +19,25 @@ pub(super) fn validate_assignment_target(
                 if let Some(field_sig) = class_sig.fields.get(&key(name)) {
                     VarType::Scalar(field_sig.ty.clone())
                 } else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", name),
-                        Some(*span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(*span),));
                 }
             } else {
-                return Err(Diagnostic::new(
-                    format!("Variable '{}' is not declared", name),
-                    Some(*span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(*span),));
             };
             if target_type.is_const() {
-                return Err(Diagnostic::new(
-                    format!("Constant '{}' cannot be assigned", name),
-                    Some(*span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT, format!("Constant '{}' cannot be assigned", name), Some(*span),));
             }
             let Some(target_type) = target_type.scalar_type() else {
-                return Err(Diagnostic::new(
-                    format!("Array variable '{}' cannot be used as a scalar", name),
-                    Some(*span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, format!("Array variable '{}' cannot be used as a scalar", name), Some(*span),));
             };
             Ok(target_type)
         }
         AssignTarget::ArrayElement { name, index, span } => {
             let Some(var_type) = symbols.get(&key(name)).cloned() else {
-                return Err(Diagnostic::new(
-                    format!("Variable '{}' is not declared", name),
-                    Some(*span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(*span),));
             };
             let VarType::Array(element_type) = var_type else {
-                return Err(Diagnostic::new(
-                    format!("Variable '{}' is not an array", name),
-                    Some(*span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, format!("Variable '{}' is not an array", name), Some(*span),));
             };
             ensure_assignable(
                 &TypeName::Integer,
@@ -96,57 +78,39 @@ pub(super) fn validate_expr(
         ExprKind::Boolean(_) => Ok(TypeName::Boolean),
         ExprKind::Nothing => Ok(TypeName::Variant),
         ExprKind::Missing => Ok(TypeName::Variant),
-        ExprKind::NamedArg { .. } => Err(Diagnostic::new(
-            "Named arguments are only valid inside call argument lists",
-            Some(expr.span),
-        )),
+        ExprKind::NamedArg { .. } => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Named arguments are only valid inside call argument lists", Some(expr.span),)),
         ExprKind::TypeOfIs {
             expr: object,
             class_name,
         } => {
             let class = types.get_class(class_name).ok_or_else(|| {
-                Diagnostic::new(
-                    format!("Class '{}' is not defined", class_name),
-                    Some(expr.span),
-                )
+                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(expr.span),)
             })?;
             let object_type = validate_expr(object, symbols, types, signatures)?;
             if is_object_reference_expr(object, &object_type, types) {
                 Ok(TypeName::Boolean)
             } else {
-                Err(Diagnostic::new(
-                    format!(
+                Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, format!(
                         "TypeOf requires a class object; '{}' is a class",
                         class.name
-                    ),
-                    Some(object.span),
-                ))
+                    ), Some(object.span),))
             }
         }
         ExprKind::Me => match symbols.get("me").cloned() {
             Some(VarType::Scalar(ty)) | Some(VarType::Optional(ty)) | Some(VarType::Const(ty)) => {
                 Ok(ty)
             }
-            _ => Err(Diagnostic::new(
-                "Me is only valid inside class methods",
-                Some(expr.span),
-            )),
+            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, "Me is only valid inside class methods", Some(expr.span),)),
         },
         ExprKind::WithTarget => Ok(TypeName::Variant),
         ExprKind::New { class_name, args } => {
             let class_sig = types.get_class(class_name).ok_or_else(|| {
-                Diagnostic::new(
-                    format!("Class '{}' is not defined", class_name),
-                    Some(expr.span),
-                )
+                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(expr.span),)
             })?;
             if let Some(init) = class_sig.subs.get("initialize") {
                 validate_arguments("Sub", init, args, symbols, types, signatures, expr.span)?;
             } else if !args.is_empty() {
-                return Err(Diagnostic::new(
-                    format!("Class '{}' has no Initialize constructor", class_sig.name),
-                    Some(expr.span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Class '{}' has no Initialize constructor", class_sig.name), Some(expr.span),));
             }
             Ok(TypeName::User(class_sig.name.clone()))
         }
@@ -156,18 +120,12 @@ pub(super) fn validate_expr(
             Some(VarType::Scalar(ty)) | Some(VarType::Optional(ty)) | Some(VarType::Const(ty)) => {
                 Ok(ty)
             }
-            Some(VarType::Array(_)) => Err(Diagnostic::new(
-                format!("Array variable '{}' cannot be used as a scalar", name),
-                Some(expr.span),
-            )),
+            Some(VarType::Array(_)) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, format!("Array variable '{}' cannot be used as a scalar", name), Some(expr.span),)),
             None => {
                 if enum_member_value_type(name, types).is_some() {
                     Ok(TypeName::Integer)
                 } else {
-                    Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", name),
-                        Some(expr.span),
-                    ))
+                    Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(expr.span),))
                 }
             }
         },
@@ -187,10 +145,7 @@ pub(super) fn validate_expr(
                 if field.eq_ignore_ascii_case("HelpContext") {
                     return Ok(TypeName::Integer);
                 }
-                return Err(Diagnostic::new(
-                    format!("Err has no member '{}'", field),
-                    Some(expr.span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Err has no member '{}'", field), Some(expr.span),));
             }
             if let ExprKind::Variable(enum_name) = &object.kind
                 && let Some(enum_sig) = types.get_enum(enum_name)
@@ -198,10 +153,7 @@ pub(super) fn validate_expr(
                 if enum_sig.members.contains_key(&key(field)) {
                     return Ok(TypeName::Integer);
                 }
-                return Err(Diagnostic::new(
-                    format!("Enum '{}' has no member '{}'", enum_sig.name, field),
-                    Some(expr.span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Enum '{}' has no member '{}'", enum_sig.name, field), Some(expr.span),));
             }
             let object_type = validate_expr(object, symbols, types, signatures)?;
             let current_class = member_access_class(object, &object_type);
@@ -228,10 +180,7 @@ pub(super) fn validate_expr(
                     validate_err_raise_args(args, symbols, types, signatures, expr.span)?;
                     return Ok(TypeName::Variant);
                 }
-                return Err(Diagnostic::new(
-                    "Err only supports Clear() and Raise()",
-                    Some(expr.span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Err only supports Clear() and Raise()", Some(expr.span),));
             }
             let object_type = validate_expr(object, symbols, types, signatures)?;
             validate_method_call(
@@ -249,51 +198,30 @@ pub(super) fn validate_expr(
         ExprKind::Call { name, args } => {
             if name.eq_ignore_ascii_case("IsMissing") {
                 if args.len() != 1 {
-                    return Err(Diagnostic::new(
-                        "IsMissing expects exactly one argument",
-                        Some(expr.span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "IsMissing expects exactly one argument", Some(expr.span),));
                 }
                 let ExprKind::Variable(param_name) = &args[0].kind else {
-                    return Err(Diagnostic::new(
-                        "IsMissing requires an optional parameter name",
-                        Some(args[0].span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "IsMissing requires an optional parameter name", Some(args[0].span),));
                 };
                 return match symbols.get(&key(param_name)) {
                     Some(VarType::Optional(_)) => Ok(TypeName::Boolean),
-                    Some(_) => Err(Diagnostic::new(
-                        "IsMissing is only valid for Optional parameters",
-                        Some(args[0].span),
-                    )),
-                    None => Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", param_name),
-                        Some(args[0].span),
-                    )),
+                    Some(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "IsMissing is only valid for Optional parameters", Some(args[0].span),)),
+                    None => Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", param_name), Some(args[0].span),)),
                 };
             }
             if name.eq_ignore_ascii_case("LBound") || name.eq_ignore_ascii_case("UBound") {
                 if args.len() != 1 {
-                    return Err(Diagnostic::new(
-                        format!("{} expects exactly one argument", name),
-                        Some(expr.span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("{} expects exactly one argument", name), Some(expr.span),));
                 }
                 validate_array_expr(&args[0], symbols, types, signatures)?;
                 return Ok(TypeName::Integer);
             }
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
                 let VarType::Array(element_type) = var_type else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not an array", name),
-                        Some(expr.span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, format!("Variable '{}' is not an array", name), Some(expr.span),));
                 };
                 if args.len() != 1 {
-                    return Err(Diagnostic::new(
-                        "Array access requires exactly one index",
-                        Some(expr.span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array access requires exactly one index", Some(expr.span),));
                 }
                 ensure_assignable(
                     &TypeName::Integer,
@@ -305,15 +233,9 @@ pub(super) fn validate_expr(
 
             let Some(function) = signatures.functions.get(&key(name)) else {
                 if signatures.subs.contains_key(&key(name)) {
-                    return Err(Diagnostic::new(
-                        format!("Sub '{}' cannot be used as an expression", name),
-                        Some(expr.span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Sub '{}' cannot be used as an expression", name), Some(expr.span),));
                 }
-                return Err(Diagnostic::new(
-                    format!("Function '{}' is not defined", name),
-                    Some(expr.span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Function '{}' is not defined", name), Some(expr.span),));
             };
 
             validate_arguments(
@@ -350,10 +272,7 @@ pub(super) fn validate_expr(
                     {
                         Ok(TypeName::Integer)
                     } else {
-                        Err(Diagnostic::new(
-                            "Logical operators require Boolean or Integer operands",
-                            Some(expr.span),
-                        ))
+                        Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Logical operators require Boolean or Integer operands", Some(expr.span),))
                     }
                 }
                 BinaryOp::Equal | BinaryOp::NotEqual => Ok(TypeName::Boolean),
@@ -368,10 +287,7 @@ pub(super) fn validate_expr(
                     {
                         Ok(TypeName::Boolean)
                     } else {
-                        Err(Diagnostic::new(
-                            "'Is' requires class object operands or Nothing",
-                            Some(expr.span),
-                        ))
+                        Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "'Is' requires class object operands or Nothing", Some(expr.span),))
                     }
                 }
                 BinaryOp::Less
@@ -384,10 +300,7 @@ pub(super) fn validate_expr(
                     {
                         Ok(TypeName::Boolean)
                     } else {
-                        Err(Diagnostic::new(
-                            "Comparison requires matching Integer or String operands",
-                            Some(expr.span),
-                        ))
+                        Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Comparison requires matching Integer or String operands", Some(expr.span),))
                     }
                 }
             }
@@ -423,17 +336,11 @@ pub(super) fn validate_array_expr(
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
             Some(VarType::Array(element_type)) => Ok(element_type),
             Some(VarType::Scalar(_)) | Some(VarType::Optional(_)) | Some(VarType::Const(_)) => {
-                Err(Diagnostic::new(
-                    format!("Variable '{}' is not an array", name),
-                    Some(expr.span),
-                ))
+                Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, format!("Variable '{}' is not an array", name), Some(expr.span),))
             }
-            None => Err(Diagnostic::new(
-                format!("Variable '{}' is not declared", name),
-                Some(expr.span),
-            )),
+            None => Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(expr.span),)),
         },
-        _ => Err(Diagnostic::new("Expected array variable", Some(expr.span))),
+        _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected array variable", Some(expr.span))),
     }
 }
 
@@ -471,52 +378,37 @@ pub(super) fn validate_arguments(
                 .iter()
                 .position(|param| param.name.eq_ignore_ascii_case(name))
             else {
-                return Err(Diagnostic::new(
-                    format!(
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!(
                         "{} '{}' has no parameter named '{}'",
                         kind, callable.name, name
-                    ),
-                    Some(arg.span),
-                ));
+                    ), Some(arg.span),));
             };
             if assigned[index] {
-                return Err(Diagnostic::new(
-                    format!("Argument '{}' is specified more than once", name),
-                    Some(arg.span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Argument '{}' is specified more than once", name), Some(arg.span),));
             }
             let param = &callable.params[index];
             if param.is_param_array {
-                return Err(Diagnostic::new(
-                    "ParamArray arguments cannot be supplied by name",
-                    Some(arg.span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "ParamArray arguments cannot be supplied by name", Some(arg.span),));
             }
             validate_argument_value(param, value, symbols, types, signatures)?;
             assigned[index] = true;
             continue;
         }
         if saw_named {
-            return Err(Diagnostic::new(
-                "Positional arguments cannot appear after named arguments",
-                Some(arg.span),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Positional arguments cannot appear after named arguments", Some(arg.span),));
         }
         let Some(param) = callable
             .params
             .get(positional_index)
             .or_else(|| callable.params.last().filter(|param| param.is_param_array))
         else {
-            return Err(Diagnostic::new(
-                format!(
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!(
                     "{} '{}' expects {} argument(s), got {}",
                     kind,
                     callable.name,
                     callable.params.len(),
                     args.len()
-                ),
-                Some(span),
-            ));
+                ), Some(span),));
         };
         validate_argument_value(param, arg, symbols, types, signatures)?;
         if !param.is_param_array {
@@ -531,16 +423,13 @@ pub(super) fn validate_arguments(
         .enumerate()
         .any(|(index, param)| !assigned[index] && !param.is_optional && !param.is_param_array);
     if missing_required || (!has_param_array && args.len() > callable.params.len()) {
-        return Err(Diagnostic::new(
-            format!(
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!(
                 "{} '{}' expects {} argument(s), got {}",
                 kind,
                 callable.name,
                 callable.params.len(),
                 args.len()
-            ),
-            Some(span),
-        ));
+            ), Some(span),));
     }
 
     Ok(())
@@ -565,27 +454,18 @@ fn validate_argument_value(
         }
         PassingMode::ByRef => {
             let ExprKind::Variable(name) = &arg.kind else {
-                return Err(Diagnostic::new(
-                    "ByRef argument must be a variable",
-                    Some(arg.span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "ByRef argument must be a variable", Some(arg.span),));
             };
             let Some(arg_type) = symbols.get(&key(name)).cloned() else {
-                return Err(Diagnostic::new(
-                    format!("Variable '{}' is not declared", name),
-                    Some(arg.span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(arg.span),));
             };
             let expected = VarType::Scalar(param.ty.clone());
             if !arg_type.same_var_type(&expected) {
-                return Err(Diagnostic::new(
-                    format!(
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!(
                         "ByRef argument type {} must match parameter type {}",
                         arg_type.display_name(),
                         expected.display_name()
-                    ),
-                    Some(arg.span),
-                ));
+                    ), Some(arg.span),));
             }
             Ok(())
         }
@@ -607,33 +487,21 @@ pub(super) fn validate_method_call(
         return Ok(TypeName::Variant);
     }
     let TypeName::User(class_name) = object_type else {
-        return Err(Diagnostic::new(
-            "Method call requires a class instance",
-            Some(span),
-        ));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Method call requires a class instance", Some(span),));
     };
     let class_sig = types.get_class(class_name).ok_or_else(|| {
-        Diagnostic::new(format!("Class '{}' is not defined", class_name), Some(span))
+        Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(span))
     })?;
 
     if as_expression {
         let Some(method_sig) = class_sig.functions.get(&key(method)) else {
             if class_sig.subs.contains_key(&key(method)) {
-                return Err(Diagnostic::new(
-                    format!("Sub method '{}' cannot be used as an expression", method),
-                    Some(span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Sub method '{}' cannot be used as an expression", method), Some(span),));
             }
             if class_sig.events.contains_key(&key(method)) {
-                return Err(Diagnostic::new(
-                    format!("Event '{}' cannot be called directly", method),
-                    Some(span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Event '{}' cannot be called directly", method), Some(span),));
             }
-            return Err(Diagnostic::new(
-                format!("Class '{}' has no method '{}'", class_sig.name, method),
-                Some(span),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Class '{}' has no method '{}'", class_sig.name, method), Some(span),));
         };
         ensure_visible(
             method_sig.visibility,
@@ -649,24 +517,15 @@ pub(super) fn validate_method_call(
     } else {
         let Some(method_sig) = class_sig.subs.get(&key(method)) else {
             if class_sig.functions.contains_key(&key(method)) {
-                return Err(Diagnostic::new(
-                    format!(
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
                         "Function method '{}' cannot be called as a statement",
                         method
-                    ),
-                    Some(span),
-                ));
+                    ), Some(span),));
             }
             if class_sig.events.contains_key(&key(method)) {
-                return Err(Diagnostic::new(
-                    format!("Event '{}' cannot be called directly", method),
-                    Some(span),
-                ));
+                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Event '{}' cannot be called directly", method), Some(span),));
             }
-            return Err(Diagnostic::new(
-                format!("Class '{}' has no method '{}'", class_sig.name, method),
-                Some(span),
-            ));
+            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Class '{}' has no method '{}'", class_sig.name, method), Some(span),));
         };
         ensure_visible(
             method_sig.visibility,
@@ -700,10 +559,7 @@ fn member_read_type(
         return Ok(TypeName::Variant);
     }
     let TypeName::User(type_name) = object_type else {
-        return Err(Diagnostic::new(
-            "Member access requires a user-defined Type value",
-            Some(span),
-        ));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Member access requires a user-defined Type value", Some(span),));
     };
 
     if let Some(type_sig) = types.get(type_name) {
@@ -712,15 +568,12 @@ fn member_read_type(
             .get(&key(member))
             .map(|field| field.ty.clone())
             .ok_or_else(|| {
-                Diagnostic::new(
-                    format!("Type '{}' has no field '{}'", type_sig.name, member),
-                    Some(span),
-                )
+                Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Type '{}' has no field '{}'", type_sig.name, member), Some(span),)
             });
     }
 
     let class_sig = types.get_class(type_name).ok_or_else(|| {
-        Diagnostic::new(format!("Type '{}' is not defined", type_name), Some(span))
+        Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Type '{}' is not defined", type_name), Some(span))
     })?;
     if let Some(field_sig) = class_sig.fields.get(&key(member)) {
         ensure_visible(
@@ -734,19 +587,13 @@ fn member_read_type(
     }
 
     let property_sig = class_sig.properties.get(&key(member)).ok_or_else(|| {
-        Diagnostic::new(
-            format!(
+        Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
                 "Class '{}' has no field or property '{}'",
                 class_sig.name, member
-            ),
-            Some(span),
-        )
+            ), Some(span),)
     })?;
     let get = property_sig.get.as_ref().ok_or_else(|| {
-        Diagnostic::new(
-            format!("Property '{}' has no Get accessor", property_sig.name),
-            Some(span),
-        )
+        Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Property '{}' has no Get accessor", property_sig.name), Some(span),)
     })?;
     ensure_visible(get.visibility, &class_sig.name, member, current_class, span)?;
     Ok(get.return_type.clone().expect("get return type"))
@@ -764,10 +611,7 @@ fn member_assignment_type(
         return Ok(value_type.clone());
     }
     let TypeName::User(type_name) = object_type else {
-        return Err(Diagnostic::new(
-            "Member assignment requires a user-defined Type value",
-            Some(span),
-        ));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Member assignment requires a user-defined Type value", Some(span),));
     };
 
     if let Some(type_sig) = types.get(type_name) {
@@ -776,15 +620,12 @@ fn member_assignment_type(
             .get(&key(member))
             .map(|field| field.ty.clone())
             .ok_or_else(|| {
-                Diagnostic::new(
-                    format!("Type '{}' has no field '{}'", type_sig.name, member),
-                    Some(span),
-                )
+                Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Type '{}' has no field '{}'", type_sig.name, member), Some(span),)
             });
     }
 
     let class_sig = types.get_class(type_name).ok_or_else(|| {
-        Diagnostic::new(format!("Type '{}' is not defined", type_name), Some(span))
+        Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Type '{}' is not defined", type_name), Some(span))
     })?;
     if let Some(field_sig) = class_sig.fields.get(&key(member)) {
         ensure_visible(
@@ -798,13 +639,10 @@ fn member_assignment_type(
     }
 
     let property_sig = class_sig.properties.get(&key(member)).ok_or_else(|| {
-        Diagnostic::new(
-            format!(
+        Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
                 "Class '{}' has no field or property '{}'",
                 class_sig.name, member
-            ),
-            Some(span),
-        )
+            ), Some(span),)
     })?;
     let accessor =
         if is_class_type(value_type, types) || value_type.same_type(&TypeName::Variant) {
@@ -813,13 +651,10 @@ fn member_assignment_type(
             property_sig.let_.as_ref()
         }
         .ok_or_else(|| {
-            Diagnostic::new(
-                format!(
+            Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
                     "Property '{}' has no Let or Set accessor",
                     property_sig.name
-                ),
-                Some(span),
-            )
+                ), Some(span),)
         })?;
     ensure_visible(
         accessor.visibility,
@@ -843,10 +678,7 @@ fn ensure_visible(
     {
         Ok(())
     } else {
-        Err(Diagnostic::new(
-            format!("Member '{}' is Private in Class '{}'", member, owner_class),
-            Some(span),
-        )
+        Err(Diagnostic::new(crate::runtime::DiagnosticCode::PRIVATE_ACCESS, format!("Member '{}' is Private in Class '{}'", member, owner_class), Some(span),)
         .with_primary_label("private member is not accessible here")
         .with_help("access this member from within the declaring class or make it Public"))
     }
@@ -863,10 +695,7 @@ pub(super) fn ensure_known_type(
             if types.contains(name) {
                 Ok(())
             } else {
-                Err(Diagnostic::new(
-                    format!("Type '{}' is not defined", name),
-                    Some(span),
-                ))
+                Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Type '{}' is not defined", name), Some(span),))
             }
         }
     }
@@ -897,7 +726,7 @@ pub(super) fn ensure_class_type(
     if is_class_type(ty, types) {
         Ok(())
     } else {
-        Err(Diagnostic::new(message, Some(span)))
+        Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(span)))
     }
 }
 
@@ -926,10 +755,7 @@ pub(super) fn ensure_case_comparable(
     {
         Ok(())
     } else {
-        Err(Diagnostic::new(
-            "Case expression type must match Select Case expression type",
-            Some(span),
-        )
+        Err(Diagnostic::new(crate::runtime::DiagnosticCode::SELECT_CASE, "Case expression type must match Select Case expression type", Some(span),)
         .with_primary_label("case expression has an incompatible type"))
     }
 }
@@ -977,10 +803,7 @@ fn ensure_case_orderable(ty: &TypeName, span: crate::runtime::Span) -> Result<()
     {
         Ok(())
     } else {
-        Err(Diagnostic::new(
-            "Case range or comparison requires Integer or String operands",
-            Some(span),
-        )
+        Err(Diagnostic::new(crate::runtime::DiagnosticCode::SELECT_CASE, "Case range or comparison requires Integer or String operands", Some(span),)
         .with_primary_label("range or comparison is not orderable"))
     }
 }
@@ -995,7 +818,7 @@ pub(super) fn validate_exit(
         ExitTarget::Sub => match context {
             Context::Sub | Context::MethodSub { .. } => Ok(()),
             _ => Err(
-                Diagnostic::new("Exit Sub is only valid inside Sub", Some(span))
+                Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Sub is only valid inside Sub", Some(span))
                     .with_primary_label("invalid Exit Sub")
                     .with_help("use Exit Sub only inside a Sub body"),
             ),
@@ -1003,7 +826,7 @@ pub(super) fn validate_exit(
         ExitTarget::Function => match context {
             Context::Function { .. } | Context::MethodFunction { .. } => Ok(()),
             _ => Err(
-                Diagnostic::new("Exit Function is only valid inside Function", Some(span))
+                Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Function is only valid inside Function", Some(span))
                     .with_primary_label("invalid Exit Function")
                     .with_help("use Exit Function only inside a Function body"),
             ),
@@ -1013,7 +836,7 @@ pub(super) fn validate_exit(
                 Ok(())
             } else {
                 Err(
-                    Diagnostic::new("Exit For is only valid inside For", Some(span))
+                    Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit For is only valid inside For", Some(span))
                         .with_primary_label("invalid Exit For"),
                 )
             }
@@ -1023,7 +846,7 @@ pub(super) fn validate_exit(
                 Ok(())
             } else {
                 Err(
-                    Diagnostic::new("Exit While is only valid inside While", Some(span))
+                    Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit While is only valid inside While", Some(span))
                         .with_primary_label("invalid Exit While"),
                 )
             }
@@ -1033,7 +856,7 @@ pub(super) fn validate_exit(
                 Ok(())
             } else {
                 Err(
-                    Diagnostic::new("Exit Do is only valid inside Do", Some(span))
+                    Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Do is only valid inside Do", Some(span))
                         .with_primary_label("invalid Exit Do"),
                 )
             }
@@ -1052,14 +875,11 @@ pub(super) fn ensure_assignable(
     {
         Ok(())
     } else {
-        Err(Diagnostic::new(
-            format!(
+        Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, format!(
                 "Cannot assign {} value to {} variable",
                 source.display_name(),
                 target.display_name()
-            ),
-            Some(span),
-        )
+            ), Some(span),)
         .with_primary_label(format!(
             "expected {}, found {}",
             target.display_name(),
@@ -1077,10 +897,7 @@ fn validate_err_raise_args(
     span: crate::runtime::Span,
 ) -> Result<(), Diagnostic> {
     if args.is_empty() || args.len() > 5 {
-        return Err(Diagnostic::new(
-            "Err.Raise expects 1 to 5 arguments",
-            Some(span),
-        ));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Err.Raise expects 1 to 5 arguments", Some(span),));
     }
     let expected = [
         TypeName::Integer,

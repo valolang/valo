@@ -25,4 +25,3 @@ Sub Main()
     Console.WriteLine(user.Age)
     Console.WriteLine(user.Active)
 End Sub
-

@@ -53,10 +53,7 @@ pub(super) fn validate_class(
                     false,
                 )?;
                 if !saw_return {
-                    return Err(Diagnostic::new(
-                        format!("Function '{}' must return a value", method.function.name),
-                        Some(method.function.span),
-                    ));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Function '{}' must return a value", method.function.name), Some(method.function.span),));
                 }
             }
             ClassMember::Property(property) => {
@@ -88,10 +85,7 @@ pub(super) fn validate_class(
                             false,
                         )?;
                         if !saw_return {
-                            return Err(Diagnostic::new(
-                                format!("Property Get '{}' must return a value", property.name),
-                                Some(property.span),
-                            ));
+                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Property Get '{}' must return a value", property.name), Some(property.span),));
                         }
                     }
                     PropertyKind::Let | PropertyKind::Set => {

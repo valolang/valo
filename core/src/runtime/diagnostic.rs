@@ -47,11 +47,10 @@ pub struct RuntimeErrorInfo {
 }
 
 impl Diagnostic {
-    pub fn new(message: impl Into<String>, span: Option<Span>) -> Self {
-        let message = message.into();
+    pub fn new(code: DiagnosticCode, message: impl Into<String>, span: Option<Span>) -> Self {
         Self {
-            code: DiagnosticCode::for_message(&message),
-            message,
+            code,
+            message: message.into(),
             span,
             severity: Severity::Error,
             labels: Vec::new(),
@@ -201,65 +200,6 @@ impl DiagnosticCode {
     pub const SELECT_CASE: Self = Self("V1500");
     pub const RUNTIME: Self = Self("V9000");
 
-    fn for_message(message: &str) -> Self {
-        if message.starts_with("Expected")
-            || message.starts_with("Unexpected character")
-            || message.starts_with("Unterminated")
-            || message.starts_with("Only Option")
-        {
-            Self::PARSE
-        } else if message.contains("Option Base") || message.contains("Option Compare") {
-            Self::OPTION
-        } else if message.contains("#End If")
-            || message.contains("#Else")
-            || message.contains("#ElseIf")
-            || message.contains("#If")
-            || message.contains("#Const")
-            || message.contains("preprocessor")
-        {
-            Self::PREPROCESSOR
-        } else if message.contains("not declared")
-            || message.contains("not defined")
-            || message.contains("Unknown")
-        {
-            Self::UNKNOWN_NAME
-        } else if message.contains("already declared")
-            || message.contains("already defined")
-            || message.contains("conflicts with existing")
-        {
-            Self::DUPLICATE_DECLARATION
-        } else if message.contains("Array")
-            || message.contains("array")
-            || message.contains("ReDim")
-            || message.contains("LBound")
-            || message.contains("UBound")
-        {
-            Self::ARRAY
-        } else if message.contains("Exit") || message.contains("Return is only allowed") {
-            Self::CONTROL_FLOW
-        } else if message.contains("Case") || message.contains("Select") {
-            Self::SELECT_CASE
-        } else if message.contains("Private") || message.contains("private") {
-            Self::PRIVATE_ACCESS
-        } else if message.contains("not assignable") || message.contains("cannot be assigned") {
-            Self::INVALID_ASSIGNMENT
-        } else if message.contains("Cannot assign")
-            || message.contains("requires")
-            || message.contains("must be")
-            || message.contains("type mismatch")
-        {
-            Self::TYPE_MISMATCH
-        } else if message.contains("member")
-            || message.contains("field")
-            || message.contains("Object reference is Nothing")
-            || message.contains("method")
-            || message.contains("property")
-        {
-            Self::MEMBER_ACCESS
-        } else {
-            Self::GENERIC
-        }
-    }
 }
 
 impl fmt::Display for DiagnosticCode {
@@ -365,7 +305,7 @@ mod tests {
     fn renders_code_labels_notes_and_help() {
         let span = Span::new(SourcePos::new(2, 5), SourcePos::new(2, 8));
         let other = Span::new(SourcePos::new(1, 1), SourcePos::new(1, 4));
-        let diagnostic = Diagnostic::new("cannot assign String to Integer", Some(span))
+        let diagnostic = Diagnostic::new(DiagnosticCode::GENERIC, "cannot assign String to Integer", Some(span))
             .with_code(DiagnosticCode::TYPE_MISMATCH)
             .with_primary_label("expected Integer, found String")
             .with_secondary_label(other, "variable declared here")

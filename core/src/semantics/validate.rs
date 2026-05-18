@@ -64,14 +64,11 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
         .iter()
         .find(|procedure| procedure.name.eq_ignore_ascii_case("main"))
     else {
-        return Err(Diagnostic::new("Program must contain Sub Main()", None));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Program must contain Sub Main()", None));
     };
 
     if !main.params.is_empty() {
-        return Err(Diagnostic::new(
-            "Sub Main() cannot have parameters",
-            Some(main.span),
-        ));
+        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Sub Main() cannot have parameters", Some(main.span),));
     }
 
     for procedure in &program.procedures {

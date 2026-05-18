@@ -64,7 +64,7 @@ impl Parser {
         let token = self.advance();
         match token.kind {
             TokenKind::Identifier(name) => Ok(name),
-            _ => Err(Diagnostic::new(message, Some(token.span)).with_primary_label(message)),
+            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(token.span)).with_primary_label(message)),
         }
     }
 
@@ -94,7 +94,7 @@ impl Parser {
     }
 
     pub(super) fn error_here(&self, message: &str) -> Diagnostic {
-        Diagnostic::new(message, Some(self.peek().span)).with_primary_label(message)
+        Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(self.peek().span)).with_primary_label(message)
     }
 
     pub(super) fn is_at_end(&self) -> bool {
