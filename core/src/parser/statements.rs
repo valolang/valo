@@ -27,6 +27,7 @@ impl Parser {
             TokenKind::Do => self.parse_do_loop(),
             TokenKind::For => self.parse_for(),
             TokenKind::Exit => self.parse_exit(),
+            TokenKind::ReDim => self.parse_redim(),
             TokenKind::Set => self.parse_set_assignment(),
             TokenKind::Console => self.parse_console_writeline(),
             TokenKind::Return => self.parse_return(),
@@ -41,22 +42,26 @@ impl Parser {
     fn parse_dim(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.advance().span;
         let name = self.expect_identifier("Expected variable name after 'Dim'")?;
-        let array_size = if self.match_simple(&TokenKind::LeftParen) {
-            let size_token = self.advance();
-            let TokenKind::Integer(size) = size_token.kind else {
-                return Err(Diagnostic::new(
-                    "Array size must be an Integer literal",
-                    Some(size_token.span),
-                ));
-            };
-            if size < 0 {
-                return Err(Diagnostic::new(
-                    "Array size must be non-negative",
-                    Some(size_token.span),
-                ));
+        let array = if self.match_simple(&TokenKind::LeftParen) {
+            if self.match_simple(&TokenKind::RightParen) {
+                Some(ArrayDecl::Dynamic)
+            } else {
+                let size_token = self.advance();
+                let TokenKind::Integer(size) = size_token.kind else {
+                    return Err(Diagnostic::new(
+                        "Array size must be an Integer literal",
+                        Some(size_token.span),
+                    ));
+                };
+                if size < 0 {
+                    return Err(Diagnostic::new(
+                        "Array size must be non-negative",
+                        Some(size_token.span),
+                    ));
+                }
+                self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
+                Some(ArrayDecl::Fixed(size as usize))
             }
-            self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
-            Some(size as usize)
         } else {
             None
         };
@@ -67,7 +72,7 @@ impl Parser {
         Ok(Stmt::Dim {
             name,
             ty,
-            array_size,
+            array,
             span: Span::new(start.start, end.end),
         })
     }
@@ -498,6 +503,9 @@ impl Parser {
 
     fn parse_for(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect_simple(TokenKind::For, "Expected 'For'")?.span;
+        if self.match_simple(&TokenKind::Each) {
+            return self.parse_for_each(start);
+        }
         let variable = self.expect_identifier("Expected loop variable after 'For'")?;
         self.expect_simple(TokenKind::Equal, "Expected '=' after loop variable")?;
         let start_expr = self.parse_expression()?;
@@ -534,6 +542,56 @@ impl Parser {
             step,
             next_variable,
             body,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_for_each(&mut self, start: Span) -> Result<Stmt, Diagnostic> {
+        let variable = self.expect_identifier("Expected loop variable after 'For Each'")?;
+        self.expect_simple(TokenKind::In, "Expected 'In' in For Each statement")?;
+        let iterable = self.parse_expression()?;
+        self.expect_newline("Expected newline after For Each statement")?;
+
+        let body = self.parse_block_until(&[BlockEnd::Next])?;
+        let next = self.expect_simple(TokenKind::Next, "Expected 'Next'")?;
+        let next_variable = match self.peek_kind() {
+            TokenKind::Identifier(_) => {
+                let token = self.advance();
+                let TokenKind::Identifier(name) = token.kind else {
+                    unreachable!("peek checked");
+                };
+                Some((name, token.span))
+            }
+            _ => None,
+        };
+        let end = next_variable
+            .as_ref()
+            .map(|(_, span)| *span)
+            .unwrap_or(next.span);
+
+        Ok(Stmt::ForEach {
+            variable,
+            iterable,
+            next_variable,
+            body,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_redim(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::ReDim, "Expected 'ReDim'")?
+            .span;
+        let preserve = self.match_simple(&TokenKind::Preserve);
+        let name = self.expect_identifier("Expected array name after 'ReDim'")?;
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' after array name")?;
+        let upper_bound = self.parse_expression()?;
+        self.expect_simple(TokenKind::RightParen, "Expected ')' after upper bound")?;
+        let end = self.previous().span;
+        Ok(Stmt::ReDim {
+            name,
+            upper_bound,
+            preserve,
             span: Span::new(start.start, end.end),
         })
     }
@@ -596,6 +654,10 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Class))
             }
+            BlockEnd::EndEnum => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Enum))
+            }
         })
     }
 
@@ -618,6 +680,7 @@ impl Parser {
                         | TokenKind::Property
                         | TokenKind::Select
                         | TokenKind::Type
+                        | TokenKind::Enum
                         | TokenKind::Class
                 )
             ))

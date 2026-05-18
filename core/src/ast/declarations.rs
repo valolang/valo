@@ -5,9 +5,25 @@ use super::Stmt;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub types: Vec<TypeDecl>,
+    pub enums: Vec<EnumDecl>,
     pub classes: Vec<ClassDecl>,
     pub procedures: Vec<Procedure>,
     pub functions: Vec<Function>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDecl {
+    pub visibility: Visibility,
+    pub name: String,
+    pub members: Vec<EnumMemberDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumMemberDecl {
+    pub name: String,
+    pub value: Option<super::Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

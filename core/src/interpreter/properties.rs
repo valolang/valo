@@ -105,7 +105,14 @@ impl Interpreter {
         };
         let mut frame = Frame::default();
         frame.declare_object_alias("me", &class.name, instance, span)?;
-        frame.declare(&param.name, param.ty.clone(), None, param.span, &self.types)?;
+        frame.declare(
+            &param.name,
+            param.ty.clone(),
+            None,
+            param.span,
+            &self.types,
+            &self.enums,
+        )?;
         frame.assign(&param.name, value, span)?;
         match self.exec_block(&accessor.body, &mut frame)? {
             ControlFlow::Continue => Ok(()),

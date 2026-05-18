@@ -5,11 +5,13 @@ use crate::{Function, Procedure, Program};
 
 use super::records::RuntimeType;
 use super::values::key;
-use super::{ControlFlow, Frame, RuntimeClass};
+use super::{ControlFlow, Frame, RuntimeClass, RuntimeEnum};
 
 #[derive(Debug, Default)]
 pub struct Interpreter {
     pub(crate) types: HashMap<String, RuntimeType>,
+    pub(crate) enums: HashMap<String, RuntimeEnum>,
+    pub(crate) enum_members: HashMap<String, i64>,
     pub(crate) classes: HashMap<String, RuntimeClass>,
     pub(crate) procedures: HashMap<String, Procedure>,
     pub(crate) functions: HashMap<String, Function>,
@@ -25,6 +27,27 @@ impl Interpreter {
         for type_decl in &program.types {
             self.types
                 .insert(key(&type_decl.name), RuntimeType::from(type_decl));
+        }
+        for enum_decl in &program.enums {
+            let mut members = HashMap::new();
+            let mut previous = -1;
+            for member in &enum_decl.members {
+                let value = if let Some(expr) = &member.value {
+                    self.eval_enum_const_expr(expr, &members)?
+                } else {
+                    previous + 1
+                };
+                previous = value;
+                members.insert(key(&member.name), value);
+                self.enum_members.insert(key(&member.name), value);
+            }
+            self.enums.insert(
+                key(&enum_decl.name),
+                RuntimeEnum {
+                    name: enum_decl.name.clone(),
+                    members,
+                },
+            );
         }
         for class_decl in &program.classes {
             self.classes
@@ -66,6 +89,53 @@ impl Interpreter {
 
 pub fn run(program: &Program) -> Result<Vec<String>, Diagnostic> {
     Interpreter::new().run(program)
+}
+
+impl Interpreter {
+    fn eval_enum_const_expr(
+        &self,
+        expr: &crate::Expr,
+        members: &HashMap<String, i64>,
+    ) -> Result<i64, Diagnostic> {
+        use crate::{BinaryOp, ExprKind, UnaryOp};
+        match &expr.kind {
+            ExprKind::Integer(value) => Ok(*value),
+            ExprKind::Variable(name) => members.get(&key(name)).copied().ok_or_else(|| {
+                Diagnostic::new(
+                    format!("Enum member '{}' is not defined", name),
+                    Some(expr.span),
+                )
+            }),
+            ExprKind::Unary {
+                op: UnaryOp::Negate,
+                expr,
+            } => Ok(-self.eval_enum_const_expr(expr, members)?),
+            ExprKind::Binary { left, op, right } => {
+                let left = self.eval_enum_const_expr(left, members)?;
+                let right = self.eval_enum_const_expr(right, members)?;
+                match op {
+                    BinaryOp::Add => Ok(left + right),
+                    BinaryOp::Subtract => Ok(left - right),
+                    BinaryOp::Multiply => Ok(left * right),
+                    BinaryOp::Divide => {
+                        if right == 0 {
+                            Err(Diagnostic::new("Division by zero", Some(expr.span)))
+                        } else {
+                            Ok(left / right)
+                        }
+                    }
+                    _ => Err(Diagnostic::new(
+                        "Enum value expression must be numeric",
+                        Some(expr.span),
+                    )),
+                }
+            }
+            _ => Err(Diagnostic::new(
+                "Enum value expression must be numeric",
+                Some(expr.span),
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3094,5 +3164,293 @@ End Sub
         );
 
         assert_eq!(output, vec!["1:1", "2:1"]);
+    }
+
+    #[test]
+    fn enum_values_support_implicit_explicit_qualified_and_select_case() {
+        let output = run_source(
+            r#"
+Public Enum DaysOfWeek
+    Monday
+    Tuesday
+    Wednesday
+End Enum
+
+Public Enum FilePermissions
+    Read = 1
+    Write = 2
+    Execute = 4
+    All = Read + Write + Execute
+End Enum
+
+Public Enum WindowState
+    [_First] = 1
+    Normal = 1
+    Minimized = 2
+    Maximized = 3
+    [_Last] = 3
+End Enum
+
+Sub Main()
+    Dim day As DaysOfWeek
+    day = Wednesday
+    Select Case day
+        Case Monday
+            Console.WriteLine("Monday")
+        Case Wednesday
+            Console.WriteLine("Wednesday")
+    End Select
+
+    Dim access As FilePermissions
+    access = All
+    If (access And Write) = Write Then
+        Console.WriteLine("Write access")
+    End If
+
+    Dim i As Integer
+    For i = WindowState.[_First] To WindowState.[_Last]
+        Console.WriteLine(i)
+    Next i
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Wednesday", "Write access", "1", "2", "3"]);
+    }
+
+    #[test]
+    fn enum_auto_increment_after_explicit_value() {
+        let output = run_source(
+            r#"
+Enum Numbers
+    Zero
+    Five = 5
+    Six
+End Enum
+
+Sub Main()
+    Console.WriteLine(Zero)
+    Console.WriteLine(Six)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0", "6"]);
+    }
+
+    #[test]
+    fn rejects_duplicate_and_unknown_enum_members() {
+        let duplicate = source_error(
+            r#"
+Enum Bad
+    One
+    one
+End Enum
+
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(duplicate.contains("Enum member 'one' is already declared"));
+
+        let unknown = source_error(
+            r#"
+Enum Bad
+    Two = One + 1
+End Enum
+
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(unknown.contains("Enum member 'One' is not defined"));
+    }
+
+    #[test]
+    fn dynamic_arrays_redim_bounds_and_for_each_work() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim values() As Integer
+    ReDim values(2)
+    values(0) = 10
+    values(1) = 20
+    values(2) = 30
+    Console.WriteLine(LBound(values))
+    Console.WriteLine(UBound(values))
+
+    ReDim Preserve values(4)
+    values(3) = 40
+    values(4) = 50
+    ReDim Preserve values(1)
+    Console.WriteLine(UBound(values))
+
+    Dim item As Variant
+    For Each item In values
+        Console.WriteLine(item)
+    Next item
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0", "2", "1", "10", "20"]);
+    }
+
+    #[test]
+    fn redim_without_preserve_discards_contents() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim values() As Integer
+    ReDim values(1)
+    values(0) = 99
+    ReDim values(1)
+    Console.WriteLine(values(0))
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0"]);
+    }
+
+    #[test]
+    fn dynamic_arrays_support_class_and_type_defaults() {
+        let output = run_source(
+            r#"
+Class User
+    Public Name As String
+End Class
+
+Type Point
+    X As Integer
+End Type
+
+Sub Main()
+    Dim users() As User
+    ReDim users(0)
+    If users(0) Is Nothing Then
+        Console.WriteLine("nothing")
+    End If
+
+    Dim points() As Point
+    ReDim points(0)
+    Console.WriteLine(points(0).X)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["nothing", "0"]);
+    }
+
+    #[test]
+    fn dynamic_array_errors_are_clear() {
+        let unallocated = source_error(
+            r#"
+Sub Main()
+    Dim values() As Integer
+    Console.WriteLine(values(0))
+End Sub
+"#,
+        );
+        assert!(unallocated.contains("Dynamic array is unallocated"));
+
+        let negative = source_error(
+            r#"
+Sub Main()
+    Dim values() As Integer
+    ReDim values(-1)
+End Sub
+"#,
+        );
+        assert!(negative.contains("ReDim upper bound must be non-negative"));
+
+        let fixed = source_error(
+            r#"
+Sub Main()
+    Dim values(1) As Integer
+    ReDim values(2)
+End Sub
+"#,
+        );
+        assert!(fixed.contains("ReDim target must be a dynamic array"));
+    }
+
+    #[test]
+    fn lbound_ubound_reject_unallocated_scalar_and_wrong_count() {
+        let unallocated = source_error(
+            r#"
+Sub Main()
+    Dim values() As Integer
+    Console.WriteLine(UBound(values))
+End Sub
+"#,
+        );
+        assert!(unallocated.contains("Dynamic array is unallocated"));
+
+        let scalar = source_error(
+            r#"
+Sub Main()
+    Dim value As Integer
+    Console.WriteLine(LBound(value))
+End Sub
+"#,
+        );
+        assert!(scalar.contains("Variable 'value' is not an array"));
+
+        let wrong_count = source_error(
+            r#"
+Sub Main()
+    Dim values(1) As Integer
+    Console.WriteLine(UBound(values, 1))
+End Sub
+"#,
+        );
+        assert!(wrong_count.contains("UBound expects exactly one argument"));
+    }
+
+    #[test]
+    fn for_each_supports_fixed_arrays_exit_for_nested_and_next_validation() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim values(2) As Integer
+    values(0) = 1
+    values(1) = 2
+    values(2) = 3
+
+    Dim item As Integer
+    For Each item In values
+        If item = 3 Then
+            Exit For
+        End If
+        Console.WriteLine(item)
+    Next item
+
+    Dim other As Integer
+    For Each item In values
+        For Each other In values
+            If other = 2 Then
+                Exit For
+            End If
+            Console.WriteLine(item & ":" & other)
+        Next other
+    Next item
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["1", "2", "1:1", "2:1", "3:1"]);
+
+        let mismatch = source_error(
+            r#"
+Sub Main()
+    Dim values(1) As Integer
+    Dim item As Integer
+    For Each item In values
+    Next other
+End Sub
+"#,
+        );
+        assert!(mismatch.contains("Next variable 'other' does not match For Each variable 'item'"));
     }
 }

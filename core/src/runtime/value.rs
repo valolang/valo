@@ -10,6 +10,7 @@ pub enum Value {
     Array {
         element_type: TypeName,
         elements: Vec<Value>,
+        allocated: bool,
     },
     Record {
         type_name: String,
@@ -45,7 +46,11 @@ impl Value {
             Value::Boolean(value) => *value,
             Value::Integer(value) => *value != 0,
             Value::String(value) => !value.is_empty(),
-            Value::Array { elements, .. } => !elements.is_empty(),
+            Value::Array {
+                elements,
+                allocated,
+                ..
+            } => *allocated && !elements.is_empty(),
             Value::Record { .. } => true,
             Value::Object(_) => true,
             Value::Nothing => false,

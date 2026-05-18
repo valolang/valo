@@ -105,13 +105,55 @@ impl Parser {
         })
     }
 
-    fn parse_optional_visibility(&mut self) -> Visibility {
+    pub(super) fn parse_optional_visibility(&mut self) -> Visibility {
         if self.match_simple(&TokenKind::Private) {
             Visibility::Private
         } else {
             self.match_simple(&TokenKind::Public);
             Visibility::Public
         }
+    }
+
+    pub(super) fn parse_enum_decl(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<EnumDecl, Diagnostic> {
+        let start = self.expect_simple(TokenKind::Enum, "Expected 'Enum'")?.span;
+        let name = self.expect_identifier("Expected enum name after 'Enum'")?;
+        self.expect_newline("Expected newline after Enum declaration")?;
+
+        let mut members = Vec::new();
+        self.skip_newlines();
+        while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndEnum]) {
+            let member_start = self.peek().span;
+            let member_name = self.expect_identifier("Expected enum member name")?;
+            let value = if self.match_simple(&TokenKind::Equal) {
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+            let end = value.as_ref().map(|expr| expr.span).unwrap_or(member_start);
+            members.push(EnumMemberDecl {
+                name: member_name,
+                value,
+                span: Span::new(member_start.start, end.end),
+            });
+            self.expect_statement_end("Expected newline after enum member")?;
+            self.skip_newlines();
+        }
+
+        self.expect_simple(TokenKind::End, "Expected 'End Enum'")?;
+        let end = self
+            .expect_simple(TokenKind::Enum, "Expected 'Enum' after 'End'")?
+            .span;
+        self.consume_statement_end();
+
+        Ok(EnumDecl {
+            visibility,
+            name,
+            members,
+            span: Span::new(start.start, end.end),
+        })
     }
 
     pub(super) fn parse_type_decl(&mut self) -> Result<TypeDecl, Diagnostic> {

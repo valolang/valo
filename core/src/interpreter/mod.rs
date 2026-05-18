@@ -14,3 +14,4 @@ pub(crate) use control_flow::ControlFlow;
 pub(crate) use frame::Frame;
 pub use interpreter::{Interpreter, run};
 pub(crate) use objects::RuntimeClass;
+pub(crate) use records::RuntimeEnum;

@@ -27,7 +27,7 @@ impl Interpreter {
         for field in &class.fields {
             fields.insert(
                 key(&field.name),
-                default_value(&field.ty, &self.types, span)?,
+                default_value(&field.ty, &self.types, &self.enums, span)?,
             );
         }
         let object = Value::Object(Rc::new(RefCell::new(ObjectValue {

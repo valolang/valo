@@ -1,0 +1,12 @@
+Sub Main()
+    Dim names() As String
+    ReDim names(2)
+    names(0) = "Ana"
+    names(1) = "Carlos"
+    names(2) = "Beatriz"
+
+    Dim item As Variant
+    For Each item In names
+        Console.WriteLine(item)
+    Next item
+End Sub

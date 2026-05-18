@@ -81,6 +81,12 @@ pub(crate) struct RuntimeType {
     pub(crate) fields: Vec<RuntimeField>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeEnum {
+    pub(crate) name: String,
+    pub(crate) members: std::collections::HashMap<String, i64>,
+}
+
 impl From<&TypeDecl> for RuntimeType {
     fn from(value: &TypeDecl) -> Self {
         Self {

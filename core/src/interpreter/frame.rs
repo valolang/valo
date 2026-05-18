@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::runtime::{Diagnostic, ObjectValue, Span, TypeName, Value};
-use crate::{Expr, ExprKind};
+use crate::{ArrayDecl, Expr, ExprKind};
 
-use super::arrays::{read_array_element, write_array_element};
-use super::records::RuntimeType;
+use super::arrays::{read_array_element, redim_array, write_array_element};
+use super::records::{RuntimeEnum, RuntimeType};
 use super::values::{coerce_assignment, default_value, key};
 
 #[derive(Debug, Default)]
@@ -19,9 +19,10 @@ impl Frame {
         &mut self,
         name: &str,
         ty: TypeName,
-        array_size: Option<usize>,
+        array: Option<ArrayDecl>,
         span: Span,
         types: &HashMap<String, RuntimeType>,
+        enums: &HashMap<String, RuntimeEnum>,
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
@@ -31,17 +32,25 @@ impl Frame {
             ));
         }
 
-        let value = if let Some(size) = array_size {
+        let dynamic_array = matches!(array, Some(ArrayDecl::Dynamic));
+        let value = if let Some(array) = array {
             let mut elements = Vec::new();
-            for _ in 0..=size {
-                elements.push(default_value(&ty, types, span)?);
-            }
+            let allocated = match array {
+                ArrayDecl::Fixed(size) => {
+                    for _ in 0..=size {
+                        elements.push(default_value(&ty, types, enums, span)?);
+                    }
+                    true
+                }
+                ArrayDecl::Dynamic => false,
+            };
             Value::Array {
                 element_type: ty.clone(),
                 elements,
+                allocated,
             }
         } else {
-            default_value(&ty, types, span)?
+            default_value(&ty, types, enums, span)?
         };
 
         self.variables.insert(
@@ -49,6 +58,7 @@ impl Frame {
             Variable {
                 cell: Rc::new(RefCell::new(value)),
                 ty,
+                dynamic_array,
             },
         );
         Ok(())
@@ -102,6 +112,7 @@ impl Frame {
             Variable {
                 ty: TypeName::User(class_name.to_string()),
                 cell: Rc::new(RefCell::new(Value::Object(object))),
+                dynamic_array: false,
             },
         );
         Ok(())
@@ -163,6 +174,26 @@ impl Frame {
         write_array_element(&mut array, index, value, span)
     }
 
+    pub(crate) fn redim_array(
+        &mut self,
+        name: &str,
+        upper_bound: i64,
+        preserve: bool,
+        types: &HashMap<String, RuntimeType>,
+        enums: &HashMap<String, RuntimeEnum>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let variable = self.variable(name, span)?;
+        if !variable.dynamic_array {
+            return Err(Diagnostic::new(
+                "ReDim target must be a dynamic array",
+                Some(span),
+            ));
+        }
+        let mut array = variable.cell.borrow_mut();
+        redim_array(&mut array, upper_bound, preserve, types, enums, span)
+    }
+
     pub(crate) fn simple_index_value(&self, expr: &Expr, span: Span) -> Result<i64, Diagnostic> {
         match &expr.kind {
             ExprKind::Integer(value) => Ok(*value),
@@ -182,4 +213,5 @@ impl Frame {
 pub(crate) struct Variable {
     pub(crate) ty: TypeName,
     pub(crate) cell: Rc<RefCell<Value>>,
+    pub(crate) dynamic_array: bool,
 }

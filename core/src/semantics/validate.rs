@@ -10,8 +10,8 @@ use crate::{
 use crate::semantics::context::Context;
 use crate::semantics::symbols::{CallableSig, ParamSig, Signatures, VarType, key};
 use crate::semantics::types::{
-    ClassFieldSig, ClassMethodSig, ClassPropertySig, ClassSig, FieldSig, PropertyAccessorSig,
-    TypeRegistry, TypeSig,
+    ClassFieldSig, ClassMethodSig, ClassPropertySig, ClassSig, EnumSig, FieldSig,
+    PropertyAccessorSig, TypeRegistry, TypeSig,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -216,10 +216,52 @@ fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
         );
     }
 
+    let mut enums = HashMap::new();
+    for enum_decl in &program.enums {
+        let enum_key = key(&enum_decl.name);
+        if types.contains_key(&enum_key) || enums.contains_key(&enum_key) {
+            return Err(Diagnostic::new(
+                format!("Enum '{}' is already defined", enum_decl.name),
+                Some(enum_decl.span),
+            ));
+        }
+        let mut members = HashMap::new();
+        let mut previous = -1;
+        for member in &enum_decl.members {
+            let member_key = key(&member.name);
+            if members.contains_key(&member_key) {
+                return Err(Diagnostic::new(
+                    format!(
+                        "Enum member '{}' is already declared in Enum '{}'",
+                        member.name, enum_decl.name
+                    ),
+                    Some(member.span),
+                ));
+            }
+            let value = if let Some(expr) = &member.value {
+                eval_enum_const_expr(expr, &members)?
+            } else {
+                previous + 1
+            };
+            previous = value;
+            members.insert(member_key, value);
+        }
+        enums.insert(
+            enum_key,
+            EnumSig {
+                name: enum_decl.name.clone(),
+                members,
+            },
+        );
+    }
+
     let mut classes = HashMap::new();
     for class_decl in &program.classes {
         let class_key = key(&class_decl.name);
-        if types.contains_key(&class_key) || classes.contains_key(&class_key) {
+        if types.contains_key(&class_key)
+            || enums.contains_key(&class_key)
+            || classes.contains_key(&class_key)
+        {
             return Err(Diagnostic::new(
                 format!("Class '{}' is already defined", class_decl.name),
                 Some(class_decl.span),
@@ -356,7 +398,11 @@ fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
         );
     }
 
-    let registry = TypeRegistry { types, classes };
+    let registry = TypeRegistry {
+        types,
+        enums,
+        classes,
+    };
     for type_decl in &program.types {
         for field in &type_decl.fields {
             ensure_known_type(&field.ty, &registry, field.span)?;
@@ -455,6 +501,17 @@ fn collect_signatures(program: &Program, types: &TypeRegistry) -> Result<Signatu
     for type_decl in &program.types {
         names.insert(key(&type_decl.name), "Type");
     }
+    for enum_decl in &program.enums {
+        if let Some(existing) = names.insert(key(&enum_decl.name), "Enum") {
+            return Err(Diagnostic::new(
+                format!(
+                    "Name '{}' conflicts with existing {}",
+                    enum_decl.name, existing
+                ),
+                Some(enum_decl.span),
+            ));
+        }
+    }
     for class_decl in &program.classes {
         names.insert(key(&class_decl.name), "Class");
     }
@@ -515,6 +572,46 @@ fn collect_signatures(program: &Program, types: &TypeRegistry) -> Result<Signatu
     }
 
     Ok(Signatures { subs, functions })
+}
+
+fn eval_enum_const_expr(expr: &Expr, members: &HashMap<String, i64>) -> Result<i64, Diagnostic> {
+    match &expr.kind {
+        ExprKind::Integer(value) => Ok(*value),
+        ExprKind::Variable(name) => members.get(&key(name)).copied().ok_or_else(|| {
+            Diagnostic::new(
+                format!("Enum member '{}' is not defined", name),
+                Some(expr.span),
+            )
+        }),
+        ExprKind::Unary {
+            op: UnaryOp::Negate,
+            expr,
+        } => Ok(-eval_enum_const_expr(expr, members)?),
+        ExprKind::Binary { left, op, right } => {
+            let left = eval_enum_const_expr(left, members)?;
+            let right = eval_enum_const_expr(right, members)?;
+            match op {
+                BinaryOp::Add => Ok(left + right),
+                BinaryOp::Subtract => Ok(left - right),
+                BinaryOp::Multiply => Ok(left * right),
+                BinaryOp::Divide => {
+                    if right == 0 {
+                        Err(Diagnostic::new("Division by zero", Some(expr.span)))
+                    } else {
+                        Ok(left / right)
+                    }
+                }
+                _ => Err(Diagnostic::new(
+                    "Enum value expression must be numeric",
+                    Some(expr.span),
+                )),
+            }
+        }
+        _ => Err(Diagnostic::new(
+            "Enum value expression must be numeric",
+            Some(expr.span),
+        )),
+    }
 }
 
 fn params_to_sigs(params: &[Parameter]) -> Vec<ParamSig> {
@@ -605,7 +702,7 @@ fn validate_statements(
             Stmt::Dim {
                 name,
                 ty,
-                array_size,
+                array,
                 span,
             } => {
                 ensure_known_type(ty, types, *span)?;
@@ -616,7 +713,7 @@ fn validate_statements(
                         Some(*span),
                     ));
                 }
-                let var_type = if array_size.is_some() {
+                let var_type = if array.is_some() {
                     VarType::Array(ty.clone())
                 } else {
                     VarType::Scalar(ty.clone())
@@ -867,6 +964,71 @@ fn validate_statements(
                     loop_context.in_for(),
                 )?;
             }
+            Stmt::ForEach {
+                variable,
+                iterable,
+                next_variable,
+                body,
+                span,
+            } => {
+                let Some(loop_type) = symbols.get(&key(variable)).cloned() else {
+                    return Err(Diagnostic::new(
+                        format!("Variable '{}' is not declared", variable),
+                        Some(*span),
+                    ));
+                };
+                let VarType::Scalar(loop_type) = loop_type else {
+                    return Err(Diagnostic::new(
+                        format!("Array variable '{}' cannot be used as a scalar", variable),
+                        Some(*span),
+                    ));
+                };
+                let array_type = validate_array_expr(iterable, symbols, types, signatures)?;
+                ensure_assignable(&loop_type, &array_type, *span)?;
+                if let Some((next_variable, next_span)) = next_variable
+                    && !next_variable.eq_ignore_ascii_case(variable)
+                {
+                    return Err(Diagnostic::new(
+                        format!(
+                            "Next variable '{}' does not match For Each variable '{}'",
+                            next_variable, variable
+                        ),
+                        Some(*next_span),
+                    ));
+                }
+                validate_statements(
+                    body,
+                    symbols,
+                    types,
+                    signatures,
+                    context.reborrow(),
+                    loop_context.in_for(),
+                )?;
+            }
+            Stmt::ReDim {
+                name,
+                upper_bound,
+                span,
+                ..
+            } => {
+                let Some(var_type) = symbols.get(&key(name)).cloned() else {
+                    return Err(Diagnostic::new(
+                        format!("Variable '{}' is not declared", name),
+                        Some(*span),
+                    ));
+                };
+                if !matches!(var_type, VarType::Array(_)) {
+                    return Err(Diagnostic::new(
+                        "ReDim target must be a dynamic array",
+                        Some(*span),
+                    ));
+                }
+                ensure_assignable(
+                    &TypeName::Integer,
+                    &validate_expr(upper_bound, symbols, types, signatures)?,
+                    upper_bound.span,
+                )?;
+            }
             Stmt::Exit { target, span } => {
                 validate_exit(*target, *span, &context, loop_context)?;
             }
@@ -1005,12 +1167,29 @@ fn validate_expr(
                 format!("Array variable '{}' cannot be used as a scalar", name),
                 Some(expr.span),
             )),
-            None => Err(Diagnostic::new(
-                format!("Variable '{}' is not declared", name),
-                Some(expr.span),
-            )),
+            None => {
+                if enum_member_value_type(name, types).is_some() {
+                    Ok(TypeName::Integer)
+                } else {
+                    Err(Diagnostic::new(
+                        format!("Variable '{}' is not declared", name),
+                        Some(expr.span),
+                    ))
+                }
+            }
         },
         ExprKind::MemberAccess { object, field } => {
+            if let ExprKind::Variable(enum_name) = &object.kind
+                && let Some(enum_sig) = types.get_enum(enum_name)
+            {
+                if enum_sig.members.contains_key(&key(field)) {
+                    return Ok(TypeName::Integer);
+                }
+                return Err(Diagnostic::new(
+                    format!("Enum '{}' has no member '{}'", enum_sig.name, field),
+                    Some(expr.span),
+                ));
+            }
             let object_type = validate_expr(object, symbols, types, signatures)?;
             let current_class = member_access_class(object, &object_type);
             member_read_type(
@@ -1040,6 +1219,16 @@ fn validate_expr(
             )
         }
         ExprKind::Call { name, args } => {
+            if name.eq_ignore_ascii_case("LBound") || name.eq_ignore_ascii_case("UBound") {
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        format!("{} expects exactly one argument", name),
+                        Some(expr.span),
+                    ));
+                }
+                validate_array_expr(&args[0], symbols, types, signatures)?;
+                return Ok(TypeName::Integer);
+            }
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
                 let VarType::Array(element_type) = var_type else {
                     return Err(Diagnostic::new(
@@ -1094,9 +1283,25 @@ fn validate_expr(
                 }
                 BinaryOp::Concat => Ok(TypeName::String),
                 BinaryOp::LogicalAnd | BinaryOp::LogicalOr => {
-                    ensure_assignable(&TypeName::Boolean, &left_type, left.span)?;
-                    ensure_assignable(&TypeName::Boolean, &right_type, right.span)?;
-                    Ok(TypeName::Boolean)
+                    if left_type.same_type(&TypeName::Boolean)
+                        && right_type.same_type(&TypeName::Boolean)
+                    {
+                        Ok(TypeName::Boolean)
+                    } else if left_type.same_type(&TypeName::Integer)
+                        && right_type.same_type(&TypeName::Integer)
+                        || (is_enum_type(&left_type, types)
+                            && right_type.same_type(&TypeName::Integer))
+                        || (left_type.same_type(&TypeName::Integer)
+                            && is_enum_type(&right_type, types))
+                        || (is_enum_type(&left_type, types) && is_enum_type(&right_type, types))
+                    {
+                        Ok(TypeName::Integer)
+                    } else {
+                        Err(Diagnostic::new(
+                            "Logical operators require Boolean or Integer operands",
+                            Some(expr.span),
+                        ))
+                    }
                 }
                 BinaryOp::Equal | BinaryOp::NotEqual => Ok(TypeName::Boolean),
                 BinaryOp::Is => {
@@ -1148,6 +1353,37 @@ fn validate_expr(
             }
         },
     }
+}
+
+fn validate_array_expr(
+    expr: &Expr,
+    symbols: &HashMap<String, VarType>,
+    _types: &TypeRegistry,
+    _signatures: &Signatures,
+) -> Result<TypeName, Diagnostic> {
+    match &expr.kind {
+        ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
+            Some(VarType::Array(element_type)) => Ok(element_type),
+            Some(VarType::Scalar(_)) => Err(Diagnostic::new(
+                format!("Variable '{}' is not an array", name),
+                Some(expr.span),
+            )),
+            None => Err(Diagnostic::new(
+                format!("Variable '{}' is not declared", name),
+                Some(expr.span),
+            )),
+        },
+        _ => Err(Diagnostic::new("Expected array variable", Some(expr.span))),
+    }
+}
+
+fn enum_member_value_type(name: &str, types: &TypeRegistry) -> Option<TypeName> {
+    for enum_sig in types.enums.values() {
+        if enum_sig.members.contains_key(&key(name)) {
+            return Some(TypeName::Integer);
+        }
+    }
+    None
 }
 
 fn validate_arguments(
@@ -1476,6 +1712,9 @@ fn ensure_assignable_expr(
     if matches!(source_expr.kind, ExprKind::Nothing) {
         return ensure_class_type(target, types, span, "Nothing requires a class object type");
     }
+    if is_enum_type(target, types) && source.same_type(&TypeName::Integer) {
+        return Ok(());
+    }
     ensure_assignable(target, source, span)
 }
 
@@ -1500,6 +1739,10 @@ fn is_class_type(ty: &TypeName, types: &TypeRegistry) -> bool {
     matches!(ty, TypeName::User(name) if types.get_class(name).is_some())
 }
 
+fn is_enum_type(ty: &TypeName, types: &TypeRegistry) -> bool {
+    matches!(ty, TypeName::User(name) if types.get_enum(name).is_some())
+}
+
 fn ensure_case_comparable(
     subject: &TypeName,
     value: &TypeName,
@@ -1508,6 +1751,8 @@ fn ensure_case_comparable(
     if subject.same_type(&TypeName::Variant)
         || value.same_type(&TypeName::Variant)
         || subject.same_type(value)
+        || (matches!(subject, TypeName::User(_)) && value.same_type(&TypeName::Integer))
+        || (subject.same_type(&TypeName::Integer) && matches!(value, TypeName::User(_)))
     {
         Ok(())
     } else {

@@ -1,0 +1,20 @@
+Sub Main()
+    Dim values() As Integer
+    ReDim values(2)
+
+    values(0) = 10
+    values(1) = 20
+    values(2) = 30
+
+    Console.WriteLine(LBound(values))
+    Console.WriteLine(UBound(values))
+
+    ReDim Preserve values(4)
+    values(3) = 40
+    values(4) = 50
+
+    ReDim Preserve values(1)
+    Console.WriteLine(values(0))
+    Console.WriteLine(values(1))
+    Console.WriteLine(UBound(values))
+End Sub

@@ -28,10 +28,17 @@ impl Interpreter {
             Stmt::Dim {
                 name,
                 ty,
-                array_size,
+                array,
                 span,
             } => {
-                frame.declare(name, ty.clone(), *array_size, *span, &self.types)?;
+                frame.declare(
+                    name,
+                    ty.clone(),
+                    array.clone(),
+                    *span,
+                    &self.types,
+                    &self.enums,
+                )?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::Assign { target, expr, span } => {
@@ -212,6 +219,47 @@ impl Interpreter {
                     current += step;
                 }
 
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::ForEach {
+                variable,
+                iterable,
+                body,
+                span,
+                ..
+            } => {
+                let iterable = self.eval_expr(iterable, frame)?;
+                let values = super::arrays::array_values(&iterable, *span)?;
+                for value in values {
+                    frame.assign(variable, value, *span)?;
+                    match self.exec_block(body, frame)? {
+                        ControlFlow::Continue => {}
+                        ControlFlow::ExitFor => return Ok(ControlFlow::Continue),
+                        flow @ ControlFlow::Return(_) => return Ok(flow),
+                        flow => return Ok(flow),
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::ReDim {
+                name,
+                upper_bound,
+                preserve,
+                span,
+            } => {
+                let upper_bound = self.eval_integer_expr(
+                    upper_bound,
+                    frame,
+                    "ReDim upper bound must be Integer",
+                )?;
+                frame.redim_array(
+                    name,
+                    upper_bound,
+                    *preserve,
+                    &self.types,
+                    &self.enums,
+                    *span,
+                )?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::Exit { target, .. } => match target {

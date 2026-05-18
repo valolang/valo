@@ -19,12 +19,47 @@ impl Interpreter {
             ExprKind::New { class_name, args } => {
                 self.new_object(class_name, args, frame, expr.span)
             }
-            ExprKind::Variable(name) => frame.get(name, expr.span),
+            ExprKind::Variable(name) => {
+                if let Some(value) = self.enum_members.get(&super::values::key(name)) {
+                    Ok(Value::Integer(*value))
+                } else {
+                    frame.get(name, expr.span)
+                }
+            }
             ExprKind::MemberAccess { object, field } => {
+                if let ExprKind::Variable(enum_name) = &object.kind
+                    && let Some(enum_) = self.enums.get(&super::values::key(enum_name))
+                {
+                    let value = enum_
+                        .members
+                        .get(&super::values::key(field))
+                        .ok_or_else(|| {
+                            Diagnostic::new(
+                                format!("Enum '{}' has no member '{}'", enum_.name, field),
+                                Some(expr.span),
+                            )
+                        })?;
+                    return Ok(Value::Integer(*value));
+                }
                 let object = self.eval_expr(object, frame)?;
                 self.read_member(&object, field, frame, expr.span)
             }
             ExprKind::Call { name, args } => {
+                if name.eq_ignore_ascii_case("LBound") || name.eq_ignore_ascii_case("UBound") {
+                    if args.len() != 1 {
+                        return Err(Diagnostic::new(
+                            format!("{} expects exactly one argument", name),
+                            Some(expr.span),
+                        ));
+                    }
+                    let value = self.eval_expr(&args[0], frame)?;
+                    let bound = if name.eq_ignore_ascii_case("LBound") {
+                        super::arrays::lbound(&value, expr.span)?
+                    } else {
+                        super::arrays::ubound(&value, expr.span)?
+                    };
+                    return Ok(Value::Integer(bound));
+                }
                 if frame.has_variable(name) {
                     if args.len() != 1 {
                         return Err(Diagnostic::new(

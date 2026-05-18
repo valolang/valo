@@ -4,7 +4,7 @@ use std::rc::Rc;
 use crate::BinaryOp;
 use crate::runtime::{Diagnostic, Span, TypeName, Value};
 
-use super::records::RuntimeType;
+use super::records::{RuntimeEnum, RuntimeType};
 
 pub(crate) fn eval_binary(
     left: Value,
@@ -35,8 +35,8 @@ pub(crate) fn eval_binary(
             left.to_output_string(),
             right.to_output_string()
         ))),
-        BinaryOp::LogicalAnd => boolean_binary(left, right, span, |a, b| a && b),
-        BinaryOp::LogicalOr => boolean_binary(left, right, span, |a, b| a || b),
+        BinaryOp::LogicalAnd => logical_or_bitwise(left, right, span, |a, b| a && b, |a, b| a & b),
+        BinaryOp::LogicalOr => logical_or_bitwise(left, right, span, |a, b| a || b, |a, b| a | b),
         BinaryOp::Equal => Ok(Value::Boolean(values_equal(&left, &right))),
         BinaryOp::NotEqual => Ok(Value::Boolean(!values_equal(&left, &right))),
         BinaryOp::Is => Ok(Value::Boolean(values_identical(&left, &right))),
@@ -83,16 +83,18 @@ fn expect_integers(left: Value, right: Value, span: Span) -> Result<(i64, i64), 
     }
 }
 
-fn boolean_binary(
+fn logical_or_bitwise(
     left: Value,
     right: Value,
     span: Span,
-    op: impl FnOnce(bool, bool) -> bool,
+    bool_op: impl FnOnce(bool, bool) -> bool,
+    int_op: impl FnOnce(i64, i64) -> i64,
 ) -> Result<Value, Diagnostic> {
     match (left, right) {
-        (Value::Boolean(a), Value::Boolean(b)) => Ok(Value::Boolean(op(a, b))),
+        (Value::Boolean(a), Value::Boolean(b)) => Ok(Value::Boolean(bool_op(a, b))),
+        (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(int_op(a, b))),
         _ => Err(Diagnostic::new(
-            "Logical operators require Boolean operands",
+            "Logical operators require Boolean or Integer operands",
             Some(span),
         )),
     }
@@ -139,6 +141,7 @@ fn values_identical(left: &Value, right: &Value) -> bool {
 pub(crate) fn default_value(
     ty: &TypeName,
     types: &HashMap<String, RuntimeType>,
+    enums: &HashMap<String, RuntimeEnum>,
     span: Span,
 ) -> Result<Value, Diagnostic> {
     if let Some(value) = ty.builtin_default_value() {
@@ -148,6 +151,9 @@ pub(crate) fn default_value(
     let TypeName::User(name) = ty else {
         unreachable!("builtin types are handled above");
     };
+    if enums.contains_key(&key(name)) {
+        return Ok(Value::Integer(0));
+    }
     let type_def = types
         .get(&key(name))
         .ok_or_else(|| Diagnostic::new(format!("Type '{}' is not defined", name), Some(span)));
@@ -157,7 +163,10 @@ pub(crate) fn default_value(
 
     let mut fields = HashMap::new();
     for field in &type_def.fields {
-        fields.insert(key(&field.name), default_value(&field.ty, types, span)?);
+        fields.insert(
+            key(&field.name),
+            default_value(&field.ty, types, enums, span)?,
+        );
     }
 
     Ok(Value::Record {
@@ -171,6 +180,9 @@ pub(crate) fn coerce_assignment(
     span: Span,
 ) -> Result<Value, Diagnostic> {
     if matches!(value, Value::Nothing) && matches!(ty, TypeName::User(_)) {
+        return Ok(value);
+    }
+    if matches!(ty, TypeName::User(_)) && matches!(value, Value::Integer(_)) {
         return Ok(value);
     }
     if ty.same_type(&TypeName::Variant) || ty.same_type(&value.type_name()) {

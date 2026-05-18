@@ -7,7 +7,7 @@ pub enum Stmt {
     Dim {
         name: String,
         ty: TypeName,
-        array_size: Option<usize>,
+        array: Option<ArrayDecl>,
         span: Span,
     },
     Assign {
@@ -71,10 +71,29 @@ pub enum Stmt {
         body: Vec<Stmt>,
         span: Span,
     },
+    ForEach {
+        variable: String,
+        iterable: Expr,
+        next_variable: Option<(String, Span)>,
+        body: Vec<Stmt>,
+        span: Span,
+    },
+    ReDim {
+        name: String,
+        upper_bound: Expr,
+        preserve: bool,
+        span: Span,
+    },
     Exit {
         target: ExitTarget,
         span: Span,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrayDecl {
+    Fixed(usize),
+    Dynamic,
 }
 
 #[derive(Debug, Clone, PartialEq)]

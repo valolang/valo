@@ -34,7 +34,14 @@ impl Interpreter {
             match param.mode {
                 PassingMode::ByVal => {
                     let value = self.eval_expr(arg, caller_frame)?;
-                    frame.declare(&param.name, param.ty.clone(), None, param.span, &self.types)?;
+                    frame.declare(
+                        &param.name,
+                        param.ty.clone(),
+                        None,
+                        param.span,
+                        &self.types,
+                        &self.enums,
+                    )?;
                     frame.assign(&param.name, value, param.span)?;
                 }
                 PassingMode::ByRef => {
@@ -56,7 +63,9 @@ impl Interpreter {
                 format!("Function '{}' must return a value", function.name),
                 Some(function.span),
             )),
-            ControlFlow::ExitFunction => default_value(&function.return_type, &self.types, span),
+            ControlFlow::ExitFunction => {
+                default_value(&function.return_type, &self.types, &self.enums, span)
+            }
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 "Exit Sub is only valid inside Sub",
                 Some(function.span),
@@ -96,7 +105,14 @@ impl Interpreter {
             match param.mode {
                 PassingMode::ByVal => {
                     let value = self.eval_expr(arg, caller_frame)?;
-                    frame.declare(&param.name, param.ty.clone(), None, param.span, &self.types)?;
+                    frame.declare(
+                        &param.name,
+                        param.ty.clone(),
+                        None,
+                        param.span,
+                        &self.types,
+                        &self.enums,
+                    )?;
                     frame.assign(&param.name, value, param.span)?;
                 }
                 PassingMode::ByRef => {
@@ -202,7 +218,9 @@ impl Interpreter {
                 format!("Function '{}' must return a value", function.name),
                 Some(function.span),
             )),
-            ControlFlow::ExitFunction => default_value(&function.return_type, &self.types, span),
+            ControlFlow::ExitFunction => {
+                default_value(&function.return_type, &self.types, &self.enums, span)
+            }
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 "Exit Sub is only valid inside Sub",
                 Some(function.span),
@@ -236,6 +254,7 @@ impl Interpreter {
                         None,
                         param.span,
                         &self.types,
+                        &self.enums,
                     )?;
                     callee_frame.assign(&param.name, value, param.span)?;
                 }

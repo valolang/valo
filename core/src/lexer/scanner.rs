@@ -34,6 +34,7 @@ impl<'a> Lexer<'a> {
                 '"' => tokens.push(self.string()?),
                 '0'..='9' => tokens.push(self.integer()?),
                 'A'..='Z' | 'a'..='z' | '_' => tokens.push(self.identifier()),
+                '[' => tokens.push(self.bracketed_identifier()?),
                 '.' => tokens.push(self.single_char(TokenKind::Dot)),
                 ',' => tokens.push(self.single_char(TokenKind::Comma)),
                 ':' => tokens.push(self.single_char(TokenKind::Colon)),
@@ -83,6 +84,7 @@ impl<'a> Lexer<'a> {
             "sub" => TokenKind::Sub,
             "function" => TokenKind::Function,
             "type" => TokenKind::Type,
+            "enum" => TokenKind::Enum,
             "class" => TokenKind::Class,
             "property" => TokenKind::Property,
             "get" => TokenKind::Get,
@@ -118,6 +120,8 @@ impl<'a> Lexer<'a> {
             "loop" => TokenKind::Loop,
             "until" => TokenKind::Until,
             "for" => TokenKind::For,
+            "each" => TokenKind::Each,
+            "in" => TokenKind::In,
             "to" => TokenKind::To,
             "step" => TokenKind::Step,
             "next" => TokenKind::Next,
@@ -126,6 +130,8 @@ impl<'a> Lexer<'a> {
             "or" => TokenKind::Or,
             "not" => TokenKind::Not,
             "mod" => TokenKind::Mod,
+            "redim" => TokenKind::ReDim,
+            "preserve" => TokenKind::Preserve,
             "console" => TokenKind::Console,
             "writeline" => TokenKind::WriteLine,
             _ => TokenKind::Identifier(text),
@@ -135,6 +141,38 @@ impl<'a> Lexer<'a> {
             kind,
             span: Span::new(start, self.pos()),
         }
+    }
+
+    fn bracketed_identifier(&mut self) -> Result<Token, Diagnostic> {
+        let start = self.pos();
+        self.advance();
+        let mut text = String::new();
+
+        while let Some(ch) = self.peek() {
+            if ch == ']' {
+                self.advance();
+                if text.is_empty() {
+                    return Err(Diagnostic::new(
+                        "Bracketed identifier cannot be empty",
+                        Some(Span::new(start, self.pos())),
+                    ));
+                }
+                return Ok(Token {
+                    kind: TokenKind::Identifier(text),
+                    span: Span::new(start, self.pos()),
+                });
+            }
+            if ch == '\n' {
+                break;
+            }
+            text.push(ch);
+            self.advance();
+        }
+
+        Err(Diagnostic::new(
+            "Unterminated bracketed identifier",
+            Some(Span::new(start, self.pos())),
+        ))
     }
 
     fn integer(&mut self) -> Result<Token, Diagnostic> {

@@ -1,0 +1,44 @@
+Public Enum DaysOfWeek
+    Monday
+    Tuesday
+    Wednesday
+End Enum
+
+Public Enum FilePermissions
+    Read = 1
+    Write = 2
+    Execute = 4
+    All = Read + Write + Execute
+End Enum
+
+Public Enum WindowState
+    [_First] = 1
+    Normal = 1
+    Minimized = 2
+    Maximized = 3
+    [_Last] = 3
+End Enum
+
+Sub Main()
+    Dim day As DaysOfWeek
+    day = Wednesday
+
+    Select Case day
+        Case Monday
+            Console.WriteLine("Monday")
+        Case Wednesday
+            Console.WriteLine("Wednesday")
+    End Select
+
+    Dim access As FilePermissions
+    access = All
+
+    If (access And Write) = Write Then
+        Console.WriteLine("Write access")
+    End If
+
+    Dim i As Integer
+    For i = WindowState.[_First] To WindowState.[_Last]
+        Console.WriteLine(i)
+    Next i
+End Sub

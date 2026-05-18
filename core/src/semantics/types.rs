@@ -18,12 +18,15 @@ pub(super) struct TypeSig {
 
 pub(super) struct TypeRegistry {
     pub(super) types: HashMap<String, TypeSig>,
+    pub(super) enums: HashMap<String, EnumSig>,
     pub(super) classes: HashMap<String, ClassSig>,
 }
 
 impl TypeRegistry {
     pub(super) fn contains(&self, name: &str) -> bool {
-        self.types.contains_key(&key(name)) || self.classes.contains_key(&key(name))
+        self.types.contains_key(&key(name))
+            || self.enums.contains_key(&key(name))
+            || self.classes.contains_key(&key(name))
     }
 
     pub(super) fn get(&self, name: &str) -> Option<&TypeSig> {
@@ -33,6 +36,16 @@ impl TypeRegistry {
     pub(super) fn get_class(&self, name: &str) -> Option<&ClassSig> {
         self.classes.get(&key(name))
     }
+
+    pub(super) fn get_enum(&self, name: &str) -> Option<&EnumSig> {
+        self.enums.get(&key(name))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct EnumSig {
+    pub(super) name: String,
+    pub(super) members: HashMap<String, i64>,
 }
 
 #[derive(Debug, Clone)]
