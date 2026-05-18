@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use crate::runtime::TypeName;
-use crate::{Expr, PassingMode, Visibility};
+use crate::{PassingMode, Visibility};
 
 #[derive(Debug, Clone)]
 pub(super) enum VarType {
     Scalar(TypeName),
+    Optional(TypeName),
     Array(TypeName),
     Const(TypeName),
 }
@@ -14,6 +15,9 @@ impl VarType {
     pub(super) fn same_var_type(&self, other: &VarType) -> bool {
         match (self, other) {
             (VarType::Scalar(left), VarType::Scalar(right))
+            | (VarType::Optional(left), VarType::Scalar(right))
+            | (VarType::Scalar(left), VarType::Optional(right))
+            | (VarType::Optional(left), VarType::Optional(right))
             | (VarType::Const(left), VarType::Scalar(right))
             | (VarType::Scalar(left), VarType::Const(right))
             | (VarType::Const(left), VarType::Const(right))
@@ -24,7 +28,7 @@ impl VarType {
 
     pub(super) fn display_name(&self) -> String {
         match self {
-            VarType::Scalar(ty) => ty.display_name(),
+            VarType::Scalar(ty) | VarType::Optional(ty) => ty.display_name(),
             VarType::Const(ty) => ty.display_name(),
             VarType::Array(ty) => format!("{}()", ty.display_name()),
         }
@@ -32,7 +36,7 @@ impl VarType {
 
     pub(super) fn scalar_type(&self) -> Option<TypeName> {
         match self {
-            VarType::Scalar(ty) | VarType::Const(ty) => Some(ty.clone()),
+            VarType::Scalar(ty) | VarType::Optional(ty) | VarType::Const(ty) => Some(ty.clone()),
             VarType::Array(_) => None,
         }
     }
@@ -44,9 +48,10 @@ impl VarType {
 
 #[derive(Debug, Clone)]
 pub(super) struct ParamSig {
+    pub(super) name: String,
     pub(super) mode: PassingMode,
     pub(super) ty: TypeName,
-    pub(super) optional_default: Option<Expr>,
+    pub(super) is_optional: bool,
     pub(super) is_param_array: bool,
 }
 

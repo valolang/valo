@@ -14,7 +14,16 @@ pub enum ExprKind {
     Nothing,
     Me,
     WithTarget,
+    Missing,
     Variable(String),
+    NamedArg {
+        name: String,
+        expr: Box<Expr>,
+    },
+    TypeOfIs {
+        expr: Box<Expr>,
+        class_name: String,
+    },
     New {
         class_name: String,
         args: Vec<Expr>,
@@ -60,6 +69,7 @@ pub enum BinaryOp {
     LessEqual,
     GreaterEqual,
     Is,
+    Like,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

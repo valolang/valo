@@ -295,8 +295,18 @@ impl Parser {
 
     fn parse_bare_call_arguments(&mut self) -> Result<Vec<Expr>, Diagnostic> {
         let mut args = Vec::new();
+        let mut saw_named = false;
         while !self.at_statement_separator() {
-            args.push(self.parse_expression()?);
+            let arg = self.parse_argument()?;
+            if matches!(arg.kind, ExprKind::NamedArg { .. }) {
+                saw_named = true;
+            } else if saw_named {
+                return Err(Diagnostic::new(
+                    "Positional arguments cannot appear after named arguments",
+                    Some(arg.span),
+                ));
+            }
+            args.push(arg);
             if !self.match_simple(&TokenKind::Comma) {
                 break;
             }

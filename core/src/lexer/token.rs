@@ -31,6 +31,8 @@ pub enum TokenKind {
     Set,
     Nothing,
     Is,
+    Like,
+    TypeOf,
     New,
     Me,
     Public,

@@ -42,11 +42,86 @@ pub(crate) fn eval_binary(
         BinaryOp::Equal => Ok(Value::Boolean(values_equal(&left, &right, compare))),
         BinaryOp::NotEqual => Ok(Value::Boolean(!values_equal(&left, &right, compare))),
         BinaryOp::Is => Ok(Value::Boolean(values_identical(&left, &right))),
+        BinaryOp::Like => like_values(left, right, compare, span),
         BinaryOp::Less => compare_values(left, right, compare, span, |ord| ord.is_lt()),
         BinaryOp::Greater => compare_values(left, right, compare, span, |ord| ord.is_gt()),
         BinaryOp::LessEqual => compare_values(left, right, compare, span, |ord| ord.is_le()),
         BinaryOp::GreaterEqual => compare_values(left, right, compare, span, |ord| ord.is_ge()),
     }
+}
+
+fn like_values(
+    left: Value,
+    right: Value,
+    compare: OptionCompare,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let (Value::String(mut value), Value::String(mut pattern)) = (left, right) else {
+        return Err(Diagnostic::new("Like requires String operands", Some(span)));
+    };
+    if compare == OptionCompare::Text {
+        value = value.to_ascii_lowercase();
+        pattern = pattern.to_ascii_lowercase();
+    }
+    Ok(Value::Boolean(like_match(
+        &value.chars().collect::<Vec<_>>(),
+        &pattern.chars().collect::<Vec<_>>(),
+    )))
+}
+
+fn like_match(value: &[char], pattern: &[char]) -> bool {
+    fn inner(value: &[char], pattern: &[char], vi: usize, pi: usize) -> bool {
+        if pi == pattern.len() {
+            return vi == value.len();
+        }
+        match pattern[pi] {
+            '*' => {
+                for next in vi..=value.len() {
+                    if inner(value, pattern, next, pi + 1) {
+                        return true;
+                    }
+                }
+                false
+            }
+            '?' => vi < value.len() && inner(value, pattern, vi + 1, pi + 1),
+            '#' => {
+                vi < value.len()
+                    && value[vi].is_ascii_digit()
+                    && inner(value, pattern, vi + 1, pi + 1)
+            }
+            '[' => {
+                let Some((matches, next_pi)) = match_char_list(value.get(vi).copied(), pattern, pi)
+                else {
+                    return vi < value.len()
+                        && value[vi] == '['
+                        && inner(value, pattern, vi + 1, pi + 1);
+                };
+                matches && inner(value, pattern, vi + 1, next_pi)
+            }
+            literal => {
+                vi < value.len() && value[vi] == literal && inner(value, pattern, vi + 1, pi + 1)
+            }
+        }
+    }
+    inner(value, pattern, 0, 0)
+}
+
+fn match_char_list(value: Option<char>, pattern: &[char], start: usize) -> Option<(bool, usize)> {
+    let mut index = start + 1;
+    let negated = pattern.get(index) == Some(&'!');
+    if negated {
+        index += 1;
+    }
+    let list_start = index;
+    while index < pattern.len() && pattern[index] != ']' {
+        index += 1;
+    }
+    if index >= pattern.len() || index == list_start {
+        return None;
+    }
+    let value = value?;
+    let contains = pattern[list_start..index].contains(&value);
+    Some((if negated { !contains } else { contains }, index + 1))
 }
 
 pub(crate) fn compare_case_values(
@@ -201,6 +276,12 @@ pub(crate) fn coerce_assignment(
     value: Value,
     span: Span,
 ) -> Result<Value, Diagnostic> {
+    if matches!(value, Value::Missing) {
+        return Err(Diagnostic::new(
+            "Missing optional argument cannot be used as a value",
+            Some(span),
+        ));
+    }
     if matches!(value, Value::Nothing) && matches!(ty, TypeName::User(_)) {
         return Ok(value);
     }

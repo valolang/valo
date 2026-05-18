@@ -15,6 +15,30 @@ impl Interpreter {
             ExprKind::Integer(value) => Ok(Value::Integer(*value)),
             ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
             ExprKind::Nothing => Ok(Value::Nothing),
+            ExprKind::Missing => Ok(Value::Missing),
+            ExprKind::NamedArg { .. } => Err(Diagnostic::new(
+                "Named arguments are only valid inside call argument lists",
+                Some(expr.span),
+            )),
+            ExprKind::TypeOfIs {
+                expr: object_expr,
+                class_name,
+            } => {
+                let value = self.eval_expr(object_expr, frame)?;
+                let result = match value {
+                    Value::Object(object) => {
+                        object.borrow().class_name.eq_ignore_ascii_case(class_name)
+                    }
+                    Value::Nothing => false,
+                    _ => {
+                        return Err(Diagnostic::new(
+                            "TypeOf requires a class object",
+                            Some(object_expr.span),
+                        ));
+                    }
+                };
+                Ok(Value::Boolean(result))
+            }
             ExprKind::Me => frame.get("me", expr.span),
             ExprKind::WithTarget => frame.current_with_target(expr.span),
             ExprKind::New { class_name, args } => {
@@ -67,6 +91,16 @@ impl Interpreter {
                 self.read_member(&object, field, frame, expr.span)
             }
             ExprKind::Call { name, args } => {
+                if name.eq_ignore_ascii_case("IsMissing") {
+                    if args.len() != 1 {
+                        return Err(Diagnostic::new(
+                            "IsMissing expects exactly one argument",
+                            Some(expr.span),
+                        ));
+                    }
+                    let value = self.eval_expr(&args[0], frame)?;
+                    return Ok(Value::Boolean(matches!(value, Value::Missing)));
+                }
                 if name.eq_ignore_ascii_case("LBound") || name.eq_ignore_ascii_case("UBound") {
                     if args.len() != 1 {
                         return Err(Diagnostic::new(
@@ -120,8 +154,20 @@ impl Interpreter {
             }
             ExprKind::Binary { left, op, right } => {
                 let left_value = self.eval_expr(left, frame)?;
+                if matches!(left_value, Value::Missing) {
+                    return Err(Diagnostic::new(
+                        "Missing optional argument cannot be used as a value",
+                        Some(left.span),
+                    ));
+                }
                 let left = self.resolve_default_value(left_value, expr.span)?;
                 let right_value = self.eval_expr(right, frame)?;
+                if matches!(right_value, Value::Missing) {
+                    return Err(Diagnostic::new(
+                        "Missing optional argument cannot be used as a value",
+                        Some(right.span),
+                    ));
+                }
                 let right = self.resolve_default_value(right_value, expr.span)?;
                 eval_binary(left, *op, right, self.option_compare, expr.span)
             }

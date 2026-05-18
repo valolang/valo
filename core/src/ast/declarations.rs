@@ -157,6 +157,7 @@ pub struct Parameter {
     pub name: String,
     pub ty: TypeName,
     pub mode: PassingMode,
+    pub is_optional: bool,
     pub optional_default: Option<super::Expr>,
     pub is_param_array: bool,
     pub span: Span,

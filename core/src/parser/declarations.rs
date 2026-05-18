@@ -366,11 +366,7 @@ impl Parser {
             }
             self.expect_simple(TokenKind::As, "Expected 'As' in parameter declaration")?;
             let ty = self.parse_type_name()?;
-            let optional_default = if is_optional {
-                self.expect_simple(
-                    TokenKind::Equal,
-                    "Optional parameter requires a default value",
-                )?;
+            let optional_default = if is_optional && self.match_simple(&TokenKind::Equal) {
                 Some(self.parse_expression()?)
             } else {
                 None
@@ -386,6 +382,7 @@ impl Parser {
                 name,
                 ty,
                 mode,
+                is_optional,
                 optional_default,
                 is_param_array,
                 span: Span::new(start.start, end.end),

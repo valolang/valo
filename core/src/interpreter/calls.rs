@@ -215,7 +215,7 @@ impl Interpreter {
     ) -> Result<(), Diagnostic> {
         let required = params
             .iter()
-            .filter(|param| param.optional_default.is_none() && !param.is_param_array)
+            .filter(|param| !param.is_optional && !param.is_param_array)
             .count();
         let has_param_array = params.last().is_some_and(|param| param.is_param_array);
         if args.len() < required || (!has_param_array && args.len() > params.len()) {
@@ -224,13 +224,63 @@ impl Interpreter {
                 args.first().map(|arg| arg.span),
             ));
         }
-        let mut arg_index = 0;
-        for param in params {
+        let mut ordered: Vec<Option<&Expr>> = vec![None; params.len()];
+        let mut paramarray_args = Vec::new();
+        let mut positional_index = 0;
+        let mut saw_named = false;
+        for arg in args {
+            if let ExprKind::NamedArg { name, expr } = &arg.kind {
+                saw_named = true;
+                let Some(index) = params
+                    .iter()
+                    .position(|param| param.name.eq_ignore_ascii_case(name))
+                else {
+                    return Err(Diagnostic::new(
+                        format!("Unknown named argument '{}'", name),
+                        Some(arg.span),
+                    ));
+                };
+                if params[index].is_param_array {
+                    return Err(Diagnostic::new(
+                        "ParamArray arguments cannot be supplied by name",
+                        Some(arg.span),
+                    ));
+                }
+                if ordered[index].is_some() {
+                    return Err(Diagnostic::new(
+                        format!("Argument '{}' is specified more than once", name),
+                        Some(arg.span),
+                    ));
+                }
+                ordered[index] = Some(expr);
+                continue;
+            }
+            if saw_named {
+                return Err(Diagnostic::new(
+                    "Positional arguments cannot appear after named arguments",
+                    Some(arg.span),
+                ));
+            }
+            if positional_index < params.len() && params[positional_index].is_param_array {
+                paramarray_args.push(arg);
+            } else if positional_index < params.len() {
+                ordered[positional_index] = Some(arg);
+                positional_index += 1;
+            } else if has_param_array {
+                paramarray_args.push(arg);
+            } else {
+                return Err(Diagnostic::new(
+                    format!("Expected {} argument(s), got {}", params.len(), args.len()),
+                    Some(arg.span),
+                ));
+            }
+        }
+
+        for (index, param) in params.iter().enumerate() {
             if param.is_param_array {
                 let mut elements = Vec::new();
-                while let Some(arg) = args.get(arg_index) {
+                for arg in &paramarray_args {
                     elements.push(self.eval_expr(arg, caller_frame)?);
-                    arg_index += 1;
                 }
                 callee_frame.declare(
                     &param.name,
@@ -253,17 +303,15 @@ impl Interpreter {
                 )?;
                 continue;
             }
-            let arg = args.get(arg_index);
-            arg_index += usize::from(arg.is_some());
+            let arg = ordered[index];
             match param.mode {
                 PassingMode::ByVal => {
                     let value = if let Some(arg) = arg {
                         self.eval_expr(arg, caller_frame)?
+                    } else if let Some(default) = &param.optional_default {
+                        self.eval_expr(default, caller_frame)?
                     } else {
-                        self.eval_expr(
-                            param.optional_default.as_ref().expect("validated"),
-                            caller_frame,
-                        )?
+                        Value::Missing
                     };
                     callee_frame.declare(
                         &param.name,
@@ -274,14 +322,19 @@ impl Interpreter {
                         &self.types,
                         &self.enums,
                     )?;
-                    callee_frame.assign(&param.name, value, param.span)?;
+                    if matches!(value, Value::Missing) {
+                        callee_frame.assign_missing(&param.name, param.span)?;
+                    } else {
+                        callee_frame.assign(&param.name, value, param.span)?;
+                    }
                 }
                 PassingMode::ByRef => {
                     let Some(arg) = arg else {
-                        let value = self.eval_expr(
-                            param.optional_default.as_ref().expect("validated"),
-                            caller_frame,
-                        )?;
+                        let value = if let Some(default) = &param.optional_default {
+                            self.eval_expr(default, caller_frame)?
+                        } else {
+                            Value::Missing
+                        };
                         callee_frame.declare(
                             &param.name,
                             param.ty.clone(),
@@ -291,7 +344,11 @@ impl Interpreter {
                             &self.types,
                             &self.enums,
                         )?;
-                        callee_frame.assign(&param.name, value, param.span)?;
+                        if matches!(value, Value::Missing) {
+                            callee_frame.assign_missing(&param.name, param.span)?;
+                        } else {
+                            callee_frame.assign(&param.name, value, param.span)?;
+                        }
                         continue;
                     };
                     let ExprKind::Variable(arg_name) = &arg.kind else {

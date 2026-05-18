@@ -1,0 +1,16 @@
+Option Compare Text
+
+Sub Main()
+    Dim name As String
+    name = "Ada"
+
+    If name Like "A*" Then
+        Console.WriteLine("starts with A")
+    End If
+
+    Console.WriteLine("A7" Like "A#")
+    Console.WriteLine("cat" Like "c?t")
+    Console.WriteLine("B" Like "[ABC]")
+    Console.WriteLine("D" Like "[!ABC]")
+    Console.WriteLine("ada" Like "A*")
+End Sub

@@ -445,9 +445,16 @@ fn validate_parameter_list(params: &[Parameter], types: &TypeRegistry) -> Result
             }
             continue;
         }
-        if let Some(default) = &param.optional_default {
+        if param.is_optional {
             saw_optional = true;
-            ensure_const_expr(default, &HashMap::new(), types)?;
+            if let Some(default) = &param.optional_default {
+                ensure_const_expr(default, &HashMap::new(), types)?;
+            } else if !param.ty.same_type(&TypeName::Variant) {
+                return Err(Diagnostic::new(
+                    "Optional parameters without defaults must be Variant",
+                    Some(param.span),
+                ));
+            }
         } else if saw_optional {
             return Err(Diagnostic::new(
                 "Optional parameters must come after required parameters",
@@ -591,10 +598,13 @@ pub(super) fn ensure_const_expr(
             ensure_const_expr(right, symbols, types)
         }
         ExprKind::Nothing
+        | ExprKind::Missing
         | ExprKind::Me
         | ExprKind::WithTarget
         | ExprKind::New { .. }
         | ExprKind::Call { .. }
+        | ExprKind::NamedArg { .. }
+        | ExprKind::TypeOfIs { .. }
         | ExprKind::MemberCall { .. } => Err(Diagnostic::new(
             "Const initializer must be a compile-time constant",
             Some(expr.span),
@@ -606,9 +616,10 @@ fn params_to_sigs(params: &[Parameter]) -> Vec<ParamSig> {
     params
         .iter()
         .map(|param| ParamSig {
+            name: param.name.clone(),
             mode: param.mode,
             ty: param.ty.clone(),
-            optional_default: param.optional_default.clone(),
+            is_optional: param.is_optional,
             is_param_array: param.is_param_array,
         })
         .collect()
@@ -682,6 +693,8 @@ pub(super) fn add_parameters(
         }
         let var_type = if param.is_param_array {
             VarType::Array(param.ty.clone())
+        } else if param.is_optional {
+            VarType::Optional(param.ty.clone())
         } else {
             VarType::Scalar(param.ty.clone())
         };

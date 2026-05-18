@@ -138,6 +138,12 @@ impl Interpreter {
                 let mut parts = Vec::new();
                 for arg in args {
                     let value = self.eval_expr(arg, frame)?;
+                    if matches!(value, Value::Missing) {
+                        return Err(Diagnostic::new(
+                            "Missing optional argument cannot be used as a value",
+                            Some(arg.span),
+                        ));
+                    }
                     parts.push(
                         self.resolve_default_value(value, arg.span)?
                             .to_output_string(),

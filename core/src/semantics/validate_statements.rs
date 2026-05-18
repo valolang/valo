@@ -628,6 +628,9 @@ fn expr_uses_with_target(expr: &Expr) -> bool {
         ExprKind::New { args, .. } | ExprKind::Call { args, .. } => {
             args.iter().any(expr_uses_with_target)
         }
+        ExprKind::NamedArg { expr, .. } | ExprKind::TypeOfIs { expr, .. } => {
+            expr_uses_with_target(expr)
+        }
         ExprKind::MemberAccess { object, .. } => expr_uses_with_target(object),
         ExprKind::MemberCall { object, args, .. } => {
             expr_uses_with_target(object) || args.iter().any(expr_uses_with_target)
@@ -640,6 +643,7 @@ fn expr_uses_with_target(expr: &Expr) -> bool {
         | ExprKind::Integer(_)
         | ExprKind::Boolean(_)
         | ExprKind::Nothing
+        | ExprKind::Missing
         | ExprKind::Me
         | ExprKind::Variable(_) => false,
     }

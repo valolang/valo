@@ -101,6 +101,8 @@ impl<'a> Lexer<'a> {
             "set" => TokenKind::Set,
             "nothing" => TokenKind::Nothing,
             "is" => TokenKind::Is,
+            "like" => TokenKind::Like,
+            "typeof" => TokenKind::TypeOf,
             "new" => TokenKind::New,
             "me" => TokenKind::Me,
             "public" => TokenKind::Public,

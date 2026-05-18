@@ -45,6 +45,20 @@ impl Parser {
     }
 
     fn parse_not(&mut self) -> Result<Expr, Diagnostic> {
+        if self.match_simple(&TokenKind::TypeOf) {
+            let start = self.previous().span;
+            let expr = self.parse_concat()?;
+            self.expect_simple(TokenKind::Is, "Expected 'Is' after TypeOf expression")?;
+            let class_name = self.expect_identifier("Expected class name after 'TypeOf ... Is'")?;
+            let end = self.previous().span;
+            return Ok(Expr {
+                kind: ExprKind::TypeOfIs {
+                    expr: Box::new(expr),
+                    class_name,
+                },
+                span: Span::new(start.start, end.end),
+            });
+        }
         if self.match_simple(&TokenKind::Not) {
             let start = self.previous().span;
             let expr = self.parse_not()?;
@@ -291,9 +305,19 @@ impl Parser {
 
     pub(super) fn finish_call_arguments(&mut self) -> Result<Vec<Expr>, Diagnostic> {
         let mut args = Vec::new();
+        let mut saw_named = false;
         if !self.check_simple(&TokenKind::RightParen) {
             loop {
-                args.push(self.parse_expression()?);
+                let arg = self.parse_argument()?;
+                if matches!(arg.kind, ExprKind::NamedArg { .. }) {
+                    saw_named = true;
+                } else if saw_named {
+                    return Err(Diagnostic::new(
+                        "Positional arguments cannot appear after named arguments",
+                        Some(arg.span),
+                    ));
+                }
+                args.push(arg);
                 if !self.match_simple(&TokenKind::Comma) {
                     break;
                 }
@@ -301,6 +325,29 @@ impl Parser {
         }
         self.expect_simple(TokenKind::RightParen, "Expected ')' after arguments")?;
         Ok(args)
+    }
+
+    pub(super) fn parse_argument(&mut self) -> Result<Expr, Diagnostic> {
+        if matches!(self.peek_kind(), TokenKind::Identifier(_))
+            && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
+        {
+            let name_token = self.advance();
+            let TokenKind::Identifier(name) = name_token.kind else {
+                unreachable!("peek checked");
+            };
+            self.expect_simple(TokenKind::Colon, "Expected ':' in named argument")?;
+            self.expect_simple(TokenKind::Equal, "Expected '=' in named argument")?;
+            let expr = self.parse_expression()?;
+            let span = Span::new(name_token.span.start, expr.span.end);
+            return Ok(Expr {
+                kind: ExprKind::NamedArg {
+                    name,
+                    expr: Box::new(expr),
+                },
+                span,
+            });
+        }
+        self.parse_expression()
     }
 
     fn match_comparison_op(&mut self) -> Option<BinaryOp> {
@@ -312,6 +359,7 @@ impl Parser {
             TokenKind::LessEqual => BinaryOp::LessEqual,
             TokenKind::GreaterEqual => BinaryOp::GreaterEqual,
             TokenKind::Is => BinaryOp::Is,
+            TokenKind::Like => BinaryOp::Like,
             _ => return None,
         };
         self.advance();

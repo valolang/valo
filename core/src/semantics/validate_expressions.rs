@@ -81,8 +81,38 @@ pub(super) fn validate_expr(
         ExprKind::Integer(_) => Ok(TypeName::Integer),
         ExprKind::Boolean(_) => Ok(TypeName::Boolean),
         ExprKind::Nothing => Ok(TypeName::Variant),
+        ExprKind::Missing => Ok(TypeName::Variant),
+        ExprKind::NamedArg { .. } => Err(Diagnostic::new(
+            "Named arguments are only valid inside call argument lists",
+            Some(expr.span),
+        )),
+        ExprKind::TypeOfIs {
+            expr: object,
+            class_name,
+        } => {
+            let class = types.get_class(class_name).ok_or_else(|| {
+                Diagnostic::new(
+                    format!("Class '{}' is not defined", class_name),
+                    Some(expr.span),
+                )
+            })?;
+            let object_type = validate_expr(object, symbols, types, signatures)?;
+            if is_object_reference_expr(object, &object_type, types) {
+                Ok(TypeName::Boolean)
+            } else {
+                Err(Diagnostic::new(
+                    format!(
+                        "TypeOf requires a class object; '{}' is a class",
+                        class.name
+                    ),
+                    Some(object.span),
+                ))
+            }
+        }
         ExprKind::Me => match symbols.get("me").cloned() {
-            Some(VarType::Scalar(ty)) | Some(VarType::Const(ty)) => Ok(ty),
+            Some(VarType::Scalar(ty)) | Some(VarType::Optional(ty)) | Some(VarType::Const(ty)) => {
+                Ok(ty)
+            }
             _ => Err(Diagnostic::new(
                 "Me is only valid inside class methods",
                 Some(expr.span),
@@ -109,7 +139,9 @@ pub(super) fn validate_expr(
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
             _ if name.eq_ignore_ascii_case("Err") => Ok(TypeName::Variant),
             _ if name.eq_ignore_ascii_case("Erl") => Ok(TypeName::Integer),
-            Some(VarType::Scalar(ty)) | Some(VarType::Const(ty)) => Ok(ty),
+            Some(VarType::Scalar(ty)) | Some(VarType::Optional(ty)) | Some(VarType::Const(ty)) => {
+                Ok(ty)
+            }
             Some(VarType::Array(_)) => Err(Diagnostic::new(
                 format!("Array variable '{}' cannot be used as a scalar", name),
                 Some(expr.span),
@@ -201,6 +233,31 @@ pub(super) fn validate_expr(
             )
         }
         ExprKind::Call { name, args } => {
+            if name.eq_ignore_ascii_case("IsMissing") {
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "IsMissing expects exactly one argument",
+                        Some(expr.span),
+                    ));
+                }
+                let ExprKind::Variable(param_name) = &args[0].kind else {
+                    return Err(Diagnostic::new(
+                        "IsMissing requires an optional parameter name",
+                        Some(args[0].span),
+                    ));
+                };
+                return match symbols.get(&key(param_name)) {
+                    Some(VarType::Optional(_)) => Ok(TypeName::Boolean),
+                    Some(_) => Err(Diagnostic::new(
+                        "IsMissing is only valid for Optional parameters",
+                        Some(args[0].span),
+                    )),
+                    None => Err(Diagnostic::new(
+                        format!("Variable '{}' is not declared", param_name),
+                        Some(args[0].span),
+                    )),
+                };
+            }
             if name.eq_ignore_ascii_case("LBound") || name.eq_ignore_ascii_case("UBound") {
                 if args.len() != 1 {
                     return Err(Diagnostic::new(
@@ -286,6 +343,11 @@ pub(super) fn validate_expr(
                     }
                 }
                 BinaryOp::Equal | BinaryOp::NotEqual => Ok(TypeName::Boolean),
+                BinaryOp::Like => {
+                    ensure_assignable(&TypeName::String, &left_type, left.span)?;
+                    ensure_assignable(&TypeName::String, &right_type, right.span)?;
+                    Ok(TypeName::Boolean)
+                }
                 BinaryOp::Is => {
                     if is_object_reference_expr(left, &left_type, types)
                         && is_object_reference_expr(right, &right_type, types)
@@ -346,10 +408,12 @@ pub(super) fn validate_array_expr(
     match &expr.kind {
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
             Some(VarType::Array(element_type)) => Ok(element_type),
-            Some(VarType::Scalar(_)) | Some(VarType::Const(_)) => Err(Diagnostic::new(
-                format!("Variable '{}' is not an array", name),
-                Some(expr.span),
-            )),
+            Some(VarType::Scalar(_)) | Some(VarType::Optional(_)) | Some(VarType::Const(_)) => {
+                Err(Diagnostic::new(
+                    format!("Variable '{}' is not an array", name),
+                    Some(expr.span),
+                ))
+            }
             None => Err(Diagnostic::new(
                 format!("Variable '{}' is not declared", name),
                 Some(expr.span),
@@ -377,77 +441,141 @@ pub(super) fn validate_arguments(
     signatures: &Signatures,
     span: crate::runtime::Span,
 ) -> Result<(), Diagnostic> {
-    let required = callable
-        .params
-        .iter()
-        .filter(|param| param.optional_default.is_none() && !param.is_param_array)
-        .count();
     let has_param_array = callable
         .params
         .last()
         .is_some_and(|param| param.is_param_array);
-    if args.len() < required || (!has_param_array && args.len() > callable.params.len()) {
+    let mut assigned = vec![false; callable.params.len()];
+    let mut positional_index = 0;
+    let mut saw_named = false;
+
+    for arg in args {
+        if let ExprKind::NamedArg { name, expr: value } = &arg.kind {
+            saw_named = true;
+            let Some(index) = callable
+                .params
+                .iter()
+                .position(|param| param.name.eq_ignore_ascii_case(name))
+            else {
+                return Err(Diagnostic::new(
+                    format!(
+                        "{} '{}' has no parameter named '{}'",
+                        kind, callable.name, name
+                    ),
+                    Some(arg.span),
+                ));
+            };
+            if assigned[index] {
+                return Err(Diagnostic::new(
+                    format!("Argument '{}' is specified more than once", name),
+                    Some(arg.span),
+                ));
+            }
+            let param = &callable.params[index];
+            if param.is_param_array {
+                return Err(Diagnostic::new(
+                    "ParamArray arguments cannot be supplied by name",
+                    Some(arg.span),
+                ));
+            }
+            validate_argument_value(param, value, symbols, types, signatures)?;
+            assigned[index] = true;
+            continue;
+        }
+        if saw_named {
+            return Err(Diagnostic::new(
+                "Positional arguments cannot appear after named arguments",
+                Some(arg.span),
+            ));
+        }
+        let Some(param) = callable
+            .params
+            .get(positional_index)
+            .or_else(|| callable.params.last().filter(|param| param.is_param_array))
+        else {
+            return Err(Diagnostic::new(
+                format!(
+                    "{} '{}' expects {} argument(s), got {}",
+                    kind,
+                    callable.name,
+                    callable.params.len(),
+                    args.len()
+                ),
+                Some(span),
+            ));
+        };
+        validate_argument_value(param, arg, symbols, types, signatures)?;
+        if !param.is_param_array {
+            assigned[positional_index] = true;
+            positional_index += 1;
+        }
+    }
+
+    let missing_required = callable
+        .params
+        .iter()
+        .enumerate()
+        .any(|(index, param)| !assigned[index] && !param.is_optional && !param.is_param_array);
+    if missing_required || (!has_param_array && args.len() > callable.params.len()) {
         return Err(Diagnostic::new(
             format!(
                 "{} '{}' expects {} argument(s), got {}",
                 kind,
                 callable.name,
-                if has_param_array {
-                    required
-                } else {
-                    callable.params.len()
-                },
+                callable.params.len(),
                 args.len()
             ),
             Some(span),
         ));
     }
 
-    for (index, arg) in args.iter().enumerate() {
-        let param = callable
-            .params
-            .get(index)
-            .or_else(|| callable.params.last())
-            .expect("validated");
-        if param.is_param_array {
+    Ok(())
+}
+
+fn validate_argument_value(
+    param: &ParamSig,
+    arg: &Expr,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+) -> Result<(), Diagnostic> {
+    if param.is_param_array {
+        let arg_type = validate_expr(arg, symbols, types, signatures)?;
+        ensure_assignable_expr(&TypeName::Variant, &arg_type, arg, types, arg.span)?;
+        return Ok(());
+    }
+    match param.mode {
+        PassingMode::ByVal => {
             let arg_type = validate_expr(arg, symbols, types, signatures)?;
-            ensure_assignable_expr(&TypeName::Variant, &arg_type, arg, types, arg.span)?;
-            continue;
+            ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)
         }
-        match param.mode {
-            PassingMode::ByVal => {
-                let arg_type = validate_expr(arg, symbols, types, signatures)?;
-                ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)?;
+        PassingMode::ByRef => {
+            let ExprKind::Variable(name) = &arg.kind else {
+                return Err(Diagnostic::new(
+                    "ByRef argument must be a variable",
+                    Some(arg.span),
+                ));
+            };
+            let Some(arg_type) = symbols.get(&key(name)).cloned() else {
+                return Err(Diagnostic::new(
+                    format!("Variable '{}' is not declared", name),
+                    Some(arg.span),
+                ));
+            };
+            let expected = VarType::Scalar(param.ty.clone());
+            if !arg_type.same_var_type(&expected) {
+                return Err(Diagnostic::new(
+                    format!(
+                        "ByRef argument type {} must match parameter type {}",
+                        arg_type.display_name(),
+                        expected.display_name()
+                    ),
+                    Some(arg.span),
+                ));
             }
-            PassingMode::ByRef => {
-                let ExprKind::Variable(name) = &arg.kind else {
-                    return Err(Diagnostic::new(
-                        "ByRef argument must be a variable",
-                        Some(arg.span),
-                    ));
-                };
-                let Some(arg_type) = symbols.get(&key(name)).cloned() else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", name),
-                        Some(arg.span),
-                    ));
-                };
-                let expected = VarType::Scalar(param.ty.clone());
-                if !arg_type.same_var_type(&expected) {
-                    return Err(Diagnostic::new(
-                        format!(
-                            "ByRef argument type {} must match parameter type {}",
-                            arg_type.display_name(),
-                            expected.display_name()
-                        ),
-                        Some(arg.span),
-                    ));
-                }
-            }
+            Ok(())
         }
     }
-
-    Ok(())
 }
 
 pub(super) fn validate_method_call(

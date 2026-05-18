@@ -3270,6 +3270,245 @@ End Sub
 }
 
 #[test]
+fn named_arguments_work_for_functions_subs_methods_and_constructors() {
+    let output = run_source(
+        r#"
+Class User
+    Public Name As String
+
+    Public Sub Initialize(ByVal name As String)
+        Me.Name = name
+    End Sub
+
+    Public Sub SetName(ByVal title As String, ByVal name As String)
+        Me.Name = title & " " & name
+    End Sub
+End Class
+
+Sub Greet(ByVal title As String, ByVal name As String)
+    Console.WriteLine(title & " " & name)
+End Sub
+
+Function Add(ByVal a As Integer, ByVal b As Integer) As Integer
+    Return a + b
+End Function
+
+Sub Main()
+    Dim user As User
+    user = New User(name := "Valo")
+    Console.WriteLine(user.Name)
+    Greet name := "Valo", title := "Runtime"
+    Call Greet(name := "Valo", title := "Call")
+    user.SetName name := "Valo", title := "Method"
+    Console.WriteLine(user.Name)
+    Console.WriteLine(Add(b := 20, a := 10))
+End Sub
+"#,
+    );
+
+    assert_eq!(
+        output,
+        vec!["Valo", "Runtime Valo", "Call Valo", "Method Valo", "30"]
+    );
+}
+
+#[test]
+fn named_arguments_work_with_optional_parameters_out_of_order() {
+    let output = run_source(
+        r#"
+Sub Greet(Optional ByVal name As String = "Valo", Optional ByVal title As String = "Runtime")
+    Console.WriteLine(title & " " & name)
+End Sub
+
+Sub Main()
+    Greet title := "OnlyTitle"
+    Greet name := "Ada"
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["OnlyTitle Valo", "Runtime Ada"]);
+}
+
+#[test]
+fn named_argument_errors_are_clear() {
+    let duplicate = source_error(
+        r#"
+Sub Greet(ByVal name As String)
+End Sub
+
+Sub Main()
+    Greet name := "a", name := "b"
+End Sub
+"#,
+    );
+    assert!(duplicate.contains("specified more than once"));
+
+    let unknown = source_error(
+        r#"
+Sub Greet(ByVal name As String)
+End Sub
+
+Sub Main()
+    Greet missing := "a"
+End Sub
+"#,
+    );
+    assert!(unknown.contains("no parameter named 'missing'"));
+
+    let positional_after_named = source_error(
+        r#"
+Sub Greet(ByVal first As String, ByVal second As String)
+End Sub
+
+Sub Main()
+    Greet first := "a", "b"
+End Sub
+"#,
+    );
+    assert!(
+        positional_after_named.contains("Positional arguments cannot appear after named arguments")
+    );
+}
+
+#[test]
+fn ismissing_detects_omitted_optional_variant() {
+    let output = run_source(
+        r#"
+Sub Greet(Optional ByVal name As Variant)
+    If IsMissing(name) Then
+        Console.WriteLine("missing")
+    Else
+        Console.WriteLine(name)
+    End If
+End Sub
+
+Sub WithDefault(Optional ByVal name As Variant = "Valo")
+    Console.WriteLine(IsMissing(name))
+End Sub
+
+Sub Main()
+    Greet
+    Greet "Ada"
+    WithDefault
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["missing", "Ada", "False"]);
+}
+
+#[test]
+fn ismissing_rejects_non_optional_variable_and_missing_direct_use() {
+    let non_optional = source_error(
+        r#"
+Sub Main()
+    Dim value As Variant
+    Console.WriteLine(IsMissing(value))
+End Sub
+"#,
+    );
+    assert!(non_optional.contains("IsMissing is only valid for Optional parameters"));
+
+    let direct_use = source_error(
+        r#"
+Sub Greet(Optional ByVal name As Variant)
+    Console.WriteLine(name)
+End Sub
+
+Sub Main()
+    Greet
+End Sub
+"#,
+    );
+    assert!(direct_use.contains("Missing optional argument cannot be used as a value"));
+}
+
+#[test]
+fn typeof_is_checks_exact_class_and_nothing() {
+    let output = run_source(
+        r#"
+Class User
+End Class
+
+Class Account
+End Class
+
+Sub Main()
+    Dim user As User
+    Dim account As Account
+    user = New User()
+
+    Console.WriteLine(TypeOf user Is User)
+    Console.WriteLine(TypeOf account Is Account)
+    Console.WriteLine(TypeOf user Is Account)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["True", "False", "False"]);
+}
+
+#[test]
+fn typeof_rejects_scalar_and_unknown_class() {
+    let scalar = source_error(
+        r#"
+Class User
+End Class
+
+Sub Main()
+    Dim value As Integer
+    Console.WriteLine(TypeOf value Is User)
+End Sub
+"#,
+    );
+    assert!(scalar.contains("TypeOf requires a class object"));
+
+    let unknown = source_error(
+        r#"
+Sub Main()
+    Dim value As Variant
+    Console.WriteLine(TypeOf value Is MissingClass)
+End Sub
+"#,
+    );
+    assert!(unknown.contains("Class 'MissingClass' is not defined"));
+}
+
+#[test]
+fn like_operator_supports_vba_wildcards_and_option_compare() {
+    let output = run_source(
+        r#"
+Option Compare Text
+
+Sub Main()
+    Console.WriteLine("Ada" Like "A*")
+    Console.WriteLine("Ada" Like "A?a")
+    Console.WriteLine("A7" Like "A#")
+    Console.WriteLine("B" Like "[ABC]")
+    Console.WriteLine("D" Like "[!ABC]")
+    Console.WriteLine("ada" Like "A*")
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["True", "True", "True", "True", "True", "True"]);
+}
+
+#[test]
+fn like_rejects_non_string_operands() {
+    let error = source_error(
+        r#"
+Sub Main()
+    Console.WriteLine(10 Like "1*")
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Cannot assign Integer value to String variable"));
+}
+
+#[test]
 fn select_case_else_fallback() {
     let output = run_source(
         r#"

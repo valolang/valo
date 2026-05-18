@@ -1,0 +1,31 @@
+Class User
+    Public Name As String
+
+    Public Sub Initialize(ByVal name As String)
+        Me.Name = name
+    End Sub
+
+    Public Sub Rename(ByVal title As String, ByVal name As String)
+        Me.Name = title & " " & name
+    End Sub
+End Class
+
+Sub Greet(ByVal title As String, ByVal name As String)
+    Console.WriteLine(title & " " & name)
+End Sub
+
+Function Add(ByVal a As Integer, ByVal b As Integer) As Integer
+    Return a + b
+End Function
+
+Sub Main()
+    Dim user As User
+    user = New User(name := "Valo")
+
+    Greet name := "Valo", title := "Runtime"
+    Call Greet(name := "Valo", title := "Call")
+    user.Rename name := "Valo", title := "Method"
+
+    Console.WriteLine(user.Name)
+    Console.WriteLine(Add(b := 20, a := 10))
+End Sub

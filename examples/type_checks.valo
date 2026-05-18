@@ -1,0 +1,29 @@
+Class User
+End Class
+
+Class Account
+End Class
+
+Sub Describe(Optional ByVal value As Variant)
+    If IsMissing(value) Then
+        Console.WriteLine("missing")
+    Else
+        Console.WriteLine(value)
+    End If
+End Sub
+
+Sub Main()
+    Dim user As User
+    Dim account As Account
+    user = New User()
+
+    If TypeOf user Is User Then
+        Console.WriteLine("user")
+    End If
+
+    Console.WriteLine(TypeOf account Is Account)
+    Console.WriteLine(TypeOf user Is Account)
+
+    Describe
+    Describe "provided"
+End Sub

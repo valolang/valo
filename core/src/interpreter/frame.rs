@@ -235,6 +235,14 @@ impl Frame {
         Ok(())
     }
 
+    pub(crate) fn assign_missing(&mut self, name: &str, span: Span) -> Result<(), Diagnostic> {
+        let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
+            Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
+        })?;
+        *variable.cell.borrow_mut() = Value::Missing;
+        Ok(())
+    }
+
     pub(crate) fn get(&self, name: &str, span: Span) -> Result<Value, Diagnostic> {
         self.variables
             .get(&key(name))
