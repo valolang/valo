@@ -8,28 +8,24 @@
 
 <img align="right" src="assets/valo-mascot.png" width="120px" alt="Valo mascot">
 
-**Valo** is a VBA-inspired language runtime written in Rust.
+**Valo** is an experimental VBA-inspired language runtime written in Rust.
 
-It provides a standalone execution environment for a Basic-style language with typed variables, structured control flow, functions, records, arrays, class, semantic validation, and runtime diagnostics.
-
-The long-term goal is to explore what a modern VBA-like runtime could look like outside Microsoft Office: cross-platform, lightweight, modular, and designed for modern tooling.
+Valo provides a standalone execution environment for a Basic-style language with typed variables, structured control flow, functions, records, arrays, classes, properties, semantic validation, and runtime diagnostics.
 
 > [!WARNING]
-> Valo is experimental. The language syntax, runtime behavior, and internal architecture may change frequently.
+> Valo is experimental. Syntax, semantics, runtime behavior, and internal architecture may change while the language is being designed.
 
 ## Why Valo exists
 
-VBA has been used for decades to build automation, internal tools, business logic, and productivity workflows.
+VBA has been used for decades for automation, internal tools, business logic, and productivity workflows. Its biggest limitation is often the host environment rather than the language style.
 
-The problem is not only the language. The problem is the host.
+Valo explores a standalone runtime for familiar Basic-style programming without depending on Excel, Access, Word, COM, or the Office macro environment.
 
-Valo explores a different direction: a familiar Basic-style language running as a standalone runtime, without depending on Excel, Access, Word, COM, or the Office macro environment.
-
-Valo is not intended to be a perfect VBA clone. It is a modern runtime inspired by VBA and Basic-style programming.
+Valo is not a VBA clone. It is a modern runtime inspired by VBA, with a focus on portability, clear diagnostics, and tooling-friendly language design.
 
 ## Quick start
 
-Create a file called `hello.valo`:
+Create `hello.valo`:
 
 ```vb
 Sub Main()
@@ -51,37 +47,18 @@ Hello from Valo
 
 ## Installation
 
-Valo is currently distributed as a standalone executable during early testing.
-
-On Windows:
-
-```powershell
-valo.exe run examples\hello.valo
-```
-
-If `valo.exe` is available in your `PATH`:
-
-```powershell
-valo run examples\hello.valo
-```
-
-## Build from source
+Valo is currently built from source during early development.
 
 Requirements:
 
-- [Rust](https://www.rust-lang.org/)
+- Rust
 - Cargo
 
-Clone the repository:
+Clone and build:
 
 ```sh
 git clone https://github.com/uesleibros/valo.git
 cd valo
-```
-
-Build:
-
-```sh
 cargo build --release
 ```
 
@@ -97,51 +74,74 @@ Run an example:
 target/release/valo run examples/hello.valo
 ```
 
+On Windows:
+
+```powershell
+target\release\valo.exe run examples\hello.valo
+```
+
 ## Example
 
 ```vb
 Class User
-    Public Name As String
-    Private Age As Integer
-    Private Active As Boolean
+    Private mName As String
+    Private mAge As Integer
 
-    Public Sub Initialize(ByVal name As String, ByVal age As Integer)
-        Me.Name = name
-        Me.Age = age
-        Me.Active = True
-    End Sub
+    Public Property Get Name() As String
+        Return Me.mName
+    End Property
 
-    Public Function IsAdult() As Boolean
-        Return Me.Age >= 18
-    End Function
+    Public Property Let Name(ByVal value As String)
+        Me.mName = value
+    End Property
 
-    Public Sub Deactivate()
-        Me.Active = False
-    End Sub
+    Public Property Get Age() As Integer
+        Return Me.mAge
+    End Property
 
-    Public Function IsActive() As Boolean
-        Return Me.Active
-    End Function
+    Public Property Let Age(ByVal value As Integer)
+        If value < 0 Then
+            Me.mAge = 0
+        Else
+            Me.mAge = value
+        End If
+    End Property
 End Class
 
 Sub Main()
     Dim user As User
-    user = New User("Valo", 1)
+    user = New User()
+
+    user.Name = "Valo"
+    user.Age = -1
 
     Console.WriteLine(user.Name)
-    Console.WriteLine(user.IsAdult())
-    Console.WriteLine(user.IsActive())
-
-    user.Deactivate()
-    Console.WriteLine(user.IsActive())
+    Console.WriteLine(user.Age)
 End Sub
 ```
 
 Run it:
 
 ```sh
-valo run examples/classes.valo
+valo run examples/properties.valo
 ```
+
+Expected output:
+
+```txt
+Valo
+0
+```
+
+## Project structure
+
+The repository uses a Deno-inspired runtime layout:
+
+- `cli/` contains the CLI package and the `valo` executable.
+- `core/` contains the language and runtime core.
+- `examples/` contains Valo examples.
+- `assets/` contains mascot and logo files.
+- `docs/`, `editors/`, and `tests/` exist for future use.
 
 ## Current language support
 
@@ -150,7 +150,7 @@ Valo currently supports:
 - `Sub Main`
 - `Dim` declarations
 - `String`, `Integer`, `Boolean`, and `Variant`
-- `If`, `ElseIf`, `Else`, `End If`
+- `If` / `ElseIf` / `Else` / `End If`
 - `While` / `Wend`
 - `For` / `Next` / `Step`
 - `Function` and `Return`
@@ -162,8 +162,9 @@ Valo currently supports:
 - `Class`
 - `New`
 - `Me`
-- public and private class members
+- `Public` and `Private` class members
 - instance methods
+- `Property Get`, `Property Let`, and `Property Set`
 - `Console.WriteLine`
 - semantic validation
 - runtime diagnostics
@@ -174,7 +175,6 @@ Valo does not currently support:
 
 - imports or modules
 - standard library modules
-- properties
 - module-level visibility
 - `Select Case`
 - `Do` / `Loop`
@@ -185,65 +185,38 @@ Valo does not currently support:
 - `For Each`
 - async/await
 - FFI / `Declare`
-- bytecode compilation
+- bytecode VM
 - package management
 - language server
 - formatter
 
-## Runtime model
+## Runtime status
 
-The current implementation uses a tree-walking interpreter while the language core is being designed and stabilized.
-
-The long-term runtime direction is:
+Valo currently uses a tree-walking interpreter. The implemented pipeline is:
 
 ```txt
 source.valo
   -> lexer
   -> parser
   -> semantic validation
-  -> bytecode compiler
-  -> stack-based virtual machine
+  -> interpreter
 ```
 
-The bytecode compiler and VM are not implemented yet.
+The runtime includes semantic checks and diagnostics for common language errors before execution. A bytecode compiler and virtual machine are design goals, but they are not implemented.
 
-## Planned direction
+## Design goals
 
-Valo aims to grow toward:
-
-- local modules and imports
-- standard library modules such as `fs`, `path`, `process`, and `http`
-- FFI through `Declare` statements
-- async/await for non-blocking I/O
-- bytecode execution
-- formatter
-- language server
-- editor integrations
-- WebAssembly playground
-
-## Design principles
-
-Valo is guided by a few principles:
-
-**Familiar syntax.** Basic-style code is readable, approachable, and familiar to many developers.
-
-**Standalone runtime.** Valo code should run outside the Office environment.
-
-**Modern runtime capabilities.** Modules, async I/O, FFI, diagnostics, tooling, and cross-platform execution are core goals.
-
-**Simple language surface.** Valo should remain easy to read and write, even as the runtime becomes more capable.
-
-## Project status
-
-Valo is in early active development.
-
-The current focus is correctness, language semantics, diagnostics, and stabilizing the core runtime behavior. Breaking changes are expected during the experimental stage.
+- Keep Basic-style syntax readable and approachable.
+- Run Valo programs outside the Office macro environment.
+- Provide clear parser, semantic, and runtime diagnostics.
+- Keep the runtime modular, with a small CLI and a reusable language core.
+- Grow toward modern tooling, editor integration, formatting, modules, and package management.
 
 ## Contributing
 
-Valo is still evolving quickly.
+Valo is in early active development. Contributions, examples, bug reports, and design discussions are welcome.
 
-Contributions, examples, bug reports, and design discussions are welcome. Before working on large language features, please open an issue or discussion so the language direction can stay consistent.
+Before working on large language features, please open an issue or discussion so implementation work stays aligned with the language direction.
 
 ## License
 
