@@ -56,7 +56,9 @@ impl Interpreter {
             return read_field_member(value, member, span);
         }
         if matches!(value, Value::Nothing) {
-            return Err(Diagnostic::new("Object reference is Nothing", Some(span)));
+            return Err(Diagnostic::new("Object reference is Nothing", Some(span))
+                .with_primary_label("attempted to access a member on Nothing")
+                .with_help("assign an object before accessing its members"));
         }
         if matches!(value, Value::Object(_)) {
             return self.call_property_get(value.clone(), member, span);
@@ -153,7 +155,9 @@ pub(crate) fn ensure_object(
 ) -> Result<Rc<RefCell<ObjectValue>>, Diagnostic> {
     match value {
         Value::Object(object) => Ok(object),
-        Value::Nothing => Err(Diagnostic::new("Object reference is Nothing", Some(span))),
+        Value::Nothing => Err(Diagnostic::new("Object reference is Nothing", Some(span))
+            .with_primary_label("attempted to call a method on Nothing")
+            .with_help("assign an object before calling its methods")),
         _ => Err(Diagnostic::new(
             "Method call requires an object",
             Some(span),

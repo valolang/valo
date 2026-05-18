@@ -29,53 +29,60 @@ impl Interpreter {
             ));
         }
 
-        let mut frame = Frame::default();
-        frame.inherit_modules_from(caller_frame)?;
-        for (param, arg) in function.params.iter().zip(args) {
-            match param.mode {
-                PassingMode::ByVal => {
-                    let value = self.eval_expr(arg, caller_frame)?;
-                    frame.declare(
-                        &param.name,
-                        param.ty.clone(),
-                        None,
-                        self.option_base,
-                        param.span,
-                        &self.types,
-                        &self.enums,
-                    )?;
-                    frame.assign(&param.name, value, param.span)?;
-                }
-                PassingMode::ByRef => {
-                    let ExprKind::Variable(arg_name) = &arg.kind else {
-                        return Err(Diagnostic::new(
-                            "ByRef argument must be a variable",
-                            Some(arg.span),
-                        ));
-                    };
-                    let variable = caller_frame.variable(arg_name, arg.span)?;
-                    frame.declare_alias(&param.name, param.ty.clone(), variable, param.span)?;
+        self.call_stack
+            .push(format!("Function '{}'", function.name));
+        let result = (|| {
+            let mut frame = Frame::default();
+            frame.inherit_modules_from(caller_frame)?;
+            for (param, arg) in function.params.iter().zip(args) {
+                match param.mode {
+                    PassingMode::ByVal => {
+                        let value = self.eval_expr(arg, caller_frame)?;
+                        frame.declare(
+                            &param.name,
+                            param.ty.clone(),
+                            None,
+                            self.option_base,
+                            param.span,
+                            &self.types,
+                            &self.enums,
+                        )?;
+                        frame.assign(&param.name, value, param.span)?;
+                    }
+                    PassingMode::ByRef => {
+                        let ExprKind::Variable(arg_name) = &arg.kind else {
+                            return Err(Diagnostic::new(
+                                "ByRef argument must be a variable",
+                                Some(arg.span),
+                            ));
+                        };
+                        let variable = caller_frame.variable(arg_name, arg.span)?;
+                        frame.declare_alias(&param.name, param.ty.clone(), variable, param.span)?;
+                    }
                 }
             }
-        }
 
-        match self.exec_block(&function.body, &mut frame)? {
-            ControlFlow::Return(value) => coerce_assignment(&function.return_type, value, span),
-            ControlFlow::Continue => Err(Diagnostic::new(
-                format!("Function '{}' must return a value", function.name),
-                Some(function.span),
-            )),
-            ControlFlow::ExitFunction => {
-                default_value(&function.return_type, &self.types, &self.enums, span)
+            match self.exec_block(&function.body, &mut frame)? {
+                ControlFlow::Return(value) => coerce_assignment(&function.return_type, value, span),
+                ControlFlow::Continue => Err(Diagnostic::new(
+                    format!("Function '{}' must return a value", function.name),
+                    Some(function.span),
+                )),
+                ControlFlow::ExitFunction => {
+                    default_value(&function.return_type, &self.types, &self.enums, span)
+                }
+                ControlFlow::ExitSub => Err(Diagnostic::new(
+                    "Exit Sub is only valid inside Sub",
+                    Some(function.span),
+                )),
+                ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
+                    Diagnostic::new("Exit statement escaped its block", Some(span)),
+                ),
             }
-            ControlFlow::ExitSub => Err(Diagnostic::new(
-                "Exit Sub is only valid inside Sub",
-                Some(function.span),
-            )),
-            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
-                Diagnostic::new("Exit statement escaped its block", Some(span)),
-            ),
-        }
+        })();
+        let result = result.map_err(|diagnostic| self.with_stack_context(diagnostic));
+        self.call_stack.pop();
+        result
     }
 
     pub(crate) fn call_sub(
@@ -102,50 +109,56 @@ impl Interpreter {
             ));
         }
 
-        let mut frame = Frame::default();
-        frame.inherit_modules_from(caller_frame)?;
-        for (param, arg) in procedure.params.iter().zip(args) {
-            match param.mode {
-                PassingMode::ByVal => {
-                    let value = self.eval_expr(arg, caller_frame)?;
-                    frame.declare(
-                        &param.name,
-                        param.ty.clone(),
-                        None,
-                        self.option_base,
-                        param.span,
-                        &self.types,
-                        &self.enums,
-                    )?;
-                    frame.assign(&param.name, value, param.span)?;
-                }
-                PassingMode::ByRef => {
-                    let ExprKind::Variable(arg_name) = &arg.kind else {
-                        return Err(Diagnostic::new(
-                            "ByRef argument must be a variable",
-                            Some(arg.span),
-                        ));
-                    };
-                    let variable = caller_frame.variable(arg_name, arg.span)?;
-                    frame.declare_alias(&param.name, param.ty.clone(), variable, param.span)?;
+        self.call_stack.push(format!("Sub '{}'", procedure.name));
+        let result = (|| {
+            let mut frame = Frame::default();
+            frame.inherit_modules_from(caller_frame)?;
+            for (param, arg) in procedure.params.iter().zip(args) {
+                match param.mode {
+                    PassingMode::ByVal => {
+                        let value = self.eval_expr(arg, caller_frame)?;
+                        frame.declare(
+                            &param.name,
+                            param.ty.clone(),
+                            None,
+                            self.option_base,
+                            param.span,
+                            &self.types,
+                            &self.enums,
+                        )?;
+                        frame.assign(&param.name, value, param.span)?;
+                    }
+                    PassingMode::ByRef => {
+                        let ExprKind::Variable(arg_name) = &arg.kind else {
+                            return Err(Diagnostic::new(
+                                "ByRef argument must be a variable",
+                                Some(arg.span),
+                            ));
+                        };
+                        let variable = caller_frame.variable(arg_name, arg.span)?;
+                        frame.declare_alias(&param.name, param.ty.clone(), variable, param.span)?;
+                    }
                 }
             }
-        }
 
-        match self.exec_block(&procedure.body, &mut frame)? {
-            ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
-            ControlFlow::Return(_) => Err(Diagnostic::new(
-                "Return is only allowed inside Function",
-                Some(procedure.span),
-            )),
-            ControlFlow::ExitFunction => Err(Diagnostic::new(
-                "Exit Function is only valid inside Function",
-                Some(procedure.span),
-            )),
-            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
-                Diagnostic::new("Exit statement escaped its block", Some(span)),
-            ),
-        }
+            match self.exec_block(&procedure.body, &mut frame)? {
+                ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+                ControlFlow::Return(_) => Err(Diagnostic::new(
+                    "Return is only allowed inside Function",
+                    Some(procedure.span),
+                )),
+                ControlFlow::ExitFunction => Err(Diagnostic::new(
+                    "Exit Function is only valid inside Function",
+                    Some(procedure.span),
+                )),
+                ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
+                    Diagnostic::new("Exit statement escaped its block", Some(span)),
+                ),
+            }
+        })();
+        let result = result.map_err(|diagnostic| self.with_stack_context(diagnostic));
+        self.call_stack.pop();
+        result
     }
 
     pub(crate) fn call_method_sub(

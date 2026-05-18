@@ -69,7 +69,9 @@ pub fn preprocess(source: &str) -> Result<String, Diagnostic> {
         } else {
             "Missing '#End If' for conditional compilation block"
         };
-        return Err(Diagnostic::new(message, Some(span)));
+        return Err(Diagnostic::new(message, Some(span))
+            .with_primary_label("conditional compilation block is not closed")
+            .with_help("add '#End If' for this conditional block"));
     }
 
     Ok(output)
@@ -259,7 +261,7 @@ fn key(name: &str) -> String {
 
 fn diagnostic(line: usize, column: usize, message: &str) -> Diagnostic {
     let pos = SourcePos::new(line, column);
-    Diagnostic::new(message, Some(Span::new(pos, pos)))
+    Diagnostic::new(message, Some(Span::new(pos, pos))).with_primary_label(message)
 }
 
 impl ConstValue {

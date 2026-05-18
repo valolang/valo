@@ -27,7 +27,7 @@ fn real_main() -> Result<(), String> {
 
             let source =
                 fs::read_to_string(&path).map_err(|err| format!("failed to read {path}: {err}"))?;
-            let output = run_source(&source).map_err(|err| err.to_string())?;
+            let output = run_source(&source).map_err(|err| err.render(&path, &source))?;
 
             for line in output {
                 println!("{line}");

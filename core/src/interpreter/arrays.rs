@@ -105,7 +105,9 @@ pub(crate) fn redim_array(
         } else {
             "ReDim upper bound must be greater than or equal to the array lower bound"
         };
-        return Err(Diagnostic::new(message, Some(span)));
+        return Err(
+            Diagnostic::new(message, Some(span)).with_primary_label("invalid ReDim upper bound")
+        );
     }
     let Value::Array {
         element_type,
@@ -114,10 +116,10 @@ pub(crate) fn redim_array(
         allocated,
     } = value
     else {
-        return Err(Diagnostic::new(
-            "ReDim target must be a dynamic array",
-            Some(span),
-        ));
+        return Err(
+            Diagnostic::new("ReDim target must be a dynamic array", Some(span))
+                .with_primary_label("ReDim target is not a dynamic array"),
+        );
     };
     let new_len = (upper_bound - lower_bound + 1) as usize;
     let mut new_elements = Vec::new();
@@ -174,7 +176,8 @@ fn checked_index(
                 )
             },
             Some(span),
-        ));
+        )
+        .with_primary_label("array index is outside the valid bounds"));
     }
     Ok(offset as usize)
 }

@@ -217,7 +217,13 @@ pub(crate) fn coerce_assignment(
                 ty.display_name()
             ),
             Some(span),
+        )
+        .with_primary_label(format!(
+            "expected {}, found {}",
+            ty.display_name(),
+            value.type_name().display_name()
         ))
+        .with_help("change the variable type or assign a value with the expected type"))
     }
 }
 

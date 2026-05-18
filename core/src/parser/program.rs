@@ -47,13 +47,17 @@ impl Parser {
                             return Err(Diagnostic::new(
                                 "Option Base must be 0 or 1",
                                 Some(token.span),
-                            ));
+                            )
+                            .with_primary_label("invalid Option Base value")
+                            .with_help("use either 'Option Base 0' or 'Option Base 1'"));
                         };
                         if value != 0 && value != 1 {
                             return Err(Diagnostic::new(
                                 "Option Base must be 0 or 1",
                                 Some(token.span),
-                            ));
+                            )
+                            .with_primary_label("invalid Option Base value")
+                            .with_help("use either 'Option Base 0' or 'Option Base 1'"));
                         }
                         option_base = value;
                         saw_option_base = true;

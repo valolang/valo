@@ -18,6 +18,7 @@ pub struct Interpreter {
     pub(crate) output: Vec<String>,
     pub(crate) option_base: i64,
     pub(crate) option_compare: crate::OptionCompare,
+    pub(crate) call_stack: Vec<String>,
 }
 
 #[cfg(test)]
@@ -132,6 +133,14 @@ pub fn run(program: &Program) -> Result<Vec<String>, Diagnostic> {
 }
 
 impl Interpreter {
+    pub(crate) fn with_stack_context(&self, diagnostic: Diagnostic) -> Diagnostic {
+        if self.call_stack.is_empty() {
+            diagnostic
+        } else {
+            diagnostic.with_note(format!("while executing {}", self.call_stack.join(" -> ")))
+        }
+    }
+
     fn eval_enum_const_expr(
         &self,
         expr: &crate::Expr,

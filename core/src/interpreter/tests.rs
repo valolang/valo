@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::Parser;
 use crate::semantics::validate;
@@ -18,6 +17,13 @@ fn source_error(source: &str) -> String {
     match parse_and_validate(source) {
         Ok(program) => run(&program).unwrap_err().to_string(),
         Err(error) => error.to_string(),
+    }
+}
+
+fn source_diagnostic(source: &str) -> Diagnostic {
+    match parse_and_validate(source) {
+        Ok(program) => run(&program).unwrap_err(),
+        Err(error) => error,
     }
 }
 
@@ -150,6 +156,42 @@ End Sub
     );
 
     assert!(error.contains("Variable 'missing' is not declared"));
+}
+
+#[test]
+fn formatted_diagnostics_include_code_source_label_and_help() {
+    let source = r#"
+Sub Main()
+    Dim age As Integer
+    age = "Valo"
+End Sub
+"#;
+    let diagnostic = source_diagnostic(source);
+    let rendered = diagnostic.render("examples/test.valo", source);
+
+    assert!(rendered.contains("error[V1100]"));
+    assert!(rendered.contains("--> examples/test.valo:4:"));
+    assert!(rendered.contains("expected Integer, found String"));
+    assert!(rendered.contains("help: change the variable type"));
+}
+
+#[test]
+fn runtime_diagnostics_include_stack_context_when_available() {
+    let source = r#"
+Sub Boom()
+    Dim values(1) As Integer
+    values(2) = 10
+End Sub
+
+Sub Main()
+    Call Boom()
+End Sub
+"#;
+    let diagnostic = source_diagnostic(source);
+    let rendered = diagnostic.render("stack.valo", source);
+
+    assert!(rendered.contains("error[V1200]"));
+    assert!(rendered.contains("note: while executing Sub 'Boom'"));
 }
 
 #[test]

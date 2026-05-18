@@ -632,7 +632,9 @@ fn ensure_visible(
         Err(Diagnostic::new(
             format!("Member '{}' is Private in Class '{}'", member, owner_class),
             Some(span),
-        ))
+        )
+        .with_primary_label("private member is not accessible here")
+        .with_help("access this member from within the declaring class or make it Public"))
     }
 }
 
@@ -713,7 +715,8 @@ pub(super) fn ensure_case_comparable(
         Err(Diagnostic::new(
             "Case expression type must match Select Case expression type",
             Some(span),
-        ))
+        )
+        .with_primary_label("case expression has an incompatible type"))
     }
 }
 
@@ -763,7 +766,8 @@ fn ensure_case_orderable(ty: &TypeName, span: crate::runtime::Span) -> Result<()
         Err(Diagnostic::new(
             "Case range or comparison requires Integer or String operands",
             Some(span),
-        ))
+        )
+        .with_primary_label("range or comparison is not orderable"))
     }
 }
 
@@ -776,46 +780,48 @@ pub(super) fn validate_exit(
     match target {
         ExitTarget::Sub => match context {
             Context::Sub | Context::MethodSub { .. } => Ok(()),
-            _ => Err(Diagnostic::new(
-                "Exit Sub is only valid inside Sub",
-                Some(span),
-            )),
+            _ => Err(
+                Diagnostic::new("Exit Sub is only valid inside Sub", Some(span))
+                    .with_primary_label("invalid Exit Sub")
+                    .with_help("use Exit Sub only inside a Sub body"),
+            ),
         },
         ExitTarget::Function => match context {
             Context::Function { .. } | Context::MethodFunction { .. } => Ok(()),
-            _ => Err(Diagnostic::new(
-                "Exit Function is only valid inside Function",
-                Some(span),
-            )),
+            _ => Err(
+                Diagnostic::new("Exit Function is only valid inside Function", Some(span))
+                    .with_primary_label("invalid Exit Function")
+                    .with_help("use Exit Function only inside a Function body"),
+            ),
         },
         ExitTarget::For => {
             if loop_context.for_depth > 0 {
                 Ok(())
             } else {
-                Err(Diagnostic::new(
-                    "Exit For is only valid inside For",
-                    Some(span),
-                ))
+                Err(
+                    Diagnostic::new("Exit For is only valid inside For", Some(span))
+                        .with_primary_label("invalid Exit For"),
+                )
             }
         }
         ExitTarget::While => {
             if loop_context.while_depth > 0 {
                 Ok(())
             } else {
-                Err(Diagnostic::new(
-                    "Exit While is only valid inside While",
-                    Some(span),
-                ))
+                Err(
+                    Diagnostic::new("Exit While is only valid inside While", Some(span))
+                        .with_primary_label("invalid Exit While"),
+                )
             }
         }
         ExitTarget::Do => {
             if loop_context.do_depth > 0 {
                 Ok(())
             } else {
-                Err(Diagnostic::new(
-                    "Exit Do is only valid inside Do",
-                    Some(span),
-                ))
+                Err(
+                    Diagnostic::new("Exit Do is only valid inside Do", Some(span))
+                        .with_primary_label("invalid Exit Do"),
+                )
             }
         }
     }
@@ -839,6 +845,12 @@ pub(super) fn ensure_assignable(
                 target.display_name()
             ),
             Some(span),
+        )
+        .with_primary_label(format!(
+            "expected {}, found {}",
+            target.display_name(),
+            source.display_name()
         ))
+        .with_help("change the variable type or assign a value with the expected type"))
     }
 }

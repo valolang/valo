@@ -18,7 +18,9 @@ pub(crate) fn read_field_member(
         });
     }
     if matches!(value, Value::Nothing) {
-        return Err(Diagnostic::new("Object reference is Nothing", Some(span)));
+        return Err(Diagnostic::new("Object reference is Nothing", Some(span))
+            .with_primary_label("attempted to access a member on Nothing")
+            .with_help("assign an object before accessing its members"));
     }
     let Value::Record { type_name, fields } = value else {
         return Err(Diagnostic::new(
@@ -54,7 +56,9 @@ pub(crate) fn write_member(
         return Ok(());
     }
     if matches!(value, Value::Nothing) {
-        return Err(Diagnostic::new("Object reference is Nothing", Some(span)));
+        return Err(Diagnostic::new("Object reference is Nothing", Some(span))
+            .with_primary_label("attempted to assign a member on Nothing")
+            .with_help("assign an object before assigning its members"));
     }
     let Value::Record { type_name, fields } = value else {
         return Err(Diagnostic::new(

@@ -197,12 +197,16 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
             Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
+                .with_primary_label("unknown variable")
+                .with_help("declare the variable before using it")
         })?;
         if variable.is_const {
             return Err(Diagnostic::new(
                 format!("Constant '{}' cannot be assigned", name),
                 Some(span),
-            ));
+            )
+            .with_primary_label("assignment to constant")
+            .with_help("remove the assignment or use a non-Const variable"));
         }
 
         *variable.cell.borrow_mut() = coerce_assignment(&variable.ty, value, span)?;
@@ -215,12 +219,16 @@ impl Frame {
             .map(|variable| variable.cell.borrow().clone())
             .ok_or_else(|| {
                 Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
+                    .with_primary_label("unknown variable")
+                    .with_help("declare the variable before using it")
             })
     }
 
     pub(crate) fn variable(&self, name: &str, span: Span) -> Result<Variable, Diagnostic> {
         self.variables.get(&key(name)).cloned().ok_or_else(|| {
             Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
+                .with_primary_label("unknown variable")
+                .with_help("declare the variable before using it")
         })
     }
 
@@ -263,10 +271,10 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let variable = self.variable(name, span)?;
         if !variable.dynamic_array {
-            return Err(Diagnostic::new(
-                "ReDim target must be a dynamic array",
-                Some(span),
-            ));
+            return Err(
+                Diagnostic::new("ReDim target must be a dynamic array", Some(span))
+                    .with_primary_label("ReDim target is not a dynamic array"),
+            );
         }
         let mut array = variable.cell.borrow_mut();
         redim_array(
@@ -308,6 +316,8 @@ impl Frame {
                 "Dot member access requires an active With block",
                 Some(span),
             )
+            .with_primary_label("no active With target")
+            .with_help("use dotted member access only inside a With block")
         })
     }
 }
