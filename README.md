@@ -6,16 +6,16 @@
 [![GitHub Issues](https://img.shields.io/github/issues/uesleibros/valo)](https://github.com/uesleibros/valo/issues)
 [![GitHub Last Commit](https://img.shields.io/github/last-commit/uesleibros/valo)](https://github.com/uesleibros/valo/commits/main)
 
-<img align="right" src="assets/valo-mascot.png" height="120px" alt="Valo mascot">
-
-> [!WARNING]
-> Valo is experimental. The language syntax, runtime behavior, and internal architecture may change frequently.
+<img align="right" src="assets/valo-mascot.png" width="140px" alt="Valo mascot">
 
 **Valo** is a VBA-inspired language runtime written in Rust.
 
 It provides a standalone execution environment for a Basic-style language with typed variables, structured control flow, functions, records, arrays, classes, semantic validation, and runtime diagnostics.
 
 The long-term goal is to explore what a modern VBA-like runtime could look like outside Microsoft Office: cross-platform, lightweight, modular, and designed for modern tooling.
+
+> [!WARNING]
+> Valo is experimental. The language syntax, runtime behavior, and internal architecture may change frequently.
 
 ## Why Valo exists
 
