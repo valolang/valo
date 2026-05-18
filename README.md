@@ -4,7 +4,7 @@
 [![Rust](https://img.shields.io/badge/built%20with-Rust-b7410e)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-<img align="right" src="assets/valo-mascot.png" height="150px" alt="Valo mascot">
+<img align="right" src="assets/valo-mascot.png" height="120px" alt="Valo mascot">
 
 **Valo** is an experimental VBA-inspired runtime written in Rust.
 
