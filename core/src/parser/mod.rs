@@ -126,9 +126,12 @@ pub(super) enum BlockEnd {
     EndIf,
     EndFunction,
     EndProperty,
+    EndSelect,
     EndSub,
     EndType,
     EndClass,
+    Case,
+    Loop,
     Next,
     Wend,
 }

@@ -1,0 +1,17 @@
+Sub Main()
+    Dim i As Integer
+    i = 0
+
+    Do While i < 3
+        Console.WriteLine(i)
+        i = i + 1
+    Loop
+
+    Do
+        If i = 5 Then
+            Exit Do
+        End If
+        Console.WriteLine(i)
+        i = i + 1
+    Loop
+End Sub

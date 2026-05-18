@@ -48,11 +48,18 @@ impl Interpreter {
 
         let mut frame = Frame::default();
         match self.exec_block(&main.body, &mut frame)? {
-            ControlFlow::Continue => Ok(self.output),
+            ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 "Return is only allowed inside Function",
                 Some(main.span),
             )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                "Exit Function is only valid inside Function",
+                Some(main.span),
+            )),
+            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
+                Diagnostic::new("Exit statement escaped its block", Some(main.span)),
+            ),
         }
     }
 }
@@ -1934,5 +1941,591 @@ End Sub
         );
 
         assert!(error.contains("Nothing requires a class object type"));
+    }
+
+    #[test]
+    fn select_case_matches_integer_case() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 2
+
+    Select Case value
+        Case 1
+            Console.WriteLine("one")
+        Case 2
+            Console.WriteLine("two")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["two"]);
+    }
+
+    #[test]
+    fn select_case_matches_string_case() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As String
+    value = "b"
+
+    Select Case value
+        Case "a"
+            Console.WriteLine("a")
+        Case "b"
+            Console.WriteLine("b")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["b"]);
+    }
+
+    #[test]
+    fn select_case_supports_multiple_values() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 4
+
+    Select Case value
+        Case 1, 2
+            Console.WriteLine("low")
+        Case 3, 4
+            Console.WriteLine("high")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["high"]);
+    }
+
+    #[test]
+    fn select_case_else_fallback() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 9
+
+    Select Case value
+        Case 1
+            Console.WriteLine("one")
+        Case Else
+            Console.WriteLine("other")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["other"]);
+    }
+
+    #[test]
+    fn select_case_no_match_without_else_does_nothing() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 9
+
+    Select Case value
+        Case 1
+            Console.WriteLine("one")
+    End Select
+    Console.WriteLine("done")
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["done"]);
+    }
+
+    #[test]
+    fn select_case_else_not_last_is_rejected() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 1
+
+    Select Case value
+        Case Else
+            Console.WriteLine("other")
+        Case 1
+            Console.WriteLine("one")
+    End Select
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Case Else must be last"));
+    }
+
+    #[test]
+    fn nested_select_case_works() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim outer As Integer
+    Dim inner As Integer
+    outer = 1
+    inner = 2
+
+    Select Case outer
+        Case 1
+            Select Case inner
+                Case 2
+                    Console.WriteLine("nested")
+            End Select
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["nested"]);
+    }
+
+    #[test]
+    fn return_inside_select_case_inside_function_works() {
+        let output = run_source(
+            r#"
+Function Label(ByVal value As Integer) As String
+    Select Case value
+        Case 1
+            Return "one"
+        Case Else
+            Return "other"
+    End Select
+End Function
+
+Sub Main()
+    Console.WriteLine(Label(1))
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["one"]);
+    }
+
+    #[test]
+    fn do_while_runs() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    i = 0
+    Do While i < 3
+        Console.WriteLine(i)
+        i = i + 1
+    Loop
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0", "1", "2"]);
+    }
+
+    #[test]
+    fn do_until_runs() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    i = 0
+    Do Until i = 3
+        Console.WriteLine(i)
+        i = i + 1
+    Loop
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0", "1", "2"]);
+    }
+
+    #[test]
+    fn loop_while_runs_body_before_condition() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    i = 0
+    Do
+        Console.WriteLine(i)
+        i = i + 1
+    Loop While i < 3
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0", "1", "2"]);
+    }
+
+    #[test]
+    fn loop_until_runs_body_before_condition() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    i = 0
+    Do
+        Console.WriteLine(i)
+        i = i + 1
+    Loop Until i = 3
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0", "1", "2"]);
+    }
+
+    #[test]
+    fn do_loop_with_exit_do_breaks() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    i = 0
+    Do
+        If i = 3 Then
+            Exit Do
+        End If
+        Console.WriteLine(i)
+        i = i + 1
+    Loop
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0", "1", "2"]);
+    }
+
+    #[test]
+    fn nested_do_loops_exit_nearest_loop() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim outer As Integer
+    Dim inner As Integer
+    outer = 0
+    Do While outer < 2
+        inner = 0
+        Do
+            Exit Do
+            Console.WriteLine("inner")
+        Loop
+        Console.WriteLine(outer)
+        outer = outer + 1
+    Loop
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0", "1"]);
+    }
+
+    #[test]
+    fn missing_loop_reports_readable_error() {
+        let error = Parser::parse_source(
+            r#"
+Sub Main()
+    Do While True
+        Console.WriteLine("open")
+End Sub
+"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("Expected 'Loop'"));
+    }
+
+    #[test]
+    fn do_loop_condition_type_mismatch_is_rejected() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Dim i As Integer
+    i = 1
+    Do While i
+        Exit Do
+    Loop
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Cannot assign Integer value to Boolean variable"));
+    }
+
+    #[test]
+    fn exit_sub_skips_remaining_statements() {
+        let output = run_source(
+            r#"
+Sub StopEarly()
+    Console.WriteLine("before")
+    Exit Sub
+    Console.WriteLine("after")
+End Sub
+
+Sub Main()
+    StopEarly()
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["before"]);
+    }
+
+    #[test]
+    fn exit_for_breaks_loop() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    For i = 1 To 5
+        If i = 3 Then
+            Exit For
+        End If
+        Console.WriteLine(i)
+    Next
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["1", "2"]);
+    }
+
+    #[test]
+    fn exit_while_breaks_loop() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    i = 1
+    While i <= 5
+        If i = 3 Then
+            Exit While
+        End If
+        Console.WriteLine(i)
+        i = i + 1
+    Wend
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["1", "2"]);
+    }
+
+    #[test]
+    fn exit_inside_select_case_works() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 1
+    Select Case value
+        Case 1
+            Exit Sub
+    End Select
+    Console.WriteLine("after")
+End Sub
+"#,
+        );
+
+        assert_eq!(output, Vec::<String>::new());
+    }
+
+    #[test]
+    fn exit_for_outside_for_is_rejected() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Exit For
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Exit For is only valid inside For"));
+    }
+
+    #[test]
+    fn exit_while_outside_while_is_rejected() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Exit While
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Exit While is only valid inside While"));
+    }
+
+    #[test]
+    fn exit_do_outside_do_is_rejected() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Exit Do
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Exit Do is only valid inside Do"));
+    }
+
+    #[test]
+    fn exit_sub_outside_sub_is_rejected() {
+        let error = source_error(
+            r#"
+Function Value() As Integer
+    Exit Sub
+    Return 1
+End Function
+
+Sub Main()
+    Console.WriteLine(Value())
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Exit Sub is only valid inside Sub"));
+    }
+
+    #[test]
+    fn exit_function_in_sub_is_rejected() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Exit Function
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Exit Function is only valid inside Function"));
+    }
+
+    #[test]
+    fn exit_function_in_integer_function_returns_zero() {
+        let output = run_source(
+            r#"
+Function Value() As Integer
+    Exit Function
+    Return 1
+End Function
+
+Sub Main()
+    Console.WriteLine(Value())
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["0"]);
+    }
+
+    #[test]
+    fn exit_function_in_string_function_returns_empty_string() {
+        let output = run_source(
+            r#"
+Function Value() As String
+    Exit Function
+    Return "after"
+End Function
+
+Sub Main()
+    Console.WriteLine("value:" & Value())
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["value:"]);
+    }
+
+    #[test]
+    fn exit_function_in_boolean_function_returns_false() {
+        let output = run_source(
+            r#"
+Function Value() As Boolean
+    Exit Function
+    Return True
+End Function
+
+Sub Main()
+    Console.WriteLine(Value())
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["False"]);
+    }
+
+    #[test]
+    fn exit_function_in_object_function_returns_nothing() {
+        let output = run_source(
+            r#"
+Class User
+End Class
+
+Function Value() As User
+    Exit Function
+    Return New User()
+End Function
+
+Sub Main()
+    If Value() Is Nothing Then
+        Console.WriteLine("nothing")
+    End If
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["nothing"]);
+    }
+
+    #[test]
+    fn return_expression_overrides_exit_function_default() {
+        let output = run_source(
+            r#"
+Function Value() As Integer
+    Return 42
+    Exit Function
+End Function
+
+Sub Main()
+    Console.WriteLine(Value())
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["42"]);
+    }
+
+    #[test]
+    fn nested_loops_exit_nearest_matching_loop() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim outer As Integer
+    Dim inner As Integer
+    For outer = 1 To 2
+        For inner = 1 To 3
+            If inner = 2 Then
+                Exit For
+            End If
+            Console.WriteLine(outer & ":" & inner)
+        Next
+    Next
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["1:1", "2:1"]);
     }
 }

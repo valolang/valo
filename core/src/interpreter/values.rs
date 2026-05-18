@@ -102,7 +102,7 @@ fn compare_values(
     Ok(Value::Boolean(predicate(ordering)))
 }
 
-fn values_equal(left: &Value, right: &Value) -> bool {
+pub(crate) fn values_equal(left: &Value, right: &Value) -> bool {
     match (left, right) {
         (Value::String(a), Value::String(b)) => a == b,
         (Value::Integer(a), Value::Integer(b)) => a == b,

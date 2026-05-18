@@ -1,0 +1,18 @@
+Sub StopEarly()
+    Console.WriteLine("before")
+    Exit Sub
+    Console.WriteLine("after")
+End Sub
+
+Sub Main()
+    Dim i As Integer
+
+    For i = 1 To 10
+        If i = 3 Then
+            Exit For
+        End If
+        Console.WriteLine(i)
+    Next
+
+    StopEarly()
+End Sub

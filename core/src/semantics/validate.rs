@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::runtime::{Diagnostic, TypeName};
 use crate::{
-    BinaryOp, ClassMember, Expr, ExprKind, Function, Parameter, PassingMode, Procedure, Program,
-    PropertyKind, Stmt, UnaryOp, Visibility,
+    BinaryOp, ClassMember, DoLoopCondition, ExitTarget, Expr, ExprKind, Function, Parameter,
+    PassingMode, Procedure, Program, PropertyKind, Stmt, UnaryOp, Visibility,
 };
 
 use crate::semantics::context::Context;
@@ -12,6 +12,30 @@ use crate::semantics::types::{
     ClassFieldSig, ClassMethodSig, ClassPropertySig, ClassSig, FieldSig, PropertyAccessorSig,
     TypeRegistry, TypeSig,
 };
+
+#[derive(Debug, Clone, Copy, Default)]
+struct LoopContext {
+    for_depth: usize,
+    while_depth: usize,
+    do_depth: usize,
+}
+
+impl LoopContext {
+    fn in_for(mut self) -> Self {
+        self.for_depth += 1;
+        self
+    }
+
+    fn in_while(mut self) -> Self {
+        self.while_depth += 1;
+        self
+    }
+
+    fn in_do(mut self) -> Self {
+        self.do_depth += 1;
+        self
+    }
+}
 
 pub fn validate(program: &Program) -> Result<(), Diagnostic> {
     let types = collect_types(program)?;
@@ -68,6 +92,7 @@ fn validate_class(
                     Context::MethodSub {
                         class_name: class_decl.name.clone(),
                     },
+                    LoopContext::default(),
                 )?;
             }
             ClassMember::Function(method) => {
@@ -88,6 +113,7 @@ fn validate_class(
                         return_type: method.function.return_type.clone(),
                         saw_return: &mut saw_return,
                     },
+                    LoopContext::default(),
                 )?;
                 if !saw_return {
                     return Err(Diagnostic::new(
@@ -120,6 +146,7 @@ fn validate_class(
                                 return_type,
                                 saw_return: &mut saw_return,
                             },
+                            LoopContext::default(),
                         )?;
                         if !saw_return {
                             return Err(Diagnostic::new(
@@ -137,6 +164,7 @@ fn validate_class(
                             Context::PropertyLetSet {
                                 class_name: class_decl.name.clone(),
                             },
+                            LoopContext::default(),
                         )?;
                     }
                 }
@@ -511,6 +539,7 @@ fn validate_procedure(
         types,
         signatures,
         Context::Sub,
+        LoopContext::default(),
     )
 }
 
@@ -532,6 +561,7 @@ fn validate_function(
             return_type: function.return_type.clone(),
             saw_return: &mut saw_return,
         },
+        LoopContext::default(),
     )?;
 
     if !saw_return {
@@ -567,6 +597,7 @@ fn validate_statements(
     types: &TypeRegistry,
     signatures: &Signatures,
     mut context: Context<'_>,
+    loop_context: LoopContext,
 ) -> Result<(), Diagnostic> {
     for stmt in statements {
         match stmt {
@@ -739,7 +770,14 @@ fn validate_statements(
                     &validate_expr(condition, symbols, types, signatures)?,
                     condition.span,
                 )?;
-                validate_statements(then_body, symbols, types, signatures, context.reborrow())?;
+                validate_statements(
+                    then_body,
+                    symbols,
+                    types,
+                    signatures,
+                    context.reborrow(),
+                    loop_context,
+                )?;
                 for branch in elseif_branches {
                     ensure_assignable(
                         &TypeName::Boolean,
@@ -752,15 +790,85 @@ fn validate_statements(
                         types,
                         signatures,
                         context.reborrow(),
+                        loop_context,
                     )?;
                 }
-                validate_statements(else_body, symbols, types, signatures, context.reborrow())?;
+                validate_statements(
+                    else_body,
+                    symbols,
+                    types,
+                    signatures,
+                    context.reborrow(),
+                    loop_context,
+                )?;
+            }
+            Stmt::SelectCase {
+                subject,
+                branches,
+                else_body,
+                ..
+            } => {
+                let subject_type = validate_expr(subject, symbols, types, signatures)?;
+                for branch in branches {
+                    for value in &branch.values {
+                        let value_type = validate_expr(value, symbols, types, signatures)?;
+                        ensure_case_comparable(&subject_type, &value_type, value.span)?;
+                    }
+                    validate_statements(
+                        &branch.body,
+                        symbols,
+                        types,
+                        signatures,
+                        context.reborrow(),
+                        loop_context,
+                    )?;
+                }
+                validate_statements(
+                    else_body,
+                    symbols,
+                    types,
+                    signatures,
+                    context.reborrow(),
+                    loop_context,
+                )?;
             }
             Stmt::While {
                 condition, body, ..
             } => {
                 validate_expr(condition, symbols, types, signatures)?;
-                validate_statements(body, symbols, types, signatures, context.reborrow())?;
+                validate_statements(
+                    body,
+                    symbols,
+                    types,
+                    signatures,
+                    context.reborrow(),
+                    loop_context.in_while(),
+                )?;
+            }
+            Stmt::DoLoop {
+                condition, body, ..
+            } => {
+                match condition {
+                    DoLoopCondition::Infinite => {}
+                    DoLoopCondition::PreWhile(condition)
+                    | DoLoopCondition::PreUntil(condition)
+                    | DoLoopCondition::PostWhile(condition)
+                    | DoLoopCondition::PostUntil(condition) => {
+                        ensure_assignable(
+                            &TypeName::Boolean,
+                            &validate_expr(condition, symbols, types, signatures)?,
+                            condition.span,
+                        )?;
+                    }
+                }
+                validate_statements(
+                    body,
+                    symbols,
+                    types,
+                    signatures,
+                    context.reborrow(),
+                    loop_context.in_do(),
+                )?;
             }
             Stmt::For {
                 variable,
@@ -801,7 +909,17 @@ fn validate_statements(
                         step.span,
                     )?;
                 }
-                validate_statements(body, symbols, types, signatures, context.reborrow())?;
+                validate_statements(
+                    body,
+                    symbols,
+                    types,
+                    signatures,
+                    context.reborrow(),
+                    loop_context.in_for(),
+                )?;
+            }
+            Stmt::Exit { target, span } => {
+                validate_exit(*target, *span, &context, loop_context)?;
             }
         }
     }
@@ -1367,6 +1485,78 @@ fn is_object_reference_expr(expr: &Expr, ty: &TypeName, types: &TypeRegistry) ->
 
 fn is_class_type(ty: &TypeName, types: &TypeRegistry) -> bool {
     matches!(ty, TypeName::User(name) if types.get_class(name).is_some())
+}
+
+fn ensure_case_comparable(
+    subject: &TypeName,
+    value: &TypeName,
+    span: crate::runtime::Span,
+) -> Result<(), Diagnostic> {
+    if subject.same_type(&TypeName::Variant)
+        || value.same_type(&TypeName::Variant)
+        || subject.same_type(value)
+    {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            "Case expression type must match Select Case expression type",
+            Some(span),
+        ))
+    }
+}
+
+fn validate_exit(
+    target: ExitTarget,
+    span: crate::runtime::Span,
+    context: &Context<'_>,
+    loop_context: LoopContext,
+) -> Result<(), Diagnostic> {
+    match target {
+        ExitTarget::Sub => match context {
+            Context::Sub | Context::MethodSub { .. } => Ok(()),
+            _ => Err(Diagnostic::new(
+                "Exit Sub is only valid inside Sub",
+                Some(span),
+            )),
+        },
+        ExitTarget::Function => match context {
+            Context::Function { .. } | Context::MethodFunction { .. } => Ok(()),
+            _ => Err(Diagnostic::new(
+                "Exit Function is only valid inside Function",
+                Some(span),
+            )),
+        },
+        ExitTarget::For => {
+            if loop_context.for_depth > 0 {
+                Ok(())
+            } else {
+                Err(Diagnostic::new(
+                    "Exit For is only valid inside For",
+                    Some(span),
+                ))
+            }
+        }
+        ExitTarget::While => {
+            if loop_context.while_depth > 0 {
+                Ok(())
+            } else {
+                Err(Diagnostic::new(
+                    "Exit While is only valid inside While",
+                    Some(span),
+                ))
+            }
+        }
+        ExitTarget::Do => {
+            if loop_context.do_depth > 0 {
+                Ok(())
+            } else {
+                Err(Diagnostic::new(
+                    "Exit Do is only valid inside Do",
+                    Some(span),
+                ))
+            }
+        }
+    }
 }
 
 fn ensure_assignable(

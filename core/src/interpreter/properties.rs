@@ -43,6 +43,17 @@ impl Interpreter {
                 format!("Property Get '{}' must return a value", accessor.name),
                 Some(accessor.span),
             )),
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                "Exit Sub is only valid inside Sub",
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                "Exit Function is only valid inside Function",
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
+                Diagnostic::new("Exit statement escaped its block", Some(span)),
+            ),
         }
     }
 
@@ -102,6 +113,17 @@ impl Interpreter {
                 "Return is only allowed inside Function or Property Get",
                 Some(accessor.span),
             )),
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                "Exit Sub is only valid inside Sub",
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                "Exit Function is only valid inside Function",
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
+                Diagnostic::new("Exit statement escaped its block", Some(span)),
+            ),
         }
     }
 }

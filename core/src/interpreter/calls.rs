@@ -2,7 +2,7 @@ use crate::runtime::{Diagnostic, Span, Value};
 use crate::{Expr, ExprKind, PassingMode};
 
 use super::objects::ensure_object;
-use super::values::{coerce_assignment, key};
+use super::values::{coerce_assignment, default_value, key};
 use super::{ControlFlow, Frame, Interpreter};
 
 impl Interpreter {
@@ -56,6 +56,14 @@ impl Interpreter {
                 format!("Function '{}' must return a value", function.name),
                 Some(function.span),
             )),
+            ControlFlow::ExitFunction => default_value(&function.return_type, &self.types, span),
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                "Exit Sub is only valid inside Sub",
+                Some(function.span),
+            )),
+            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
+                Diagnostic::new("Exit statement escaped its block", Some(span)),
+            ),
         }
     }
 
@@ -105,11 +113,18 @@ impl Interpreter {
         }
 
         match self.exec_block(&procedure.body, &mut frame)? {
-            ControlFlow::Continue => Ok(()),
+            ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 "Return is only allowed inside Function",
                 Some(procedure.span),
             )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                "Exit Function is only valid inside Function",
+                Some(procedure.span),
+            )),
+            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
+                Diagnostic::new("Exit statement escaped its block", Some(span)),
+            ),
         }
     }
 
@@ -140,11 +155,18 @@ impl Interpreter {
         frame.declare_object_alias("me", &class.name, instance, span)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         match self.exec_block(&procedure.body, &mut frame)? {
-            ControlFlow::Continue => Ok(()),
+            ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 "Return is only allowed inside Function",
                 Some(procedure.span),
             )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                "Exit Function is only valid inside Function",
+                Some(procedure.span),
+            )),
+            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
+                Diagnostic::new("Exit statement escaped its block", Some(span)),
+            ),
         }
     }
 
@@ -180,6 +202,14 @@ impl Interpreter {
                 format!("Function '{}' must return a value", function.name),
                 Some(function.span),
             )),
+            ControlFlow::ExitFunction => default_value(&function.return_type, &self.types, span),
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                "Exit Sub is only valid inside Sub",
+                Some(function.span),
+            )),
+            ControlFlow::ExitFor | ControlFlow::ExitWhile | ControlFlow::ExitDo => Err(
+                Diagnostic::new("Exit statement escaped its block", Some(span)),
+            ),
         }
     }
 

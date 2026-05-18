@@ -4,4 +4,9 @@ use crate::runtime::Value;
 pub(crate) enum ControlFlow {
     Continue,
     Return(Value),
+    ExitSub,
+    ExitFunction,
+    ExitFor,
+    ExitWhile,
+    ExitDo,
 }

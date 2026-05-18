@@ -1,0 +1,15 @@
+Sub Main()
+    Dim value As Integer
+    value = 2
+
+    Select Case value
+        Case 1
+            Console.WriteLine("one")
+        Case 2
+            Console.WriteLine("two")
+        Case 3, 4
+            Console.WriteLine("three or four")
+        Case Else
+            Console.WriteLine("other")
+    End Select
+End Sub

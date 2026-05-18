@@ -22,8 +22,11 @@ impl Parser {
         match self.peek_kind() {
             TokenKind::Dim => self.parse_dim(),
             TokenKind::If => self.parse_if(),
+            TokenKind::Select => self.parse_select_case(),
             TokenKind::While => self.parse_while(),
+            TokenKind::Do => self.parse_do_loop(),
             TokenKind::For => self.parse_for(),
+            TokenKind::Exit => self.parse_exit(),
             TokenKind::Set => self.parse_set_assignment(),
             TokenKind::Console => self.parse_console_writeline(),
             TokenKind::Return => self.parse_return(),
@@ -301,6 +304,114 @@ impl Parser {
         })
     }
 
+    fn parse_select_case(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Select, "Expected 'Select'")?
+            .span;
+        self.expect_simple(TokenKind::Case, "Expected 'Case' after 'Select'")?;
+        let subject = self.parse_expression()?;
+        self.expect_newline("Expected newline after Select Case expression")?;
+
+        let mut branches = Vec::new();
+        let mut else_body = Vec::new();
+        let mut saw_else = false;
+        self.skip_newlines();
+        while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndSelect]) {
+            if !self.match_simple(&TokenKind::Case) {
+                return Err(self.error_here("Expected 'Case' or 'End Select'"));
+            }
+
+            if self.match_simple(&TokenKind::Else) {
+                if saw_else {
+                    return Err(self.error_here("Case Else is already declared"));
+                }
+                saw_else = true;
+                self.expect_newline("Expected newline after Case Else")?;
+                else_body = self.parse_block_until(&[BlockEnd::Case, BlockEnd::EndSelect])?;
+                if self.matches_block_end(&[BlockEnd::Case]) {
+                    return Err(self.error_here("Case Else must be last"));
+                }
+            } else {
+                if saw_else {
+                    return Err(self.error_here("Case Else must be last"));
+                }
+                let mut values = Vec::new();
+                loop {
+                    values.push(self.parse_expression()?);
+                    if !self.match_simple(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                self.expect_newline("Expected newline after Case values")?;
+                let body = self.parse_block_until(&[BlockEnd::Case, BlockEnd::EndSelect])?;
+                branches.push(CaseBranch { values, body });
+            }
+            self.skip_newlines();
+        }
+
+        if !self.matches_block_end(&[BlockEnd::EndSelect]) {
+            return Err(self.error_here("Expected 'End Select'"));
+        }
+        self.expect_simple(TokenKind::End, "Expected 'End Select'")?;
+        let end = self
+            .expect_simple(TokenKind::Select, "Expected 'Select' after 'End'")?
+            .span;
+
+        Ok(Stmt::SelectCase {
+            subject,
+            branches,
+            else_body,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_do_loop(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::Do, "Expected 'Do'")?.span;
+        let pre_condition = if self.match_simple(&TokenKind::While) {
+            Some((true, self.parse_expression()?))
+        } else if self.match_simple(&TokenKind::Until) {
+            Some((false, self.parse_expression()?))
+        } else {
+            None
+        };
+        self.expect_newline("Expected newline after Do statement")?;
+
+        let body = self.parse_block_until(&[BlockEnd::Loop])?;
+        if !self.matches_block_end(&[BlockEnd::Loop]) {
+            return Err(self.error_here("Expected 'Loop'"));
+        }
+        let loop_token = self.expect_simple(TokenKind::Loop, "Expected 'Loop'")?;
+
+        let condition = if let Some((is_while, condition)) = pre_condition {
+            if self.check_simple(&TokenKind::While) || self.check_simple(&TokenKind::Until) {
+                return Err(
+                    self.error_here("Do loop cannot have both pre-test and post-test conditions")
+                );
+            }
+            if is_while {
+                DoLoopCondition::PreWhile(condition)
+            } else {
+                DoLoopCondition::PreUntil(condition)
+            }
+        } else if self.match_simple(&TokenKind::While) {
+            DoLoopCondition::PostWhile(self.parse_expression()?)
+        } else if self.match_simple(&TokenKind::Until) {
+            DoLoopCondition::PostUntil(self.parse_expression()?)
+        } else {
+            DoLoopCondition::Infinite
+        };
+        let end = match &condition {
+            DoLoopCondition::PostWhile(expr) | DoLoopCondition::PostUntil(expr) => expr.span,
+            _ => loop_token.span,
+        };
+
+        Ok(Stmt::DoLoop {
+            condition,
+            body,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
     fn parse_for(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect_simple(TokenKind::For, "Expected 'For'")?.span;
         let variable = self.expect_identifier("Expected loop variable after 'For'")?;
@@ -328,12 +439,36 @@ impl Parser {
         })
     }
 
+    fn parse_exit(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::Exit, "Expected 'Exit'")?.span;
+        let token = self.advance();
+        let target = match token.kind {
+            TokenKind::Sub => ExitTarget::Sub,
+            TokenKind::Function => ExitTarget::Function,
+            TokenKind::For => ExitTarget::For,
+            TokenKind::While => ExitTarget::While,
+            TokenKind::Do => ExitTarget::Do,
+            _ => {
+                return Err(Diagnostic::new(
+                    "Expected 'Sub', 'Function', 'For', 'While', or 'Do' after 'Exit'",
+                    Some(token.span),
+                ));
+            }
+        };
+        Ok(Stmt::Exit {
+            target,
+            span: Span::new(start.start, token.span.end),
+        })
+    }
+
     pub(super) fn matches_block_end(&self, ends: &[BlockEnd]) -> bool {
         ends.iter().any(|end| match end {
             BlockEnd::Else => matches!(self.peek_kind(), TokenKind::Else),
             BlockEnd::ElseIf => matches!(self.peek_kind(), TokenKind::ElseIf),
             BlockEnd::Wend => matches!(self.peek_kind(), TokenKind::Wend),
             BlockEnd::Next => matches!(self.peek_kind(), TokenKind::Next),
+            BlockEnd::Loop => matches!(self.peek_kind(), TokenKind::Loop),
+            BlockEnd::Case => matches!(self.peek_kind(), TokenKind::Case),
             BlockEnd::EndIf => {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::If))
@@ -350,6 +485,10 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Property))
             }
+            BlockEnd::EndSelect => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Select))
+            }
             BlockEnd::EndType => {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Type))
@@ -364,7 +503,12 @@ impl Parser {
     pub(super) fn matches_any_block_boundary(&self) -> bool {
         matches!(
             self.peek_kind(),
-            TokenKind::Else | TokenKind::ElseIf | TokenKind::Wend | TokenKind::Next
+            TokenKind::Else
+                | TokenKind::ElseIf
+                | TokenKind::Wend
+                | TokenKind::Next
+                | TokenKind::Loop
+                | TokenKind::Case
         ) || (matches!(self.peek_kind(), TokenKind::End)
             && matches!(
                 self.peek_next_kind(),
@@ -373,6 +517,7 @@ impl Parser {
                         | TokenKind::Sub
                         | TokenKind::Function
                         | TokenKind::Property
+                        | TokenKind::Select
                         | TokenKind::Type
                         | TokenKind::Class
                 )

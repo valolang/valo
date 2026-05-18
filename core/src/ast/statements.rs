@@ -58,8 +58,19 @@ pub enum Stmt {
         else_body: Vec<Stmt>,
         span: Span,
     },
+    SelectCase {
+        subject: Expr,
+        branches: Vec<CaseBranch>,
+        else_body: Vec<Stmt>,
+        span: Span,
+    },
     While {
         condition: Expr,
+        body: Vec<Stmt>,
+        span: Span,
+    },
+    DoLoop {
+        condition: DoLoopCondition,
         body: Vec<Stmt>,
         span: Span,
     },
@@ -71,10 +82,38 @@ pub enum Stmt {
         body: Vec<Stmt>,
         span: Span,
     },
+    Exit {
+        target: ExitTarget,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ElseIfBranch {
     pub condition: Expr,
     pub body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaseBranch {
+    pub values: Vec<Expr>,
+    pub body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DoLoopCondition {
+    Infinite,
+    PreWhile(Expr),
+    PreUntil(Expr),
+    PostWhile(Expr),
+    PostUntil(Expr),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitTarget {
+    Sub,
+    Function,
+    For,
+    While,
+    Do,
 }
