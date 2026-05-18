@@ -87,6 +87,8 @@ impl<'a> Lexer<'a> {
             "get" => TokenKind::Get,
             "let" => TokenKind::Let,
             "set" => TokenKind::Set,
+            "nothing" => TokenKind::Nothing,
+            "is" => TokenKind::Is,
             "new" => TokenKind::New,
             "me" => TokenKind::Me,
             "public" => TokenKind::Public,

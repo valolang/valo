@@ -87,6 +87,11 @@ impl Interpreter {
                 frame.assign(name, value, *span)?;
                 Ok(ControlFlow::Continue)
             }
+            Stmt::SetAssign { name, expr, span } => {
+                let value = self.eval_expr(expr, frame)?;
+                frame.assign(name, value, *span)?;
+                Ok(ControlFlow::Continue)
+            }
             Stmt::ArrayAssign {
                 name,
                 index,
@@ -208,6 +213,7 @@ impl Interpreter {
             ExprKind::String(value) => Ok(Value::String(value.clone())),
             ExprKind::Integer(value) => Ok(Value::Integer(*value)),
             ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
+            ExprKind::Nothing => Ok(Value::Nothing),
             ExprKind::Me => frame.get("me", expr.span),
             ExprKind::New { class_name, args } => {
                 self.new_object(class_name, args, frame, expr.span)
@@ -421,12 +427,7 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let Value::Object(instance) = object else {
-            return Err(Diagnostic::new(
-                "Method call requires an object",
-                Some(span),
-            ));
-        };
+        let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
             .classes
@@ -461,12 +462,7 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let Value::Object(instance) = object else {
-            return Err(Diagnostic::new(
-                "Method call requires an object",
-                Some(span),
-            ));
-        };
+        let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
             .classes
@@ -499,12 +495,7 @@ impl Interpreter {
         property: &str,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let Value::Object(instance) = object else {
-            return Err(Diagnostic::new(
-                "Property access requires an object",
-                Some(span),
-            ));
-        };
+        let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
             .classes
@@ -545,12 +536,7 @@ impl Interpreter {
         value: Value,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let Value::Object(instance) = object else {
-            return Err(Diagnostic::new(
-                "Property assignment requires an object",
-                Some(span),
-            ));
-        };
+        let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
             .classes
@@ -568,7 +554,7 @@ impl Interpreter {
                 Some(span),
             )
         })?;
-        let accessor = if matches!(value, Value::Object(_)) {
+        let accessor = if matches!(value, Value::Object(_) | Value::Nothing) {
             property_sig.set.as_ref().or(property_sig.let_.as_ref())
         } else {
             property_sig.let_.as_ref()
@@ -611,6 +597,9 @@ impl Interpreter {
     ) -> Result<Value, Diagnostic> {
         if object_has_field(value, member) {
             return read_field_member(value, member, span);
+        }
+        if matches!(value, Value::Nothing) {
+            return Err(Diagnostic::new("Object reference is Nothing", Some(span)));
         }
         if matches!(value, Value::Object(_)) {
             return self.call_property_get(value.clone(), member, span);
@@ -922,6 +911,7 @@ fn eval_binary(left: Value, op: BinaryOp, right: Value, span: Span) -> Result<Va
         BinaryOp::LogicalOr => boolean_binary(left, right, span, |a, b| a || b),
         BinaryOp::Equal => Ok(Value::Boolean(values_equal(&left, &right))),
         BinaryOp::NotEqual => Ok(Value::Boolean(!values_equal(&left, &right))),
+        BinaryOp::Is => Ok(Value::Boolean(values_identical(&left, &right))),
         BinaryOp::Less => compare_values(left, right, span, |ord| ord.is_lt()),
         BinaryOp::Greater => compare_values(left, right, span, |ord| ord.is_gt()),
         BinaryOp::LessEqual => compare_values(left, right, span, |ord| ord.is_le()),
@@ -994,6 +984,14 @@ fn values_equal(left: &Value, right: &Value) -> bool {
     }
 }
 
+fn values_identical(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Nothing, Value::Nothing) => true,
+        (Value::Object(left), Value::Object(right)) => Rc::ptr_eq(left, right),
+        _ => false,
+    }
+}
+
 fn default_value(
     ty: &TypeName,
     types: &HashMap<String, RuntimeType>,
@@ -1010,7 +1008,7 @@ fn default_value(
         .get(&key(name))
         .ok_or_else(|| Diagnostic::new(format!("Type '{}' is not defined", name), Some(span)));
     let Ok(type_def) = type_def else {
-        return Ok(Value::Empty);
+        return Ok(Value::Nothing);
     };
 
     let mut fields = HashMap::new();
@@ -1031,6 +1029,17 @@ fn object_has_field(value: &Value, field: &str) -> bool {
     false
 }
 
+fn ensure_object(value: Value, span: Span) -> Result<Rc<RefCell<ObjectValue>>, Diagnostic> {
+    match value {
+        Value::Object(object) => Ok(object),
+        Value::Nothing => Err(Diagnostic::new("Object reference is Nothing", Some(span))),
+        _ => Err(Diagnostic::new(
+            "Method call requires an object",
+            Some(span),
+        )),
+    }
+}
+
 fn read_field_member(value: &Value, field: &str, span: Span) -> Result<Value, Diagnostic> {
     if let Value::Object(object) = value {
         let object = object.borrow();
@@ -1040,6 +1049,9 @@ fn read_field_member(value: &Value, field: &str, span: Span) -> Result<Value, Di
                 Some(span),
             )
         });
+    }
+    if matches!(value, Value::Nothing) {
+        return Err(Diagnostic::new("Object reference is Nothing", Some(span)));
     }
     let Value::Record { type_name, fields } = value else {
         return Err(Diagnostic::new(
@@ -1118,6 +1130,9 @@ fn write_member(
         *slot = coerce_assignment(&ty, new_value, span)?;
         return Ok(());
     }
+    if matches!(value, Value::Nothing) {
+        return Err(Diagnostic::new("Object reference is Nothing", Some(span)));
+    }
     let Value::Record { type_name, fields } = value else {
         return Err(Diagnostic::new(
             "Member assignment requires a user-defined Type value",
@@ -1138,6 +1153,9 @@ fn write_member(
 }
 
 fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Value, Diagnostic> {
+    if matches!(value, Value::Nothing) && matches!(ty, TypeName::User(_)) {
+        return Ok(value);
+    }
     if ty.same_type(&TypeName::Variant) || ty.same_type(&value.type_name()) {
         Ok(value)
     } else {
@@ -2909,5 +2927,242 @@ End Sub
         );
 
         assert_eq!(output, vec!["Valo"]);
+    }
+
+    #[test]
+    fn set_object_assignment_works() {
+        let output = run_source(
+            r#"
+Class User
+    Public Name As String
+
+    Public Sub Initialize(ByVal name As String)
+        Me.Name = name
+    End Sub
+End Class
+
+Sub Main()
+    Dim user As User
+    Set user = New User("Valo")
+    Console.WriteLine(user.Name)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Valo"]);
+    }
+
+    #[test]
+    fn normal_object_assignment_still_works() {
+        let output = run_source(
+            r#"
+Class User
+    Public Name As String
+End Class
+
+Sub Main()
+    Dim user As User
+    Dim aliasUser As User
+    user = New User()
+    user.Name = "Valo"
+    aliasUser = user
+    Console.WriteLine(aliasUser.Name)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Valo"]);
+    }
+
+    #[test]
+    fn class_variable_defaults_to_nothing() {
+        let output = run_source(
+            r#"
+Class User
+End Class
+
+Sub Main()
+    Dim user As User
+    If user Is Nothing Then
+        Console.WriteLine("empty")
+    End If
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["empty"]);
+    }
+
+    #[test]
+    fn field_access_on_nothing_errors_clearly() {
+        let error = source_error(
+            r#"
+Class User
+    Public Name As String
+End Class
+
+Sub Main()
+    Dim user As User
+    Console.WriteLine(user.Name)
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Object reference is Nothing"));
+    }
+
+    #[test]
+    fn method_call_on_nothing_errors_clearly() {
+        let error = source_error(
+            r#"
+Class User
+    Public Sub Rename(ByVal value As String)
+    End Sub
+End Class
+
+Sub Main()
+    Dim user As User
+    user.Rename("Valo")
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Object reference is Nothing"));
+    }
+
+    #[test]
+    fn set_user_to_nothing() {
+        let output = run_source(
+            r#"
+Class User
+End Class
+
+Sub Main()
+    Dim user As User
+    Set user = New User()
+    Set user = Nothing
+    If user Is Nothing Then
+        Console.WriteLine("empty")
+    End If
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["empty"]);
+    }
+
+    #[test]
+    fn is_nothing_false_after_new() {
+        let output = run_source(
+            r#"
+Class User
+End Class
+
+Sub Main()
+    Dim user As User
+    Set user = New User()
+    If Not (user Is Nothing) Then
+        Console.WriteLine("present")
+    End If
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["present"]);
+    }
+
+    #[test]
+    fn object_identity_with_is() {
+        let output = run_source(
+            r#"
+Class User
+End Class
+
+Sub Main()
+    Dim user As User
+    Dim aliasUser As User
+    Set user = New User()
+    Set aliasUser = user
+    If user Is aliasUser Then
+        Console.WriteLine("same")
+    End If
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["same"]);
+    }
+
+    #[test]
+    fn set_rejected_for_integer() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Dim value As Integer
+    Set value = 1
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Set target must be a class type"));
+    }
+
+    #[test]
+    fn set_rejected_for_string() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Dim value As String
+    Set value = "Valo"
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Set target must be a class type"));
+    }
+
+    #[test]
+    fn nothing_rejected_for_builtin_values() {
+        for source in [
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = Nothing
+End Sub
+"#,
+            r#"
+Sub Main()
+    Dim value As String
+    value = Nothing
+End Sub
+"#,
+            r#"
+Sub Main()
+    Dim value As Boolean
+    value = Nothing
+End Sub
+"#,
+        ] {
+            let error = source_error(source);
+            assert!(error.contains("Nothing requires a class object type"));
+        }
+    }
+
+    #[test]
+    fn nothing_rejected_for_type_records() {
+        let error = source_error(
+            r#"
+Type User
+    Name As String
+End Type
+
+Sub Main()
+    Dim user As User
+    user = Nothing
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Nothing requires a class object type"));
     }
 }

@@ -11,6 +11,7 @@ pub enum ExprKind {
     String(String),
     Integer(i64),
     Boolean(bool),
+    Nothing,
     Me,
     Variable(String),
     New {
@@ -57,6 +58,7 @@ pub enum BinaryOp {
     Greater,
     LessEqual,
     GreaterEqual,
+    Is,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

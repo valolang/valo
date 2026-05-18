@@ -19,6 +19,8 @@ pub enum TokenKind {
     Get,
     Let,
     Set,
+    Nothing,
+    Is,
     New,
     Me,
     Public,

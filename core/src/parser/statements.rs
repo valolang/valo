@@ -24,6 +24,7 @@ impl Parser {
             TokenKind::If => self.parse_if(),
             TokenKind::While => self.parse_while(),
             TokenKind::For => self.parse_for(),
+            TokenKind::Set => self.parse_set_assignment(),
             TokenKind::Console => self.parse_console_writeline(),
             TokenKind::Return => self.parse_return(),
             TokenKind::Identifier(_) | TokenKind::Me => self.parse_identifier_statement(),
@@ -76,6 +77,20 @@ impl Parser {
         let end = expr.span;
 
         Ok(Stmt::Assign {
+            name,
+            expr,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_set_assignment(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::Set, "Expected 'Set'")?.span;
+        let name = self.expect_identifier("Expected variable name after 'Set'")?;
+        self.expect_simple(TokenKind::Equal, "Expected '=' in Set assignment")?;
+        let expr = self.parse_expression()?;
+        let end = expr.span;
+
+        Ok(Stmt::SetAssign {
             name,
             expr,
             span: Span::new(start.start, end.end),

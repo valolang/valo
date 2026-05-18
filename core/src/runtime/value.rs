@@ -16,6 +16,7 @@ pub enum Value {
         fields: HashMap<String, Value>,
     },
     Object(Rc<RefCell<ObjectValue>>),
+    Nothing,
     Empty,
 }
 
@@ -34,6 +35,7 @@ impl Value {
             Value::Array { .. } => TypeName::Variant,
             Value::Record { type_name, .. } => TypeName::User(type_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
+            Value::Nothing => TypeName::Variant,
             Value::Empty => TypeName::Variant,
         }
     }
@@ -46,6 +48,7 @@ impl Value {
             Value::Array { elements, .. } => !elements.is_empty(),
             Value::Record { .. } => true,
             Value::Object(_) => true,
+            Value::Nothing => false,
             Value::Empty => false,
         }
     }
@@ -64,6 +67,7 @@ impl Value {
             Value::Array { .. } => "<Array>".to_string(),
             Value::Record { type_name, .. } => format!("<{}>", type_name),
             Value::Object(object) => format!("<{}>", object.borrow().class_name),
+            Value::Nothing => "Nothing".to_string(),
             Value::Empty => String::new(),
         }
     }

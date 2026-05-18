@@ -184,6 +184,7 @@ impl Parser {
             TokenKind::Integer(value) => ExprKind::Integer(value),
             TokenKind::True => ExprKind::Boolean(true),
             TokenKind::False => ExprKind::Boolean(false),
+            TokenKind::Nothing => ExprKind::Nothing,
             TokenKind::Me => ExprKind::Me,
             TokenKind::New => {
                 let class_name = self.expect_identifier("Expected class name after 'New'")?;
@@ -273,6 +274,7 @@ impl Parser {
             TokenKind::Greater => BinaryOp::Greater,
             TokenKind::LessEqual => BinaryOp::LessEqual,
             TokenKind::GreaterEqual => BinaryOp::GreaterEqual,
+            TokenKind::Is => BinaryOp::Is,
             _ => return None,
         };
         self.advance();

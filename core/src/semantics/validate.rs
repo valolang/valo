@@ -605,7 +605,29 @@ fn validate_statements(
                     ));
                 };
                 let expr_type = validate_expr(expr, symbols, types, signatures)?;
-                ensure_assignable(&target_type, &expr_type, *span)?;
+                ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
+            }
+            Stmt::SetAssign { name, expr, span } => {
+                let Some(target_type) = symbols.get(&key(name)).cloned() else {
+                    return Err(Diagnostic::new(
+                        format!("Variable '{}' is not declared", name),
+                        Some(*span),
+                    ));
+                };
+                let VarType::Scalar(target_type) = target_type else {
+                    return Err(Diagnostic::new(
+                        format!("Array variable '{}' cannot be used as a scalar", name),
+                        Some(*span),
+                    ));
+                };
+                ensure_class_type(
+                    &target_type,
+                    types,
+                    *span,
+                    "Set target must be a class type",
+                )?;
+                let expr_type = validate_expr(expr, symbols, types, signatures)?;
+                ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
             }
             Stmt::ArrayAssign {
                 name,
@@ -631,7 +653,7 @@ fn validate_statements(
                     index.span,
                 )?;
                 let expr_type = validate_expr(expr, symbols, types, signatures)?;
-                ensure_assignable(&element_type, &expr_type, *span)?;
+                ensure_assignable_expr(&element_type, &expr_type, expr, types, *span)?;
             }
             Stmt::MemberAssign {
                 target,
@@ -650,7 +672,7 @@ fn validate_statements(
                     *span,
                     current_class.as_deref(),
                 )?;
-                ensure_assignable(&target_type, &expr_type, *span)?;
+                ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
             }
             Stmt::ConsoleWriteLine { args, .. } => {
                 for arg in args {
@@ -701,7 +723,7 @@ fn validate_statements(
                     ..
                 } => {
                     let expr_type = validate_expr(expr, symbols, types, signatures)?;
-                    ensure_assignable(return_type, &expr_type, *span)?;
+                    ensure_assignable_expr(return_type, &expr_type, expr, types, *span)?;
                     **saw_return = true;
                 }
             },
@@ -821,6 +843,7 @@ fn validate_expr(
         ExprKind::String(_) => Ok(TypeName::String),
         ExprKind::Integer(_) => Ok(TypeName::Integer),
         ExprKind::Boolean(_) => Ok(TypeName::Boolean),
+        ExprKind::Nothing => Ok(TypeName::Variant),
         ExprKind::Me => match symbols.get("me").cloned() {
             Some(VarType::Scalar(ty)) => Ok(ty),
             _ => Err(Diagnostic::new(
@@ -945,6 +968,18 @@ fn validate_expr(
                     Ok(TypeName::Boolean)
                 }
                 BinaryOp::Equal | BinaryOp::NotEqual => Ok(TypeName::Boolean),
+                BinaryOp::Is => {
+                    if is_object_reference_expr(left, &left_type, types)
+                        && is_object_reference_expr(right, &right_type, types)
+                    {
+                        Ok(TypeName::Boolean)
+                    } else {
+                        Err(Diagnostic::new(
+                            "'Is' requires class object operands or Nothing",
+                            Some(expr.span),
+                        ))
+                    }
+                }
                 BinaryOp::Less
                 | BinaryOp::Greater
                 | BinaryOp::LessEqual
@@ -1010,7 +1045,7 @@ fn validate_arguments(
         match param.mode {
             PassingMode::ByVal => {
                 let arg_type = validate_expr(arg, symbols, types, signatures)?;
-                ensure_assignable(&param.ty, &arg_type, arg.span)?;
+                ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)?;
             }
             PassingMode::ByRef => {
                 let ExprKind::Variable(name) = &arg.kind else {
@@ -1236,21 +1271,21 @@ fn member_assignment_type(
             Some(span),
         )
     })?;
-    let accessor = if matches!(value_type, TypeName::User(name) if types.get_class(name).is_some())
-    {
-        property_sig.set.as_ref().or(property_sig.let_.as_ref())
-    } else {
-        property_sig.let_.as_ref()
-    }
-    .ok_or_else(|| {
-        Diagnostic::new(
-            format!(
-                "Property '{}' has no Let or Set accessor",
-                property_sig.name
-            ),
-            Some(span),
-        )
-    })?;
+    let accessor =
+        if is_class_type(value_type, types) || value_type.same_type(&TypeName::Variant) {
+            property_sig.set.as_ref().or(property_sig.let_.as_ref())
+        } else {
+            property_sig.let_.as_ref()
+        }
+        .ok_or_else(|| {
+            Diagnostic::new(
+                format!(
+                    "Property '{}' has no Let or Set accessor",
+                    property_sig.name
+                ),
+                Some(span),
+            )
+        })?;
     ensure_visible(
         accessor.visibility,
         &class_sig.name,
@@ -1298,6 +1333,40 @@ fn ensure_known_type(
             }
         }
     }
+}
+
+fn ensure_assignable_expr(
+    target: &TypeName,
+    source: &TypeName,
+    source_expr: &Expr,
+    types: &TypeRegistry,
+    span: crate::runtime::Span,
+) -> Result<(), Diagnostic> {
+    if matches!(source_expr.kind, ExprKind::Nothing) {
+        return ensure_class_type(target, types, span, "Nothing requires a class object type");
+    }
+    ensure_assignable(target, source, span)
+}
+
+fn ensure_class_type(
+    ty: &TypeName,
+    types: &TypeRegistry,
+    span: crate::runtime::Span,
+    message: &str,
+) -> Result<(), Diagnostic> {
+    if is_class_type(ty, types) {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(message, Some(span)))
+    }
+}
+
+fn is_object_reference_expr(expr: &Expr, ty: &TypeName, types: &TypeRegistry) -> bool {
+    matches!(expr.kind, ExprKind::Nothing) || is_class_type(ty, types)
+}
+
+fn is_class_type(ty: &TypeName, types: &TypeRegistry) -> bool {
+    matches!(ty, TypeName::User(name) if types.get_class(name).is_some())
 }
 
 fn ensure_assignable(

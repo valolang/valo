@@ -1,0 +1,27 @@
+Class User
+    Public Name As String
+
+    Public Sub Initialize(ByVal name As String)
+        Me.Name = name
+    End Sub
+End Class
+
+Sub Main()
+    Dim user As User
+    Dim aliasUser As User
+
+    Set user = New User("Valo")
+    Set aliasUser = user
+
+    Console.WriteLine(user.Name)
+
+    If user Is aliasUser Then
+        Console.WriteLine("same")
+    End If
+
+    Set user = Nothing
+
+    If user Is Nothing Then
+        Console.WriteLine("empty")
+    End If
+End Sub

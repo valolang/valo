@@ -15,6 +15,11 @@ pub enum Stmt {
         expr: Expr,
         span: Span,
     },
+    SetAssign {
+        name: String,
+        expr: Expr,
+        span: Span,
+    },
     ArrayAssign {
         name: String,
         index: Expr,
