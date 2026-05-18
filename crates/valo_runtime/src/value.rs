@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use crate::TypeName;
 
@@ -15,7 +15,14 @@ pub enum Value {
         type_name: String,
         fields: HashMap<String, Value>,
     },
+    Object(Rc<RefCell<ObjectValue>>),
     Empty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectValue {
+    pub class_name: String,
+    pub fields: HashMap<String, Value>,
 }
 
 impl Value {
@@ -26,6 +33,7 @@ impl Value {
             Value::Boolean(_) => TypeName::Boolean,
             Value::Array { .. } => TypeName::Variant,
             Value::Record { type_name, .. } => TypeName::User(type_name.clone()),
+            Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
             Value::Empty => TypeName::Variant,
         }
     }
@@ -37,6 +45,7 @@ impl Value {
             Value::String(value) => !value.is_empty(),
             Value::Array { elements, .. } => !elements.is_empty(),
             Value::Record { .. } => true,
+            Value::Object(_) => true,
             Value::Empty => false,
         }
     }
@@ -54,6 +63,7 @@ impl Value {
             }
             Value::Array { .. } => "<Array>".to_string(),
             Value::Record { type_name, .. } => format!("<{}>", type_name),
+            Value::Object(object) => format!("<{}>", object.borrow().class_name),
             Value::Empty => String::new(),
         }
     }

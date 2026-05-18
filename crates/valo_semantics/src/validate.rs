@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use valo_parser::{
-    BinaryOp, Expr, ExprKind, Function, Parameter, PassingMode, Procedure, Program, Stmt, UnaryOp,
+    BinaryOp, ClassMember, Expr, ExprKind, Function, Parameter, PassingMode, Procedure, Program,
+    Stmt, UnaryOp, Visibility,
 };
 use valo_runtime::{Diagnostic, TypeName};
 
 use crate::context::Context;
 use crate::symbols::{CallableSig, ParamSig, Signatures, VarType, key};
-use crate::types::{FieldSig, TypeRegistry, TypeSig};
+use crate::types::{ClassFieldSig, ClassMethodSig, ClassSig, FieldSig, TypeRegistry, TypeSig};
 
 pub fn validate(program: &Program) -> Result<(), Diagnostic> {
     let types = collect_types(program)?;
@@ -34,7 +35,66 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
     for function in &program.functions {
         validate_function(function, &types, &signatures)?;
     }
+    for class_decl in &program.classes {
+        validate_class(class_decl, &types, &signatures)?;
+    }
 
+    Ok(())
+}
+
+fn validate_class(
+    class_decl: &valo_parser::ClassDecl,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+) -> Result<(), Diagnostic> {
+    for member in &class_decl.members {
+        match member {
+            ClassMember::Field(_) => {}
+            ClassMember::Sub(method) => {
+                let mut symbols = HashMap::new();
+                symbols.insert(
+                    "me".to_string(),
+                    VarType::Scalar(TypeName::User(class_decl.name.clone())),
+                );
+                add_parameters(&method.procedure.params, &mut symbols)?;
+                validate_statements(
+                    &method.procedure.body,
+                    &mut symbols,
+                    types,
+                    signatures,
+                    Context::MethodSub {
+                        class_name: class_decl.name.clone(),
+                    },
+                )?;
+            }
+            ClassMember::Function(method) => {
+                let mut symbols = HashMap::new();
+                symbols.insert(
+                    "me".to_string(),
+                    VarType::Scalar(TypeName::User(class_decl.name.clone())),
+                );
+                add_parameters(&method.function.params, &mut symbols)?;
+                let mut saw_return = false;
+                validate_statements(
+                    &method.function.body,
+                    &mut symbols,
+                    types,
+                    signatures,
+                    Context::MethodFunction {
+                        class_name: class_decl.name.clone(),
+                        return_type: method.function.return_type.clone(),
+                        saw_return: &mut saw_return,
+                    },
+                )?;
+                if !saw_return {
+                    return Err(Diagnostic::new(
+                        format!("Function '{}' must return a value", method.function.name),
+                        Some(method.function.span),
+                    ));
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -79,10 +139,121 @@ fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
         );
     }
 
-    let registry = TypeRegistry { types };
+    let mut classes = HashMap::new();
+    for class_decl in &program.classes {
+        let class_key = key(&class_decl.name);
+        if types.contains_key(&class_key) || classes.contains_key(&class_key) {
+            return Err(Diagnostic::new(
+                format!("Class '{}' is already defined", class_decl.name),
+                Some(class_decl.span),
+            ));
+        }
+
+        let mut fields = HashMap::new();
+        let mut subs = HashMap::new();
+        let mut functions = HashMap::new();
+        for member in &class_decl.members {
+            match member {
+                ClassMember::Field(field) => {
+                    let field_key = key(&field.name);
+                    if fields.contains_key(&field_key) {
+                        return Err(Diagnostic::new(
+                            format!(
+                                "Field '{}' is already declared in Class '{}'",
+                                field.name, class_decl.name
+                            ),
+                            Some(field.span),
+                        ));
+                    }
+                    fields.insert(
+                        field_key,
+                        ClassFieldSig {
+                            visibility: field.visibility,
+                            ty: field.ty.clone(),
+                        },
+                    );
+                }
+                ClassMember::Sub(method) => {
+                    let method_key = key(&method.procedure.name);
+                    if subs.contains_key(&method_key) || functions.contains_key(&method_key) {
+                        return Err(Diagnostic::new(
+                            format!(
+                                "Method '{}' is already declared in Class '{}'",
+                                method.procedure.name, class_decl.name
+                            ),
+                            Some(method.procedure.span),
+                        ));
+                    }
+                    subs.insert(
+                        method_key,
+                        ClassMethodSig {
+                            visibility: method.visibility,
+                            name: method.procedure.name.clone(),
+                            params: params_to_sigs(&method.procedure.params),
+                            return_type: None,
+                        },
+                    );
+                }
+                ClassMember::Function(method) => {
+                    let method_key = key(&method.function.name);
+                    if subs.contains_key(&method_key) || functions.contains_key(&method_key) {
+                        return Err(Diagnostic::new(
+                            format!(
+                                "Method '{}' is already declared in Class '{}'",
+                                method.function.name, class_decl.name
+                            ),
+                            Some(method.function.span),
+                        ));
+                    }
+                    functions.insert(
+                        method_key,
+                        ClassMethodSig {
+                            visibility: method.visibility,
+                            name: method.function.name.clone(),
+                            params: params_to_sigs(&method.function.params),
+                            return_type: Some(method.function.return_type.clone()),
+                        },
+                    );
+                }
+            }
+        }
+        classes.insert(
+            class_key,
+            ClassSig {
+                name: class_decl.name.clone(),
+                fields,
+                subs,
+                functions,
+            },
+        );
+    }
+
+    let registry = TypeRegistry { types, classes };
     for type_decl in &program.types {
         for field in &type_decl.fields {
             ensure_known_type(&field.ty, &registry, field.span)?;
+        }
+    }
+    for class_decl in &program.classes {
+        for member in &class_decl.members {
+            match member {
+                ClassMember::Field(field) => ensure_known_type(&field.ty, &registry, field.span)?,
+                ClassMember::Sub(method) => {
+                    for param in &method.procedure.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                }
+                ClassMember::Function(method) => {
+                    ensure_known_type(
+                        &method.function.return_type,
+                        &registry,
+                        method.function.span,
+                    )?;
+                    for param in &method.function.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                }
+            }
         }
     }
 
@@ -96,6 +267,9 @@ fn collect_signatures(program: &Program, types: &TypeRegistry) -> Result<Signatu
 
     for type_decl in &program.types {
         names.insert(key(&type_decl.name), "Type");
+    }
+    for class_decl in &program.classes {
+        names.insert(key(&class_decl.name), "Class");
     }
 
     for procedure in &program.procedures {
@@ -117,6 +291,7 @@ fn collect_signatures(program: &Program, types: &TypeRegistry) -> Result<Signatu
         subs.insert(
             name_key,
             CallableSig {
+                visibility: Visibility::Public,
                 name: procedure.name.clone(),
                 params: params_to_sigs(&procedure.params),
                 return_type: None,
@@ -144,6 +319,7 @@ fn collect_signatures(program: &Program, types: &TypeRegistry) -> Result<Signatu
         functions.insert(
             name_key,
             CallableSig {
+                visibility: Visibility::Public,
                 name: function.name.clone(),
                 params: params_to_sigs(&function.params),
                 return_type: Some(function.return_type.clone()),
@@ -306,7 +482,9 @@ fn validate_statements(
                 span,
             } => {
                 let target_type = validate_expr(target, symbols, types, signatures)?;
-                let field_type = field_type(&target_type, field, types, *span)?;
+                let current_class = member_access_class(target, &target_type);
+                let field_type =
+                    field_type(&target_type, field, types, *span, current_class.as_deref())?;
                 let expr_type = validate_expr(expr, symbols, types, signatures)?;
                 ensure_assignable(&field_type, &expr_type, *span)?;
             }
@@ -318,8 +496,27 @@ fn validate_statements(
             Stmt::SubCall { name, args, span } => {
                 validate_sub_call(name, args, *span, symbols, types, signatures)?;
             }
+            Stmt::MemberSubCall {
+                object,
+                method,
+                args,
+                span,
+            } => {
+                let object_type = validate_expr(object, symbols, types, signatures)?;
+                validate_method_call(
+                    &object_type,
+                    method,
+                    args,
+                    false,
+                    *span,
+                    symbols,
+                    types,
+                    signatures,
+                    context.current_class(),
+                )?;
+            }
             Stmt::Return { expr, span } => match &mut context {
-                Context::Sub => {
+                Context::Sub | Context::MethodSub { .. } => {
                     return Err(Diagnostic::new(
                         "Return is only allowed inside Function",
                         Some(*span),
@@ -328,6 +525,11 @@ fn validate_statements(
                 Context::Function {
                     return_type,
                     saw_return,
+                }
+                | Context::MethodFunction {
+                    return_type,
+                    saw_return,
+                    ..
                 } => {
                     let expr_type = validate_expr(expr, symbols, types, signatures)?;
                     ensure_assignable(return_type, &expr_type, *span)?;
@@ -450,6 +652,30 @@ fn validate_expr(
         ExprKind::String(_) => Ok(TypeName::String),
         ExprKind::Integer(_) => Ok(TypeName::Integer),
         ExprKind::Boolean(_) => Ok(TypeName::Boolean),
+        ExprKind::Me => match symbols.get("me").cloned() {
+            Some(VarType::Scalar(ty)) => Ok(ty),
+            _ => Err(Diagnostic::new(
+                "Me is only valid inside class methods",
+                Some(expr.span),
+            )),
+        },
+        ExprKind::New { class_name, args } => {
+            let class_sig = types.get_class(class_name).ok_or_else(|| {
+                Diagnostic::new(
+                    format!("Class '{}' is not defined", class_name),
+                    Some(expr.span),
+                )
+            })?;
+            if let Some(init) = class_sig.subs.get("initialize") {
+                validate_arguments("Sub", init, args, symbols, types, signatures, expr.span)?;
+            } else if !args.is_empty() {
+                return Err(Diagnostic::new(
+                    format!("Class '{}' has no Initialize constructor", class_sig.name),
+                    Some(expr.span),
+                ));
+            }
+            Ok(TypeName::User(class_sig.name.clone()))
+        }
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
             Some(VarType::Scalar(ty)) => Ok(ty),
             Some(VarType::Array(_)) => Err(Diagnostic::new(
@@ -463,7 +689,32 @@ fn validate_expr(
         },
         ExprKind::MemberAccess { object, field } => {
             let object_type = validate_expr(object, symbols, types, signatures)?;
-            field_type(&object_type, field, types, expr.span)
+            let current_class = member_access_class(object, &object_type);
+            field_type(
+                &object_type,
+                field,
+                types,
+                expr.span,
+                current_class.as_deref(),
+            )
+        }
+        ExprKind::MemberCall {
+            object,
+            method,
+            args,
+        } => {
+            let object_type = validate_expr(object, symbols, types, signatures)?;
+            validate_method_call(
+                &object_type,
+                method,
+                args,
+                true,
+                expr.span,
+                symbols,
+                types,
+                signatures,
+                member_access_class(object, &object_type).as_deref(),
+            )
         }
         ExprKind::Call { name, args } => {
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
@@ -623,11 +874,94 @@ fn validate_arguments(
     Ok(())
 }
 
+fn validate_method_call(
+    object_type: &TypeName,
+    method: &str,
+    args: &[Expr],
+    as_expression: bool,
+    span: valo_runtime::Span,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+    current_class: Option<&str>,
+) -> Result<TypeName, Diagnostic> {
+    let TypeName::User(class_name) = object_type else {
+        return Err(Diagnostic::new(
+            "Method call requires a class instance",
+            Some(span),
+        ));
+    };
+    let class_sig = types.get_class(class_name).ok_or_else(|| {
+        Diagnostic::new(format!("Class '{}' is not defined", class_name), Some(span))
+    })?;
+
+    if as_expression {
+        let Some(method_sig) = class_sig.functions.get(&key(method)) else {
+            if class_sig.subs.contains_key(&key(method)) {
+                return Err(Diagnostic::new(
+                    format!("Sub method '{}' cannot be used as an expression", method),
+                    Some(span),
+                ));
+            }
+            return Err(Diagnostic::new(
+                format!("Class '{}' has no method '{}'", class_sig.name, method),
+                Some(span),
+            ));
+        };
+        ensure_visible(
+            method_sig.visibility,
+            &class_sig.name,
+            method,
+            current_class,
+            span,
+        )?;
+        validate_arguments(
+            "Function", method_sig, args, symbols, types, signatures, span,
+        )?;
+        Ok(method_sig.return_type.clone().expect("function return"))
+    } else {
+        let Some(method_sig) = class_sig.subs.get(&key(method)) else {
+            if class_sig.functions.contains_key(&key(method)) {
+                return Err(Diagnostic::new(
+                    format!(
+                        "Function method '{}' cannot be called as a statement",
+                        method
+                    ),
+                    Some(span),
+                ));
+            }
+            return Err(Diagnostic::new(
+                format!("Class '{}' has no method '{}'", class_sig.name, method),
+                Some(span),
+            ));
+        };
+        ensure_visible(
+            method_sig.visibility,
+            &class_sig.name,
+            method,
+            current_class,
+            span,
+        )?;
+        validate_arguments("Sub", method_sig, args, symbols, types, signatures, span)?;
+        Ok(TypeName::Variant)
+    }
+}
+
+fn member_access_class(object: &Expr, object_type: &TypeName) -> Option<String> {
+    if matches!(object.kind, ExprKind::Me) {
+        if let TypeName::User(name) = object_type {
+            return Some(name.clone());
+        }
+    }
+    None
+}
+
 fn field_type(
     object_type: &TypeName,
     field: &str,
     types: &TypeRegistry,
     span: valo_runtime::Span,
+    current_class: Option<&str>,
 ) -> Result<TypeName, Diagnostic> {
     let TypeName::User(type_name) = object_type else {
         return Err(Diagnostic::new(
@@ -636,19 +970,55 @@ fn field_type(
         ));
     };
 
-    let type_sig = types.get(type_name).ok_or_else(|| {
+    if let Some(type_sig) = types.get(type_name) {
+        return type_sig
+            .fields
+            .get(&key(field))
+            .map(|field| field.ty.clone())
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    format!("Type '{}' has no field '{}'", type_sig.name, field),
+                    Some(span),
+                )
+            });
+    }
+
+    let class_sig = types.get_class(type_name).ok_or_else(|| {
         Diagnostic::new(format!("Type '{}' is not defined", type_name), Some(span))
     })?;
-    type_sig
-        .fields
-        .get(&key(field))
-        .map(|field| field.ty.clone())
-        .ok_or_else(|| {
-            Diagnostic::new(
-                format!("Type '{}' has no field '{}'", type_sig.name, field),
-                Some(span),
-            )
-        })
+    let field_sig = class_sig.fields.get(&key(field)).ok_or_else(|| {
+        Diagnostic::new(
+            format!("Class '{}' has no field '{}'", class_sig.name, field),
+            Some(span),
+        )
+    })?;
+    ensure_visible(
+        field_sig.visibility,
+        &class_sig.name,
+        field,
+        current_class,
+        span,
+    )?;
+    Ok(field_sig.ty.clone())
+}
+
+fn ensure_visible(
+    visibility: Visibility,
+    owner_class: &str,
+    member: &str,
+    current_class: Option<&str>,
+    span: valo_runtime::Span,
+) -> Result<(), Diagnostic> {
+    if visibility == Visibility::Public
+        || current_class.is_some_and(|class_name| class_name.eq_ignore_ascii_case(owner_class))
+    {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            format!("Member '{}' is Private in Class '{}'", member, owner_class),
+            Some(span),
+        ))
+    }
 }
 
 fn ensure_known_type(

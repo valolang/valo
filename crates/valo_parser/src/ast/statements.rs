@@ -36,6 +36,12 @@ pub enum Stmt {
         args: Vec<Expr>,
         span: Span,
     },
+    MemberSubCall {
+        object: Expr,
+        method: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
     Return {
         expr: Expr,
         span: Span,

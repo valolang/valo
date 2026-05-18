@@ -11,7 +11,12 @@ pub enum ExprKind {
     String(String),
     Integer(i64),
     Boolean(bool),
+    Me,
     Variable(String),
+    New {
+        class_name: String,
+        args: Vec<Expr>,
+    },
     Call {
         name: String,
         args: Vec<Expr>,
@@ -19,6 +24,11 @@ pub enum ExprKind {
     MemberAccess {
         object: Box<Expr>,
         field: String,
+    },
+    MemberCall {
+        object: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
     },
     Binary {
         left: Box<Expr>,

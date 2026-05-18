@@ -2,6 +2,71 @@ use super::*;
 use valo_runtime::{Diagnostic, Span, TypeName};
 
 impl Parser {
+    pub(super) fn parse_class_decl(&mut self) -> Result<ClassDecl, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Class, "Expected 'Class'")?
+            .span;
+        let name = self.expect_identifier("Expected class name after 'Class'")?;
+        self.expect_newline("Expected newline after Class declaration")?;
+
+        let mut members = Vec::new();
+        self.skip_newlines();
+        while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndClass]) {
+            members.push(self.parse_class_member()?);
+            self.skip_newlines();
+        }
+
+        self.expect_simple(TokenKind::End, "Expected 'End Class'")?;
+        let end = self
+            .expect_simple(TokenKind::Class, "Expected 'Class' after 'End'")?
+            .span;
+        self.consume_statement_end();
+
+        Ok(ClassDecl {
+            name,
+            members,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
+        let visibility = self.parse_optional_visibility();
+        match self.peek_kind() {
+            TokenKind::Sub => Ok(ClassMember::Sub(ClassSub {
+                visibility,
+                procedure: self.parse_procedure()?,
+            })),
+            TokenKind::Function => Ok(ClassMember::Function(ClassFunction {
+                visibility,
+                function: self.parse_function()?,
+            })),
+            TokenKind::Identifier(_) => {
+                let start = self.peek().span;
+                let name = self.expect_identifier("Expected class field name")?;
+                self.expect_simple(TokenKind::As, "Expected 'As' in class field declaration")?;
+                let ty = self.parse_type_name()?;
+                let end = self.previous().span;
+                self.expect_statement_end("Expected newline after class field")?;
+                Ok(ClassMember::Field(ClassField {
+                    visibility,
+                    name,
+                    ty,
+                    span: Span::new(start.start, end.end),
+                }))
+            }
+            _ => Err(self.error_here("Expected class member")),
+        }
+    }
+
+    fn parse_optional_visibility(&mut self) -> Visibility {
+        if self.match_simple(&TokenKind::Private) {
+            Visibility::Private
+        } else {
+            self.match_simple(&TokenKind::Public);
+            Visibility::Public
+        }
+    }
+
     pub(super) fn parse_type_decl(&mut self) -> Result<TypeDecl, Diagnostic> {
         let start = self.expect_simple(TokenKind::Type, "Expected 'Type'")?.span;
         let name = self.expect_identifier("Expected type name after 'Type'")?;

@@ -1,0 +1,46 @@
+Class User
+    Public Name As String
+    Private Age As Integer
+    Private Active As Boolean
+
+    Public Sub Initialize(ByVal name As String, ByVal age As Integer)
+        Me.Name = name
+        Me.Age = age
+        Me.Active = True
+    End Sub
+
+    Public Function IsAdult() As Boolean
+        Return Me.Age >= 18
+    End Function
+
+    Private Sub SetActive(ByVal value As Boolean)
+        Me.Active = value
+    End Sub
+
+    Public Sub Deactivate()
+        Me.SetActive(False)
+    End Sub
+
+    Public Function IsActive() As Boolean
+        Return Me.Active
+    End Function
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User("Valo", 1)
+
+    Console.WriteLine(user.Name)
+    Console.WriteLine(user.IsAdult())
+    Console.WriteLine(user.IsActive())
+
+    user.Deactivate()
+    Console.WriteLine(user.IsActive())
+
+    Dim aliasUser As User
+    aliasUser = user
+    aliasUser.Name = "Changed"
+
+    Console.WriteLine(user.Name)
+End Sub
+

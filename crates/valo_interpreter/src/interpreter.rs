@@ -3,13 +3,15 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use valo_parser::{
-    BinaryOp, Expr, ExprKind, Function, PassingMode, Procedure, Program, Stmt, TypeDecl, UnaryOp,
+    BinaryOp, ClassMember, Expr, ExprKind, Function, PassingMode, Procedure, Program, Stmt,
+    TypeDecl, UnaryOp,
 };
-use valo_runtime::{Diagnostic, Span, TypeName, Value};
+use valo_runtime::{Diagnostic, ObjectValue, Span, TypeName, Value};
 
 #[derive(Debug, Default)]
 pub struct Interpreter {
     types: HashMap<String, RuntimeType>,
+    classes: HashMap<String, RuntimeClass>,
     procedures: HashMap<String, Procedure>,
     functions: HashMap<String, Function>,
     output: Vec<String>,
@@ -24,6 +26,10 @@ impl Interpreter {
         for type_decl in &program.types {
             self.types
                 .insert(key(&type_decl.name), RuntimeType::from(type_decl));
+        }
+        for class_decl in &program.classes {
+            self.classes
+                .insert(key(&class_decl.name), RuntimeClass::from(class_decl));
         }
         for procedure in &program.procedures {
             self.procedures
@@ -114,6 +120,16 @@ impl Interpreter {
                 self.call_sub(name, args, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
+            Stmt::MemberSubCall {
+                object,
+                method,
+                args,
+                span,
+            } => {
+                let object = self.eval_expr(object, frame)?;
+                self.call_method_sub(object, method, args, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
             Stmt::Return { expr, .. } => {
                 let value = self.eval_expr(expr, frame)?;
                 Ok(ControlFlow::Return(value))
@@ -192,6 +208,10 @@ impl Interpreter {
             ExprKind::String(value) => Ok(Value::String(value.clone())),
             ExprKind::Integer(value) => Ok(Value::Integer(*value)),
             ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
+            ExprKind::Me => frame.get("me", expr.span),
+            ExprKind::New { class_name, args } => {
+                self.new_object(class_name, args, frame, expr.span)
+            }
             ExprKind::Variable(name) => frame.get(name, expr.span),
             ExprKind::MemberAccess { object, field } => {
                 let object = self.eval_expr(object, frame)?;
@@ -210,6 +230,14 @@ impl Interpreter {
                     return frame.get_array_element(name, index, expr.span);
                 }
                 self.call_function(name, args, frame, expr.span)
+            }
+            ExprKind::MemberCall {
+                object,
+                method,
+                args,
+            } => {
+                let object = self.eval_expr(object, frame)?;
+                self.call_method_function(object, method, args, frame, expr.span)
             }
             ExprKind::Unary { op, expr: inner } => {
                 let value = self.eval_expr(inner, frame)?;
@@ -352,6 +380,164 @@ impl Interpreter {
             )),
         }
     }
+
+    fn new_object(
+        &mut self,
+        class_name: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let class = self.classes.get(&key(class_name)).cloned().ok_or_else(|| {
+            Diagnostic::new(format!("Class '{}' is not defined", class_name), Some(span))
+        })?;
+        let mut fields = HashMap::new();
+        for field in &class.fields {
+            fields.insert(
+                key(&field.name),
+                default_value(&field.ty, &self.types, span)?,
+            );
+        }
+        let object = Value::Object(Rc::new(RefCell::new(ObjectValue {
+            class_name: class.name.clone(),
+            fields,
+        })));
+        if let Some(init) = class.subs.get("initialize") {
+            self.call_method_sub(object.clone(), &init.name, args, caller_frame, span)?;
+        } else if !args.is_empty() {
+            return Err(Diagnostic::new(
+                format!("Class '{}' has no Initialize constructor", class.name),
+                Some(span),
+            ));
+        }
+        Ok(object)
+    }
+
+    fn call_method_sub(
+        &mut self,
+        object: Value,
+        method: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Value::Object(instance) = object else {
+            return Err(Diagnostic::new(
+                "Method call requires an object",
+                Some(span),
+            ));
+        };
+        let class_name = instance.borrow().class_name.clone();
+        let class = self
+            .classes
+            .get(&key(&class_name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(format!("Class '{}' is not defined", class_name), Some(span))
+            })?;
+        let procedure = class.subs.get(&key(method)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                format!("Class '{}' has no method '{}'", class.name, method),
+                Some(span),
+            )
+        })?;
+        let mut frame = Frame::default();
+        frame.declare_object_alias("me", &class.name, instance, span)?;
+        self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
+        match self.exec_block(&procedure.body, &mut frame)? {
+            ControlFlow::Continue => Ok(()),
+            ControlFlow::Return(_) => Err(Diagnostic::new(
+                "Return is only allowed inside Function",
+                Some(procedure.span),
+            )),
+        }
+    }
+
+    fn call_method_function(
+        &mut self,
+        object: Value,
+        method: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let Value::Object(instance) = object else {
+            return Err(Diagnostic::new(
+                "Method call requires an object",
+                Some(span),
+            ));
+        };
+        let class_name = instance.borrow().class_name.clone();
+        let class = self
+            .classes
+            .get(&key(&class_name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(format!("Class '{}' is not defined", class_name), Some(span))
+            })?;
+        let function = class.functions.get(&key(method)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                format!("Class '{}' has no method '{}'", class.name, method),
+                Some(span),
+            )
+        })?;
+        let mut frame = Frame::default();
+        frame.declare_object_alias("me", &class.name, instance, span)?;
+        self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
+        match self.exec_block(&function.body, &mut frame)? {
+            ControlFlow::Return(value) => coerce_assignment(&function.return_type, value, span),
+            ControlFlow::Continue => Err(Diagnostic::new(
+                format!("Function '{}' must return a value", function.name),
+                Some(function.span),
+            )),
+        }
+    }
+
+    fn bind_parameters(
+        &mut self,
+        params: &[valo_parser::Parameter],
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        callee_frame: &mut Frame,
+    ) -> Result<(), Diagnostic> {
+        if args.len() != params.len() {
+            return Err(Diagnostic::new(
+                format!("Expected {} argument(s), got {}", params.len(), args.len()),
+                args.first().map(|arg| arg.span),
+            ));
+        }
+        for (param, arg) in params.iter().zip(args) {
+            match param.mode {
+                PassingMode::ByVal => {
+                    let value = self.eval_expr(arg, caller_frame)?;
+                    callee_frame.declare(
+                        &param.name,
+                        param.ty.clone(),
+                        None,
+                        param.span,
+                        &self.types,
+                    )?;
+                    callee_frame.assign(&param.name, value, param.span)?;
+                }
+                PassingMode::ByRef => {
+                    let ExprKind::Variable(arg_name) = &arg.kind else {
+                        return Err(Diagnostic::new(
+                            "ByRef argument must be a variable",
+                            Some(arg.span),
+                        ));
+                    };
+                    let variable = caller_frame.variable(arg_name, arg.span)?;
+                    callee_frame.declare_alias(
+                        &param.name,
+                        param.ty.clone(),
+                        variable,
+                        param.span,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -428,6 +614,30 @@ impl Frame {
         Ok(())
     }
 
+    fn declare_object_alias(
+        &mut self,
+        name: &str,
+        class_name: &str,
+        object: Rc<RefCell<ObjectValue>>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let key = key(name);
+        if self.variables.contains_key(&key) {
+            return Err(Diagnostic::new(
+                format!("Variable '{}' is already declared", name),
+                Some(span),
+            ));
+        }
+        self.variables.insert(
+            key,
+            Variable {
+                ty: TypeName::User(class_name.to_string()),
+                cell: Rc::new(RefCell::new(Value::Object(object))),
+            },
+        );
+        Ok(())
+    }
+
     fn assign(&mut self, name: &str, value: Value, span: Span) -> Result<(), Diagnostic> {
         let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
             Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
@@ -487,6 +697,11 @@ impl Frame {
                 let mut root = variable.cell.borrow_mut();
                 write_member(&mut root, field, value, span)
             }
+            ExprKind::Me => {
+                let variable = self.variable("me", target.span)?;
+                let mut root = variable.cell.borrow_mut();
+                write_member(&mut root, field, value, span)
+            }
             ExprKind::Call { name, args } => {
                 if args.len() != 1 {
                     return Err(Diagnostic::new(
@@ -501,7 +716,7 @@ impl Frame {
                 write_member(element, field, value, span)
             }
             _ => Err(Diagnostic::new(
-                "Member assignment target must be a variable",
+                "Member assignment target must be a variable or Me",
                 Some(target.span),
             )),
         }
@@ -648,7 +863,10 @@ fn default_value(
     };
     let type_def = types
         .get(&key(name))
-        .ok_or_else(|| Diagnostic::new(format!("Type '{}' is not defined", name), Some(span)))?;
+        .ok_or_else(|| Diagnostic::new(format!("Type '{}' is not defined", name), Some(span)));
+    let Ok(type_def) = type_def else {
+        return Ok(Value::Empty);
+    };
 
     let mut fields = HashMap::new();
     for field in &type_def.fields {
@@ -662,6 +880,15 @@ fn default_value(
 }
 
 fn read_member(value: &Value, field: &str, span: Span) -> Result<Value, Diagnostic> {
+    if let Value::Object(object) = value {
+        let object = object.borrow();
+        return object.fields.get(&key(field)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                format!("Class '{}' has no field '{}'", object.class_name, field),
+                Some(span),
+            )
+        });
+    }
     let Value::Record { type_name, fields } = value else {
         return Err(Diagnostic::new(
             "Member access requires a user-defined Type value",
@@ -727,6 +954,18 @@ fn write_member(
     new_value: Value,
     span: Span,
 ) -> Result<(), Diagnostic> {
+    if let Value::Object(object) = value {
+        let mut object = object.borrow_mut();
+        let Some(slot) = object.fields.get_mut(&key(field)) else {
+            return Err(Diagnostic::new(
+                format!("Class '{}' has no field '{}'", object.class_name, field),
+                Some(span),
+            ));
+        };
+        let ty = slot.type_name();
+        *slot = coerce_assignment(&ty, new_value, span)?;
+        return Ok(());
+    }
     let Value::Record { type_name, fields } = value else {
         return Err(Diagnostic::new(
             "Member assignment requires a user-defined Type value",
@@ -791,6 +1030,42 @@ impl From<&TypeDecl> for RuntimeType {
 struct RuntimeField {
     name: String,
     ty: TypeName,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeClass {
+    name: String,
+    fields: Vec<RuntimeField>,
+    subs: HashMap<String, Procedure>,
+    functions: HashMap<String, Function>,
+}
+
+impl From<&valo_parser::ClassDecl> for RuntimeClass {
+    fn from(value: &valo_parser::ClassDecl) -> Self {
+        let mut fields = Vec::new();
+        let mut subs = HashMap::new();
+        let mut functions = HashMap::new();
+        for member in &value.members {
+            match member {
+                ClassMember::Field(field) => fields.push(RuntimeField {
+                    name: field.name.clone(),
+                    ty: field.ty.clone(),
+                }),
+                ClassMember::Sub(method) => {
+                    subs.insert(key(&method.procedure.name), method.procedure.clone());
+                }
+                ClassMember::Function(method) => {
+                    functions.insert(key(&method.function.name), method.function.clone());
+                }
+            }
+        }
+        Self {
+            name: value.name.clone(),
+            fields,
+            subs,
+            functions,
+        }
+    }
 }
 
 pub fn run(program: &Program) -> Result<Vec<String>, Diagnostic> {
@@ -1765,6 +2040,188 @@ End Sub
         );
 
         assert!(error.contains("Array variable 'numbers' cannot be used as a scalar"));
+    }
+
+    #[test]
+    fn creates_class_instance_and_calls_constructor() {
+        let output = run_source(
+            r#"
+Class User
+    Public Name As String
+
+    Public Sub Initialize(ByVal name As String)
+        Me.Name = name
+    End Sub
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User("Valo")
+    Console.WriteLine(user.Name)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Valo"]);
+    }
+
+    #[test]
+    fn class_method_mutation_persists_and_assignment_is_reference_like() {
+        let output = run_source(
+            r#"
+Class User
+    Public Name As String
+
+    Public Sub Rename(ByVal name As String)
+        Me.Name = name
+    End Sub
+End Class
+
+Sub Main()
+    Dim a As User
+    Dim b As User
+    a = New User()
+    b = a
+    b.Rename("Changed")
+    Console.WriteLine(a.Name)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Changed"]);
+    }
+
+    #[test]
+    fn class_function_method_returns_value() {
+        let output = run_source(
+            r#"
+Class User
+    Private Age As Integer
+
+    Public Sub Initialize(ByVal age As Integer)
+        Me.Age = age
+    End Sub
+
+    Public Function IsAdult() As Boolean
+        Return Me.Age >= 18
+    End Function
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User(20)
+    Console.WriteLine(user.IsAdult())
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["True"]);
+    }
+
+    #[test]
+    fn private_field_access_outside_class_is_rejected() {
+        let error = source_error(
+            r#"
+Class User
+    Private Age As Integer
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User()
+    Console.WriteLine(user.Age)
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Member 'Age' is Private in Class 'User'"));
+    }
+
+    #[test]
+    fn private_method_call_through_me_is_allowed() {
+        let output = run_source(
+            r#"
+Class User
+    Private Active As Boolean
+
+    Private Sub SetActive(ByVal value As Boolean)
+        Me.Active = value
+    End Sub
+
+    Public Sub Activate()
+        Me.SetActive(True)
+    End Sub
+
+    Public Function IsActive() As Boolean
+        Return Me.Active
+    End Function
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User()
+    user.Activate()
+    Console.WriteLine(user.IsActive())
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["True"]);
+    }
+
+    #[test]
+    fn private_method_call_outside_class_is_rejected() {
+        let error = source_error(
+            r#"
+Class User
+    Private Sub Hide()
+    End Sub
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User()
+    user.Hide()
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Member 'Hide' is Private in Class 'User'"));
+    }
+
+    #[test]
+    fn me_outside_class_is_rejected() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Console.WriteLine(Me)
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Me is only valid inside class methods"));
+    }
+
+    #[test]
+    fn type_record_assignment_remains_value_copy() {
+        let output = run_source(
+            r#"
+Type User
+    Name As String
+End Type
+
+Sub Main()
+    Dim a As User
+    Dim b As User
+    a.Name = "Original"
+    b = a
+    b.Name = "Changed"
+    Console.WriteLine(a.Name)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Original"]);
     }
 
     #[test]

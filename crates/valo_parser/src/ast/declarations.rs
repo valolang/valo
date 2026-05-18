@@ -5,6 +5,7 @@ use super::Stmt;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub types: Vec<TypeDecl>,
+    pub classes: Vec<ClassDecl>,
     pub procedures: Vec<Procedure>,
     pub functions: Vec<Function>,
 }
@@ -21,6 +22,46 @@ pub struct FieldDecl {
     pub name: String,
     pub ty: TypeName,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassDecl {
+    pub name: String,
+    pub members: Vec<ClassMember>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClassMember {
+    Field(ClassField),
+    Sub(ClassSub),
+    Function(ClassFunction),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassField {
+    pub visibility: Visibility,
+    pub name: String,
+    pub ty: TypeName,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassSub {
+    pub visibility: Visibility,
+    pub procedure: Procedure,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassFunction {
+    pub visibility: Visibility,
+    pub function: Function,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    Public,
+    Private,
 }
 
 #[derive(Debug, Clone, PartialEq)]

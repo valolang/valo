@@ -26,7 +26,10 @@ impl Parser {
             TokenKind::For => self.parse_for(),
             TokenKind::Console => self.parse_console_writeline(),
             TokenKind::Return => self.parse_return(),
-            TokenKind::Identifier(_) => self.parse_identifier_statement(),
+            TokenKind::Identifier(_) | TokenKind::Me => self.parse_identifier_statement(),
+            TokenKind::Public | TokenKind::Private => {
+                Err(self.error_here("Public/Private are only allowed inside Class"))
+            }
             _ => Err(self.error_here("Expected statement")),
         }
     }
@@ -83,6 +86,7 @@ impl Parser {
         match self.peek_next_kind() {
             Some(TokenKind::LeftParen) => self.parse_call_or_array_assignment(),
             Some(TokenKind::Dot) => self.parse_member_assignment(),
+            _ if matches!(self.peek_kind(), TokenKind::Me) => self.parse_member_assignment(),
             _ => self.parse_assignment(),
         }
     }
@@ -145,12 +149,28 @@ impl Parser {
     fn parse_member_assignment(&mut self) -> Result<Stmt, Diagnostic> {
         let target = self.parse_primary()?;
         let target_span = target.span;
-        let ExprKind::MemberAccess { object, field } = target.kind else {
-            return Err(Diagnostic::new(
-                "Expected member assignment target",
-                Some(target_span),
-            ));
+        let (object, field, args) = match target.kind {
+            ExprKind::MemberAccess { object, field } => (object, field, None),
+            ExprKind::MemberCall {
+                object,
+                method,
+                args,
+            } => (object, method, Some(args)),
+            _ => {
+                return Err(Diagnostic::new(
+                    "Expected member assignment target",
+                    Some(target_span),
+                ));
+            }
         };
+        if let Some(args) = args {
+            return Ok(Stmt::MemberSubCall {
+                object: *object,
+                method: field,
+                args,
+                span: target_span,
+            });
+        }
         self.expect_simple(TokenKind::Equal, "Expected '=' in member assignment")?;
         let expr = self.parse_expression()?;
         let end = expr.span;
@@ -315,6 +335,10 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Type))
             }
+            BlockEnd::EndClass => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Class))
+            }
         })
     }
 
@@ -325,7 +349,13 @@ impl Parser {
         ) || (matches!(self.peek_kind(), TokenKind::End)
             && matches!(
                 self.peek_next_kind(),
-                Some(TokenKind::If | TokenKind::Sub | TokenKind::Function | TokenKind::Type)
+                Some(
+                    TokenKind::If
+                        | TokenKind::Sub
+                        | TokenKind::Function
+                        | TokenKind::Type
+                        | TokenKind::Class
+                )
             ))
     }
 }

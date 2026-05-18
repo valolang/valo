@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use valo_parser::PassingMode;
+use valo_parser::{PassingMode, Visibility};
 use valo_runtime::TypeName;
 
 #[derive(Debug, Clone)]
@@ -34,6 +34,7 @@ pub(super) struct ParamSig {
 
 #[derive(Debug, Clone)]
 pub(super) struct CallableSig {
+    pub(super) visibility: Visibility,
     pub(super) name: String,
     pub(super) params: Vec<ParamSig>,
     pub(super) return_type: Option<TypeName>,

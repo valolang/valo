@@ -184,6 +184,13 @@ impl Parser {
             TokenKind::Integer(value) => ExprKind::Integer(value),
             TokenKind::True => ExprKind::Boolean(true),
             TokenKind::False => ExprKind::Boolean(false),
+            TokenKind::Me => ExprKind::Me,
+            TokenKind::New => {
+                let class_name = self.expect_identifier("Expected class name after 'New'")?;
+                self.expect_simple(TokenKind::LeftParen, "Expected '(' after class name")?;
+                let args = self.finish_call_arguments()?;
+                ExprKind::New { class_name, args }
+            }
             TokenKind::Identifier(name) => {
                 if self.match_simple(&TokenKind::LeftParen) {
                     let args = self.finish_call_arguments()?;
@@ -214,13 +221,26 @@ impl Parser {
                 ));
             };
             let span = Span::new(expr.span.start, field_token.span.end);
-            expr = Expr {
-                kind: ExprKind::MemberAccess {
-                    object: Box::new(expr),
-                    field,
-                },
-                span,
-            };
+            if self.match_simple(&TokenKind::LeftParen) {
+                let args = self.finish_call_arguments()?;
+                let end = self.previous().span;
+                expr = Expr {
+                    kind: ExprKind::MemberCall {
+                        object: Box::new(expr),
+                        method: field,
+                        args,
+                    },
+                    span: Span::new(span.start, end.end),
+                };
+            } else {
+                expr = Expr {
+                    kind: ExprKind::MemberAccess {
+                        object: Box::new(expr),
+                        field,
+                    },
+                    span,
+                };
+            }
         }
 
         Ok(expr)
