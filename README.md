@@ -8,20 +8,16 @@
 
 <img align="right" src="assets/valo-mascot.png" width="120px" alt="Valo mascot">
 
-**Valo** is an experimental VBA-inspired language runtime written in Rust.
-
-Valo provides a standalone execution environment for a Basic-style language with typed variables, structured control flow, functions, records, arrays, classes, properties, semantic validation, and runtime diagnostics.
+**Valo** is an experimental VBA-inspired language runtime written in Rust. It provides a standalone execution environment for a Basic-style language with typed variables, structured control flow, records, arrays, classes, properties, semantic validation, and runtime diagnostics.
 
 > [!WARNING]
 > Valo is experimental. Syntax, semantics, runtime behavior, and internal architecture may change while the language is being designed.
 
 ## Why Valo exists
 
-VBA has been used for decades for automation, internal tools, business logic, and productivity workflows. Its biggest limitation is often the host environment rather than the language style.
+VBA remains useful for automation, internal tools, and small business workflows, but it is tightly coupled to host applications and legacy runtime assumptions.
 
-Valo explores a standalone runtime for familiar Basic-style programming without depending on Excel, Access, Word, COM, or the Office macro environment.
-
-Valo is not a VBA clone. It is a modern runtime inspired by VBA, with a focus on portability, clear diagnostics, and tooling-friendly language design.
+Valo explores a familiar Basic-style language as an independent runtime. The goal is not to clone VBA exactly, but to keep the practical parts of the programming model while building a portable core with clear diagnostics and room for modern tooling.
 
 ## Quick start
 
@@ -47,14 +43,14 @@ Hello from Valo
 
 ## Installation
 
-Valo is currently built from source during early development.
+Valo is currently built from source.
 
 Requirements:
 
 - Rust
 - Cargo
 
-Clone and build:
+Build:
 
 ```sh
 git clone https://github.com/uesleibros/valo.git
@@ -62,7 +58,7 @@ cd valo
 cargo build --release
 ```
 
-Run the test suite:
+Run tests:
 
 ```sh
 cargo test
@@ -85,7 +81,7 @@ target\release\valo.exe run examples\hello.valo
 ```vb
 Class User
     Private mName As String
-    Private mAge As Integer
+    Private mActive As Boolean
 
     Public Property Get Name() As String
         Return Me.mName
@@ -95,79 +91,66 @@ Class User
         Me.mName = value
     End Property
 
-    Public Property Get Age() As Integer
-        Return Me.mAge
+    Public Property Get Active() As Boolean
+        Return Me.mActive
     End Property
 
-    Public Property Let Age(ByVal value As Integer)
-        If value < 0 Then
-            Me.mAge = 0
-        Else
-            Me.mAge = value
-        End If
+    Public Property Let Active(ByVal value As Boolean)
+        Me.mActive = value
     End Property
 End Class
 
 Sub Main()
     Dim user As User
-    user = New User()
+    Set user = New User()
 
     user.Name = "Valo"
-    user.Age = -1
+    user.Active = True
 
-    Console.WriteLine(user.Name)
-    Console.WriteLine(user.Age)
+    Select Case user.Name
+        Case "Valo": Console.WriteLine(user.Name)
+        Case Else: Console.WriteLine("unknown")
+    End Select
+
+    If Not (user Is Nothing) Then
+        Console.WriteLine(user.Active)
+    End If
 End Sub
 ```
 
-Run it:
-
-```sh
-valo run examples/properties.valo
-```
-
-Expected output:
+Output:
 
 ```txt
 Valo
-0
+True
 ```
 
-## Project structure
-
-The repository uses a Deno-inspired runtime layout:
-
-- `cli/` contains the CLI package and the `valo` executable.
-- `core/` contains the language and runtime core.
-- `examples/` contains Valo examples.
-- `assets/` contains mascot and logo files.
-- `docs/`, `editors/`, and `tests/` exist for future use.
-
-## Current language support
+## Language features
 
 Valo currently supports:
 
-- `Sub Main`
-- `Dim` declarations
-- `String`, `Integer`, `Boolean`, and `Variant`
-- `If` / `ElseIf` / `Else` / `End If`
-- `While` / `Wend`
-- `For` / `Next` / `Step`
-- `Function` and `Return`
-- callable `Sub`
-- `ByVal` and `ByRef`
-- `And`, `Or`, `Not`, and `Mod`
-- user-defined `Type` records
-- fixed-size arrays
-- `Class`
-- `New`
-- `Me`
-- `Public` and `Private` class members
-- instance methods
-- `Property Get`, `Property Let`, and `Property Set`
-- `Console.WriteLine`
-- semantic validation
-- runtime diagnostics
+- Program entry with `Sub Main`.
+- `Dim` declarations.
+- `String`, `Integer`, `Boolean`, and `Variant`.
+- `If` / `ElseIf` / `Else` / `End If`.
+- `While` / `Wend`.
+- `For` / `Next` / `Step`, including optional `Next i`.
+- `Select Case` with values, multiple values, ranges, `Case Is` comparisons, `Case Else`, and single-line `Case ...: statement` bodies.
+- `Do While` / `Loop`, `Do Until` / `Loop`, `Do` / `Loop While`, `Do` / `Loop Until`, and `Do` / `Loop`.
+- `Exit Sub`, `Exit Function`, `Exit For`, `Exit While`, and `Exit Do`.
+- `Function`, `Return`, and callable `Sub`.
+- `ByVal` and `ByRef` parameters.
+- `And`, `Or`, `Not`, and `Mod`.
+- user-defined `Type` records.
+- fixed-size arrays.
+- `Class`, `New`, `Me`, `Public`, and `Private`.
+- instance methods.
+- `Property Get`, `Property Let`, and `Property Set`.
+- object reference assignment with `Set`.
+- `Nothing`.
+- `Is` comparisons for object identity and `Nothing` checks.
+- `Console.WriteLine`.
+- semantic validation and runtime diagnostics.
 
 ## Current limitations
 
@@ -176,13 +159,14 @@ Valo does not currently support:
 - imports or modules
 - standard library modules
 - module-level visibility
-- `Select Case`
-- `Do` / `Loop`
-- `Exit` statements
 - dynamic arrays
 - `ReDim`
 - multidimensional arrays
 - `For Each`
+- global colon-separated statements
+- `Continue`
+- `GoTo` or labels
+- `On Error`
 - async/await
 - FFI / `Declare`
 - bytecode VM
@@ -190,9 +174,17 @@ Valo does not currently support:
 - language server
 - formatter
 
+## Repository layout
+
+- `cli/` contains the Valo CLI package.
+- `core/` contains the language and runtime core.
+- `examples/` contains `.valo` examples.
+- `assets/` contains mascot and logo files.
+- `docs/`, `editors/`, and `tests/` exist for future use.
+
 ## Runtime status
 
-Valo currently uses a tree-walking interpreter. The implemented pipeline is:
+The current runtime is a tree-walking interpreter:
 
 ```txt
 source.valo
@@ -202,15 +194,14 @@ source.valo
   -> interpreter
 ```
 
-The runtime includes semantic checks and diagnostics for common language errors before execution. A bytecode compiler and virtual machine are design goals, but they are not implemented.
+Current verification status:
 
-## Design goals
+- `cargo test` passes with 154 tests.
+- `cargo build --release` passes.
+- all `.valo` examples pass.
+- `examples/hello.bas` passes when present.
 
-- Keep Basic-style syntax readable and approachable.
-- Run Valo programs outside the Office macro environment.
-- Provide clear parser, semantic, and runtime diagnostics.
-- Keep the runtime modular, with a small CLI and a reusable language core.
-- Grow toward modern tooling, editor integration, formatting, modules, and package management.
+A bytecode compiler and stack-based VM are planned, but not implemented.
 
 ## Contributing
 
