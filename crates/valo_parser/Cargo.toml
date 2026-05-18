@@ -1,9 +1,0 @@
-[package]
-name = "valo_parser"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
-
-[dependencies]
-valo_runtime = { path = "../valo_runtime" }
-

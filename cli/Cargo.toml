@@ -1,0 +1,12 @@
+[package]
+name = "valo_cli"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "valo"
+path = "src/main.rs"
+
+[dependencies]
+valo_core = { path = "../core" }

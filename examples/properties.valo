@@ -1,0 +1,35 @@
+Class User
+    Private mName As String
+    Private mAge As Integer
+
+    Public Property Get Name() As String
+        Return Me.mName
+    End Property
+
+    Public Property Let Name(ByVal value As String)
+        Me.mName = value
+    End Property
+
+    Public Property Get Age() As Integer
+        Return Me.mAge
+    End Property
+
+    Public Property Let Age(ByVal value As Integer)
+        If value < 0 Then
+            Me.mAge = 0
+        Else
+            Me.mAge = value
+        End If
+    End Property
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User()
+
+    user.Name = "Valo"
+    user.Age = -1
+
+    Console.WriteLine(user.Name)
+    Console.WriteLine(user.Age)
+End Sub

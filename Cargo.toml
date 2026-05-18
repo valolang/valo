@@ -1,10 +1,7 @@
 [workspace]
 members = [
-    "crates/valo_cli",
-    "crates/valo_interpreter",
-    "crates/valo_parser",
-    "crates/valo_runtime",
-    "crates/valo_semantics",
+    "cli",
+    "core",
 ]
 resolver = "3"
 
@@ -12,4 +9,3 @@ resolver = "3"
 edition = "2024"
 license = "MIT"
 version = "0.1.0"
-
