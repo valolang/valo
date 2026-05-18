@@ -156,6 +156,79 @@ impl Parser {
         })
     }
 
+    pub(super) fn parse_module_const(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<ConstDecl, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Const, "Expected 'Const'")?
+            .span;
+        let name = self.expect_identifier("Expected constant name")?;
+        let ty = if self.match_simple(&TokenKind::As) {
+            Some(self.parse_type_name()?)
+        } else {
+            None
+        };
+        self.expect_simple(TokenKind::Equal, "Expected '=' in Const declaration")?;
+        let value = self.parse_expression()?;
+        let end = value.span;
+        self.expect_statement_end("Expected newline after Const declaration")?;
+
+        Ok(ConstDecl {
+            visibility,
+            name,
+            ty,
+            value,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    pub(super) fn parse_module_var(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<ModuleVarDecl, Diagnostic> {
+        let start = self.peek().span;
+        let name = self.expect_identifier("Expected module variable name")?;
+        let array = if self.match_simple(&TokenKind::LeftParen) {
+            if self.match_simple(&TokenKind::RightParen) {
+                Some(ArrayDecl::Dynamic)
+            } else {
+                let size_token = self.advance();
+                let TokenKind::Integer(size) = size_token.kind else {
+                    return Err(Diagnostic::new(
+                        "Array size must be an Integer literal",
+                        Some(size_token.span),
+                    ));
+                };
+                if size < 0 {
+                    return Err(Diagnostic::new(
+                        "Array size must be non-negative",
+                        Some(size_token.span),
+                    ));
+                }
+                self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
+                Some(ArrayDecl::Fixed(size as usize))
+            }
+        } else {
+            None
+        };
+        self.expect_simple(
+            TokenKind::As,
+            "Expected 'As' in module variable declaration",
+        )?;
+        let ty = self.parse_type_name()?;
+        let end = self.previous().span;
+        self.expect_statement_end("Expected newline after module variable declaration")?;
+
+        Ok(ModuleVarDecl {
+            visibility,
+            name,
+            ty,
+            array,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
     pub(super) fn parse_type_decl(&mut self) -> Result<TypeDecl, Diagnostic> {
         let start = self.expect_simple(TokenKind::Type, "Expected 'Type'")?.span;
         let name = self.expect_identifier("Expected type name after 'Type'")?;

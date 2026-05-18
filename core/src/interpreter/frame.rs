@@ -12,6 +12,7 @@ use super::values::{coerce_assignment, default_value, key};
 #[derive(Debug, Default)]
 pub(crate) struct Frame {
     variables: HashMap<String, Variable>,
+    with_stack: Vec<Value>,
 }
 
 impl Frame {
@@ -59,8 +60,58 @@ impl Frame {
                 cell: Rc::new(RefCell::new(value)),
                 ty,
                 dynamic_array,
+                is_const: false,
+                module_level: false,
             },
         );
+        Ok(())
+    }
+
+    pub(crate) fn declare_const(
+        &mut self,
+        name: &str,
+        ty: TypeName,
+        value: Value,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let key = key(name);
+        if self.variables.contains_key(&key) {
+            return Err(Diagnostic::new(
+                format!("Variable '{}' is already declared", name),
+                Some(span),
+            ));
+        }
+        self.variables.insert(
+            key,
+            Variable {
+                cell: Rc::new(RefCell::new(coerce_assignment(&ty, value, span)?)),
+                ty,
+                dynamic_array: false,
+                is_const: true,
+                module_level: false,
+            },
+        );
+        Ok(())
+    }
+
+    pub(crate) fn declare_module(
+        &mut self,
+        name: &str,
+        ty: TypeName,
+        array: Option<ArrayDecl>,
+        is_const: bool,
+        value: Option<Value>,
+        span: Span,
+        types: &HashMap<String, RuntimeType>,
+        enums: &HashMap<String, RuntimeEnum>,
+    ) -> Result<(), Diagnostic> {
+        self.declare(name, ty.clone(), array, span, types, enums)?;
+        let variable = self.variables.get_mut(&key(name)).expect("declared");
+        variable.module_level = true;
+        variable.is_const = is_const;
+        if let Some(value) = value {
+            *variable.cell.borrow_mut() = coerce_assignment(&ty, value, span)?;
+        }
         Ok(())
     }
 
@@ -93,6 +144,15 @@ impl Frame {
         Ok(())
     }
 
+    pub(crate) fn inherit_modules_from(&mut self, source: &Frame) -> Result<(), Diagnostic> {
+        for (name, variable) in &source.variables {
+            if variable.module_level && !self.variables.contains_key(name) {
+                self.variables.insert(name.clone(), variable.clone());
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn declare_object_alias(
         &mut self,
         name: &str,
@@ -113,6 +173,8 @@ impl Frame {
                 ty: TypeName::User(class_name.to_string()),
                 cell: Rc::new(RefCell::new(Value::Object(object))),
                 dynamic_array: false,
+                is_const: false,
+                module_level: false,
             },
         );
         Ok(())
@@ -127,6 +189,12 @@ impl Frame {
         let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
             Diagnostic::new(format!("Variable '{}' is not declared", name), Some(span))
         })?;
+        if variable.is_const {
+            return Err(Diagnostic::new(
+                format!("Constant '{}' cannot be assigned", name),
+                Some(span),
+            ));
+        }
 
         *variable.cell.borrow_mut() = coerce_assignment(&variable.ty, value, span)?;
         Ok(())
@@ -207,6 +275,23 @@ impl Frame {
             )),
         }
     }
+
+    pub(crate) fn push_with_target(&mut self, value: Value) {
+        self.with_stack.push(value);
+    }
+
+    pub(crate) fn pop_with_target(&mut self) {
+        self.with_stack.pop();
+    }
+
+    pub(crate) fn current_with_target(&self, span: Span) -> Result<Value, Diagnostic> {
+        self.with_stack.last().cloned().ok_or_else(|| {
+            Diagnostic::new(
+                "Dot member access requires an active With block",
+                Some(span),
+            )
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -214,4 +299,6 @@ pub(crate) struct Variable {
     pub(crate) ty: TypeName,
     pub(crate) cell: Rc<RefCell<Value>>,
     pub(crate) dynamic_array: bool,
+    pub(crate) is_const: bool,
+    pub(crate) module_level: bool,
 }

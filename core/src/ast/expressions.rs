@@ -13,6 +13,7 @@ pub enum ExprKind {
     Boolean(bool),
     Nothing,
     Me,
+    WithTarget,
     Variable(String),
     New {
         class_name: String,

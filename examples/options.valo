@@ -1,0 +1,7 @@
+Option Explicit
+
+Sub Main()
+    Dim value As Integer
+    value = 10
+    Console.WriteLine(value)
+End Sub

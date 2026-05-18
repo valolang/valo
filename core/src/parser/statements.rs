@@ -21,17 +21,23 @@ impl Parser {
     fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
         match self.peek_kind() {
             TokenKind::Dim => self.parse_dim(),
+            TokenKind::Const => self.parse_const_stmt(),
             TokenKind::If => self.parse_if(),
             TokenKind::Select => self.parse_select_case(),
             TokenKind::While => self.parse_while(),
+            TokenKind::With => self.parse_with(),
             TokenKind::Do => self.parse_do_loop(),
             TokenKind::For => self.parse_for(),
             TokenKind::Exit => self.parse_exit(),
             TokenKind::ReDim => self.parse_redim(),
+            TokenKind::Let => self.parse_let_assignment(),
+            TokenKind::Call => self.parse_call_statement(),
             TokenKind::Set => self.parse_set_assignment(),
             TokenKind::Console => self.parse_console_writeline(),
             TokenKind::Return => self.parse_return(),
-            TokenKind::Identifier(_) | TokenKind::Me => self.parse_identifier_statement(),
+            TokenKind::Identifier(_) | TokenKind::Me | TokenKind::Dot => {
+                self.parse_identifier_statement()
+            }
             TokenKind::Public | TokenKind::Private => {
                 Err(self.error_here("Public/Private are only allowed inside Class"))
             }
@@ -77,10 +83,45 @@ impl Parser {
         })
     }
 
+    fn parse_const_stmt(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Const, "Expected 'Const'")?
+            .span;
+        let name = self.expect_identifier("Expected constant name")?;
+        let ty = if self.match_simple(&TokenKind::As) {
+            Some(self.parse_type_name()?)
+        } else {
+            None
+        };
+        self.expect_simple(TokenKind::Equal, "Expected '=' in Const declaration")?;
+        let value = self.parse_expression()?;
+        let end = value.span;
+        Ok(Stmt::Const {
+            name,
+            ty,
+            value,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
     fn parse_assignment(&mut self) -> Result<Stmt, Diagnostic> {
         let target = self.parse_assignment_target()?;
         let start = target.span();
         self.expect_simple(TokenKind::Equal, "Expected '=' in assignment")?;
+        let expr = self.parse_expression()?;
+        let end = expr.span;
+
+        Ok(Stmt::Assign {
+            target,
+            expr,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_let_assignment(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::Let, "Expected 'Let'")?.span;
+        let target = self.parse_assignment_target()?;
+        self.expect_simple(TokenKind::Equal, "Expected '=' in Let assignment")?;
         let expr = self.parse_expression()?;
         let end = expr.span;
 
@@ -106,11 +147,40 @@ impl Parser {
     }
 
     fn parse_identifier_statement(&mut self) -> Result<Stmt, Diagnostic> {
+        if matches!(self.peek_kind(), TokenKind::Dot) {
+            return self.parse_member_assignment();
+        }
         match self.peek_next_kind() {
             Some(TokenKind::LeftParen) => self.parse_call_or_array_assignment(),
             Some(TokenKind::Dot) => self.parse_member_assignment(),
             _ if matches!(self.peek_kind(), TokenKind::Me) => self.parse_member_assignment(),
             _ => self.parse_assignment(),
+        }
+    }
+
+    fn parse_call_statement(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::Call, "Expected 'Call'")?.span;
+        let target = self.parse_primary()?;
+        match target.kind {
+            ExprKind::Call { name, args } => Ok(Stmt::SubCall {
+                name,
+                args,
+                span: Span::new(start.start, target.span.end),
+            }),
+            ExprKind::MemberCall {
+                object,
+                method,
+                args,
+            } => Ok(Stmt::MemberSubCall {
+                object: *object,
+                method,
+                args,
+                span: Span::new(start.start, target.span.end),
+            }),
+            _ => Err(Diagnostic::new(
+                "Call statement requires a Sub call",
+                Some(target.span),
+            )),
         }
     }
 
@@ -343,6 +413,23 @@ impl Parser {
 
         Ok(Stmt::While {
             condition,
+            body,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_with(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::With, "Expected 'With'")?.span;
+        let target = self.parse_expression()?;
+        self.expect_newline("Expected newline after With expression")?;
+        let body = self.parse_block_until(&[BlockEnd::EndWith])?;
+        self.expect_simple(TokenKind::End, "Expected 'End With'")?;
+        let end = self
+            .expect_simple(TokenKind::With, "Expected 'With' after 'End'")?
+            .span;
+
+        Ok(Stmt::With {
+            target,
             body,
             span: Span::new(start.start, end.end),
         })
@@ -658,6 +745,10 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Enum))
             }
+            BlockEnd::EndWith => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::With))
+            }
         })
     }
 
@@ -682,6 +773,7 @@ impl Parser {
                         | TokenKind::Type
                         | TokenKind::Enum
                         | TokenKind::Class
+                        | TokenKind::With
                 )
             ))
     }

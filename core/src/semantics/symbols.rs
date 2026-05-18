@@ -7,12 +7,16 @@ use crate::{PassingMode, Visibility};
 pub(super) enum VarType {
     Scalar(TypeName),
     Array(TypeName),
+    Const(TypeName),
 }
 
 impl VarType {
     pub(super) fn same_var_type(&self, other: &VarType) -> bool {
         match (self, other) {
             (VarType::Scalar(left), VarType::Scalar(right))
+            | (VarType::Const(left), VarType::Scalar(right))
+            | (VarType::Scalar(left), VarType::Const(right))
+            | (VarType::Const(left), VarType::Const(right))
             | (VarType::Array(left), VarType::Array(right)) => left.same_type(right),
             _ => false,
         }
@@ -21,8 +25,20 @@ impl VarType {
     pub(super) fn display_name(&self) -> String {
         match self {
             VarType::Scalar(ty) => ty.display_name(),
+            VarType::Const(ty) => ty.display_name(),
             VarType::Array(ty) => format!("{}()", ty.display_name()),
         }
+    }
+
+    pub(super) fn scalar_type(&self) -> Option<TypeName> {
+        match self {
+            VarType::Scalar(ty) | VarType::Const(ty) => Some(ty.clone()),
+            VarType::Array(_) => None,
+        }
+    }
+
+    pub(super) fn is_const(&self) -> bool {
+        matches!(self, VarType::Const(_))
     }
 }
 

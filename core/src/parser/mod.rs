@@ -131,6 +131,7 @@ pub(super) enum BlockEnd {
     EndType,
     EndEnum,
     EndClass,
+    EndWith,
     Case,
     Loop,
     Next,

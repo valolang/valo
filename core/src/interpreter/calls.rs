@@ -30,6 +30,7 @@ impl Interpreter {
         }
 
         let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
         for (param, arg) in function.params.iter().zip(args) {
             match param.mode {
                 PassingMode::ByVal => {
@@ -101,6 +102,7 @@ impl Interpreter {
         }
 
         let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
         for (param, arg) in procedure.params.iter().zip(args) {
             match param.mode {
                 PassingMode::ByVal => {
@@ -168,6 +170,7 @@ impl Interpreter {
             )
         })?;
         let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
         frame.declare_object_alias("me", &class.name, instance, span)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         match self.exec_block(&procedure.body, &mut frame)? {
@@ -210,6 +213,7 @@ impl Interpreter {
             )
         })?;
         let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
         frame.declare_object_alias("me", &class.name, instance, span)?;
         self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
         match self.exec_block(&function.body, &mut frame)? {

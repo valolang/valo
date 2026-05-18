@@ -4,11 +4,32 @@ use super::Stmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
+    pub option_explicit: bool,
     pub types: Vec<TypeDecl>,
     pub enums: Vec<EnumDecl>,
+    pub module_vars: Vec<ModuleVarDecl>,
+    pub module_consts: Vec<ConstDecl>,
     pub classes: Vec<ClassDecl>,
     pub procedures: Vec<Procedure>,
     pub functions: Vec<Function>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModuleVarDecl {
+    pub visibility: Visibility,
+    pub name: String,
+    pub ty: TypeName,
+    pub array: Option<super::ArrayDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstDecl {
+    pub visibility: Visibility,
+    pub name: String,
+    pub ty: Option<TypeName>,
+    pub value: super::Expr,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

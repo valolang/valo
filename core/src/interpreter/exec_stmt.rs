@@ -41,6 +41,17 @@ impl Interpreter {
                 )?;
                 Ok(ControlFlow::Continue)
             }
+            Stmt::Const {
+                name,
+                ty,
+                value,
+                span,
+            } => {
+                let value = self.eval_expr(value, frame)?;
+                let ty = ty.clone().unwrap_or_else(|| value.type_name());
+                frame.declare_const(name, ty, value, *span)?;
+                Ok(ControlFlow::Continue)
+            }
             Stmt::Assign { target, expr, span } => {
                 let value = self.eval_expr(expr, frame)?;
                 self.assign_target(target, value, frame, *span)?;
@@ -261,6 +272,13 @@ impl Interpreter {
                     *span,
                 )?;
                 Ok(ControlFlow::Continue)
+            }
+            Stmt::With { target, body, .. } => {
+                let target = self.eval_expr(target, frame)?;
+                frame.push_with_target(target);
+                let flow = self.exec_block(body, frame);
+                frame.pop_with_target();
+                flow
             }
             Stmt::Exit { target, .. } => match target {
                 ExitTarget::Sub => Ok(ControlFlow::ExitSub),

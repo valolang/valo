@@ -190,6 +190,39 @@ impl Parser {
             TokenKind::False => ExprKind::Boolean(false),
             TokenKind::Nothing => ExprKind::Nothing,
             TokenKind::Me => ExprKind::Me,
+            TokenKind::Dot => {
+                let field_token = self.advance();
+                let TokenKind::Identifier(field) = field_token.kind else {
+                    return Err(Diagnostic::new(
+                        "Expected member name after '.'",
+                        Some(field_token.span),
+                    ));
+                };
+                let object = Expr {
+                    kind: ExprKind::WithTarget,
+                    span,
+                };
+                let member_span = Span::new(span.start, field_token.span.end);
+                if self.match_simple(&TokenKind::LeftParen) {
+                    let args = self.finish_call_arguments()?;
+                    let end = self.previous().span;
+                    return self.parse_member_access(Expr {
+                        kind: ExprKind::MemberCall {
+                            object: Box::new(object),
+                            method: field,
+                            args,
+                        },
+                        span: Span::new(span.start, end.end),
+                    });
+                }
+                return self.parse_member_access(Expr {
+                    kind: ExprKind::MemberAccess {
+                        object: Box::new(object),
+                        field,
+                    },
+                    span: member_span,
+                });
+            }
             TokenKind::New => {
                 let class_name = self.expect_identifier("Expected class name after 'New'")?;
                 self.expect_simple(TokenKind::LeftParen, "Expected '(' after class name")?;

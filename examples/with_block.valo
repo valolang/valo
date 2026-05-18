@@ -1,0 +1,29 @@
+Class User
+    Private mName As String
+    Public Age As Integer
+
+    Public Property Get Name() As String
+        Return Me.mName
+    End Property
+
+    Public Property Let Name(ByVal value As String)
+        Me.mName = value
+    End Property
+
+    Public Sub Birthday()
+        Me.Age = Me.Age + 1
+    End Sub
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User()
+
+    With user
+        .Name = "Valo"
+        .Age = 1
+        Call .Birthday()
+        Console.WriteLine(.Name)
+        Console.WriteLine(.Age)
+    End With
+End Sub

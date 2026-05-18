@@ -1,0 +1,16 @@
+Option Explicit
+
+Public Const AppName As String = "Valo"
+Private Const MaxRetries As Integer = 3
+Const DebugMode As Boolean = True
+
+Sub Main()
+    Const Label As String = AppName & " Runtime"
+
+    Console.WriteLine(Label)
+    Console.WriteLine(MaxRetries + 1)
+
+    If DebugMode Then
+        Console.WriteLine("debug")
+    End If
+End Sub

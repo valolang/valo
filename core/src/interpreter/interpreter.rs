@@ -61,6 +61,34 @@ impl Interpreter {
             self.functions.insert(key(&function.name), function.clone());
         }
 
+        let mut frame = Frame::default();
+        for var in &program.module_vars {
+            frame.declare_module(
+                &var.name,
+                var.ty.clone(),
+                var.array.clone(),
+                false,
+                None,
+                var.span,
+                &self.types,
+                &self.enums,
+            )?;
+        }
+        for const_decl in &program.module_consts {
+            let value = self.eval_expr(&const_decl.value, &mut frame)?;
+            let ty = const_decl.ty.clone().unwrap_or_else(|| value.type_name());
+            frame.declare_module(
+                &const_decl.name,
+                ty,
+                None,
+                true,
+                Some(value),
+                const_decl.span,
+                &self.types,
+                &self.enums,
+            )?;
+        }
+
         let Some(main) = program
             .procedures
             .iter()
@@ -69,7 +97,6 @@ impl Interpreter {
             return Err(Diagnostic::new("Program must contain Sub Main()", None));
         };
 
-        let mut frame = Frame::default();
         match self.exec_block(&main.body, &mut frame)? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output),
             ControlFlow::Return(_) => Err(Diagnostic::new(
@@ -3452,5 +3479,388 @@ End Sub
 "#,
         );
         assert!(mismatch.contains("Next variable 'other' does not match For Each variable 'item'"));
+    }
+
+    #[test]
+    fn with_blocks_support_members_methods_nesting_and_control_flow() {
+        let output = run_source(
+            r#"
+Class Profile
+    Public Name As String
+End Class
+
+Class User
+    Private mName As String
+    Public Profile As Profile
+
+    Public Property Get Name() As String
+        Return Me.mName
+    End Property
+
+    Public Property Let Name(ByVal value As String)
+        Me.mName = value
+    End Property
+
+    Public Sub Activate()
+        Me.mName = Me.mName & "!"
+    End Sub
+
+    Public Function Label() As String
+        With Me
+            Return .Name
+        End With
+        Return "bad"
+    End Function
+
+    Public Sub StopEarly()
+        With Me
+            Exit Sub
+        End With
+        Me.mName = "bad"
+    End Sub
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User()
+    user.Profile = New Profile()
+    With user
+        .Name = "Valo"
+        Call .Activate()
+        .Profile.Name = .Name
+        With .Profile
+            .Name = .Name & " Runtime"
+        End With
+        Console.WriteLine(.Profile.Name)
+    End With
+    Console.WriteLine(user.Label())
+    user.StopEarly()
+    Console.WriteLine(user.Name)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Valo! Runtime", "Valo!", "Valo!"]);
+    }
+
+    #[test]
+    fn with_reports_dot_outside_nothing_and_evaluates_target_once() {
+        let dot_error = source_error(
+            r#"
+Sub Main()
+    Console.WriteLine(.Name)
+End Sub
+"#,
+        );
+        assert!(dot_error.contains("Dot member access requires an active With block"));
+
+        let nothing_error = source_error(
+            r#"
+Class User
+    Public Name As String
+End Class
+
+Sub Main()
+    Dim user As User
+    With user
+        .Name = "Valo"
+    End With
+End Sub
+"#,
+        );
+        assert!(nothing_error.contains("Object reference is Nothing"));
+
+        let output = run_source(
+            r#"
+Private calls As Integer
+
+Class User
+    Public Name As String
+End Class
+
+Function MakeUser() As User
+    calls = calls + 1
+    Return New User()
+End Function
+
+Sub Main()
+    With MakeUser()
+        .Name = "Valo"
+        Console.WriteLine(.Name)
+    End With
+    Console.WriteLine(calls)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Valo", "1"]);
+    }
+
+    #[test]
+    fn const_declarations_are_immutable_and_work_in_expressions() {
+        let output = run_source(
+            r#"
+Public Const AppName As String = "Valo"
+Private Const MaxRetries As Integer = 3
+Const DebugMode As Boolean = True
+
+Sub Main()
+    Const Local As Integer = MaxRetries + 2
+    Console.WriteLine(AppName & " " & Local)
+    If DebugMode Then
+        Console.WriteLine("debug")
+    End If
+    Dim i As Integer
+    For i = 1 To MaxRetries
+    Next i
+    Select Case Local
+        Case 5
+            Console.WriteLine("five")
+    End Select
+End Sub
+"#,
+        );
+        assert_eq!(output, vec!["Valo 5", "debug", "five"]);
+
+        let assign_error = source_error(
+            r#"
+Const MaxRetries As Integer = 3
+Sub Main()
+    MaxRetries = 4
+End Sub
+"#,
+        );
+        assert!(assign_error.contains("Constant 'MaxRetries' cannot be assigned"));
+
+        let duplicate_error = source_error(
+            r#"
+Const Name As String = "a"
+Const name As String = "b"
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(duplicate_error.contains("conflicts with existing"));
+
+        let mismatch_error = source_error(
+            r#"
+Const Count As Integer = "bad"
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(mismatch_error.contains("Cannot assign String value to Integer variable"));
+
+        let non_const_error = source_error(
+            r#"
+Function Value() As Integer
+    Return 1
+End Function
+
+Const Count As Integer = Value()
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(non_const_error.contains("compile-time constant"));
+    }
+
+    #[test]
+    fn let_and_call_statements_reuse_existing_assignment_and_sub_logic() {
+        let output = run_source(
+            r#"
+Class User
+    Private mName As String
+
+    Public Property Get Name() As String
+        Return Me.mName
+    End Property
+
+    Public Property Let Name(ByVal value As String)
+        Me.mName = value
+    End Property
+
+    Private Sub Mark()
+        Me.mName = Me.mName & "!"
+    End Sub
+
+    Public Sub Touch()
+        Call Me.Mark()
+    End Sub
+End Class
+
+Sub PrintMessage(ByVal value As String)
+    Console.WriteLine(value)
+End Sub
+
+Function Bad() As Integer
+    Return 1
+End Function
+
+Sub Main()
+    Dim values(0) As String
+    Dim user As User
+    user = New User()
+    Let values(0) = "Valo"
+    Let user.Name = values(0)
+    With user
+        Let .Name = .Name & " Runtime"
+        Call .Touch()
+    End With
+    Call PrintMessage(user.Name)
+    PrintMessage("plain")
+End Sub
+"#,
+        );
+        assert_eq!(output, vec!["Valo Runtime!", "plain"]);
+
+        let call_function = source_error(
+            r#"
+Function Bad() As Integer
+    Return 1
+End Function
+
+Sub Main()
+    Call Bad()
+End Sub
+"#,
+        );
+        assert!(call_function.contains("Function 'Bad' cannot be called as a statement"));
+
+        let unknown = source_error(
+            r#"
+Sub Main()
+    Call Missing()
+End Sub
+"#,
+        );
+        assert!(unknown.contains("Sub 'Missing' is not defined"));
+    }
+
+    #[test]
+    fn option_explicit_is_recognized_and_other_options_are_rejected() {
+        let output = run_source(
+            r#"
+Option Explicit
+
+Sub Main()
+    Dim x As Integer
+    x = 10
+    Console.WriteLine(x)
+End Sub
+"#,
+        );
+        assert_eq!(output, vec!["10"]);
+
+        let after_decl = source_error(
+            r#"
+Sub Main()
+End Sub
+Option Explicit
+"#,
+        );
+        assert!(after_decl.contains("Option statements must appear before declarations"));
+
+        let duplicate = source_error(
+            r#"
+Option Explicit
+Option Explicit
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(duplicate.contains("Option Explicit is already declared"));
+
+        let base = source_error(
+            r#"
+Option Base 1
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(base.contains("not implemented"));
+
+        let compare = source_error(
+            r#"
+Option Compare Text
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(compare.contains("not implemented"));
+    }
+
+    #[test]
+    fn module_level_state_defaults_persists_and_rejects_conflicts() {
+        let output = run_source(
+            r#"
+Private counter As Integer
+Public title As String
+Private enabled As Boolean
+Private values() As Integer
+Private currentUser As User
+Const Limit As Integer = 2
+
+Class User
+End Class
+
+Sub Increment()
+    counter = counter + 1
+End Sub
+
+Function NextValue() As Integer
+    counter = counter + 1
+    Return counter
+End Function
+
+Sub Main()
+    Console.WriteLine(counter)
+    Console.WriteLine("title:" & title)
+    Console.WriteLine(enabled)
+    If currentUser Is Nothing Then
+        Console.WriteLine("nothing")
+    End If
+    Call Increment()
+    Call Increment()
+    Console.WriteLine(NextValue())
+    ReDim values(Limit)
+    values(2) = counter
+    Console.WriteLine(values(2))
+End Sub
+"#,
+        );
+        assert_eq!(output, vec!["0", "title:", "False", "nothing", "3", "3"]);
+
+        let const_assign = source_error(
+            r#"
+Const Limit As Integer = 2
+Sub Main()
+    Limit = 3
+End Sub
+"#,
+        );
+        assert!(const_assign.contains("Constant 'Limit' cannot be assigned"));
+
+        let duplicate = source_error(
+            r#"
+Private counter As Integer
+Private Counter As Integer
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(duplicate.contains("conflicts with existing"));
+
+        let type_conflict = source_error(
+            r#"
+Type Point
+    X As Integer
+End Type
+Private Point As Integer
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(type_conflict.contains("conflicts with existing Type"));
     }
 }

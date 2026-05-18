@@ -41,6 +41,7 @@ impl LoopContext {
 pub fn validate(program: &Program) -> Result<(), Diagnostic> {
     let types = collect_types(program)?;
     let signatures = collect_signatures(program, &types)?;
+    let module_symbols = collect_module_symbols(program, &types, &signatures)?;
     let Some(main) = program
         .procedures
         .iter()
@@ -57,14 +58,14 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
     }
 
     for procedure in &program.procedures {
-        validate_procedure(procedure, &types, &signatures)?;
+        validate_procedure(procedure, &types, &signatures, &module_symbols)?;
     }
 
     for function in &program.functions {
-        validate_function(function, &types, &signatures)?;
+        validate_function(function, &types, &signatures, &module_symbols)?;
     }
     for class_decl in &program.classes {
-        validate_class(class_decl, &types, &signatures)?;
+        validate_class(class_decl, &types, &signatures, &module_symbols)?;
     }
 
     Ok(())
@@ -74,12 +75,14 @@ fn validate_class(
     class_decl: &crate::ClassDecl,
     types: &TypeRegistry,
     signatures: &Signatures,
+    module_symbols: &HashMap<String, VarType>,
 ) -> Result<(), Diagnostic> {
     for member in &class_decl.members {
         match member {
             ClassMember::Field(_) => {}
             ClassMember::Sub(method) => {
                 let mut symbols = HashMap::new();
+                add_module_symbols(module_symbols, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
                     VarType::Scalar(TypeName::User(class_decl.name.clone())),
@@ -94,10 +97,12 @@ fn validate_class(
                         class_name: class_decl.name.clone(),
                     },
                     LoopContext::default(),
+                    false,
                 )?;
             }
             ClassMember::Function(method) => {
                 let mut symbols = HashMap::new();
+                add_module_symbols(module_symbols, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
                     VarType::Scalar(TypeName::User(class_decl.name.clone())),
@@ -115,6 +120,7 @@ fn validate_class(
                         saw_return: &mut saw_return,
                     },
                     LoopContext::default(),
+                    false,
                 )?;
                 if !saw_return {
                     return Err(Diagnostic::new(
@@ -125,6 +131,7 @@ fn validate_class(
             }
             ClassMember::Property(property) => {
                 let mut symbols = HashMap::new();
+                add_module_symbols(module_symbols, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
                     VarType::Scalar(TypeName::User(class_decl.name.clone())),
@@ -148,6 +155,7 @@ fn validate_class(
                                 saw_return: &mut saw_return,
                             },
                             LoopContext::default(),
+                            false,
                         )?;
                         if !saw_return {
                             return Err(Diagnostic::new(
@@ -166,6 +174,7 @@ fn validate_class(
                                 class_name: class_decl.name.clone(),
                             },
                             LoopContext::default(),
+                            false,
                         )?;
                     }
                 }
@@ -516,6 +525,30 @@ fn collect_signatures(program: &Program, types: &TypeRegistry) -> Result<Signatu
         names.insert(key(&class_decl.name), "Class");
     }
 
+    for var in &program.module_vars {
+        ensure_known_type(&var.ty, types, var.span)?;
+        let name_key = key(&var.name);
+        if let Some(existing) = names.insert(name_key, "module variable") {
+            return Err(Diagnostic::new(
+                format!("Name '{}' conflicts with existing {}", var.name, existing),
+                Some(var.span),
+            ));
+        }
+    }
+
+    for const_decl in &program.module_consts {
+        let name_key = key(&const_decl.name);
+        if let Some(existing) = names.insert(name_key, "module constant") {
+            return Err(Diagnostic::new(
+                format!(
+                    "Name '{}' conflicts with existing {}",
+                    const_decl.name, existing
+                ),
+                Some(const_decl.span),
+            ));
+        }
+    }
+
     for procedure in &program.procedures {
         for param in &procedure.params {
             ensure_known_type(&param.ty, types, param.span)?;
@@ -614,6 +647,110 @@ fn eval_enum_const_expr(expr: &Expr, members: &HashMap<String, i64>) -> Result<i
     }
 }
 
+fn collect_module_symbols(
+    program: &Program,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+) -> Result<HashMap<String, VarType>, Diagnostic> {
+    let mut symbols = HashMap::new();
+
+    for var in &program.module_vars {
+        ensure_known_type(&var.ty, types, var.span)?;
+        let name_key = key(&var.name);
+        if symbols.contains_key(&name_key) {
+            return Err(Diagnostic::new(
+                format!("Module-level name '{}' is already declared", var.name),
+                Some(var.span),
+            ));
+        }
+        let var_type = if var.array.is_some() {
+            VarType::Array(var.ty.clone())
+        } else {
+            VarType::Scalar(var.ty.clone())
+        };
+        symbols.insert(name_key, var_type);
+    }
+
+    for const_decl in &program.module_consts {
+        ensure_const_expr(&const_decl.value, &symbols, types)?;
+        let value_type = validate_expr(&const_decl.value, &symbols, types, signatures)?;
+        let const_type = const_decl.ty.clone().unwrap_or(value_type.clone());
+        ensure_known_type(&const_type, types, const_decl.span)?;
+        ensure_assignable_expr(
+            &const_type,
+            &value_type,
+            &const_decl.value,
+            types,
+            const_decl.span,
+        )?;
+        let name_key = key(&const_decl.name);
+        if symbols.contains_key(&name_key) {
+            return Err(Diagnostic::new(
+                format!(
+                    "Module-level name '{}' is already declared",
+                    const_decl.name
+                ),
+                Some(const_decl.span),
+            ));
+        }
+        symbols.insert(name_key, VarType::Const(const_type));
+    }
+
+    Ok(symbols)
+}
+
+fn ensure_const_expr(
+    expr: &Expr,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+) -> Result<(), Diagnostic> {
+    match &expr.kind {
+        ExprKind::String(_) | ExprKind::Integer(_) | ExprKind::Boolean(_) => Ok(()),
+        ExprKind::Variable(name) => {
+            if symbols
+                .get(&key(name))
+                .is_some_and(|var_type| var_type.is_const())
+                || enum_member_value_type(name, types).is_some()
+            {
+                Ok(())
+            } else {
+                Err(Diagnostic::new(
+                    "Const initializer must be a compile-time constant",
+                    Some(expr.span),
+                ))
+            }
+        }
+        ExprKind::MemberAccess { object, field } => {
+            if let ExprKind::Variable(enum_name) = &object.kind
+                && types
+                    .get_enum(enum_name)
+                    .is_some_and(|enum_sig| enum_sig.members.contains_key(&key(field)))
+            {
+                Ok(())
+            } else {
+                Err(Diagnostic::new(
+                    "Const initializer must be a compile-time constant",
+                    Some(expr.span),
+                ))
+            }
+        }
+        ExprKind::Unary { expr, .. } => ensure_const_expr(expr, symbols, types),
+        ExprKind::Binary { left, right, .. } => {
+            ensure_const_expr(left, symbols, types)?;
+            ensure_const_expr(right, symbols, types)
+        }
+        ExprKind::Nothing
+        | ExprKind::Me
+        | ExprKind::WithTarget
+        | ExprKind::New { .. }
+        | ExprKind::Call { .. }
+        | ExprKind::MemberCall { .. } => Err(Diagnostic::new(
+            "Const initializer must be a compile-time constant",
+            Some(expr.span),
+        )),
+    }
+}
+
 fn params_to_sigs(params: &[Parameter]) -> Vec<ParamSig> {
     params
         .iter()
@@ -628,8 +765,10 @@ fn validate_procedure(
     procedure: &Procedure,
     types: &TypeRegistry,
     signatures: &Signatures,
+    module_symbols: &HashMap<String, VarType>,
 ) -> Result<(), Diagnostic> {
     let mut symbols = HashMap::new();
+    add_module_symbols(module_symbols, &mut symbols);
     add_parameters(&procedure.params, &mut symbols)?;
     validate_statements(
         &procedure.body,
@@ -638,6 +777,7 @@ fn validate_procedure(
         signatures,
         Context::Sub,
         LoopContext::default(),
+        false,
     )
 }
 
@@ -645,8 +785,10 @@ fn validate_function(
     function: &Function,
     types: &TypeRegistry,
     signatures: &Signatures,
+    module_symbols: &HashMap<String, VarType>,
 ) -> Result<(), Diagnostic> {
     let mut symbols = HashMap::new();
+    add_module_symbols(module_symbols, &mut symbols);
     add_parameters(&function.params, &mut symbols)?;
 
     let mut saw_return = false;
@@ -660,6 +802,7 @@ fn validate_function(
             saw_return: &mut saw_return,
         },
         LoopContext::default(),
+        false,
     )?;
 
     if !saw_return {
@@ -689,6 +832,15 @@ fn add_parameters(
     Ok(())
 }
 
+fn add_module_symbols(
+    module_symbols: &HashMap<String, VarType>,
+    symbols: &mut HashMap<String, VarType>,
+) {
+    for (name, var_type) in module_symbols {
+        symbols.insert(name.clone(), var_type.clone());
+    }
+}
+
 fn validate_statements(
     statements: &[Stmt],
     symbols: &mut HashMap<String, VarType>,
@@ -696,8 +848,15 @@ fn validate_statements(
     signatures: &Signatures,
     mut context: Context<'_>,
     loop_context: LoopContext,
+    in_with: bool,
 ) -> Result<(), Diagnostic> {
     for stmt in statements {
+        if !in_with && stmt_uses_with_target(stmt) {
+            return Err(Diagnostic::new(
+                "Dot member access requires an active With block",
+                Some(stmt_span(stmt)),
+            ));
+        }
         match stmt {
             Stmt::Dim {
                 name,
@@ -719,6 +878,26 @@ fn validate_statements(
                     VarType::Scalar(ty.clone())
                 };
                 symbols.insert(key, var_type);
+            }
+            Stmt::Const {
+                name,
+                ty,
+                value,
+                span,
+            } => {
+                ensure_const_expr(value, symbols, types)?;
+                let value_type = validate_expr(value, symbols, types, signatures)?;
+                let const_type = ty.clone().unwrap_or(value_type.clone());
+                ensure_known_type(&const_type, types, *span)?;
+                ensure_assignable_expr(&const_type, &value_type, value, types, *span)?;
+                let key = key(name);
+                if symbols.contains_key(&key) {
+                    return Err(Diagnostic::new(
+                        format!("Variable '{}' is already declared", name),
+                        Some(*span),
+                    ));
+                }
+                symbols.insert(key, VarType::Const(const_type));
             }
             Stmt::Assign { target, expr, span } => {
                 let expr_type = validate_expr(expr, symbols, types, signatures)?;
@@ -812,6 +991,7 @@ fn validate_statements(
                     signatures,
                     context.reborrow(),
                     loop_context,
+                    in_with,
                 )?;
                 for branch in elseif_branches {
                     ensure_assignable(
@@ -826,6 +1006,7 @@ fn validate_statements(
                         signatures,
                         context.reborrow(),
                         loop_context,
+                        in_with,
                     )?;
                 }
                 validate_statements(
@@ -835,6 +1016,7 @@ fn validate_statements(
                     signatures,
                     context.reborrow(),
                     loop_context,
+                    in_with,
                 )?;
             }
             Stmt::SelectCase {
@@ -855,6 +1037,7 @@ fn validate_statements(
                         signatures,
                         context.reborrow(),
                         loop_context,
+                        in_with,
                     )?;
                 }
                 validate_statements(
@@ -864,6 +1047,7 @@ fn validate_statements(
                     signatures,
                     context.reborrow(),
                     loop_context,
+                    in_with,
                 )?;
             }
             Stmt::While {
@@ -877,6 +1061,7 @@ fn validate_statements(
                     signatures,
                     context.reborrow(),
                     loop_context.in_while(),
+                    in_with,
                 )?;
             }
             Stmt::DoLoop {
@@ -902,6 +1087,7 @@ fn validate_statements(
                     signatures,
                     context.reborrow(),
                     loop_context.in_do(),
+                    in_with,
                 )?;
             }
             Stmt::For {
@@ -920,7 +1106,8 @@ fn validate_statements(
                     ));
                 };
 
-                if !matches!(ty, VarType::Scalar(scalar) if scalar.same_type(&TypeName::Integer)) {
+                if !matches!(ty.scalar_type(), Some(scalar) if scalar.same_type(&TypeName::Integer))
+                {
                     return Err(Diagnostic::new(
                         format!("For loop variable '{}' must be Integer", variable),
                         Some(*span),
@@ -962,6 +1149,7 @@ fn validate_statements(
                     signatures,
                     context.reborrow(),
                     loop_context.in_for(),
+                    in_with,
                 )?;
             }
             Stmt::ForEach {
@@ -977,7 +1165,7 @@ fn validate_statements(
                         Some(*span),
                     ));
                 };
-                let VarType::Scalar(loop_type) = loop_type else {
+                let Some(loop_type) = loop_type.scalar_type() else {
                     return Err(Diagnostic::new(
                         format!("Array variable '{}' cannot be used as a scalar", variable),
                         Some(*span),
@@ -1003,6 +1191,7 @@ fn validate_statements(
                     signatures,
                     context.reborrow(),
                     loop_context.in_for(),
+                    in_with,
                 )?;
             }
             Stmt::ReDim {
@@ -1027,6 +1216,18 @@ fn validate_statements(
                     &TypeName::Integer,
                     &validate_expr(upper_bound, symbols, types, signatures)?,
                     upper_bound.span,
+                )?;
+            }
+            Stmt::With { target, body, .. } => {
+                validate_expr(target, symbols, types, signatures)?;
+                validate_statements(
+                    body,
+                    symbols,
+                    types,
+                    signatures,
+                    context.reborrow(),
+                    loop_context,
+                    true,
                 )?;
             }
             Stmt::Exit { target, span } => {
@@ -1062,6 +1263,147 @@ fn validate_sub_call(
     validate_arguments("Sub", sub, args, symbols, types, signatures, span)
 }
 
+fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
+    match stmt {
+        Stmt::Dim { span, .. }
+        | Stmt::Const { span, .. }
+        | Stmt::Assign { span, .. }
+        | Stmt::SetAssign { span, .. }
+        | Stmt::ConsoleWriteLine { span, .. }
+        | Stmt::SubCall { span, .. }
+        | Stmt::MemberSubCall { span, .. }
+        | Stmt::Return { span, .. }
+        | Stmt::If { span, .. }
+        | Stmt::SelectCase { span, .. }
+        | Stmt::While { span, .. }
+        | Stmt::DoLoop { span, .. }
+        | Stmt::For { span, .. }
+        | Stmt::ForEach { span, .. }
+        | Stmt::ReDim { span, .. }
+        | Stmt::With { span, .. }
+        | Stmt::Exit { span, .. } => *span,
+    }
+}
+
+fn stmt_uses_with_target(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Const { value, .. } | Stmt::Return { expr: value, .. } => {
+            expr_uses_with_target(value)
+        }
+        Stmt::Assign { target, expr, .. } | Stmt::SetAssign { target, expr, .. } => {
+            assign_target_uses_with_target(target) || expr_uses_with_target(expr)
+        }
+        Stmt::ConsoleWriteLine { args, .. } | Stmt::SubCall { args, .. } => {
+            args.iter().any(expr_uses_with_target)
+        }
+        Stmt::MemberSubCall { object, args, .. } => {
+            expr_uses_with_target(object) || args.iter().any(expr_uses_with_target)
+        }
+        Stmt::If {
+            condition,
+            then_body,
+            elseif_branches,
+            else_body,
+            ..
+        } => {
+            expr_uses_with_target(condition)
+                || then_body.iter().any(stmt_uses_with_target)
+                || elseif_branches.iter().any(|branch| {
+                    expr_uses_with_target(&branch.condition)
+                        || branch.body.iter().any(stmt_uses_with_target)
+                })
+                || else_body.iter().any(stmt_uses_with_target)
+        }
+        Stmt::SelectCase {
+            subject,
+            branches,
+            else_body,
+            ..
+        } => {
+            expr_uses_with_target(subject)
+                || branches.iter().any(|branch| {
+                    branch.items.iter().any(case_item_uses_with_target)
+                        || branch.body.iter().any(stmt_uses_with_target)
+                })
+                || else_body.iter().any(stmt_uses_with_target)
+        }
+        Stmt::While {
+            condition, body, ..
+        } => expr_uses_with_target(condition) || body.iter().any(stmt_uses_with_target),
+        Stmt::DoLoop {
+            condition, body, ..
+        } => do_condition_uses_with_target(condition) || body.iter().any(stmt_uses_with_target),
+        Stmt::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            expr_uses_with_target(start)
+                || expr_uses_with_target(end)
+                || step.as_ref().is_some_and(expr_uses_with_target)
+                || body.iter().any(stmt_uses_with_target)
+        }
+        Stmt::ForEach { iterable, body, .. } => {
+            expr_uses_with_target(iterable) || body.iter().any(stmt_uses_with_target)
+        }
+        Stmt::ReDim { upper_bound, .. } => expr_uses_with_target(upper_bound),
+        Stmt::With { target, .. } => expr_uses_with_target(target),
+        Stmt::Dim { .. } | Stmt::Exit { .. } => false,
+    }
+}
+
+fn assign_target_uses_with_target(target: &AssignTarget) -> bool {
+    match target {
+        AssignTarget::Variable { .. } => false,
+        AssignTarget::ArrayElement { index, .. } => expr_uses_with_target(index),
+        AssignTarget::Member { object, .. } => expr_uses_with_target(object),
+    }
+}
+
+fn case_item_uses_with_target(item: &CaseItem) -> bool {
+    match item {
+        CaseItem::Value(expr) | CaseItem::Compare { expr, .. } => expr_uses_with_target(expr),
+        CaseItem::Range { start, end } => {
+            expr_uses_with_target(start) || expr_uses_with_target(end)
+        }
+    }
+}
+
+fn do_condition_uses_with_target(condition: &DoLoopCondition) -> bool {
+    match condition {
+        DoLoopCondition::Infinite => false,
+        DoLoopCondition::PreWhile(expr)
+        | DoLoopCondition::PreUntil(expr)
+        | DoLoopCondition::PostWhile(expr)
+        | DoLoopCondition::PostUntil(expr) => expr_uses_with_target(expr),
+    }
+}
+
+fn expr_uses_with_target(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::WithTarget => true,
+        ExprKind::New { args, .. } | ExprKind::Call { args, .. } => {
+            args.iter().any(expr_uses_with_target)
+        }
+        ExprKind::MemberAccess { object, .. } => expr_uses_with_target(object),
+        ExprKind::MemberCall { object, args, .. } => {
+            expr_uses_with_target(object) || args.iter().any(expr_uses_with_target)
+        }
+        ExprKind::Binary { left, right, .. } => {
+            expr_uses_with_target(left) || expr_uses_with_target(right)
+        }
+        ExprKind::Unary { expr, .. } => expr_uses_with_target(expr),
+        ExprKind::String(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Boolean(_)
+        | ExprKind::Nothing
+        | ExprKind::Me
+        | ExprKind::Variable(_) => false,
+    }
+}
+
 fn validate_assignment_target(
     target: &AssignTarget,
     value_type: &TypeName,
@@ -1078,7 +1420,13 @@ fn validate_assignment_target(
                     Some(*span),
                 ));
             };
-            let VarType::Scalar(target_type) = target_type else {
+            if target_type.is_const() {
+                return Err(Diagnostic::new(
+                    format!("Constant '{}' cannot be assigned", name),
+                    Some(*span),
+                ));
+            }
+            let Some(target_type) = target_type.scalar_type() else {
                 return Err(Diagnostic::new(
                     format!("Array variable '{}' cannot be used as a scalar", name),
                     Some(*span),
@@ -1138,12 +1486,13 @@ fn validate_expr(
         ExprKind::Boolean(_) => Ok(TypeName::Boolean),
         ExprKind::Nothing => Ok(TypeName::Variant),
         ExprKind::Me => match symbols.get("me").cloned() {
-            Some(VarType::Scalar(ty)) => Ok(ty),
+            Some(VarType::Scalar(ty)) | Some(VarType::Const(ty)) => Ok(ty),
             _ => Err(Diagnostic::new(
                 "Me is only valid inside class methods",
                 Some(expr.span),
             )),
         },
+        ExprKind::WithTarget => Ok(TypeName::Variant),
         ExprKind::New { class_name, args } => {
             let class_sig = types.get_class(class_name).ok_or_else(|| {
                 Diagnostic::new(
@@ -1162,7 +1511,7 @@ fn validate_expr(
             Ok(TypeName::User(class_sig.name.clone()))
         }
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
-            Some(VarType::Scalar(ty)) => Ok(ty),
+            Some(VarType::Scalar(ty)) | Some(VarType::Const(ty)) => Ok(ty),
             Some(VarType::Array(_)) => Err(Diagnostic::new(
                 format!("Array variable '{}' cannot be used as a scalar", name),
                 Some(expr.span),
@@ -1364,7 +1713,7 @@ fn validate_array_expr(
     match &expr.kind {
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
             Some(VarType::Array(element_type)) => Ok(element_type),
-            Some(VarType::Scalar(_)) => Err(Diagnostic::new(
+            Some(VarType::Scalar(_)) | Some(VarType::Const(_)) => Err(Diagnostic::new(
                 format!("Variable '{}' is not an array", name),
                 Some(expr.span),
             )),
@@ -1456,6 +1805,9 @@ fn validate_method_call(
     signatures: &Signatures,
     current_class: Option<&str>,
 ) -> Result<TypeName, Diagnostic> {
+    if object_type.same_type(&TypeName::Variant) {
+        return Ok(TypeName::Variant);
+    }
     let TypeName::User(class_name) = object_type else {
         return Err(Diagnostic::new(
             "Method call requires a class instance",
@@ -1534,6 +1886,9 @@ fn member_read_type(
     span: crate::runtime::Span,
     current_class: Option<&str>,
 ) -> Result<TypeName, Diagnostic> {
+    if object_type.same_type(&TypeName::Variant) {
+        return Ok(TypeName::Variant);
+    }
     let TypeName::User(type_name) = object_type else {
         return Err(Diagnostic::new(
             "Member access requires a user-defined Type value",
@@ -1595,6 +1950,9 @@ fn member_assignment_type(
     span: crate::runtime::Span,
     current_class: Option<&str>,
 ) -> Result<TypeName, Diagnostic> {
+    if object_type.same_type(&TypeName::Variant) {
+        return Ok(value_type.clone());
+    }
     let TypeName::User(type_name) = object_type else {
         return Err(Diagnostic::new(
             "Member assignment requires a user-defined Type value",
@@ -1872,7 +2230,10 @@ fn ensure_assignable(
     source: &TypeName,
     span: crate::runtime::Span,
 ) -> Result<(), Diagnostic> {
-    if target.same_type(&TypeName::Variant) || target.same_type(source) {
+    if target.same_type(&TypeName::Variant)
+        || source.same_type(&TypeName::Variant)
+        || target.same_type(source)
+    {
         Ok(())
     } else {
         Err(Diagnostic::new(

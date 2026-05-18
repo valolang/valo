@@ -10,6 +10,12 @@ pub enum Stmt {
         array: Option<ArrayDecl>,
         span: Span,
     },
+    Const {
+        name: String,
+        ty: Option<TypeName>,
+        value: Expr,
+        span: Span,
+    },
     Assign {
         target: AssignTarget,
         expr: Expr,
@@ -82,6 +88,11 @@ pub enum Stmt {
         name: String,
         upper_bound: Expr,
         preserve: bool,
+        span: Span,
+    },
+    With {
+        target: Expr,
+        body: Vec<Stmt>,
         span: Span,
     },
     Exit {

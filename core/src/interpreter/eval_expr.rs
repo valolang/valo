@@ -16,6 +16,7 @@ impl Interpreter {
             ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
             ExprKind::Nothing => Ok(Value::Nothing),
             ExprKind::Me => frame.get("me", expr.span),
+            ExprKind::WithTarget => frame.current_with_target(expr.span),
             ExprKind::New { class_name, args } => {
                 self.new_object(class_name, args, frame, expr.span)
             }

@@ -1,0 +1,20 @@
+Class User
+    Public Name As String
+
+    Public Sub Rename(ByVal value As String)
+        Me.Name = value
+    End Sub
+End Class
+
+Sub PrintMessage(ByVal value As String)
+    Console.WriteLine(value)
+End Sub
+
+Sub Main()
+    Dim user As User
+    user = New User()
+
+    Let user.Name = "Valo"
+    Call user.Rename(user.Name & " Runtime")
+    Call PrintMessage(user.Name)
+End Sub

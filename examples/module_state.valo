@@ -1,0 +1,17 @@
+Private counter As Integer
+Public AppName As String
+Const Limit As Integer = 2
+
+Sub Increment()
+    counter = counter + 1
+End Sub
+
+Sub Main()
+    AppName = "Valo"
+    Call Increment()
+    Call Increment()
+
+    Console.WriteLine(AppName)
+    Console.WriteLine(counter)
+    Console.WriteLine(Limit)
+End Sub
