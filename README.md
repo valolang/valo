@@ -3,6 +3,9 @@
 [![Status](https://img.shields.io/badge/status-experimental-orange)]()
 [![Rust](https://img.shields.io/badge/built%20with-Rust-b7410e)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/uesleibros/valo?style=social)](https://github.com/uesleibros/valo/stargazers)
+[![GitHub Issues](https://img.shields.io/github/issues/uesleibros/valo)](https://github.com/uesleibros/valo/issues)
+[![GitHub Last Commit](https://img.shields.io/github/last-commit/uesleibros/valo)](https://github.com/uesleibros/valo/commits/main)
 
 <img align="right" src="assets/valo-mascot.png" height="120px" alt="Valo mascot">
 
