@@ -10,94 +10,241 @@
 <img align="right" src="assets/valo-mascot.png" height="120px" alt="Valo mascot">
 
 > [!WARNING]
-> Valo is in the earliest stages of development. This repository is being actively built. The language syntax, runtime behavior, and APIs will change frequently.
+> Valo is experimental. The language syntax, runtime behavior, and internal architecture may change frequently.
 
-**Valo** is an experimental runtime for VBA-inspired code, written in Rust.
+**Valo** is a VBA-inspired language runtime written in Rust.
 
-The vision: liberate VBA from Microsoft Office and give it a modern execution environment with async/await, modules, FFI, and true cross-platform support.
+It provides a standalone execution environment for a Basic-style language with typed variables, structured control flow, functions, records, arrays, classes, semantic validation, and runtime diagnostics.
+
+The long-term goal is to explore what a modern VBA-like runtime could look like outside Microsoft Office: cross-platform, lightweight, modular, and designed for modern tooling.
 
 ## Why Valo exists
 
-VBA taught millions to program. It powers business-critical automation in countless organizations. But it's trapped inside Office, bound to Windows, and hasn't evolved in decades.
+VBA has been used for decades to build automation, internal tools, business logic, and productivity workflows.
 
-Valo explores what VBA could become: a standalone, cross-platform runtime with modern features while keeping the familiar Basic syntax people already know.
+The problem is not only the language. The problem is the host.
 
-## Planned features
+Valo explores a different direction: a familiar Basic-style language running as a standalone runtime, without depending on Excel, Access, Word, COM, or the Office macro environment.
 
-Valo aims to support:
+Valo is not intended to be a perfect VBA clone. It is a modern runtime inspired by VBA and Basic-style programming.
 
-**Modern language features**
-- Async/await for non-blocking I/O
-- Module system with local and remote imports
-- Generics (List, Dictionary)
-- Lambdas and LINQ
-- Try/Catch error handling
+## Quick start
 
-**Runtime capabilities**
-- Cross-platform execution (Windows, Linux, macOS)
-- FFI via Declare statements
-- Bytecode compilation
-- Stack-based virtual machine
-- Standard library (http, fs, path, process)
-
-**Developer experience**
-- Language server protocol
-- Code formatter
-- Package manager
-- Clear diagnostics
-
-## Example syntax
-
-This is what Valo code will look like:
+Create a file called `hello.valo`:
 
 ```vb
-Import "http"
-
-Async Sub Main()
-    Dim server = http.CreateServer()
-    
-    server.Get("/", Async Function(req, res)
-        Await res.Send("Hello from Valo!")
-    End Function)
-    
-    Console.WriteLine("Server running at http://localhost:3000")
-    Await server.Listen("localhost", 3000)
+Sub Main()
+    Console.WriteLine("Hello from Valo")
 End Sub
 ```
 
-> [!NOTE]
-> This example represents the target syntax. Implementation is in progress.
+Run it:
 
-## Project status
+```sh
+valo run hello.valo
+```
 
-Valo is currently in the foundation stage. Active work includes:
+Output:
 
-- Language design and syntax finalization
-- Lexer and parser implementation
-- Runtime architecture
-- Core type system
-- Semantic validation
+```txt
+Hello from Valo
+```
 
-This is an experiment in giving VBA the runtime it deserves. Breaking changes are expected as the language evolves.
+## Installation
 
-## Philosophy
+Valo is currently distributed as a standalone executable during early testing.
+
+On Windows:
+
+```powershell
+valo.exe run examples\hello.valo
+```
+
+If `valo.exe` is available in your `PATH`:
+
+```powershell
+valo run examples\hello.valo
+```
+
+## Build from source
+
+Requirements:
+
+- [Rust](https://www.rust-lang.org/)
+- Cargo
+
+Clone the repository:
+
+```sh
+git clone https://github.com/uesleibros/valo.git
+cd valo
+```
+
+Build:
+
+```sh
+cargo build --release
+```
+
+Run the test suite:
+
+```sh
+cargo test
+```
+
+Run an example:
+
+```sh
+target/release/valo run examples/hello.valo
+```
+
+## Example
+
+```vb
+Class User
+    Public Name As String
+    Private Age As Integer
+    Private Active As Boolean
+
+    Public Sub Initialize(ByVal name As String, ByVal age As Integer)
+        Me.Name = name
+        Me.Age = age
+        Me.Active = True
+    End Sub
+
+    Public Function IsAdult() As Boolean
+        Return Me.Age >= 18
+    End Function
+
+    Public Sub Deactivate()
+        Me.Active = False
+    End Sub
+
+    Public Function IsActive() As Boolean
+        Return Me.Active
+    End Function
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User("Valo", 1)
+
+    Console.WriteLine(user.Name)
+    Console.WriteLine(user.IsAdult())
+    Console.WriteLine(user.IsActive())
+
+    user.Deactivate()
+    Console.WriteLine(user.IsActive())
+End Sub
+```
+
+Run it:
+
+```sh
+valo run examples/classes.valo
+```
+
+## Current language support
+
+Valo currently supports:
+
+- `Sub Main`
+- `Dim` declarations
+- `String`, `Integer`, `Boolean`, and `Variant`
+- `If`, `ElseIf`, `Else`, `End If`
+- `While` / `Wend`
+- `For` / `Next` / `Step`
+- `Function` and `Return`
+- callable `Sub`
+- `ByVal` and `ByRef`
+- `And`, `Or`, `Not`, and `Mod`
+- user-defined `Type` records
+- fixed-size arrays
+- `Class`
+- `New`
+- `Me`
+- public and private class members
+- instance methods
+- `Console.WriteLine`
+- semantic validation
+- runtime diagnostics
+
+## Current limitations
+
+Valo does not currently support:
+
+- imports or modules
+- standard library modules
+- properties
+- module-level visibility
+- `Select Case`
+- `Do` / `Loop`
+- `Exit` statements
+- dynamic arrays
+- `ReDim`
+- multidimensional arrays
+- `For Each`
+- async/await
+- FFI / `Declare`
+- bytecode compilation
+- package management
+- language server
+- formatter
+
+## Runtime model
+
+The current implementation uses a tree-walking interpreter while the language core is being designed and stabilized.
+
+The long-term runtime direction is:
+
+```txt
+source.valo
+  -> lexer
+  -> parser
+  -> semantic validation
+  -> bytecode compiler
+  -> stack-based virtual machine
+```
+
+The bytecode compiler and VM are not implemented yet.
+
+## Planned direction
+
+Valo aims to grow toward:
+
+- local modules and imports
+- standard library modules such as `fs`, `path`, `process`, and `http`
+- FFI through `Declare` statements
+- async/await for non-blocking I/O
+- bytecode execution
+- formatter
+- language server
+- editor integrations
+- WebAssembly playground
+
+## Design principles
 
 Valo is guided by a few principles:
 
-**Familiarity over novelty.** Millions know VBA. Evolution beats starting from scratch.
+**Familiar syntax.** Basic-style code is readable, approachable, and familiar to many developers.
 
-**Modern features are essential.** Async, modules, and FFI aren't optional in 2025.
+**Standalone runtime.** Valo code should run outside the Office environment.
 
-**Cross-platform by design.** Windows-only is a non-starter.
+**Modern runtime capabilities.** Modules, async I/O, FFI, diagnostics, tooling, and cross-platform execution are core goals.
 
-**Keep it simple.** VBA's accessibility is a strength, not something to fix.
+**Simple language surface.** Valo should remain easy to read and write, even as the runtime becomes more capable.
+
+## Project status
+
+Valo is in early active development.
+
+The current focus is correctness, language semantics, diagnostics, and stabilizing the core runtime behavior. Breaking changes are expected during the experimental stage.
 
 ## Contributing
 
-> [!IMPORTANT]
-> Valo is in very early development. The best way to contribute right now is to watch the repository and participate in discussions as development progresses.
+Valo is still evolving quickly.
 
-If you're interested in shaping the language, open a discussion or check back as the project evolves.
+Contributions, examples, bug reports, and design discussions are welcome. Before working on large language features, please open an issue or discussion so the language direction can stay consistent.
 
 ## License
 
