@@ -1,6 +1,7 @@
 use crate::runtime::{Diagnostic, Value};
 use crate::{
-    AssignTarget, CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, Stmt,
+    AssignTarget, CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ResumeTarget,
+    Stmt,
 };
 use std::collections::HashMap;
 
@@ -24,10 +25,39 @@ impl Interpreter {
                         .copied()
                         .expect("GoTo label validated");
                 }
+                Ok(ControlFlow::Resume(target)) => {
+                    let Some(failing_ip) = frame.handled_error_ip() else {
+                        return Err(Diagnostic::new(
+                            "Resume is only valid after a handled runtime error",
+                            Some(stmt_span(&statements[ip])),
+                        )
+                        .with_primary_label("no handled error is active"));
+                    };
+                    ip = match target {
+                        ResumeTarget::Retry => failing_ip,
+                        ResumeTarget::Next => failing_ip + 1,
+                        ResumeTarget::Label(label) => labels
+                            .get(&super::values::key(&label))
+                            .copied()
+                            .expect("Resume label validated"),
+                    };
+                    frame.clear_handled_error();
+                }
                 Ok(flow) => return Ok(flow),
                 Err(error) if frame.resume_next() => {
                     self.set_err(&error);
                     ip += 1;
+                }
+                Err(error)
+                    if frame.error_handler().is_some() && frame.handled_error_ip().is_none() =>
+                {
+                    self.set_err(&error);
+                    frame.set_handled_error_ip(ip);
+                    let handler = frame.error_handler().expect("checked").to_string();
+                    ip = labels
+                        .get(&super::values::key(&handler))
+                        .copied()
+                        .expect("On Error label validated");
                 }
                 Err(error) => return Err(error),
             }
@@ -304,10 +334,17 @@ impl Interpreter {
             Stmt::OnError { mode, .. } => {
                 match mode {
                     OnErrorMode::ResumeNext => frame.set_resume_next(true),
-                    OnErrorMode::GoToZero => frame.set_resume_next(false),
+                    OnErrorMode::GoToZero => {
+                        frame.set_resume_next(false);
+                        frame.set_error_handler(None);
+                    }
+                    OnErrorMode::GoToLabel(label) => {
+                        frame.set_error_handler(Some(label.clone()));
+                    }
                 }
                 Ok(ControlFlow::Continue)
             }
+            Stmt::Resume { target, .. } => Ok(ControlFlow::Resume(target.clone())),
             Stmt::With { target, body, .. } => {
                 let target = self.eval_expr(target, frame)?;
                 frame.push_with_target(target);
@@ -386,6 +423,32 @@ impl Interpreter {
                 .is_truthy())
             }
         }
+    }
+}
+
+fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
+    match stmt {
+        Stmt::Dim { span, .. }
+        | Stmt::Const { span, .. }
+        | Stmt::Assign { span, .. }
+        | Stmt::SetAssign { span, .. }
+        | Stmt::ConsoleWriteLine { span, .. }
+        | Stmt::SubCall { span, .. }
+        | Stmt::MemberSubCall { span, .. }
+        | Stmt::Return { span, .. }
+        | Stmt::If { span, .. }
+        | Stmt::SelectCase { span, .. }
+        | Stmt::While { span, .. }
+        | Stmt::DoLoop { span, .. }
+        | Stmt::For { span, .. }
+        | Stmt::ForEach { span, .. }
+        | Stmt::ReDim { span, .. }
+        | Stmt::Label { span, .. }
+        | Stmt::GoTo { span, .. }
+        | Stmt::OnError { span, .. }
+        | Stmt::Resume { span, .. }
+        | Stmt::With { span, .. }
+        | Stmt::Exit { span, .. } => *span,
     }
 }
 

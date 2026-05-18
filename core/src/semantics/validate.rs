@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::runtime::{Diagnostic, TypeName};
 use crate::{
     AssignTarget, BinaryOp, CaseCompareOp, CaseItem, ClassMember, DoLoopCondition, ExitTarget,
-    Expr, ExprKind, Function, Parameter, PassingMode, Procedure, Program, PropertyKind, Stmt,
-    UnaryOp, Visibility,
+    Expr, ExprKind, Function, OnErrorMode, Parameter, PassingMode, Procedure, Program,
+    PropertyKind, ResumeTarget, Stmt, UnaryOp, Visibility,
 };
 
 use crate::semantics::context::Context;

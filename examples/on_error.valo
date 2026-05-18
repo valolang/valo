@@ -1,0 +1,18 @@
+Sub Main()
+    Dim values() As Integer
+
+    On Error GoTo Handler
+    values(0) = 42
+    Console.WriteLine(values(0))
+    GoTo Done
+
+Handler:
+    Console.WriteLine("handled " & Err.Number)
+    Console.WriteLine(Err.Description)
+    ReDim values(0)
+    Resume
+
+Done:
+    Err.Clear()
+    Console.WriteLine("done " & Err.Number)
+End Sub

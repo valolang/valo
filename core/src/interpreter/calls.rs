@@ -78,7 +78,8 @@ impl Interpreter {
                 ControlFlow::ExitFor
                 | ControlFlow::ExitWhile
                 | ControlFlow::ExitDo
-                | ControlFlow::GoTo(_) => Err(Diagnostic::new(
+                | ControlFlow::GoTo(_)
+                | ControlFlow::Resume(_) => Err(Diagnostic::new(
                     "Exit statement escaped its block",
                     Some(span),
                 )),
@@ -158,7 +159,8 @@ impl Interpreter {
                 ControlFlow::ExitFor
                 | ControlFlow::ExitWhile
                 | ControlFlow::ExitDo
-                | ControlFlow::GoTo(_) => Err(Diagnostic::new(
+                | ControlFlow::GoTo(_)
+                | ControlFlow::Resume(_) => Err(Diagnostic::new(
                     "Exit statement escaped its block",
                     Some(span),
                 )),
@@ -209,7 +211,8 @@ impl Interpreter {
             ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
-            | ControlFlow::GoTo(_) => Err(Diagnostic::new(
+            | ControlFlow::GoTo(_)
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
                 "Exit statement escaped its block",
                 Some(span),
             )),
@@ -259,7 +262,8 @@ impl Interpreter {
             ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
-            | ControlFlow::GoTo(_) => Err(Diagnostic::new(
+            | ControlFlow::GoTo(_)
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
                 "Exit statement escaped its block",
                 Some(span),
             )),

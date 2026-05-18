@@ -102,6 +102,10 @@ pub enum Stmt {
         mode: OnErrorMode,
         span: Span,
     },
+    Resume {
+        target: ResumeTarget,
+        span: Span,
+    },
     With {
         target: Expr,
         body: Vec<Stmt>,
@@ -113,10 +117,18 @@ pub enum Stmt {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OnErrorMode {
     ResumeNext,
     GoToZero,
+    GoToLabel(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResumeTarget {
+    Retry,
+    Next,
+    Label(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

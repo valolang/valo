@@ -14,6 +14,8 @@ pub(crate) struct Frame {
     variables: HashMap<String, Variable>,
     with_stack: Vec<Value>,
     resume_next: bool,
+    error_handler: Option<String>,
+    handled_error_ip: Option<usize>,
 }
 
 impl Frame {
@@ -324,10 +326,35 @@ impl Frame {
 
     pub(crate) fn set_resume_next(&mut self, enabled: bool) {
         self.resume_next = enabled;
+        if enabled {
+            self.error_handler = None;
+        }
     }
 
     pub(crate) fn resume_next(&self) -> bool {
         self.resume_next
+    }
+
+    pub(crate) fn set_error_handler(&mut self, label: Option<String>) {
+        self.error_handler = label;
+        self.resume_next = false;
+        self.handled_error_ip = None;
+    }
+
+    pub(crate) fn error_handler(&self) -> Option<&str> {
+        self.error_handler.as_deref()
+    }
+
+    pub(crate) fn set_handled_error_ip(&mut self, ip: usize) {
+        self.handled_error_ip = Some(ip);
+    }
+
+    pub(crate) fn handled_error_ip(&self) -> Option<usize> {
+        self.handled_error_ip
+    }
+
+    pub(crate) fn clear_handled_error(&mut self) {
+        self.handled_error_ip = None;
     }
 }
 

@@ -390,6 +390,7 @@ pub(super) fn validate_statements(
             Stmt::Label { .. } => {}
             Stmt::GoTo { .. } => {}
             Stmt::OnError { .. } => {}
+            Stmt::Resume { .. } => {}
             Stmt::With { target, body, .. } => {
                 validate_expr(target, symbols, types, signatures)?;
                 validate_statements(
@@ -425,13 +426,22 @@ fn validate_labels(statements: &[Stmt]) -> Result<(), Diagnostic> {
         }
     }
     for stmt in statements {
-        if let Stmt::GoTo { label, span } = stmt
-            && !labels.contains(&key(label))
-        {
-            return Err(Diagnostic::new(
-                format!("Label '{}' is not declared", label),
-                Some(*span),
-            ));
+        match stmt {
+            Stmt::GoTo { label, span }
+            | Stmt::Resume {
+                target: ResumeTarget::Label(label),
+                span,
+            }
+            | Stmt::OnError {
+                mode: OnErrorMode::GoToLabel(label),
+                span,
+            } if !labels.contains(&key(label)) => {
+                return Err(Diagnostic::new(
+                    format!("Label '{}' is not declared", label),
+                    Some(*span),
+                ));
+            }
+            _ => {}
         }
     }
     Ok(())
@@ -481,6 +491,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::Label { span, .. }
         | Stmt::GoTo { span, .. }
         | Stmt::OnError { span, .. }
+        | Stmt::Resume { span, .. }
         | Stmt::With { span, .. }
         | Stmt::Exit { span, .. } => *span,
     }
@@ -550,7 +561,9 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             expr_uses_with_target(iterable) || body.iter().any(stmt_uses_with_target)
         }
         Stmt::ReDim { upper_bound, .. } => expr_uses_with_target(upper_bound),
-        Stmt::Label { .. } | Stmt::GoTo { .. } | Stmt::OnError { .. } => false,
+        Stmt::Label { .. } | Stmt::GoTo { .. } | Stmt::OnError { .. } | Stmt::Resume { .. } => {
+            false
+        }
         Stmt::With { target, .. } => expr_uses_with_target(target),
         Stmt::Dim { .. } | Stmt::Exit { .. } => false,
     }

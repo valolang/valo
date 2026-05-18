@@ -339,6 +339,147 @@ End Sub
 }
 
 #[test]
+fn on_error_goto_label_jumps_to_handler_and_exposes_err() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim x As Integer
+    On Error GoTo Handler
+    x = 1 / 0
+    Console.WriteLine("not reached")
+Handler:
+    Console.WriteLine(Err.Number > 0)
+    Console.WriteLine(Err.Description)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["True", "Division by zero"]);
+}
+
+#[test]
+fn resume_next_continues_after_original_failing_statement() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim x As Integer
+    On Error GoTo Handler
+    x = 1 / 0
+    Console.WriteLine("after")
+    GoTo Done
+Handler:
+    Console.WriteLine("handled")
+    Resume Next
+Done:
+    Console.WriteLine("done")
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["handled", "after", "done"]);
+}
+
+#[test]
+fn resume_retries_original_statement_after_state_is_fixed() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim values() As Integer
+    On Error GoTo Handler
+    values(0) = 7
+    Console.WriteLine(values(0))
+    GoTo Done
+Handler:
+    ReDim values(0)
+    Resume
+Done:
+    Console.WriteLine("done")
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["7", "done"]);
+}
+
+#[test]
+fn resume_label_jumps_to_requested_label() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim x As Integer
+    On Error GoTo Handler
+    x = 1 / 0
+    Console.WriteLine("after")
+    GoTo Done
+Handler:
+    Console.WriteLine("handled")
+    Resume ContinueHere
+    Console.WriteLine("skip")
+ContinueHere:
+    Console.WriteLine("continued")
+Done:
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["handled", "continued"]);
+}
+
+#[test]
+fn on_error_goto_zero_disables_label_handler() {
+    let error = source_error(
+        r#"
+Sub Main()
+    Dim x As Integer
+    On Error GoTo Handler
+    On Error GoTo 0
+    x = 1 / 0
+    Console.WriteLine("after")
+Handler:
+    Console.WriteLine("handled")
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Division by zero"));
+}
+
+#[test]
+fn on_error_and_resume_labels_are_semantically_validated() {
+    let unknown_on_error = source_error(
+        r#"
+Sub Main()
+    On Error GoTo Missing
+End Sub
+"#,
+    );
+    assert!(unknown_on_error.contains("Label 'Missing' is not declared"));
+
+    let unknown_resume = source_error(
+        r#"
+Sub Main()
+Handler:
+    Resume Missing
+End Sub
+"#,
+    );
+    assert!(unknown_resume.contains("Label 'Missing' is not declared"));
+}
+
+#[test]
+fn resume_without_active_handled_error_reports_runtime_diagnostic() {
+    let error = source_error(
+        r#"
+Sub Main()
+    Resume
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Resume is only valid after a handled runtime error"));
+}
+
+#[test]
 fn reports_type_mismatch_errors() {
     let error = source_error(
         r#"
