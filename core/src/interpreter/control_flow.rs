@@ -1,0 +1,7 @@
+use crate::runtime::Value;
+
+#[derive(Debug, Clone)]
+pub(crate) enum ControlFlow {
+    Continue,
+    Return(Value),
+}
