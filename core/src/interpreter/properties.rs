@@ -109,6 +109,7 @@ impl Interpreter {
             &param.name,
             param.ty.clone(),
             None,
+            self.option_base,
             param.span,
             &self.types,
             &self.enums,

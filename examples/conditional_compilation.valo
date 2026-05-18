@@ -1,0 +1,30 @@
+Option Compare Text
+
+#Const DebugMode = True
+#Const Target = "web"
+#Const Version = 2
+
+#If DebugMode Then
+Const Mode As String = "debug"
+#Else
+Const Mode As String = "release"
+#End If
+
+#If Target = "web" Then
+Const Platform As String = "browser"
+#ElseIf Target = "native" Then
+Const Platform As String = "native"
+#Else
+Const Platform As String = "unknown"
+#End If
+
+Sub Main()
+    Console.WriteLine(Mode)
+    Console.WriteLine(Platform)
+
+#If Version >= 2 And Target = "WEB" Then
+    Console.WriteLine("modern web")
+#Else
+    inactive invalid Valo is ignored here
+#End If
+End Sub

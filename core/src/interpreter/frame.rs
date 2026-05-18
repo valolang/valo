@@ -21,6 +21,7 @@ impl Frame {
         name: &str,
         ty: TypeName,
         array: Option<ArrayDecl>,
+        option_base: i64,
         span: Span,
         types: &HashMap<String, RuntimeType>,
         enums: &HashMap<String, RuntimeEnum>,
@@ -37,8 +38,14 @@ impl Frame {
         let value = if let Some(array) = array {
             let mut elements = Vec::new();
             let allocated = match array {
-                ArrayDecl::Fixed(size) => {
-                    for _ in 0..=size {
+                ArrayDecl::Fixed(upper_bound) => {
+                    if upper_bound < option_base {
+                        return Err(Diagnostic::new(
+                            "Array upper bound must be greater than or equal to Option Base",
+                            Some(span),
+                        ));
+                    }
+                    for _ in option_base..=upper_bound {
                         elements.push(default_value(&ty, types, enums, span)?);
                     }
                     true
@@ -48,6 +55,7 @@ impl Frame {
             Value::Array {
                 element_type: ty.clone(),
                 elements,
+                lower_bound: option_base,
                 allocated,
             }
         } else {
@@ -99,13 +107,14 @@ impl Frame {
         name: &str,
         ty: TypeName,
         array: Option<ArrayDecl>,
+        option_base: i64,
         is_const: bool,
         value: Option<Value>,
         span: Span,
         types: &HashMap<String, RuntimeType>,
         enums: &HashMap<String, RuntimeEnum>,
     ) -> Result<(), Diagnostic> {
-        self.declare(name, ty.clone(), array, span, types, enums)?;
+        self.declare(name, ty.clone(), array, option_base, span, types, enums)?;
         let variable = self.variables.get_mut(&key(name)).expect("declared");
         variable.module_level = true;
         variable.is_const = is_const;
@@ -246,6 +255,7 @@ impl Frame {
         &mut self,
         name: &str,
         upper_bound: i64,
+        option_base: i64,
         preserve: bool,
         types: &HashMap<String, RuntimeType>,
         enums: &HashMap<String, RuntimeEnum>,
@@ -259,7 +269,15 @@ impl Frame {
             ));
         }
         let mut array = variable.cell.borrow_mut();
-        redim_array(&mut array, upper_bound, preserve, types, enums, span)
+        redim_array(
+            &mut array,
+            upper_bound,
+            option_base,
+            preserve,
+            types,
+            enums,
+            span,
+        )
     }
 
     pub(crate) fn simple_index_value(&self, expr: &Expr, span: Span) -> Result<i64, Diagnostic> {

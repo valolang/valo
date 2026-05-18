@@ -103,7 +103,7 @@ pub enum Stmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayDecl {
-    Fixed(usize),
+    Fixed(i64),
     Dynamic,
 }
 

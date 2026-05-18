@@ -35,6 +35,7 @@ impl Interpreter {
                     name,
                     ty.clone(),
                     array.clone(),
+                    self.option_base,
                     *span,
                     &self.types,
                     &self.enums,
@@ -266,6 +267,7 @@ impl Interpreter {
                 frame.redim_array(
                     name,
                     upper_bound,
+                    self.option_base,
                     *preserve,
                     &self.types,
                     &self.enums,
@@ -318,7 +320,7 @@ impl Interpreter {
         match item {
             CaseItem::Value(value) => {
                 let value = self.eval_expr(value, frame)?;
-                Ok(values_equal(subject, &value))
+                Ok(values_equal(subject, &value, self.option_compare))
             }
             CaseItem::Range { start, end } => {
                 let start_value = self.eval_expr(start, frame)?;
@@ -327,19 +329,28 @@ impl Interpreter {
                     subject.clone(),
                     CaseCompareOp::GreaterEqual,
                     start_value,
+                    self.option_compare,
                     start.span,
                 )?;
                 let upper = compare_case_values(
                     subject.clone(),
                     CaseCompareOp::LessEqual,
                     end_value,
+                    self.option_compare,
                     end.span,
                 )?;
                 Ok(lower.is_truthy() && upper.is_truthy())
             }
             CaseItem::Compare { op, expr } => {
                 let value = self.eval_expr(expr, frame)?;
-                Ok(compare_case_values(subject.clone(), *op, value, expr.span)?.is_truthy())
+                Ok(compare_case_values(
+                    subject.clone(),
+                    *op,
+                    value,
+                    self.option_compare,
+                    expr.span,
+                )?
+                .is_truthy())
             }
         }
     }

@@ -5,6 +5,7 @@ mod statements;
 
 use crate::ast::*;
 use crate::lexer::{Lexer, Token, TokenKind};
+use crate::preprocessor::preprocess;
 use crate::runtime::Diagnostic;
 
 pub struct Parser {
@@ -14,7 +15,8 @@ pub struct Parser {
 
 impl Parser {
     pub fn parse_source(source: &str) -> Result<Program, Diagnostic> {
-        let tokens = Lexer::new(source).tokenize()?;
+        let source = preprocess(source)?;
+        let tokens = Lexer::new(&source).tokenize()?;
         Self::new(tokens).parse_program()
     }
 

@@ -1,0 +1,18 @@
+Option Compare Text
+
+Sub Main()
+    Console.WriteLine("valo" = "VALO")
+    Console.WriteLine("bravo" > "Alpha")
+
+    Select Case "B"
+    Case "a" To "c"
+        Console.WriteLine("range")
+    Case Else
+        Console.WriteLine("else")
+    End Select
+
+    Select Case "debug"
+    Case Is = "DEBUG"
+        Console.WriteLine("case is")
+    End Select
+End Sub

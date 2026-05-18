@@ -3,6 +3,10 @@ use super::*;
 impl Parser {
     pub fn parse_program(&mut self) -> Result<Program, Diagnostic> {
         let mut option_explicit = false;
+        let mut option_base = 0;
+        let mut saw_option_base = false;
+        let mut option_compare = OptionCompare::Binary;
+        let mut saw_option_compare = false;
         let mut types = Vec::new();
         let mut enums = Vec::new();
         let mut module_vars = Vec::new();
@@ -34,8 +38,41 @@ impl Parser {
                         }
                         option_explicit = true;
                         self.expect_statement_end("Expected newline after Option Explicit")?;
+                    } else if self.match_simple(&TokenKind::Base) {
+                        if saw_option_base {
+                            return Err(self.error_here("Option Base is already declared"));
+                        }
+                        let token = self.advance();
+                        let TokenKind::Integer(value) = token.kind else {
+                            return Err(Diagnostic::new(
+                                "Option Base must be 0 or 1",
+                                Some(token.span),
+                            ));
+                        };
+                        if value != 0 && value != 1 {
+                            return Err(Diagnostic::new(
+                                "Option Base must be 0 or 1",
+                                Some(token.span),
+                            ));
+                        }
+                        option_base = value;
+                        saw_option_base = true;
+                        self.expect_statement_end("Expected newline after Option Base")?;
+                    } else if self.match_simple(&TokenKind::Compare) {
+                        if saw_option_compare {
+                            return Err(self.error_here("Option Compare is already declared"));
+                        }
+                        if self.match_simple(&TokenKind::Binary) {
+                            option_compare = OptionCompare::Binary;
+                        } else if self.match_simple(&TokenKind::Text) {
+                            option_compare = OptionCompare::Text;
+                        } else {
+                            return Err(self.error_here("Option Compare must be Binary or Text"));
+                        }
+                        saw_option_compare = true;
+                        self.expect_statement_end("Expected newline after Option Compare")?;
                     } else {
-                        return Err(self.error_here("Only Option Explicit is supported; other Option statements are not implemented"));
+                        return Err(self.error_here("Option must be Explicit, Base, or Compare"));
                     }
                 }
                 TokenKind::Type => types.push(self.parse_type_decl()?),
@@ -72,6 +109,8 @@ impl Parser {
 
         Ok(Program {
             option_explicit,
+            option_base,
+            option_compare,
             types,
             enums,
             module_vars,

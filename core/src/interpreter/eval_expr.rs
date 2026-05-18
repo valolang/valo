@@ -100,7 +100,7 @@ impl Interpreter {
             ExprKind::Binary { left, op, right } => {
                 let left = self.eval_expr(left, frame)?;
                 let right = self.eval_expr(right, frame)?;
-                eval_binary(left, *op, right, expr.span)
+                eval_binary(left, *op, right, self.option_compare, expr.span)
             }
         }
     }

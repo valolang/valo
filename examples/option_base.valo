@@ -1,0 +1,21 @@
+Option Base 1
+
+Sub Main()
+    Dim fixed(3) As Integer
+    Dim dynamic() As Integer
+    Dim item As Integer
+    Dim total As Integer
+
+    fixed(1) = 10
+    fixed(3) = 30
+    For Each item In fixed
+        total = total + item
+    Next item
+
+    ReDim dynamic(2)
+    dynamic(1) = 7
+    dynamic(2) = 9
+
+    Console.WriteLine("fixed " & LBound(fixed) & ":" & UBound(fixed) & " total " & total)
+    Console.WriteLine("dynamic " & LBound(dynamic) & ":" & UBound(dynamic) & " values " & dynamic(1) & "," & dynamic(2))
+End Sub

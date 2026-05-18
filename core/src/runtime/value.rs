@@ -10,6 +10,7 @@ pub enum Value {
     Array {
         element_type: TypeName,
         elements: Vec<Value>,
+        lower_bound: i64,
         allocated: bool,
     },
     Record {

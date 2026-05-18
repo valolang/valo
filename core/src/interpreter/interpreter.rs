@@ -16,14 +16,21 @@ pub struct Interpreter {
     pub(crate) procedures: HashMap<String, Procedure>,
     pub(crate) functions: HashMap<String, Function>,
     pub(crate) output: Vec<String>,
+    pub(crate) option_base: i64,
+    pub(crate) option_compare: crate::OptionCompare,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            option_compare: crate::OptionCompare::Binary,
+            ..Self::default()
+        }
     }
 
     pub fn run(mut self, program: &Program) -> Result<Vec<String>, Diagnostic> {
+        self.option_base = program.option_base;
+        self.option_compare = program.option_compare;
         for type_decl in &program.types {
             self.types
                 .insert(key(&type_decl.name), RuntimeType::from(type_decl));
@@ -67,6 +74,7 @@ impl Interpreter {
                 &var.name,
                 var.ty.clone(),
                 var.array.clone(),
+                self.option_base,
                 false,
                 None,
                 var.span,
@@ -81,6 +89,7 @@ impl Interpreter {
                 &const_decl.name,
                 ty,
                 None,
+                self.option_base,
                 true,
                 Some(value),
                 const_decl.span,
@@ -3738,7 +3747,7 @@ End Sub
     }
 
     #[test]
-    fn option_explicit_is_recognized_and_other_options_are_rejected() {
+    fn option_explicit_is_recognized() {
         let output = run_source(
             r#"
 Option Explicit
@@ -3770,24 +3779,230 @@ End Sub
 "#,
         );
         assert!(duplicate.contains("Option Explicit is already declared"));
+    }
 
-        let base = source_error(
+    #[test]
+    fn option_base_controls_fixed_arrays_redim_lbound_ubound_and_for_each() {
+        let default_output = run_source(
             r#"
+Sub Main()
+    Dim a(3) As Integer
+    a(0) = 5
+    a(3) = 8
+    Console.WriteLine(LBound(a) & ":" & UBound(a) & ":" & a(0) & ":" & a(3))
+End Sub
+"#,
+        );
+        assert_eq!(default_output, vec!["0:3:5:8"]);
+
+        let fixed_output = run_source(
+            r#"
+Option Base 1
+Sub Main()
+    Dim a(3) As Integer
+    Dim item As Integer
+    Dim total As Integer
+    a(1) = 10
+    a(3) = 30
+    For Each item In a
+        total = total + item
+    Next item
+    Console.WriteLine(LBound(a) & ":" & UBound(a) & ":" & total)
+End Sub
+"#,
+        );
+        assert_eq!(fixed_output, vec!["1:3:40"]);
+
+        let redim_output = run_source(
+            r#"
+Option Base 1
+Sub Main()
+    Dim a() As Integer
+    ReDim a(2)
+    a(1) = 7
+    a(2) = 9
+    Console.WriteLine(LBound(a) & ":" & UBound(a) & ":" & a(1) & ":" & a(2))
+End Sub
+"#,
+        );
+        assert_eq!(redim_output, vec!["1:2:7:9"]);
+    }
+
+    #[test]
+    fn option_base_rejects_invalid_duplicate_and_late_declarations() {
+        let invalid = source_error(
+            r#"
+Option Base 2
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(invalid.contains("Option Base must be 0 or 1"));
+
+        let duplicate = source_error(
+            r#"
+Option Base 0
 Option Base 1
 Sub Main()
 End Sub
 "#,
         );
-        assert!(base.contains("not implemented"));
+        assert!(duplicate.contains("Option Base is already declared"));
 
-        let compare = source_error(
+        let late = source_error(
             r#"
+Sub Main()
+End Sub
+Option Base 1
+"#,
+        );
+        assert!(late.contains("Option statements must appear before declarations"));
+    }
+
+    #[test]
+    fn option_compare_controls_string_comparisons_and_select_case() {
+        let binary = run_source(
+            r#"
+Sub Main()
+    Console.WriteLine("a" = "A")
+    Console.WriteLine("a" > "A")
+End Sub
+"#,
+        );
+        assert_eq!(binary, vec!["False", "True"]);
+
+        let text = run_source(
+            r#"
+Option Compare Text
+Sub Main()
+    Console.WriteLine("a" = "A")
+    Console.WriteLine("b" > "A")
+    Select Case "B"
+    Case "a" To "c"
+        Console.WriteLine("range")
+    Case Else
+        Console.WriteLine("else")
+    End Select
+    Select Case "alpha"
+    Case Is = "ALPHA"
+        Console.WriteLine("is")
+    End Select
+End Sub
+"#,
+        );
+        assert_eq!(text, vec!["True", "True", "range", "is"]);
+    }
+
+    #[test]
+    fn option_compare_rejects_duplicate_unknown_and_late_declarations() {
+        let duplicate = source_error(
+            r#"
+Option Compare Binary
 Option Compare Text
 Sub Main()
 End Sub
 "#,
         );
-        assert!(compare.contains("not implemented"));
+        assert!(duplicate.contains("Option Compare is already declared"));
+
+        let unknown = source_error(
+            r#"
+Option Compare Database
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(unknown.contains("Option Compare must be Binary or Text"));
+
+        let late = source_error(
+            r#"
+Sub Main()
+End Sub
+Option Compare Text
+"#,
+        );
+        assert!(late.contains("Option statements must appear before declarations"));
+    }
+
+    #[test]
+    fn conditional_compilation_selects_active_branches_and_ignores_inactive_code() {
+        let output = run_source(
+            r#"
+#Const Enabled = True
+#Const Version = 2
+#Const Target = "web"
+Sub Main()
+#If Enabled Then
+    Console.WriteLine("enabled")
+#Else
+    this is not valid Valo
+#End If
+#If Target = "native" Then
+    Console.WriteLine("native")
+#ElseIf Target = "web" Then
+    Console.WriteLine("web")
+#Else
+    Console.WriteLine("unknown")
+#End If
+#If Version > 1 And Not (Target = "native") Then
+    Console.WriteLine("expr")
+#End If
+End Sub
+"#,
+        );
+        assert_eq!(output, vec!["enabled", "web", "expr"]);
+    }
+
+    #[test]
+    fn conditional_compilation_supports_nested_blocks_and_else_branch() {
+        let output = run_source(
+            r#"
+#Const Outer = True
+#Const Inner = False
+Sub Main()
+#If Outer Then
+#If Inner Then
+    Console.WriteLine("inner")
+#Else
+    Console.WriteLine("nested else")
+#End If
+#Else
+    Console.WriteLine("outer else")
+#End If
+End Sub
+"#,
+        );
+        assert_eq!(output, vec!["nested else"]);
+    }
+
+    #[test]
+    fn conditional_compilation_reports_structure_errors() {
+        let missing = source_error(
+            r#"
+#If True Then
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(missing.contains("Missing '#End If'"));
+
+        let unexpected_else = source_error(
+            r#"
+#Else
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(unexpected_else.contains("Unexpected '#Else'"));
+
+        let unexpected_end = source_error(
+            r#"
+#End If
+Sub Main()
+End Sub
+"#,
+        );
+        assert!(unexpected_end.contains("Unexpected '#End If'"));
     }
 
     #[test]

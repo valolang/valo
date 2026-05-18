@@ -207,7 +207,7 @@ impl Parser {
                     ));
                 }
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
-                Some(ArrayDecl::Fixed(size as usize))
+                Some(ArrayDecl::Fixed(size))
             }
         } else {
             None

@@ -11,6 +11,7 @@ pub(crate) fn read_array_element(
 ) -> Result<Value, Diagnostic> {
     let Value::Array {
         elements,
+        lower_bound,
         allocated,
         ..
     } = value
@@ -18,7 +19,7 @@ pub(crate) fn read_array_element(
         return Err(Diagnostic::new("Value is not an array", Some(span)));
     };
     ensure_allocated(*allocated, span)?;
-    let index = checked_index(index, elements.len(), span)?;
+    let index = checked_index(index, *lower_bound, elements.len(), span)?;
     Ok(elements[index].clone())
 }
 
@@ -31,13 +32,14 @@ pub(crate) fn write_array_element(
     let Value::Array {
         element_type,
         elements,
+        lower_bound,
         allocated,
     } = value
     else {
         return Err(Diagnostic::new("Value is not an array", Some(span)));
     };
     ensure_allocated(*allocated, span)?;
-    let index = checked_index(index, elements.len(), span)?;
+    let index = checked_index(index, *lower_bound, elements.len(), span)?;
     elements[index] = coerce_assignment(element_type, new_value, span)?;
     Ok(())
 }
@@ -49,6 +51,7 @@ pub(crate) fn array_element_mut(
 ) -> Result<&mut Value, Diagnostic> {
     let Value::Array {
         elements,
+        lower_bound,
         allocated,
         ..
     } = value
@@ -56,21 +59,27 @@ pub(crate) fn array_element_mut(
         return Err(Diagnostic::new("Value is not an array", Some(span)));
     };
     ensure_allocated(*allocated, span)?;
-    let index = checked_index(index, elements.len(), span)?;
+    let index = checked_index(index, *lower_bound, elements.len(), span)?;
     Ok(&mut elements[index])
 }
 
 pub(crate) fn lbound(value: &Value, span: Span) -> Result<i64, Diagnostic> {
-    let Value::Array { allocated, .. } = value else {
+    let Value::Array {
+        allocated,
+        lower_bound,
+        ..
+    } = value
+    else {
         return Err(Diagnostic::new("LBound requires an array", Some(span)));
     };
     ensure_allocated(*allocated, span)?;
-    Ok(0)
+    Ok(*lower_bound)
 }
 
 pub(crate) fn ubound(value: &Value, span: Span) -> Result<i64, Diagnostic> {
     let Value::Array {
         elements,
+        lower_bound,
         allocated,
         ..
     } = value
@@ -78,26 +87,30 @@ pub(crate) fn ubound(value: &Value, span: Span) -> Result<i64, Diagnostic> {
         return Err(Diagnostic::new("UBound requires an array", Some(span)));
     };
     ensure_allocated(*allocated, span)?;
-    Ok(elements.len() as i64 - 1)
+    Ok(*lower_bound + elements.len() as i64 - 1)
 }
 
 pub(crate) fn redim_array(
     value: &mut Value,
     upper_bound: i64,
+    lower_bound: i64,
     preserve: bool,
     types: &HashMap<String, RuntimeType>,
     enums: &HashMap<String, RuntimeEnum>,
     span: Span,
 ) -> Result<(), Diagnostic> {
-    if upper_bound < 0 {
-        return Err(Diagnostic::new(
-            "ReDim upper bound must be non-negative",
-            Some(span),
-        ));
+    if upper_bound < lower_bound {
+        let message = if lower_bound == 0 {
+            "ReDim upper bound must be non-negative"
+        } else {
+            "ReDim upper bound must be greater than or equal to the array lower bound"
+        };
+        return Err(Diagnostic::new(message, Some(span)));
     }
     let Value::Array {
         element_type,
         elements,
+        lower_bound: array_lower_bound,
         allocated,
     } = value
     else {
@@ -106,7 +119,7 @@ pub(crate) fn redim_array(
             Some(span),
         ));
     };
-    let new_len = upper_bound as usize + 1;
+    let new_len = (upper_bound - lower_bound + 1) as usize;
     let mut new_elements = Vec::new();
     if preserve && *allocated {
         new_elements.extend(elements.iter().take(new_len).cloned());
@@ -115,6 +128,7 @@ pub(crate) fn redim_array(
         new_elements.push(default_value(element_type, types, enums, span)?);
     }
     *elements = new_elements;
+    *array_lower_bound = lower_bound;
     *allocated = true;
     Ok(())
 }
@@ -140,12 +154,27 @@ fn ensure_allocated(allocated: bool, span: Span) -> Result<(), Diagnostic> {
     }
 }
 
-fn checked_index(index: i64, len: usize, span: Span) -> Result<usize, Diagnostic> {
-    if index < 0 || index as usize >= len {
+fn checked_index(
+    index: i64,
+    lower_bound: i64,
+    len: usize,
+    span: Span,
+) -> Result<usize, Diagnostic> {
+    let offset = index - lower_bound;
+    if index < lower_bound || offset as usize >= len {
         return Err(Diagnostic::new(
-            format!("Array index {} is out of bounds for length {}", index, len),
+            if lower_bound == 0 {
+                format!("Array index {} is out of bounds for length {}", index, len)
+            } else {
+                format!(
+                    "Array index {} is out of bounds for range {} to {}",
+                    index,
+                    lower_bound,
+                    lower_bound + len as i64 - 1
+                )
+            },
             Some(span),
         ));
     }
-    Ok(index as usize)
+    Ok(offset as usize)
 }

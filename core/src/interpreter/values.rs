@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::BinaryOp;
+use crate::OptionCompare;
 use crate::runtime::{Diagnostic, Span, TypeName, Value};
 
 use super::records::{RuntimeEnum, RuntimeType};
@@ -10,6 +11,7 @@ pub(crate) fn eval_binary(
     left: Value,
     op: BinaryOp,
     right: Value,
+    compare: OptionCompare,
     span: Span,
 ) -> Result<Value, Diagnostic> {
     match op {
@@ -37,13 +39,13 @@ pub(crate) fn eval_binary(
         ))),
         BinaryOp::LogicalAnd => logical_or_bitwise(left, right, span, |a, b| a && b, |a, b| a & b),
         BinaryOp::LogicalOr => logical_or_bitwise(left, right, span, |a, b| a || b, |a, b| a | b),
-        BinaryOp::Equal => Ok(Value::Boolean(values_equal(&left, &right))),
-        BinaryOp::NotEqual => Ok(Value::Boolean(!values_equal(&left, &right))),
+        BinaryOp::Equal => Ok(Value::Boolean(values_equal(&left, &right, compare))),
+        BinaryOp::NotEqual => Ok(Value::Boolean(!values_equal(&left, &right, compare))),
         BinaryOp::Is => Ok(Value::Boolean(values_identical(&left, &right))),
-        BinaryOp::Less => compare_values(left, right, span, |ord| ord.is_lt()),
-        BinaryOp::Greater => compare_values(left, right, span, |ord| ord.is_gt()),
-        BinaryOp::LessEqual => compare_values(left, right, span, |ord| ord.is_le()),
-        BinaryOp::GreaterEqual => compare_values(left, right, span, |ord| ord.is_ge()),
+        BinaryOp::Less => compare_values(left, right, compare, span, |ord| ord.is_lt()),
+        BinaryOp::Greater => compare_values(left, right, compare, span, |ord| ord.is_gt()),
+        BinaryOp::LessEqual => compare_values(left, right, compare, span, |ord| ord.is_le()),
+        BinaryOp::GreaterEqual => compare_values(left, right, compare, span, |ord| ord.is_ge()),
     }
 }
 
@@ -51,15 +53,22 @@ pub(crate) fn compare_case_values(
     left: Value,
     op: crate::CaseCompareOp,
     right: Value,
+    compare: OptionCompare,
     span: Span,
 ) -> Result<Value, Diagnostic> {
     match op {
-        crate::CaseCompareOp::Equal => Ok(Value::Boolean(values_equal(&left, &right))),
-        crate::CaseCompareOp::NotEqual => Ok(Value::Boolean(!values_equal(&left, &right))),
-        crate::CaseCompareOp::Less => compare_values(left, right, span, |ord| ord.is_lt()),
-        crate::CaseCompareOp::Greater => compare_values(left, right, span, |ord| ord.is_gt()),
-        crate::CaseCompareOp::LessEqual => compare_values(left, right, span, |ord| ord.is_le()),
-        crate::CaseCompareOp::GreaterEqual => compare_values(left, right, span, |ord| ord.is_ge()),
+        crate::CaseCompareOp::Equal => Ok(Value::Boolean(values_equal(&left, &right, compare))),
+        crate::CaseCompareOp::NotEqual => Ok(Value::Boolean(!values_equal(&left, &right, compare))),
+        crate::CaseCompareOp::Less => compare_values(left, right, compare, span, |ord| ord.is_lt()),
+        crate::CaseCompareOp::Greater => {
+            compare_values(left, right, compare, span, |ord| ord.is_gt())
+        }
+        crate::CaseCompareOp::LessEqual => {
+            compare_values(left, right, compare, span, |ord| ord.is_le())
+        }
+        crate::CaseCompareOp::GreaterEqual => {
+            compare_values(left, right, compare, span, |ord| ord.is_ge())
+        }
     }
 }
 
@@ -103,12 +112,19 @@ fn logical_or_bitwise(
 fn compare_values(
     left: Value,
     right: Value,
+    compare: OptionCompare,
     span: Span,
     predicate: impl FnOnce(std::cmp::Ordering) -> bool,
 ) -> Result<Value, Diagnostic> {
     let ordering = match (left, right) {
         (Value::Integer(a), Value::Integer(b)) => a.cmp(&b),
-        (Value::String(a), Value::String(b)) => a.cmp(&b),
+        (Value::String(a), Value::String(b)) => {
+            if compare == OptionCompare::Text {
+                a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
+            } else {
+                a.cmp(&b)
+            }
+        }
         _ => {
             return Err(Diagnostic::new(
                 "Comparison requires matching Integer or String operands",
@@ -120,9 +136,15 @@ fn compare_values(
     Ok(Value::Boolean(predicate(ordering)))
 }
 
-pub(crate) fn values_equal(left: &Value, right: &Value) -> bool {
+pub(crate) fn values_equal(left: &Value, right: &Value, compare: OptionCompare) -> bool {
     match (left, right) {
-        (Value::String(a), Value::String(b)) => a == b,
+        (Value::String(a), Value::String(b)) => {
+            if compare == OptionCompare::Text {
+                a.eq_ignore_ascii_case(b)
+            } else {
+                a == b
+            }
+        }
         (Value::Integer(a), Value::Integer(b)) => a == b,
         (Value::Boolean(a), Value::Boolean(b)) => a == b,
         (Value::Empty, Value::Empty) => true,

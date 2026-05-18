@@ -5,6 +5,8 @@ use super::Stmt;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub option_explicit: bool,
+    pub option_base: i64,
+    pub option_compare: OptionCompare,
     pub types: Vec<TypeDecl>,
     pub enums: Vec<EnumDecl>,
     pub module_vars: Vec<ModuleVarDecl>,
@@ -12,6 +14,18 @@ pub struct Program {
     pub classes: Vec<ClassDecl>,
     pub procedures: Vec<Procedure>,
     pub functions: Vec<Function>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptionCompare {
+    Binary,
+    Text,
+}
+
+impl Default for OptionCompare {
+    fn default() -> Self {
+        Self::Binary
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
