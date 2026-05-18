@@ -2007,6 +2007,334 @@ End Sub
     }
 
     #[test]
+    fn next_without_variable_still_works() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    For i = 1 To 3
+        Console.WriteLine(i)
+    Next
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["1", "2", "3"]);
+    }
+
+    #[test]
+    fn next_with_variable_works() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    For i = 1 To 3
+        Console.WriteLine(i)
+    Next i
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["1", "2", "3"]);
+    }
+
+    #[test]
+    fn next_variable_is_case_insensitive() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    For i = 1 To 2
+        Console.WriteLine(i)
+    Next I
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["1", "2"]);
+    }
+
+    #[test]
+    fn nested_next_variables_match_nearest_loop() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim i As Integer
+    Dim j As Integer
+    For i = 1 To 2
+        For j = 1 To 2
+            Console.WriteLine(i & "," & j)
+        Next j
+    Next i
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["1,1", "1,2", "2,1", "2,2"]);
+    }
+
+    #[test]
+    fn mismatched_next_variable_is_rejected() {
+        let error = source_error(
+            r#"
+Sub Main()
+    Dim i As Integer
+    Dim j As Integer
+    For i = 1 To 3
+        Console.WriteLine(i)
+    Next j
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Next variable 'j' does not match For variable 'i'"));
+    }
+
+    #[test]
+    fn select_case_integer_range_matches() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 4
+    Select Case value
+        Case 1 To 5
+            Console.WriteLine("small")
+        Case Else
+            Console.WriteLine("other")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["small"]);
+    }
+
+    #[test]
+    fn select_case_integer_range_falls_through() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 8
+    Select Case value
+        Case 1 To 5
+            Console.WriteLine("small")
+        Case Else
+            Console.WriteLine("other")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["other"]);
+    }
+
+    #[test]
+    fn select_case_string_range_matches() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As String
+    value = "m"
+    Select Case value
+        Case "a" To "z"
+            Console.WriteLine("letter")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["letter"]);
+    }
+
+    #[test]
+    fn select_case_mixes_values_and_ranges() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 7
+    Select Case value
+        Case 1, 5 To 8
+            Console.WriteLine("match")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["match"]);
+    }
+
+    #[test]
+    fn select_case_is_comparisons_work() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 11
+    Select Case value
+        Case Is < 0
+            Console.WriteLine("negative")
+        Case Is >= 10
+            Console.WriteLine("large")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["large"]);
+    }
+
+    #[test]
+    fn select_case_is_all_operators_work() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 5
+    Select Case value
+        Case Is > 10
+            Console.WriteLine("gt")
+        Case Is <= 4
+            Console.WriteLine("lte")
+        Case Is <> 5
+            Console.WriteLine("ne")
+        Case Is = 5
+            Console.WriteLine("eq")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["eq"]);
+    }
+
+    #[test]
+    fn select_case_is_with_strings_works() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As String
+    value = "m"
+    Select Case value
+        Case Is > "z"
+            Console.WriteLine("after")
+        Case Is <= "m"
+            Console.WriteLine("up to m")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["up to m"]);
+    }
+
+    #[test]
+    fn malformed_case_is_has_readable_diagnostic() {
+        let error = Parser::parse_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    Select Case value
+        Case Is
+            Console.WriteLine("bad")
+    End Select
+End Sub
+"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("Expected comparison operator after 'Case Is'"));
+    }
+
+    #[test]
+    fn case_colon_single_line_body_works() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 1
+    Select Case value
+        Case 1: Console.WriteLine("one")
+        Case Else: Console.WriteLine("other")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["one"]);
+    }
+
+    #[test]
+    fn case_else_colon_single_line_body_works() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 9
+    Select Case value
+        Case 1: Console.WriteLine("one")
+        Case Else: Console.WriteLine("other")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["other"]);
+    }
+
+    #[test]
+    fn case_range_with_colon_works() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 4
+    Select Case value
+        Case 1 To 5: Console.WriteLine("small")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["small"]);
+    }
+
+    #[test]
+    fn case_is_with_colon_works() {
+        let output = run_source(
+            r#"
+Sub Main()
+    Dim value As Integer
+    value = 11
+    Select Case value
+        Case Is > 10: Console.WriteLine("large")
+    End Select
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["large"]);
+    }
+
+    #[test]
+    fn colon_outside_case_is_not_supported() {
+        let error = Parser::parse_source(
+            r#"
+Sub Main()
+    Console.WriteLine("a"): Console.WriteLine("b")
+End Sub
+"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("Expected newline after statement"));
+    }
+
+    #[test]
     fn select_case_else_fallback() {
         let output = run_source(
             r#"

@@ -79,6 +79,7 @@ pub enum Stmt {
         start: Expr,
         end: Expr,
         step: Option<Expr>,
+        next_variable: Option<(String, Span)>,
         body: Vec<Stmt>,
         span: Span,
     },
@@ -96,8 +97,25 @@ pub struct ElseIfBranch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaseBranch {
-    pub values: Vec<Expr>,
+    pub items: Vec<CaseItem>,
     pub body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CaseItem {
+    Value(Expr),
+    Range { start: Expr, end: Expr },
+    Compare { op: CaseCompareOp, expr: Expr },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaseCompareOp {
+    Equal,
+    NotEqual,
+    Less,
+    Greater,
+    LessEqual,
+    GreaterEqual,
 }
 
 #[derive(Debug, Clone, PartialEq)]

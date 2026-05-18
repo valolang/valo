@@ -61,6 +61,7 @@ pub enum TokenKind {
     WriteLine,
     Dot,
     Comma,
+    Colon,
     LeftParen,
     RightParen,
     Plus,

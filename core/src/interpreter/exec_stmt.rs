@@ -1,7 +1,7 @@
 use crate::runtime::{Diagnostic, Value};
-use crate::{DoLoopCondition, ExitTarget, Stmt};
+use crate::{CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, Stmt};
 
-use super::values::values_equal;
+use super::values::{compare_case_values, values_equal};
 use super::{ControlFlow, Frame, Interpreter};
 
 impl Interpreter {
@@ -117,9 +117,8 @@ impl Interpreter {
             } => {
                 let subject = self.eval_expr(subject, frame)?;
                 for branch in branches {
-                    for case_value in &branch.values {
-                        let case_value = self.eval_expr(case_value, frame)?;
-                        if values_equal(&subject, &case_value) {
+                    for item in &branch.items {
+                        if self.case_item_matches(&subject, item, frame)? {
                             return self.exec_block(&branch.body, frame);
                         }
                     }
@@ -203,6 +202,7 @@ impl Interpreter {
                 step,
                 body,
                 span,
+                ..
             } => {
                 let mut current =
                     self.eval_integer_expr(start, frame, "For start value must be Integer")?;
@@ -242,6 +242,41 @@ impl Interpreter {
                 ExitTarget::While => Ok(ControlFlow::ExitWhile),
                 ExitTarget::Do => Ok(ControlFlow::ExitDo),
             },
+        }
+    }
+
+    fn case_item_matches(
+        &mut self,
+        subject: &Value,
+        item: &CaseItem,
+        frame: &mut Frame,
+    ) -> Result<bool, Diagnostic> {
+        match item {
+            CaseItem::Value(value) => {
+                let value = self.eval_expr(value, frame)?;
+                Ok(values_equal(subject, &value))
+            }
+            CaseItem::Range { start, end } => {
+                let start_value = self.eval_expr(start, frame)?;
+                let end_value = self.eval_expr(end, frame)?;
+                let lower = compare_case_values(
+                    subject.clone(),
+                    CaseCompareOp::GreaterEqual,
+                    start_value,
+                    start.span,
+                )?;
+                let upper = compare_case_values(
+                    subject.clone(),
+                    CaseCompareOp::LessEqual,
+                    end_value,
+                    end.span,
+                )?;
+                Ok(lower.is_truthy() && upper.is_truthy())
+            }
+            CaseItem::Compare { op, expr } => {
+                let value = self.eval_expr(expr, frame)?;
+                Ok(compare_case_values(subject.clone(), *op, value, expr.span)?.is_truthy())
+            }
         }
     }
 }

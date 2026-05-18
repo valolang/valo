@@ -36,6 +36,7 @@ impl<'a> Lexer<'a> {
                 'A'..='Z' | 'a'..='z' | '_' => tokens.push(self.identifier()),
                 '.' => tokens.push(self.single_char(TokenKind::Dot)),
                 ',' => tokens.push(self.single_char(TokenKind::Comma)),
+                ':' => tokens.push(self.single_char(TokenKind::Colon)),
                 '(' => tokens.push(self.single_char(TokenKind::LeftParen)),
                 ')' => tokens.push(self.single_char(TokenKind::RightParen)),
                 '+' => tokens.push(self.single_char(TokenKind::Plus)),

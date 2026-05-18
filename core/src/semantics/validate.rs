@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::runtime::{Diagnostic, TypeName};
 use crate::{
-    BinaryOp, ClassMember, DoLoopCondition, ExitTarget, Expr, ExprKind, Function, Parameter,
-    PassingMode, Procedure, Program, PropertyKind, Stmt, UnaryOp, Visibility,
+    BinaryOp, CaseCompareOp, CaseItem, ClassMember, DoLoopCondition, ExitTarget, Expr, ExprKind,
+    Function, Parameter, PassingMode, Procedure, Program, PropertyKind, Stmt, UnaryOp, Visibility,
 };
 
 use crate::semantics::context::Context;
@@ -810,9 +810,8 @@ fn validate_statements(
             } => {
                 let subject_type = validate_expr(subject, symbols, types, signatures)?;
                 for branch in branches {
-                    for value in &branch.values {
-                        let value_type = validate_expr(value, symbols, types, signatures)?;
-                        ensure_case_comparable(&subject_type, &value_type, value.span)?;
+                    for item in &branch.items {
+                        validate_case_item(item, &subject_type, symbols, types, signatures)?;
                     }
                     validate_statements(
                         &branch.body,
@@ -875,6 +874,7 @@ fn validate_statements(
                 start,
                 end,
                 step,
+                next_variable,
                 body,
                 span,
             } => {
@@ -908,6 +908,17 @@ fn validate_statements(
                         &validate_expr(step, symbols, types, signatures)?,
                         step.span,
                     )?;
+                }
+                if let Some((next_variable, next_span)) = next_variable
+                    && !next_variable.eq_ignore_ascii_case(variable)
+                {
+                    return Err(Diagnostic::new(
+                        format!(
+                            "Next variable '{}' does not match For variable '{}'",
+                            next_variable, variable
+                        ),
+                        Some(*next_span),
+                    ));
                 }
                 validate_statements(
                     body,
@@ -1500,6 +1511,56 @@ fn ensure_case_comparable(
     } else {
         Err(Diagnostic::new(
             "Case expression type must match Select Case expression type",
+            Some(span),
+        ))
+    }
+}
+
+fn validate_case_item(
+    item: &CaseItem,
+    subject_type: &TypeName,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+) -> Result<(), Diagnostic> {
+    match item {
+        CaseItem::Value(value) => {
+            let value_type = validate_expr(value, symbols, types, signatures)?;
+            ensure_case_comparable(subject_type, &value_type, value.span)
+        }
+        CaseItem::Range { start, end } => {
+            let start_type = validate_expr(start, symbols, types, signatures)?;
+            let end_type = validate_expr(end, symbols, types, signatures)?;
+            ensure_case_comparable(subject_type, &start_type, start.span)?;
+            ensure_case_comparable(subject_type, &end_type, end.span)?;
+            ensure_case_orderable(subject_type, start.span)
+        }
+        CaseItem::Compare { op, expr } => {
+            let expr_type = validate_expr(expr, symbols, types, signatures)?;
+            ensure_case_comparable(subject_type, &expr_type, expr.span)?;
+            if matches!(
+                op,
+                CaseCompareOp::Less
+                    | CaseCompareOp::Greater
+                    | CaseCompareOp::LessEqual
+                    | CaseCompareOp::GreaterEqual
+            ) {
+                ensure_case_orderable(subject_type, expr.span)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn ensure_case_orderable(ty: &TypeName, span: crate::runtime::Span) -> Result<(), Diagnostic> {
+    if ty.same_type(&TypeName::Integer)
+        || ty.same_type(&TypeName::String)
+        || ty.same_type(&TypeName::Variant)
+    {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            "Case range or comparison requires Integer or String operands",
             Some(span),
         ))
     }

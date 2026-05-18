@@ -1,0 +1,18 @@
+Sub Main()
+    Dim i As Integer
+    Dim j As Integer
+
+    For i = 1 To 2
+        Console.WriteLine("plain " & i)
+    Next
+
+    For i = 1 To 2
+        Console.WriteLine("named " & i)
+    Next i
+
+    For i = 1 To 2
+        For j = 1 To 2
+            Console.WriteLine(i & "," & j)
+        Next j
+    Next i
+End Sub

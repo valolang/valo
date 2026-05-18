@@ -47,6 +47,22 @@ pub(crate) fn eval_binary(
     }
 }
 
+pub(crate) fn compare_case_values(
+    left: Value,
+    op: crate::CaseCompareOp,
+    right: Value,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    match op {
+        crate::CaseCompareOp::Equal => Ok(Value::Boolean(values_equal(&left, &right))),
+        crate::CaseCompareOp::NotEqual => Ok(Value::Boolean(!values_equal(&left, &right))),
+        crate::CaseCompareOp::Less => compare_values(left, right, span, |ord| ord.is_lt()),
+        crate::CaseCompareOp::Greater => compare_values(left, right, span, |ord| ord.is_gt()),
+        crate::CaseCompareOp::LessEqual => compare_values(left, right, span, |ord| ord.is_le()),
+        crate::CaseCompareOp::GreaterEqual => compare_values(left, right, span, |ord| ord.is_ge()),
+    }
+}
+
 fn integer_binary(
     left: Value,
     right: Value,

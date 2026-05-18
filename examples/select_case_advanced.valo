@@ -1,0 +1,12 @@
+Sub Main()
+    Dim value As Integer
+    value = 7
+
+    Select Case value
+        Case 1: Console.WriteLine("one")
+        Case 2, 3: Console.WriteLine("two or three")
+        Case 4 To 10: Console.WriteLine("range")
+        Case Is > 10: Console.WriteLine("large")
+        Case Else: Console.WriteLine("other")
+    End Select
+End Sub

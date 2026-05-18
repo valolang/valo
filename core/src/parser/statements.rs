@@ -326,8 +326,7 @@ impl Parser {
                     return Err(self.error_here("Case Else is already declared"));
                 }
                 saw_else = true;
-                self.expect_newline("Expected newline after Case Else")?;
-                else_body = self.parse_block_until(&[BlockEnd::Case, BlockEnd::EndSelect])?;
+                else_body = self.parse_case_body("Expected newline after Case Else")?;
                 if self.matches_block_end(&[BlockEnd::Case]) {
                     return Err(self.error_here("Case Else must be last"));
                 }
@@ -335,16 +334,9 @@ impl Parser {
                 if saw_else {
                     return Err(self.error_here("Case Else must be last"));
                 }
-                let mut values = Vec::new();
-                loop {
-                    values.push(self.parse_expression()?);
-                    if !self.match_simple(&TokenKind::Comma) {
-                        break;
-                    }
-                }
-                self.expect_newline("Expected newline after Case values")?;
-                let body = self.parse_block_until(&[BlockEnd::Case, BlockEnd::EndSelect])?;
-                branches.push(CaseBranch { values, body });
+                let items = self.parse_case_items()?;
+                let body = self.parse_case_body("Expected newline after Case values")?;
+                branches.push(CaseBranch { items, body });
             }
             self.skip_newlines();
         }
@@ -363,6 +355,59 @@ impl Parser {
             else_body,
             span: Span::new(start.start, end.end),
         })
+    }
+
+    fn parse_case_items(&mut self) -> Result<Vec<CaseItem>, Diagnostic> {
+        let mut items = Vec::new();
+        loop {
+            items.push(self.parse_case_item()?);
+            if !self.match_simple(&TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(items)
+    }
+
+    fn parse_case_item(&mut self) -> Result<CaseItem, Diagnostic> {
+        if self.match_simple(&TokenKind::Is) {
+            let op = self.parse_case_compare_op()?;
+            let expr = self.parse_expression()?;
+            return Ok(CaseItem::Compare { op, expr });
+        }
+
+        let start = self.parse_expression()?;
+        if self.match_simple(&TokenKind::To) {
+            let end = self.parse_expression()?;
+            Ok(CaseItem::Range { start, end })
+        } else {
+            Ok(CaseItem::Value(start))
+        }
+    }
+
+    fn parse_case_compare_op(&mut self) -> Result<CaseCompareOp, Diagnostic> {
+        let token = self.advance();
+        match token.kind {
+            TokenKind::Equal => Ok(CaseCompareOp::Equal),
+            TokenKind::NotEqual => Ok(CaseCompareOp::NotEqual),
+            TokenKind::Less => Ok(CaseCompareOp::Less),
+            TokenKind::Greater => Ok(CaseCompareOp::Greater),
+            TokenKind::LessEqual => Ok(CaseCompareOp::LessEqual),
+            TokenKind::GreaterEqual => Ok(CaseCompareOp::GreaterEqual),
+            _ => Err(Diagnostic::new(
+                "Expected comparison operator after 'Case Is'",
+                Some(token.span),
+            )),
+        }
+    }
+
+    fn parse_case_body(&mut self, newline_message: &str) -> Result<Vec<Stmt>, Diagnostic> {
+        if self.match_simple(&TokenKind::Colon) {
+            let stmt = self.parse_stmt()?;
+            Ok(vec![stmt])
+        } else {
+            self.expect_newline(newline_message)?;
+            self.parse_block_until(&[BlockEnd::Case, BlockEnd::EndSelect])
+        }
     }
 
     fn parse_do_loop(&mut self) -> Result<Stmt, Diagnostic> {
@@ -427,13 +472,28 @@ impl Parser {
         self.expect_newline("Expected newline after For statement")?;
 
         let body = self.parse_block_until(&[BlockEnd::Next])?;
-        let end = self.expect_simple(TokenKind::Next, "Expected 'Next'")?.span;
+        let next = self.expect_simple(TokenKind::Next, "Expected 'Next'")?;
+        let next_variable = match self.peek_kind() {
+            TokenKind::Identifier(_) => {
+                let token = self.advance();
+                let TokenKind::Identifier(name) = token.kind else {
+                    unreachable!("peek checked");
+                };
+                Some((name, token.span))
+            }
+            _ => None,
+        };
+        let end = next_variable
+            .as_ref()
+            .map(|(_, span)| *span)
+            .unwrap_or(next.span);
 
         Ok(Stmt::For {
             variable,
             start: start_expr,
             end: end_expr,
             step,
+            next_variable,
             body,
             span: Span::new(start.start, end.end),
         })
