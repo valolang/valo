@@ -3019,18 +3019,254 @@ End Sub
 }
 
 #[test]
-fn colon_outside_case_is_not_supported() {
-    let error = Parser::parse_source(
+fn colon_separates_statements_outside_case() {
+    let output = run_source(
         r#"
 Sub Main()
     Console.WriteLine("a"): Console.WriteLine("b")
 End Sub
 "#,
-    )
-    .unwrap_err()
-    .to_string();
+    );
 
-    assert!(error.contains("Expected newline after statement"));
+    assert_eq!(output, vec!["a", "b"]);
+}
+
+#[test]
+fn line_continuation_joins_physical_lines() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim total As Integer
+    total = 10 + _
+        20 + _
+        30
+    Console.WriteLine("hello " & _
+        "world")
+    Console.WriteLine(total)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["hello world", "60"]);
+}
+
+#[test]
+fn colon_statement_separator_preserves_labels_and_select_case_colons() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim x As Integer: x = 2: GoTo AfterSkip
+SkipMe: Console.WriteLine("skip")
+AfterSkip:
+    Select Case x
+    Case 1: Console.WriteLine("one")
+    Case 2: Console.WriteLine("two")
+    End Select
+10 Console.WriteLine("line label"): GoTo 30
+20 Console.WriteLine("skip numeric")
+30 Console.WriteLine("done")
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["two", "line label", "done"]);
+}
+
+#[test]
+fn bare_sub_method_and_call_statement_syntax_work() {
+    let output = run_source(
+        r#"
+Class User
+    Public Name As String
+
+    Public Sub SetName(ByVal value As String)
+        Me.Name = value
+    End Sub
+End Class
+
+Sub PrintMessage(ByVal value As String)
+    Console.WriteLine(value)
+End Sub
+
+Sub Ping()
+    Console.WriteLine("ping")
+End Sub
+
+Sub Main()
+    Dim user As User
+    user = New User()
+    PrintMessage "bare"
+    Call PrintMessage("call parens")
+    Call Ping
+    user.SetName "Valo"
+    Console.WriteLine(user.Name)
+    Call user.SetName("Runtime")
+    Console.WriteLine(user.Name)
+End Sub
+"#,
+    );
+
+    assert_eq!(
+        output,
+        vec!["bare", "call parens", "ping", "Valo", "Runtime"]
+    );
+}
+
+#[test]
+fn optional_parameters_defaults_and_ordering_are_checked() {
+    let output = run_source(
+        r#"
+Sub Greet(Optional ByVal name As String = "Valo")
+    Console.WriteLine(name)
+End Sub
+
+Function Add(Optional ByVal a As Integer = 1, Optional ByVal b As Integer = 2) As Integer
+    Return a + b
+End Function
+
+Sub Main()
+    Greet
+    Greet "Ada"
+    Console.WriteLine(Add())
+    Console.WriteLine(Add(10))
+    Console.WriteLine(Add(10, 20))
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["Valo", "Ada", "3", "12", "30"]);
+
+    let error = source_error(
+        r#"
+Sub Bad(Optional ByVal a As Integer = 1, ByVal b As Integer)
+End Sub
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(error.contains("Optional parameters must come after required parameters"));
+}
+
+#[test]
+fn paramarray_packs_extra_arguments_and_may_be_omitted() {
+    let output = run_source(
+        r#"
+Sub PrintAll(ParamArray values() As Variant)
+    Dim item As Variant
+    Console.WriteLine("start")
+    For Each item In values
+        Console.WriteLine(item)
+    Next item
+End Sub
+
+Sub Main()
+    PrintAll
+    PrintAll "a", 2, True
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["start", "start", "a", "2", "True"]);
+}
+
+#[test]
+fn parameters_default_to_byref() {
+    let output = run_source(
+        r#"
+Sub Increment(value As Integer)
+    value = value + 1
+End Sub
+
+Sub Main()
+    Dim x As Integer
+    x = 10
+    Increment x
+    Console.WriteLine(x)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["11"]);
+}
+
+#[test]
+fn static_local_variables_persist_between_calls() {
+    let output = run_source(
+        r#"
+Sub Counter()
+    Static count As Integer
+    count = count + 1
+    Console.WriteLine(count)
+End Sub
+
+Sub Main()
+    Counter
+    Counter
+    Counter
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["1", "2", "3"]);
+}
+
+#[test]
+fn default_properties_are_used_for_output_concat_and_with_access() {
+    let output = run_source(
+        r#"
+Class Person
+    Private mName As String
+
+    Public Sub Initialize(ByVal value As String)
+        Me.mName = value
+    End Sub
+
+    Public Default Property Get Value() As String
+        Return Me.mName
+    End Property
+
+    Public Property Let Value(ByVal value As String)
+        Me.mName = value
+    End Property
+End Class
+
+Sub Main()
+    Dim p As Person
+    p = New Person("Valo")
+    Console.WriteLine(p)
+    Console.WriteLine("name=" & p)
+    With p
+        .Value = "Runtime"
+        Console.WriteLine(.Value)
+    End With
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["Valo", "name=Valo", "Runtime"]);
+}
+
+#[test]
+fn duplicate_default_properties_are_rejected() {
+    let error = source_error(
+        r#"
+Class Bad
+    Public Default Property Get One() As String
+        Return "one"
+    End Property
+
+    Public Default Property Get Two() As String
+        Return "two"
+    End Property
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("multiple default members"));
 }
 
 #[test]

@@ -97,6 +97,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         let mut subs = HashMap::new();
         let mut functions = HashMap::new();
         let mut properties: HashMap<String, ClassPropertySig> = HashMap::new();
+        let mut default_member: Option<String> = None;
         for member in &class_decl.members {
             match member {
                 ClassMember::Field(field) => {
@@ -168,6 +169,15 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 }
                 ClassMember::Property(property) => {
                     let property_key = key(&property.name);
+                    if property.is_default {
+                        if default_member.is_some() {
+                            return Err(Diagnostic::new(
+                                format!("Class '{}' has multiple default members", class_decl.name),
+                                Some(property.span),
+                            ));
+                        }
+                        default_member = Some(property.name.clone());
+                    }
                     if fields.contains_key(&property_key)
                         || subs.contains_key(&property_key)
                         || functions.contains_key(&property_key)
@@ -369,9 +379,7 @@ pub(super) fn collect_signatures(
     }
 
     for procedure in &program.procedures {
-        for param in &procedure.params {
-            ensure_known_type(&param.ty, types, param.span)?;
-        }
+        validate_parameter_list(&procedure.params, types)?;
 
         let name_key = key(&procedure.name);
         if let Some(existing) = names.insert(name_key.clone(), "Sub") {
@@ -396,9 +404,7 @@ pub(super) fn collect_signatures(
     }
 
     for function in &program.functions {
-        for param in &function.params {
-            ensure_known_type(&param.ty, types, param.span)?;
-        }
+        validate_parameter_list(&function.params, types)?;
         ensure_known_type(&function.return_type, types, function.span)?;
 
         let name_key = key(&function.name);
@@ -424,6 +430,32 @@ pub(super) fn collect_signatures(
     }
 
     Ok(Signatures { subs, functions })
+}
+
+fn validate_parameter_list(params: &[Parameter], types: &TypeRegistry) -> Result<(), Diagnostic> {
+    let mut saw_optional = false;
+    for (index, param) in params.iter().enumerate() {
+        ensure_known_type(&param.ty, types, param.span)?;
+        if param.is_param_array {
+            if index + 1 != params.len() {
+                return Err(Diagnostic::new(
+                    "ParamArray must be the last parameter",
+                    Some(param.span),
+                ));
+            }
+            continue;
+        }
+        if let Some(default) = &param.optional_default {
+            saw_optional = true;
+            ensure_const_expr(default, &HashMap::new(), types)?;
+        } else if saw_optional {
+            return Err(Diagnostic::new(
+                "Optional parameters must come after required parameters",
+                Some(param.span),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn eval_enum_const_expr(expr: &Expr, members: &HashMap<String, i64>) -> Result<i64, Diagnostic> {
@@ -576,6 +608,8 @@ fn params_to_sigs(params: &[Parameter]) -> Vec<ParamSig> {
         .map(|param| ParamSig {
             mode: param.mode,
             ty: param.ty.clone(),
+            optional_default: param.optional_default.clone(),
+            is_param_array: param.is_param_array,
         })
         .collect()
 }
@@ -646,7 +680,12 @@ pub(super) fn add_parameters(
                 Some(param.span),
             ));
         }
-        symbols.insert(param_key, VarType::Scalar(param.ty.clone()));
+        let var_type = if param.is_param_array {
+            VarType::Array(param.ty.clone())
+        } else {
+            VarType::Scalar(param.ty.clone())
+        };
+        symbols.insert(param_key, var_type);
     }
     Ok(())
 }

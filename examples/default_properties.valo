@@ -1,0 +1,28 @@
+Class Person
+    Private mName As String
+
+    Public Sub Initialize(ByVal value As String)
+        Me.mName = value
+    End Sub
+
+    Public Default Property Get Value() As String
+        Return Me.mName
+    End Property
+
+    Public Property Let Value(ByVal value As String)
+        Me.mName = value
+    End Property
+End Class
+
+Sub Main()
+    Dim person As Person
+    person = New Person("Valo")
+
+    Console.WriteLine(person)
+    Console.WriteLine("person=" & person)
+
+    With person
+        .Value = "Runtime"
+        Console.WriteLine(.Value)
+    End With
+End Sub

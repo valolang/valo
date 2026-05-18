@@ -78,6 +78,25 @@ impl Frame {
         Ok(())
     }
 
+    pub(crate) fn declare_static(
+        &mut self,
+        name: &str,
+        ty: TypeName,
+        array: Option<ArrayDecl>,
+        option_base: i64,
+        span: Span,
+        types: &HashMap<String, RuntimeType>,
+        enums: &HashMap<String, RuntimeEnum>,
+        static_frame: &mut Frame,
+    ) -> Result<(), Diagnostic> {
+        let key = key(name);
+        if !static_frame.variables.contains_key(&key) {
+            static_frame.declare(name, ty.clone(), array, option_base, span, types, enums)?;
+        }
+        let variable = static_frame.variable(name, span)?;
+        self.declare_alias(name, ty, variable, span)
+    }
+
     pub(crate) fn declare_const(
         &mut self,
         name: &str,

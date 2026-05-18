@@ -1,0 +1,23 @@
+Sub Greet(Optional ByVal name As String = "Valo")
+    Console.WriteLine("hello " & name)
+End Sub
+
+Function Add(Optional ByVal a As Integer = 1, Optional ByVal b As Integer = 2) As Integer
+    Return a + b
+End Function
+
+Sub PrintAll(ParamArray values() As Variant)
+    Dim item As Variant
+
+    For Each item In values
+        Console.WriteLine(item)
+    Next item
+End Sub
+
+Sub Main()
+    Greet
+    Greet "Runtime"
+    Console.WriteLine(Add())
+    Console.WriteLine(Add(10, 20))
+    PrintAll "a", 2, True
+End Sub

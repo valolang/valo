@@ -74,7 +74,23 @@ pub fn preprocess(source: &str) -> Result<String, Diagnostic> {
             .with_help("add '#End If' for this conditional block"));
     }
 
-    Ok(output)
+    Ok(join_line_continuations(&output))
+}
+
+fn join_line_continuations(source: &str) -> String {
+    let mut output = String::new();
+    for line in source.lines() {
+        let code = strip_comment(line);
+        if code.trim_end().ends_with('_') {
+            let underscore = code.rfind('_').expect("checked");
+            output.push_str(&line[..underscore]);
+            output.push(' ');
+        } else {
+            output.push_str(line);
+            output.push('\n');
+        }
+    }
+    output
 }
 
 fn builtin_constants() -> HashMap<String, ConstValue> {

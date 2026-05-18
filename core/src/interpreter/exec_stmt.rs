@@ -89,6 +89,30 @@ impl Interpreter {
                 )?;
                 Ok(ControlFlow::Continue)
             }
+            Stmt::Static {
+                name,
+                ty,
+                array,
+                span,
+            } => {
+                let scope = self
+                    .scope_stack
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| "<module>".to_string());
+                let static_frame = self.static_frames.entry(scope).or_default();
+                frame.declare_static(
+                    name,
+                    ty.clone(),
+                    array.clone(),
+                    self.option_base,
+                    *span,
+                    &self.types,
+                    &self.enums,
+                    static_frame,
+                )?;
+                Ok(ControlFlow::Continue)
+            }
             Stmt::Const {
                 name,
                 ty,
@@ -113,7 +137,11 @@ impl Interpreter {
             Stmt::ConsoleWriteLine { args, .. } => {
                 let mut parts = Vec::new();
                 for arg in args {
-                    parts.push(self.eval_expr(arg, frame)?.to_output_string());
+                    let value = self.eval_expr(arg, frame)?;
+                    parts.push(
+                        self.resolve_default_value(value, arg.span)?
+                            .to_output_string(),
+                    );
                 }
                 self.output.push(parts.join(" "));
                 Ok(ControlFlow::Continue)
@@ -491,6 +519,7 @@ impl Interpreter {
 fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
     match stmt {
         Stmt::Dim { span, .. }
+        | Stmt::Static { span, .. }
         | Stmt::Const { span, .. }
         | Stmt::Assign { span, .. }
         | Stmt::SetAssign { span, .. }

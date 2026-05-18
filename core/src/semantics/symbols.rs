@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::runtime::TypeName;
-use crate::{PassingMode, Visibility};
+use crate::{Expr, PassingMode, Visibility};
 
 #[derive(Debug, Clone)]
 pub(super) enum VarType {
@@ -46,6 +46,8 @@ impl VarType {
 pub(super) struct ParamSig {
     pub(super) mode: PassingMode,
     pub(super) ty: TypeName,
+    pub(super) optional_default: Option<Expr>,
+    pub(super) is_param_array: bool,
 }
 
 #[derive(Debug, Clone)]

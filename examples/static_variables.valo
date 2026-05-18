@@ -1,0 +1,12 @@
+Sub Counter()
+    Static count As Integer
+
+    count = count + 1
+    Console.WriteLine(count)
+End Sub
+
+Sub Main()
+    Counter
+    Counter
+    Counter
+End Sub

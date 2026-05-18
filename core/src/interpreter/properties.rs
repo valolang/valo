@@ -32,8 +32,13 @@ impl Interpreter {
                 )
             })?;
         let mut frame = Frame::default();
+        // Property frames see module-level state like Sub and Function calls.
         frame.declare_object_alias("me", &class.name, instance, span)?;
-        match self.exec_block(&accessor.body, &mut frame)? {
+        self.scope_stack
+            .push(format!("{}.{}", class.name, accessor.name));
+        let result = self.exec_block(&accessor.body, &mut frame);
+        self.scope_stack.pop();
+        match result? {
             ControlFlow::Return(value) => coerce_assignment(
                 accessor.return_type.as_ref().expect("get return type"),
                 value,
@@ -120,7 +125,11 @@ impl Interpreter {
             &self.enums,
         )?;
         frame.assign(&param.name, value, span)?;
-        match self.exec_block(&accessor.body, &mut frame)? {
+        self.scope_stack
+            .push(format!("{}.{}", class.name, accessor.name));
+        let result = self.exec_block(&accessor.body, &mut frame);
+        self.scope_stack.pop();
+        match result? {
             ControlFlow::Continue => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 "Return is only allowed inside Function or Property Get",

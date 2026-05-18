@@ -24,6 +24,12 @@ pub(super) fn validate_statements(
                 ty,
                 array,
                 span,
+            }
+            | Stmt::Static {
+                name,
+                ty,
+                array,
+                span,
             } => {
                 ensure_known_type(ty, types, *span)?;
                 let key = key(name);
@@ -493,6 +499,7 @@ fn validate_sub_call(
 fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
     match stmt {
         Stmt::Dim { span, .. }
+        | Stmt::Static { span, .. }
         | Stmt::Const { span, .. }
         | Stmt::Assign { span, .. }
         | Stmt::SetAssign { span, .. }
@@ -584,7 +591,7 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             false
         }
         Stmt::With { target, .. } => expr_uses_with_target(target),
-        Stmt::Dim { .. } | Stmt::Exit { .. } => false,
+        Stmt::Dim { .. } | Stmt::Static { .. } | Stmt::Exit { .. } => false,
     }
 }
 

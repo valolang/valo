@@ -29,6 +29,11 @@ impl Parser {
                 }
             }
             statements.push(self.parse_stmt()?);
+            if matches!(statements.last(), Some(Stmt::Label { .. }))
+                && !self.at_statement_separator()
+            {
+                continue;
+            }
             self.expect_statement_end("Expected newline after statement")?;
             self.skip_newlines();
         }
@@ -39,6 +44,7 @@ impl Parser {
     fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
         match self.peek_kind() {
             TokenKind::Dim => self.parse_dim(),
+            TokenKind::Static => self.parse_static(),
             TokenKind::Const => self.parse_const_stmt(),
             TokenKind::If => self.parse_if(),
             TokenKind::Select => self.parse_select_case(),
@@ -68,6 +74,29 @@ impl Parser {
 
     fn parse_dim(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.advance().span;
+        let (name, array, ty, end) = self.parse_var_decl_after_keyword()?;
+        Ok(Stmt::Dim {
+            name,
+            ty,
+            array,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_static(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.advance().span;
+        let (name, array, ty, end) = self.parse_var_decl_after_keyword()?;
+        Ok(Stmt::Static {
+            name,
+            ty,
+            array,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_var_decl_after_keyword(
+        &mut self,
+    ) -> Result<(String, Option<ArrayDecl>, crate::runtime::TypeName, Span), Diagnostic> {
         let name = self.expect_identifier("Expected variable name after 'Dim'")?;
         let array = if self.match_simple(&TokenKind::LeftParen) {
             if self.match_simple(&TokenKind::RightParen) {
@@ -95,13 +124,7 @@ impl Parser {
         self.expect_simple(TokenKind::As, "Expected 'As' in variable declaration")?;
         let ty = self.parse_type_name()?;
         let end = self.previous().span;
-
-        Ok(Stmt::Dim {
-            name,
-            ty,
-            array,
-            span: Span::new(start.start, end.end),
-        })
+        Ok((name, array, ty, end))
     }
 
     fn parse_const_stmt(&mut self) -> Result<Stmt, Diagnostic> {
@@ -188,13 +211,14 @@ impl Parser {
             Some(TokenKind::LeftParen) => self.parse_call_or_array_assignment(),
             Some(TokenKind::Dot) => self.parse_member_assignment(),
             _ if matches!(self.peek_kind(), TokenKind::Me) => self.parse_member_assignment(),
-            _ => self.parse_assignment(),
+            Some(TokenKind::Equal) => self.parse_assignment(),
+            _ => self.parse_bare_sub_call(),
         }
     }
 
     fn parse_call_statement(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect_simple(TokenKind::Call, "Expected 'Call'")?.span;
-        let target = self.parse_primary()?;
+        let target = self.parse_call_statement_target()?;
         match target.kind {
             ExprKind::Call { name, args } => Ok(Stmt::SubCall {
                 name,
@@ -216,6 +240,68 @@ impl Parser {
                 Some(target.span),
             )),
         }
+    }
+
+    fn parse_call_statement_target(&mut self) -> Result<Expr, Diagnostic> {
+        let start = self.peek().span;
+        let base = match self.advance().kind {
+            TokenKind::Identifier(name) => {
+                if self.check_simple(&TokenKind::Dot) {
+                    Expr {
+                        kind: ExprKind::Variable(name),
+                        span: start,
+                    }
+                } else {
+                    let args = if self.match_simple(&TokenKind::LeftParen) {
+                        self.finish_call_arguments()?
+                    } else {
+                        Vec::new()
+                    };
+                    Expr {
+                        kind: ExprKind::Call { name, args },
+                        span: Span::new(start.start, self.previous().span.end),
+                    }
+                }
+            }
+            TokenKind::Me => Expr {
+                kind: ExprKind::Me,
+                span: start,
+            },
+            TokenKind::Dot => {
+                self.current -= 1;
+                return self.parse_primary();
+            }
+            other => {
+                return Err(Diagnostic::new(
+                    format!("Expected call target after 'Call', found {:?}", other),
+                    Some(start),
+                ));
+            }
+        };
+        self.parse_member_access(base)
+    }
+
+    fn parse_bare_sub_call(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.peek().span;
+        let name = self.expect_identifier("Expected Sub name")?;
+        let args = self.parse_bare_call_arguments()?;
+        let end = args.last().map(|arg| arg.span).unwrap_or(start);
+        Ok(Stmt::SubCall {
+            name,
+            args,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_bare_call_arguments(&mut self) -> Result<Vec<Expr>, Diagnostic> {
+        let mut args = Vec::new();
+        while !self.at_statement_separator() {
+            args.push(self.parse_expression()?);
+            if !self.match_simple(&TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(args)
     }
 
     fn parse_call_or_array_assignment(&mut self) -> Result<Stmt, Diagnostic> {
@@ -305,6 +391,16 @@ impl Parser {
                 span: target_span,
             });
         }
+        if !self.check_simple(&TokenKind::Equal) {
+            let args = self.parse_bare_call_arguments()?;
+            let end = args.last().map(|arg| arg.span).unwrap_or(target_span);
+            return Ok(Stmt::MemberSubCall {
+                object: *object,
+                method: field,
+                args,
+                span: Span::new(target_span.start, end.end),
+            });
+        }
         self.expect_simple(TokenKind::Equal, "Expected '=' in member assignment")?;
         let expr = self.parse_expression()?;
         let end = expr.span;
@@ -318,6 +414,13 @@ impl Parser {
             expr,
             span: Span::new(target_span.start, end.end),
         })
+    }
+
+    fn at_statement_separator(&self) -> bool {
+        self.check_simple(&TokenKind::Newline)
+            || self.check_simple(&TokenKind::Colon)
+            || self.check_simple(&TokenKind::Eof)
+            || self.matches_any_block_boundary()
     }
 
     fn parse_assignment_target(&mut self) -> Result<AssignTarget, Diagnostic> {

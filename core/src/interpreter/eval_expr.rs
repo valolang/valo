@@ -119,11 +119,31 @@ impl Interpreter {
                 }
             }
             ExprKind::Binary { left, op, right } => {
-                let left = self.eval_expr(left, frame)?;
-                let right = self.eval_expr(right, frame)?;
+                let left_value = self.eval_expr(left, frame)?;
+                let left = self.resolve_default_value(left_value, expr.span)?;
+                let right_value = self.eval_expr(right, frame)?;
+                let right = self.resolve_default_value(right_value, expr.span)?;
                 eval_binary(left, *op, right, self.option_compare, expr.span)
             }
         }
+    }
+
+    pub(crate) fn resolve_default_value(
+        &mut self,
+        value: Value,
+        span: crate::runtime::Span,
+    ) -> Result<Value, Diagnostic> {
+        let Value::Object(object) = &value else {
+            return Ok(value);
+        };
+        let class_name = object.borrow().class_name.clone();
+        let Some(class) = self.classes.get(&super::values::key(&class_name)) else {
+            return Ok(value);
+        };
+        let Some(default_member) = class.default_member.clone() else {
+            return Ok(value);
+        };
+        self.call_property_get(value, &default_member, span)
     }
 
     pub(crate) fn eval_integer_expr(

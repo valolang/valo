@@ -10,6 +10,12 @@ pub enum Stmt {
         array: Option<ArrayDecl>,
         span: Span,
     },
+    Static {
+        name: String,
+        ty: TypeName,
+        array: Option<ArrayDecl>,
+        span: Span,
+    },
     Const {
         name: String,
         ty: Option<TypeName>,

@@ -31,6 +31,7 @@ impl Parser {
 
     fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
         let visibility = self.parse_optional_visibility();
+        let is_default = self.match_simple(&TokenKind::Default);
         match self.peek_kind() {
             TokenKind::Sub => Ok(ClassMember::Sub(ClassSub {
                 visibility,
@@ -40,7 +41,10 @@ impl Parser {
                 visibility,
                 function: self.parse_function()?,
             })),
-            TokenKind::Property => Ok(ClassMember::Property(self.parse_property(visibility)?)),
+            TokenKind::Property => Ok(ClassMember::Property(
+                self.parse_property(visibility, is_default)?,
+            )),
+            _ if is_default => Err(self.error_here("Default is only supported on Property")),
             TokenKind::Identifier(_) => {
                 let start = self.peek().span;
                 let name = self.expect_identifier("Expected class field name")?;
@@ -59,7 +63,11 @@ impl Parser {
         }
     }
 
-    fn parse_property(&mut self, visibility: Visibility) -> Result<ClassProperty, Diagnostic> {
+    fn parse_property(
+        &mut self,
+        visibility: Visibility,
+        is_default: bool,
+    ) -> Result<ClassProperty, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Property, "Expected 'Property'")?
             .span;
@@ -96,6 +104,7 @@ impl Parser {
 
         Ok(ClassProperty {
             visibility,
+            is_default,
             name,
             kind,
             params,
@@ -328,21 +337,57 @@ impl Parser {
         }
 
         loop {
+            let is_param_array = self.match_simple(&TokenKind::ParamArray);
+            let is_optional = if is_param_array {
+                false
+            } else {
+                self.match_simple(&TokenKind::Optional)
+            };
+            let prefix_start = if is_param_array || is_optional {
+                Some(self.previous().span)
+            } else {
+                None
+            };
             let (mode, start) = if self.match_simple(&TokenKind::ByVal) {
                 (PassingMode::ByVal, self.previous().span)
             } else if self.match_simple(&TokenKind::ByRef) {
                 (PassingMode::ByRef, self.previous().span)
             } else {
-                return Err(self.error_here("Expected 'ByVal' or 'ByRef' before parameter"));
+                (
+                    PassingMode::ByRef,
+                    prefix_start.unwrap_or_else(|| self.peek().span),
+                )
             };
             let name = self.expect_identifier("Expected parameter name")?;
+            let mut array = false;
+            if self.match_simple(&TokenKind::LeftParen) {
+                self.expect_simple(TokenKind::RightParen, "Expected ')' after parameter array")?;
+                array = true;
+            }
             self.expect_simple(TokenKind::As, "Expected 'As' in parameter declaration")?;
             let ty = self.parse_type_name()?;
+            let optional_default = if is_optional {
+                self.expect_simple(
+                    TokenKind::Equal,
+                    "Optional parameter requires a default value",
+                )?;
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+            if is_param_array && (!array || ty != TypeName::Variant) {
+                return Err(Diagnostic::new(
+                    "ParamArray must be declared as Variant()",
+                    Some(Span::new(start.start, self.previous().span.end)),
+                ));
+            }
             let end = self.previous().span;
             params.push(Parameter {
                 name,
                 ty,
                 mode,
+                optional_default,
+                is_param_array,
                 span: Span::new(start.start, end.end),
             });
 

@@ -19,6 +19,8 @@ pub struct Interpreter {
     pub(crate) option_base: i64,
     pub(crate) option_compare: crate::OptionCompare,
     pub(crate) call_stack: Vec<String>,
+    pub(crate) scope_stack: Vec<String>,
+    pub(crate) static_frames: HashMap<String, Frame>,
     pub(crate) err_number: i64,
     pub(crate) err_description: String,
     pub(crate) err_source: String,
@@ -117,7 +119,10 @@ impl Interpreter {
             return Err(Diagnostic::new("Program must contain Sub Main()", None));
         };
 
-        match self.exec_block(&main.body, &mut frame)? {
+        self.scope_stack.push(format!("Sub {}", main.name));
+        let result = self.exec_block(&main.body, &mut frame);
+        self.scope_stack.pop();
+        match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 "Return is only allowed inside Function",

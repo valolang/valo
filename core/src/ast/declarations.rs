@@ -113,6 +113,7 @@ pub struct ClassFunction {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassProperty {
     pub visibility: Visibility,
+    pub is_default: bool,
     pub name: String,
     pub kind: PropertyKind,
     pub params: Vec<Parameter>,
@@ -156,6 +157,8 @@ pub struct Parameter {
     pub name: String,
     pub ty: TypeName,
     pub mode: PassingMode,
+    pub optional_default: Option<super::Expr>,
+    pub is_param_array: bool,
     pub span: Span,
 }
 

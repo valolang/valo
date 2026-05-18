@@ -172,6 +172,7 @@ pub(crate) struct RuntimeClass {
     pub(crate) subs: HashMap<String, Procedure>,
     pub(crate) functions: HashMap<String, Function>,
     pub(crate) properties: HashMap<String, RuntimeProperty>,
+    pub(crate) default_member: Option<String>,
 }
 
 impl From<&crate::ClassDecl> for RuntimeClass {
@@ -180,6 +181,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
         let mut subs = HashMap::new();
         let mut functions = HashMap::new();
         let mut properties = HashMap::new();
+        let mut default_member = None;
         for member in &value.members {
             match member {
                 ClassMember::Field(field) => fields.push(RuntimeField {
@@ -193,6 +195,9 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                     functions.insert(key(&method.function.name), method.function.clone());
                 }
                 ClassMember::Property(property) => {
+                    if property.is_default {
+                        default_member = Some(property.name.clone());
+                    }
                     let property_entry =
                         properties
                             .entry(key(&property.name))
@@ -216,6 +221,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
             subs,
             functions,
             properties,
+            default_member,
         }
     }
 }

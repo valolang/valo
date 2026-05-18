@@ -32,9 +32,14 @@ impl Parser {
 
     pub(super) fn expect_statement_end(&mut self, message: &str) -> Result<(), Diagnostic> {
         if self.check_simple(&TokenKind::Newline)
+            || self.check_simple(&TokenKind::Colon)
             || self.check_simple(&TokenKind::Eof)
             || self.matches_any_block_boundary()
         {
+            if self.check_simple(&TokenKind::Colon) {
+                self.advance();
+                return Ok(());
+            }
             self.consume_statement_end();
             Ok(())
         } else {

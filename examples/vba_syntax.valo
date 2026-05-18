@@ -1,0 +1,25 @@
+Class User
+    Public Name As String
+
+    Public Sub SetName(ByVal value As String)
+        Me.Name = value
+    End Sub
+End Class
+
+Sub PrintMessage(ByVal value As String)
+    Console.WriteLine(value)
+End Sub
+
+Sub Main()
+    Dim user As User: user = New User()
+
+    PrintMessage "bare sub call"
+    Call PrintMessage("call statement")
+
+    user.SetName "Valo"
+    Console.WriteLine("name " & _
+        user.Name)
+
+Done:
+    Console.WriteLine("done")
+End Sub

@@ -377,20 +377,43 @@ pub(super) fn validate_arguments(
     signatures: &Signatures,
     span: crate::runtime::Span,
 ) -> Result<(), Diagnostic> {
-    if args.len() != callable.params.len() {
+    let required = callable
+        .params
+        .iter()
+        .filter(|param| param.optional_default.is_none() && !param.is_param_array)
+        .count();
+    let has_param_array = callable
+        .params
+        .last()
+        .is_some_and(|param| param.is_param_array);
+    if args.len() < required || (!has_param_array && args.len() > callable.params.len()) {
         return Err(Diagnostic::new(
             format!(
                 "{} '{}' expects {} argument(s), got {}",
                 kind,
                 callable.name,
-                callable.params.len(),
+                if has_param_array {
+                    required
+                } else {
+                    callable.params.len()
+                },
                 args.len()
             ),
             Some(span),
         ));
     }
 
-    for (arg, param) in args.iter().zip(&callable.params) {
+    for (index, arg) in args.iter().enumerate() {
+        let param = callable
+            .params
+            .get(index)
+            .or_else(|| callable.params.last())
+            .expect("validated");
+        if param.is_param_array {
+            let arg_type = validate_expr(arg, symbols, types, signatures)?;
+            ensure_assignable_expr(&TypeName::Variant, &arg_type, arg, types, arg.span)?;
+            continue;
+        }
         match param.mode {
             PassingMode::ByVal => {
                 let arg_type = validate_expr(arg, symbols, types, signatures)?;
