@@ -151,6 +151,58 @@ impl Interpreter {
         }
     }
 
+    pub(crate) fn call_method_sub_values(
+        &mut self,
+        object: Value,
+        method: &str,
+        args: &[Value],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let instance = ensure_object(object, span)?;
+        let class_name = instance.borrow().class_name.clone();
+        let class = self
+            .classes
+            .get(&key(&class_name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(format!("Class '{}' is not defined", class_name), Some(span))
+            })?;
+        let procedure = class.subs.get(&key(method)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                format!("Class '{}' has no method '{}'", class.name, method),
+                Some(span),
+            )
+        })?;
+        let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
+        frame.declare_object_alias("me", &class.name, instance, span)?;
+        self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
+        self.scope_stack
+            .push(format!("{}.{}", class.name, procedure.name));
+        let result = self.exec_block(&procedure.body, &mut frame);
+        self.scope_stack.pop();
+        match result? {
+            ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+            ControlFlow::Return(_) => Err(Diagnostic::new(
+                "Return is only allowed inside Function",
+                Some(procedure.span),
+            )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                "Exit Function is only valid inside Function",
+                Some(procedure.span),
+            )),
+            ControlFlow::ExitFor
+            | ControlFlow::ExitWhile
+            | ControlFlow::ExitDo
+            | ControlFlow::GoTo(_)
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                "Exit statement escaped its block",
+                Some(span),
+            )),
+        }
+    }
+
     pub(crate) fn call_method_function(
         &mut self,
         object: Value,
@@ -366,6 +418,34 @@ impl Interpreter {
                     )?;
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn bind_parameter_values(
+        &mut self,
+        params: &[crate::Parameter],
+        args: &[Value],
+        callee_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if args.len() != params.len() {
+            return Err(Diagnostic::new(
+                format!("Expected {} argument(s), got {}", params.len(), args.len()),
+                Some(span),
+            ));
+        }
+        for (param, value) in params.iter().zip(args.iter()) {
+            callee_frame.declare(
+                &param.name,
+                param.ty.clone(),
+                None,
+                self.option_base,
+                param.span,
+                &self.types,
+                &self.enums,
+            )?;
+            callee_frame.assign(&param.name, value.clone(), param.span)?;
         }
         Ok(())
     }

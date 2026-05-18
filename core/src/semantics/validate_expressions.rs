@@ -10,7 +10,21 @@ pub(super) fn validate_assignment_target(
 ) -> Result<TypeName, Diagnostic> {
     match target {
         AssignTarget::Variable { name, span } => {
-            let Some(target_type) = symbols.get(&key(name)).cloned() else {
+            let target_type = if let Some(target_type) = symbols.get(&key(name)).cloned() {
+                target_type
+            } else if let Some(class_name) = context.current_class() {
+                let class_sig = types
+                    .get_class(class_name)
+                    .expect("current class validated");
+                if let Some(field_sig) = class_sig.fields.get(&key(name)) {
+                    VarType::Scalar(field_sig.ty.clone())
+                } else {
+                    return Err(Diagnostic::new(
+                        format!("Variable '{}' is not declared", name),
+                        Some(*span),
+                    ));
+                }
+            } else {
                 return Err(Diagnostic::new(
                     format!("Variable '{}' is not declared", name),
                     Some(*span),
@@ -610,6 +624,12 @@ pub(super) fn validate_method_call(
                     Some(span),
                 ));
             }
+            if class_sig.events.contains_key(&key(method)) {
+                return Err(Diagnostic::new(
+                    format!("Event '{}' cannot be called directly", method),
+                    Some(span),
+                ));
+            }
             return Err(Diagnostic::new(
                 format!("Class '{}' has no method '{}'", class_sig.name, method),
                 Some(span),
@@ -634,6 +654,12 @@ pub(super) fn validate_method_call(
                         "Function method '{}' cannot be called as a statement",
                         method
                     ),
+                    Some(span),
+                ));
+            }
+            if class_sig.events.contains_key(&key(method)) {
+                return Err(Diagnostic::new(
+                    format!("Event '{}' cannot be called directly", method),
                     Some(span),
                 ));
             }

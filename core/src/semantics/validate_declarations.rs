@@ -94,6 +94,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         }
 
         let mut fields = HashMap::new();
+        let mut events = HashMap::new();
         let mut subs = HashMap::new();
         let mut functions = HashMap::new();
         let mut properties: HashMap<String, ClassPropertySig> = HashMap::new();
@@ -102,7 +103,10 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             match member {
                 ClassMember::Field(field) => {
                     let field_key = key(&field.name);
-                    if fields.contains_key(&field_key) || properties.contains_key(&field_key) {
+                    if fields.contains_key(&field_key)
+                        || events.contains_key(&field_key)
+                        || properties.contains_key(&field_key)
+                    {
                         return Err(Diagnostic::new(
                             format!(
                                 "Field '{}' conflicts with another member in Class '{}'",
@@ -115,13 +119,41 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         field_key,
                         ClassFieldSig {
                             visibility: field.visibility,
+                            with_events: field.with_events,
                             ty: field.ty.clone(),
+                        },
+                    );
+                }
+                ClassMember::Event(event) => {
+                    let event_key = key(&event.name);
+                    if fields.contains_key(&event_key)
+                        || events.contains_key(&event_key)
+                        || subs.contains_key(&event_key)
+                        || functions.contains_key(&event_key)
+                        || properties.contains_key(&event_key)
+                    {
+                        return Err(Diagnostic::new(
+                            format!(
+                                "Event '{}' conflicts with another member in Class '{}'",
+                                event.name, class_decl.name
+                            ),
+                            Some(event.span),
+                        ));
+                    }
+                    events.insert(
+                        event_key,
+                        ClassEventSig {
+                            visibility: event.visibility,
+                            name: event.name.clone(),
+                            params: params_to_sigs(&event.params),
+                            return_type: None,
                         },
                     );
                 }
                 ClassMember::Sub(method) => {
                     let method_key = key(&method.procedure.name);
                     if subs.contains_key(&method_key)
+                        || events.contains_key(&method_key)
                         || functions.contains_key(&method_key)
                         || properties.contains_key(&method_key)
                     {
@@ -146,6 +178,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 ClassMember::Function(method) => {
                     let method_key = key(&method.function.name);
                     if subs.contains_key(&method_key)
+                        || events.contains_key(&method_key)
                         || functions.contains_key(&method_key)
                         || properties.contains_key(&method_key)
                     {
@@ -179,6 +212,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         default_member = Some(property.name.clone());
                     }
                     if fields.contains_key(&property_key)
+                        || events.contains_key(&property_key)
                         || subs.contains_key(&property_key)
                         || functions.contains_key(&property_key)
                     {
@@ -226,6 +260,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             ClassSig {
                 name: class_decl.name.clone(),
                 fields,
+                events,
                 subs,
                 functions,
                 properties,
@@ -247,6 +282,11 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         for member in &class_decl.members {
             match member {
                 ClassMember::Field(field) => ensure_known_type(&field.ty, &registry, field.span)?,
+                ClassMember::Event(event) => {
+                    for param in &event.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                }
                 ClassMember::Sub(method) => {
                     for param in &method.procedure.params {
                         ensure_known_type(&param.ty, &registry, param.span)?;
@@ -324,8 +364,73 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             }
         }
     }
+    validate_withevents_handlers(program, &registry)?;
 
     Ok(registry)
+}
+
+fn validate_withevents_handlers(
+    program: &Program,
+    registry: &TypeRegistry,
+) -> Result<(), Diagnostic> {
+    for class_decl in &program.classes {
+        let class_sig = registry
+            .get_class(&class_decl.name)
+            .expect("class signature collected");
+        for member in &class_decl.members {
+            let ClassMember::Field(field) = member else {
+                continue;
+            };
+            let owner_field_sig = class_sig
+                .fields
+                .get(&key(&field.name))
+                .expect("field collected");
+            if !owner_field_sig.with_events {
+                continue;
+            }
+            let TypeName::User(source_class_name) = &field.ty else {
+                return Err(Diagnostic::new(
+                    format!("WithEvents field '{}' must have a class type", field.name),
+                    Some(field.span),
+                ));
+            };
+            let Some(source_class) = registry.get_class(source_class_name) else {
+                return Err(Diagnostic::new(
+                    format!("WithEvents field '{}' must have a class type", field.name),
+                    Some(field.span),
+                ));
+            };
+            for event in source_class.events.values() {
+                let handler_name = format!("{}_{}", field.name, event.name);
+                let handler_key = key(&handler_name);
+                if let Some(handler) = class_sig.functions.get(&handler_key) {
+                    return Err(Diagnostic::new(
+                        format!("Event handler '{}' must be a Sub method", handler.name),
+                        Some(field.span),
+                    ));
+                }
+                let Some(handler) = class_sig.subs.get(&handler_key) else {
+                    continue;
+                };
+                if handler.params.len() != event.params.len()
+                    || !handler
+                        .params
+                        .iter()
+                        .zip(event.params.iter())
+                        .all(|(left, right)| left.ty.same_type(&right.ty))
+                {
+                    return Err(Diagnostic::new(
+                        format!(
+                            "Event handler '{}' signature does not match event '{}'",
+                            handler.name, event.name
+                        ),
+                        Some(field.span),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn collect_signatures(

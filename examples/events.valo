@@ -1,0 +1,29 @@
+Class Button
+    Public Event Click(ByVal x As Integer, ByVal y As Integer)
+
+    Public Sub Press()
+        RaiseEvent Click(10, 20)
+    End Sub
+End Class
+
+Class Form
+    Private WithEvents mButton As Button
+
+    Public Sub Initialize()
+        mButton = New Button()
+    End Sub
+
+    Private Sub mButton_Click(ByVal x As Integer, ByVal y As Integer)
+        Console.WriteLine("clicked " & x & "," & y)
+    End Sub
+
+    Public Sub Run()
+        mButton.Press()
+    End Sub
+End Class
+
+Sub Main()
+    Dim form As Form
+    form = New Form()
+    form.Run()
+End Sub

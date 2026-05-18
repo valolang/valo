@@ -67,14 +67,18 @@ pub(super) fn validate_statements(
                 symbols.insert(key, VarType::Const(const_type));
             }
             Stmt::Assign { target, expr, span } => {
-                let expr_type = validate_expr(expr, symbols, types, signatures)?;
+                let expr_type = class_field_expr_type(expr, symbols, types, &context)
+                    .map(Ok)
+                    .unwrap_or_else(|| validate_expr(expr, symbols, types, signatures))?;
                 let target_type = validate_assignment_target(
                     target, &expr_type, symbols, types, signatures, &context,
                 )?;
                 ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
             }
             Stmt::SetAssign { target, expr, span } => {
-                let expr_type = validate_expr(expr, symbols, types, signatures)?;
+                let expr_type = class_field_expr_type(expr, symbols, types, &context)
+                    .map(Ok)
+                    .unwrap_or_else(|| validate_expr(expr, symbols, types, signatures))?;
                 let target_type = validate_assignment_target(
                     target, &expr_type, symbols, types, signatures, &context,
                 )?;
@@ -127,7 +131,9 @@ pub(super) fn validate_statements(
                         Some(*span),
                     ));
                 }
-                let object_type = validate_expr(object, symbols, types, signatures)?;
+                let object_type = class_field_object_type(object, symbols, types, &context)
+                    .map(Ok)
+                    .unwrap_or_else(|| validate_expr(object, symbols, types, signatures))?;
                 validate_method_call(
                     &object_type,
                     method,
@@ -139,6 +145,24 @@ pub(super) fn validate_statements(
                     signatures,
                     context.current_class(),
                 )?;
+            }
+            Stmt::RaiseEvent { name, args, span } => {
+                let Some(class_name) = context.current_class() else {
+                    return Err(Diagnostic::new(
+                        "RaiseEvent is only valid inside the declaring class",
+                        Some(*span),
+                    ));
+                };
+                let class_sig = types
+                    .get_class(class_name)
+                    .expect("current class validated");
+                let Some(event_sig) = class_sig.events.get(&key(name)) else {
+                    return Err(Diagnostic::new(
+                        format!("Class '{}' has no event '{}'", class_sig.name, name),
+                        Some(*span),
+                    ));
+                };
+                validate_arguments("Event", event_sig, args, symbols, types, signatures, *span)?;
             }
             Stmt::Return { expr, span } => match &mut context {
                 Context::Sub | Context::MethodSub { .. } | Context::PropertyLetSet { .. } => {
@@ -496,6 +520,46 @@ fn validate_sub_call(
     validate_arguments("Sub", sub, args, symbols, types, signatures, span)
 }
 
+fn class_field_object_type(
+    object: &Expr,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    context: &Context<'_>,
+) -> Option<TypeName> {
+    let ExprKind::Variable(name) = &object.kind else {
+        return None;
+    };
+    if symbols.contains_key(&key(name)) {
+        return None;
+    }
+    let class_name = context.current_class()?;
+    let class_sig = types.get_class(class_name)?;
+    class_sig
+        .fields
+        .get(&key(name))
+        .map(|field| field.ty.clone())
+}
+
+fn class_field_expr_type(
+    expr: &Expr,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    context: &Context<'_>,
+) -> Option<TypeName> {
+    let ExprKind::Variable(name) = &expr.kind else {
+        return None;
+    };
+    if symbols.contains_key(&key(name)) {
+        return None;
+    }
+    let class_name = context.current_class()?;
+    let class_sig = types.get_class(class_name)?;
+    class_sig
+        .fields
+        .get(&key(name))
+        .map(|field| field.ty.clone())
+}
+
 fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
     match stmt {
         Stmt::Dim { span, .. }
@@ -506,6 +570,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::ConsoleWriteLine { span, .. }
         | Stmt::SubCall { span, .. }
         | Stmt::MemberSubCall { span, .. }
+        | Stmt::RaiseEvent { span, .. }
         | Stmt::Return { span, .. }
         | Stmt::If { span, .. }
         | Stmt::SelectCase { span, .. }
@@ -537,6 +602,7 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
         Stmt::MemberSubCall { object, args, .. } => {
             expr_uses_with_target(object) || args.iter().any(expr_uses_with_target)
         }
+        Stmt::RaiseEvent { args, .. } => args.iter().any(expr_uses_with_target),
         Stmt::If {
             condition,
             then_body,

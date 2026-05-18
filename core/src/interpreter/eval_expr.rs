@@ -50,7 +50,17 @@ impl Interpreter {
                 } else if let Some(value) = self.enum_members.get(&super::values::key(name)) {
                     Ok(Value::Integer(*value))
                 } else {
-                    frame.get(name, expr.span)
+                    match frame.get(name, expr.span) {
+                        Ok(value) => Ok(value),
+                        Err(error) => {
+                            if let Ok(me) = frame.get("me", expr.span) {
+                                if let Ok(value) = self.read_member(&me, name, frame, expr.span) {
+                                    return Ok(value);
+                                }
+                            }
+                            Err(error)
+                        }
+                    }
                 }
             }
             ExprKind::MemberAccess { object, field } => {

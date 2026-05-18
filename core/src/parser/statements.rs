@@ -57,6 +57,7 @@ impl Parser {
             TokenKind::Resume => self.parse_resume(),
             TokenKind::Exit => self.parse_exit(),
             TokenKind::ReDim => self.parse_redim(),
+            TokenKind::RaiseEvent => self.parse_raise_event(),
             TokenKind::Let => self.parse_let_assignment(),
             TokenKind::Call => self.parse_call_statement(),
             TokenKind::Set => self.parse_set_assignment(),
@@ -240,6 +241,21 @@ impl Parser {
                 Some(target.span),
             )),
         }
+    }
+
+    fn parse_raise_event(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::RaiseEvent, "Expected 'RaiseEvent'")?
+            .span;
+        let name = self.expect_identifier("Expected event name after 'RaiseEvent'")?;
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' after event name")?;
+        let args = self.finish_call_arguments()?;
+        let end = self.previous().span;
+        Ok(Stmt::RaiseEvent {
+            name,
+            args,
+            span: Span::new(start.start, end.end),
+        })
     }
 
     fn parse_call_statement_target(&mut self) -> Result<Expr, Diagnostic> {

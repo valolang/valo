@@ -7,4 +7,4 @@ pub use diagnostic::{
     Span,
 };
 pub use type_name::TypeName;
-pub use value::{ObjectValue, Value};
+pub use value::{EventBinding, ObjectValue, Value};

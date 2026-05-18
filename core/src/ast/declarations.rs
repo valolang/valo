@@ -85,6 +85,7 @@ pub struct ClassDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClassMember {
     Field(ClassField),
+    Event(ClassEvent),
     Sub(ClassSub),
     Function(ClassFunction),
     Property(ClassProperty),
@@ -93,8 +94,17 @@ pub enum ClassMember {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassField {
     pub visibility: Visibility,
+    pub with_events: bool,
     pub name: String,
     pub ty: TypeName,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassEvent {
+    pub visibility: Visibility,
+    pub name: String,
+    pub params: Vec<Parameter>,
     pub span: Span,
 }
 

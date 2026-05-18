@@ -9,6 +9,7 @@ pub(super) fn validate_class(
     for member in &class_decl.members {
         match member {
             ClassMember::Field(_) => {}
+            ClassMember::Event(_) => {}
             ClassMember::Sub(method) => {
                 let mut symbols = HashMap::new();
                 add_module_symbols(module_symbols, &mut symbols);

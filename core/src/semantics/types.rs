@@ -52,6 +52,7 @@ pub(super) struct EnumSig {
 pub(super) struct ClassSig {
     pub(super) name: String,
     pub(super) fields: HashMap<String, ClassFieldSig>,
+    pub(super) events: HashMap<String, ClassEventSig>,
     pub(super) subs: HashMap<String, ClassMethodSig>,
     pub(super) functions: HashMap<String, ClassMethodSig>,
     pub(super) properties: HashMap<String, ClassPropertySig>,
@@ -60,10 +61,12 @@ pub(super) struct ClassSig {
 #[derive(Debug, Clone)]
 pub(super) struct ClassFieldSig {
     pub(super) visibility: Visibility,
+    pub(super) with_events: bool,
     pub(super) ty: TypeName,
 }
 
 pub(super) type ClassMethodSig = crate::semantics::symbols::CallableSig;
+pub(super) type ClassEventSig = crate::semantics::symbols::CallableSig;
 
 #[derive(Debug, Clone)]
 pub(super) struct ClassPropertySig {

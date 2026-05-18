@@ -180,6 +180,10 @@ impl Interpreter {
                 self.call_method_sub(object, method, args, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
+            Stmt::RaiseEvent { name, args, span } => {
+                self.raise_event(name, args, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
             Stmt::Return { expr, .. } => {
                 let value = self.eval_expr(expr, frame)?;
                 Ok(ControlFlow::Return(value))
@@ -415,7 +419,14 @@ impl Interpreter {
         span: crate::runtime::Span,
     ) -> Result<(), Diagnostic> {
         match target {
-            AssignTarget::Variable { name, .. } => frame.assign(name, value, span),
+            AssignTarget::Variable { name, .. } => {
+                if frame.has_variable(name) {
+                    frame.assign(name, value, span)
+                } else {
+                    let owner = frame.get("me", span)?;
+                    self.assign_bare_class_field(owner, name, value, span)
+                }
+            }
             AssignTarget::ArrayElement { name, index, .. } => {
                 let index = self.eval_integer_expr(index, frame, "Array index must be Integer")?;
                 frame.assign_array_element(name, index, value, span)
@@ -532,6 +543,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::ConsoleWriteLine { span, .. }
         | Stmt::SubCall { span, .. }
         | Stmt::MemberSubCall { span, .. }
+        | Stmt::RaiseEvent { span, .. }
         | Stmt::Return { span, .. }
         | Stmt::If { span, .. }
         | Stmt::SelectCase { span, .. }

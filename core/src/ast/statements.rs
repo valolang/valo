@@ -47,6 +47,11 @@ pub enum Stmt {
         args: Vec<Expr>,
         span: Span,
     },
+    RaiseEvent {
+        name: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
     Return {
         expr: Expr,
         span: Span,

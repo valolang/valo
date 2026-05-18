@@ -27,7 +27,25 @@ pub enum Value {
 pub struct ObjectValue {
     pub class_name: String,
     pub fields: HashMap<String, Value>,
+    pub event_bindings: Vec<EventBinding>,
 }
+
+#[derive(Debug, Clone)]
+pub struct EventBinding {
+    pub event_name: String,
+    pub target: Rc<RefCell<ObjectValue>>,
+    pub handler_name: String,
+}
+
+impl PartialEq for EventBinding {
+    fn eq(&self, other: &Self) -> bool {
+        self.event_name.eq_ignore_ascii_case(&other.event_name)
+            && Rc::ptr_eq(&self.target, &other.target)
+            && self.handler_name.eq_ignore_ascii_case(&other.handler_name)
+    }
+}
+
+impl Eq for EventBinding {}
 
 impl Value {
     pub fn type_name(&self) -> TypeName {

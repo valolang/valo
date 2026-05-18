@@ -31,8 +31,18 @@ impl Parser {
 
     fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
         let visibility = self.parse_optional_visibility();
+        let with_events = self.match_simple(&TokenKind::WithEvents);
         let is_default = self.match_simple(&TokenKind::Default);
         match self.peek_kind() {
+            TokenKind::Event => {
+                if is_default {
+                    return Err(self.error_here("Default is only supported on Property"));
+                }
+                if with_events {
+                    return Err(self.error_here("WithEvents is only supported on fields"));
+                }
+                self.parse_event(visibility).map(ClassMember::Event)
+            }
             TokenKind::Sub => Ok(ClassMember::Sub(ClassSub {
                 visibility,
                 procedure: self.parse_procedure()?,
@@ -54,6 +64,7 @@ impl Parser {
                 self.expect_statement_end("Expected newline after class field")?;
                 Ok(ClassMember::Field(ClassField {
                     visibility,
+                    with_events,
                     name,
                     ty,
                     span: Span::new(start.start, end.end),
@@ -61,6 +72,24 @@ impl Parser {
             }
             _ => Err(self.error_here("Expected class member")),
         }
+    }
+
+    fn parse_event(&mut self, visibility: Visibility) -> Result<ClassEvent, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Event, "Expected 'Event'")?
+            .span;
+        let name = self.expect_identifier("Expected event name")?;
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' after event name")?;
+        let params = self.parse_parameters()?;
+        self.expect_simple(TokenKind::RightParen, "Expected ')' after event parameters")?;
+        let end = self.previous().span;
+        self.expect_statement_end("Expected newline after event declaration")?;
+        Ok(ClassEvent {
+            visibility,
+            name,
+            params,
+            span: Span::new(start.start, end.end),
+        })
     }
 
     fn parse_property(

@@ -4907,3 +4907,191 @@ End Sub
     );
     assert!(type_conflict.contains("conflicts with existing Type"));
 }
+
+#[test]
+fn class_event_raiseevent_without_handlers_does_nothing() {
+    let output = run_source(
+        r#"
+Class Button
+    Public Event Click(ByVal x As Integer, ByVal y As Integer)
+
+    Public Sub Press()
+        RaiseEvent Click(10, 20)
+    End Sub
+End Class
+
+Sub Main()
+    Dim button As Button
+    button = New Button()
+    button.Press()
+    Console.WriteLine("done")
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["done"]);
+}
+
+#[test]
+fn withevents_handler_is_invoked_and_receives_args() {
+    let output = run_source(
+        r#"
+Class Button
+    Public Event Click(ByVal x As Integer, ByVal y As Integer)
+
+    Public Sub Press()
+        RaiseEvent Click(10, 20)
+    End Sub
+End Class
+
+Class Form
+    Private WithEvents mButton As Button
+
+    Public Sub Initialize()
+        mButton = New Button()
+    End Sub
+
+    Private Sub mButton_Click(ByVal x As Integer, ByVal y As Integer)
+        Console.WriteLine("clicked " & x & "," & y)
+    End Sub
+
+    Public Sub Run()
+        mButton.Press()
+    End Sub
+End Class
+
+Sub Main()
+    Dim form As Form
+    form = New Form()
+    form.Run()
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["clicked 10,20"]);
+}
+
+#[test]
+fn withevents_nothing_unbinds_and_reassignment_rebinds() {
+    let output = run_source(
+        r#"
+Class Button
+    Public Event Click(ByVal value As Integer)
+
+    Public Sub Press(ByVal value As Integer)
+        RaiseEvent Click(value)
+    End Sub
+End Class
+
+Class Form
+    Private WithEvents mButton As Button
+    Private oldButton As Button
+
+    Public Sub Run()
+        mButton = New Button()
+        oldButton = mButton
+        oldButton.Press(1)
+        mButton = Nothing
+        oldButton.Press(2)
+        mButton = New Button()
+        oldButton.Press(3)
+        mButton.Press(4)
+    End Sub
+
+    Private Sub mButton_Click(ByVal value As Integer)
+        Console.WriteLine(value)
+    End Sub
+End Class
+
+Sub Main()
+    Dim form As Form
+    form = New Form()
+    form.Run()
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["1", "4"]);
+}
+
+#[test]
+fn rejects_wrong_event_handler_signature() {
+    let error = source_error(
+        r#"
+Class Button
+    Public Event Click(ByVal x As Integer)
+End Class
+
+Class Form
+    Private WithEvents mButton As Button
+
+    Private Sub mButton_Click(ByVal x As String)
+    End Sub
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("signature does not match event 'Click'"));
+}
+
+#[test]
+fn rejects_invalid_event_usage() {
+    let unknown = source_error(
+        r#"
+Class Button
+    Public Event Click()
+
+    Public Sub Press()
+        RaiseEvent Missing()
+    End Sub
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(unknown.contains("has no event 'Missing'"));
+
+    let outside = source_error(
+        r#"
+Sub Main()
+    RaiseEvent Click()
+End Sub
+"#,
+    );
+    assert!(outside.contains("RaiseEvent is only valid inside the declaring class"));
+
+    let direct = source_error(
+        r#"
+Class Button
+    Public Event Click()
+End Class
+
+Sub Main()
+    Dim button As Button
+    button = New Button()
+    button.Click()
+End Sub
+"#,
+    );
+    assert!(direct.contains("Event 'Click' cannot be called directly"));
+}
+
+#[test]
+fn rejects_withevents_non_object_field() {
+    let error = source_error(
+        r#"
+Class Form
+    Private WithEvents counter As Integer
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("WithEvents field 'counter' must have a class type"));
+}

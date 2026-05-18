@@ -10,7 +10,7 @@ use crate::{
 use crate::semantics::context::Context;
 use crate::semantics::symbols::{CallableSig, ParamSig, Signatures, VarType, key};
 use crate::semantics::types::{
-    ClassFieldSig, ClassMethodSig, ClassPropertySig, ClassSig, EnumSig, FieldSig,
+    ClassEventSig, ClassFieldSig, ClassMethodSig, ClassPropertySig, ClassSig, EnumSig, FieldSig,
     PropertyAccessorSig, TypeRegistry, TypeSig,
 };
 
