@@ -26,10 +26,10 @@ impl Parser {
     }
 
     fn parse_and(&mut self) -> Result<Expr, Diagnostic> {
-        let mut expr = self.parse_comparison()?;
+        let mut expr = self.parse_not()?;
 
         while self.match_simple(&TokenKind::And) {
-            let right = self.parse_comparison()?;
+            let right = self.parse_not()?;
             let span = Span::new(expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
@@ -42,6 +42,23 @@ impl Parser {
         }
 
         Ok(expr)
+    }
+
+    fn parse_not(&mut self) -> Result<Expr, Diagnostic> {
+        if self.match_simple(&TokenKind::Not) {
+            let start = self.previous().span;
+            let expr = self.parse_not()?;
+            let span = Span::new(start.start, expr.span.end);
+            return Ok(Expr {
+                kind: ExprKind::Unary {
+                    op: UnaryOp::LogicalNot,
+                    expr: Box::new(expr),
+                },
+                span,
+            });
+        }
+
+        self.parse_comparison()
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, Diagnostic> {
@@ -154,19 +171,6 @@ impl Parser {
             return Ok(Expr {
                 kind: ExprKind::Unary {
                     op: UnaryOp::Negate,
-                    expr: Box::new(expr),
-                },
-                span,
-            });
-        }
-
-        if self.match_simple(&TokenKind::Not) {
-            let start = self.previous().span;
-            let expr = self.parse_unary()?;
-            let span = Span::new(start.start, expr.span.end);
-            return Ok(Expr {
-                kind: ExprKind::Unary {
-                    op: UnaryOp::LogicalNot,
                     expr: Box::new(expr),
                 },
                 span,

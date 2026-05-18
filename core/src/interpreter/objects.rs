@@ -99,10 +99,14 @@ impl Interpreter {
                 drop(root);
                 self.call_property_set(object, member, value, span)
             }
-            _ => Err(Diagnostic::new(
-                "Member assignment target must be a variable or Me",
-                Some(target.span),
-            )),
+            ExprKind::MemberAccess { .. } | ExprKind::MemberCall { .. } | ExprKind::New { .. } => {
+                let target_value = self.eval_expr(target, frame)?;
+                self.assign_member_to_value(target_value, member, value, span)
+            }
+            _ => {
+                let target_value = self.eval_expr(target, frame)?;
+                self.assign_member_to_value(target_value, member, value, span)
+            }
         }
     }
 
@@ -120,6 +124,19 @@ impl Interpreter {
         let object = root.clone();
         drop(root);
         self.call_property_set(object, member, value, span)
+    }
+
+    pub(crate) fn assign_member_to_value(
+        &mut self,
+        mut target: Value,
+        member: &str,
+        value: Value,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if object_has_field(&target, member) || !matches!(target, Value::Object(_)) {
+            return write_member(&mut target, member, value, span);
+        }
+        self.call_property_set(target, member, value, span)
     }
 }
 

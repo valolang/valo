@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use crate::runtime::{Diagnostic, TypeName};
 use crate::{
-    BinaryOp, CaseCompareOp, CaseItem, ClassMember, DoLoopCondition, ExitTarget, Expr, ExprKind,
-    Function, Parameter, PassingMode, Procedure, Program, PropertyKind, Stmt, UnaryOp, Visibility,
+    AssignTarget, BinaryOp, CaseCompareOp, CaseItem, ClassMember, DoLoopCondition, ExitTarget,
+    Expr, ExprKind, Function, Parameter, PassingMode, Procedure, Program, PropertyKind, Stmt,
+    UnaryOp, Visibility,
 };
 
 use crate::semantics::context::Context;
@@ -622,86 +623,23 @@ fn validate_statements(
                 };
                 symbols.insert(key, var_type);
             }
-            Stmt::Assign { name, expr, span } => {
-                let Some(target_type) = symbols.get(&key(name)).cloned() else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", name),
-                        Some(*span),
-                    ));
-                };
-                let VarType::Scalar(target_type) = target_type else {
-                    return Err(Diagnostic::new(
-                        format!("Array variable '{}' cannot be used as a scalar", name),
-                        Some(*span),
-                    ));
-                };
+            Stmt::Assign { target, expr, span } => {
                 let expr_type = validate_expr(expr, symbols, types, signatures)?;
+                let target_type = validate_assignment_target(
+                    target, &expr_type, symbols, types, signatures, &context,
+                )?;
                 ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
             }
-            Stmt::SetAssign { name, expr, span } => {
-                let Some(target_type) = symbols.get(&key(name)).cloned() else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", name),
-                        Some(*span),
-                    ));
-                };
-                let VarType::Scalar(target_type) = target_type else {
-                    return Err(Diagnostic::new(
-                        format!("Array variable '{}' cannot be used as a scalar", name),
-                        Some(*span),
-                    ));
-                };
+            Stmt::SetAssign { target, expr, span } => {
+                let expr_type = validate_expr(expr, symbols, types, signatures)?;
+                let target_type = validate_assignment_target(
+                    target, &expr_type, symbols, types, signatures, &context,
+                )?;
                 ensure_class_type(
                     &target_type,
                     types,
                     *span,
                     "Set target must be a class type",
-                )?;
-                let expr_type = validate_expr(expr, symbols, types, signatures)?;
-                ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
-            }
-            Stmt::ArrayAssign {
-                name,
-                index,
-                expr,
-                span,
-            } => {
-                let Some(var_type) = symbols.get(&key(name)).cloned() else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not declared", name),
-                        Some(*span),
-                    ));
-                };
-                let VarType::Array(element_type) = var_type else {
-                    return Err(Diagnostic::new(
-                        format!("Variable '{}' is not an array", name),
-                        Some(*span),
-                    ));
-                };
-                ensure_assignable(
-                    &TypeName::Integer,
-                    &validate_expr(index, symbols, types, signatures)?,
-                    index.span,
-                )?;
-                let expr_type = validate_expr(expr, symbols, types, signatures)?;
-                ensure_assignable_expr(&element_type, &expr_type, expr, types, *span)?;
-            }
-            Stmt::MemberAssign {
-                target,
-                field,
-                expr,
-                span,
-            } => {
-                let target_type = validate_expr(target, symbols, types, signatures)?;
-                let current_class = member_access_class(target, &target_type);
-                let expr_type = validate_expr(expr, symbols, types, signatures)?;
-                let target_type = member_assignment_type(
-                    &target_type,
-                    field,
-                    &expr_type,
-                    types,
-                    *span,
-                    current_class.as_deref(),
                 )?;
                 ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
             }
@@ -960,6 +898,70 @@ fn validate_sub_call(
     };
 
     validate_arguments("Sub", sub, args, symbols, types, signatures, span)
+}
+
+fn validate_assignment_target(
+    target: &AssignTarget,
+    value_type: &TypeName,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+    context: &Context<'_>,
+) -> Result<TypeName, Diagnostic> {
+    match target {
+        AssignTarget::Variable { name, span } => {
+            let Some(target_type) = symbols.get(&key(name)).cloned() else {
+                return Err(Diagnostic::new(
+                    format!("Variable '{}' is not declared", name),
+                    Some(*span),
+                ));
+            };
+            let VarType::Scalar(target_type) = target_type else {
+                return Err(Diagnostic::new(
+                    format!("Array variable '{}' cannot be used as a scalar", name),
+                    Some(*span),
+                ));
+            };
+            Ok(target_type)
+        }
+        AssignTarget::ArrayElement { name, index, span } => {
+            let Some(var_type) = symbols.get(&key(name)).cloned() else {
+                return Err(Diagnostic::new(
+                    format!("Variable '{}' is not declared", name),
+                    Some(*span),
+                ));
+            };
+            let VarType::Array(element_type) = var_type else {
+                return Err(Diagnostic::new(
+                    format!("Variable '{}' is not an array", name),
+                    Some(*span),
+                ));
+            };
+            ensure_assignable(
+                &TypeName::Integer,
+                &validate_expr(index, symbols, types, signatures)?,
+                index.span,
+            )?;
+            Ok(element_type)
+        }
+        AssignTarget::Member {
+            object,
+            field,
+            span,
+        } => {
+            let object_type = validate_expr(object, symbols, types, signatures)?;
+            let current_class = member_access_class(object, &object_type)
+                .or_else(|| context.current_class().map(str::to_string));
+            member_assignment_type(
+                &object_type,
+                field,
+                value_type,
+                types,
+                *span,
+                current_class.as_deref(),
+            )
+        }
+    }
 }
 
 fn validate_expr(

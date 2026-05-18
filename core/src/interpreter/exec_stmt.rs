@@ -1,5 +1,5 @@
 use crate::runtime::{Diagnostic, Value};
-use crate::{CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, Stmt};
+use crate::{AssignTarget, CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, Stmt};
 
 use super::values::{compare_case_values, values_equal};
 use super::{ControlFlow, Frame, Interpreter};
@@ -34,35 +34,14 @@ impl Interpreter {
                 frame.declare(name, ty.clone(), *array_size, *span, &self.types)?;
                 Ok(ControlFlow::Continue)
             }
-            Stmt::Assign { name, expr, span } => {
+            Stmt::Assign { target, expr, span } => {
                 let value = self.eval_expr(expr, frame)?;
-                frame.assign(name, value, *span)?;
+                self.assign_target(target, value, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
-            Stmt::SetAssign { name, expr, span } => {
+            Stmt::SetAssign { target, expr, span } => {
                 let value = self.eval_expr(expr, frame)?;
-                frame.assign(name, value, *span)?;
-                Ok(ControlFlow::Continue)
-            }
-            Stmt::ArrayAssign {
-                name,
-                index,
-                expr,
-                span,
-            } => {
-                let index = self.eval_integer_expr(index, frame, "Array index must be Integer")?;
-                let value = self.eval_expr(expr, frame)?;
-                frame.assign_array_element(name, index, value, *span)?;
-                Ok(ControlFlow::Continue)
-            }
-            Stmt::MemberAssign {
-                target,
-                field,
-                expr,
-                span,
-            } => {
-                let value = self.eval_expr(expr, frame)?;
-                self.assign_member(target, field, value, frame, *span)?;
+                self.assign_target(target, value, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::ConsoleWriteLine { args, .. } => {
@@ -242,6 +221,25 @@ impl Interpreter {
                 ExitTarget::While => Ok(ControlFlow::ExitWhile),
                 ExitTarget::Do => Ok(ControlFlow::ExitDo),
             },
+        }
+    }
+
+    fn assign_target(
+        &mut self,
+        target: &AssignTarget,
+        value: Value,
+        frame: &mut Frame,
+        span: crate::runtime::Span,
+    ) -> Result<(), Diagnostic> {
+        match target {
+            AssignTarget::Variable { name, .. } => frame.assign(name, value, span),
+            AssignTarget::ArrayElement { name, index, .. } => {
+                let index = self.eval_integer_expr(index, frame, "Array index must be Integer")?;
+                frame.assign_array_element(name, index, value, span)
+            }
+            AssignTarget::Member { object, field, .. } => {
+                self.assign_member(object, field, value, frame, span)
+            }
         }
     }
 

@@ -11,24 +11,12 @@ pub enum Stmt {
         span: Span,
     },
     Assign {
-        name: String,
+        target: AssignTarget,
         expr: Expr,
         span: Span,
     },
     SetAssign {
-        name: String,
-        expr: Expr,
-        span: Span,
-    },
-    ArrayAssign {
-        name: String,
-        index: Expr,
-        expr: Expr,
-        span: Span,
-    },
-    MemberAssign {
-        target: Expr,
-        field: String,
+        target: AssignTarget,
         expr: Expr,
         span: Span,
     },
@@ -87,6 +75,34 @@ pub enum Stmt {
         target: ExitTarget,
         span: Span,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssignTarget {
+    Variable {
+        name: String,
+        span: Span,
+    },
+    ArrayElement {
+        name: String,
+        index: Expr,
+        span: Span,
+    },
+    Member {
+        object: Expr,
+        field: String,
+        span: Span,
+    },
+}
+
+impl AssignTarget {
+    pub fn span(&self) -> Span {
+        match self {
+            AssignTarget::Variable { span, .. }
+            | AssignTarget::ArrayElement { span, .. }
+            | AssignTarget::Member { span, .. } => *span,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

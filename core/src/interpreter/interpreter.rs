@@ -1730,6 +1730,245 @@ End Sub
     }
 
     #[test]
+    fn set_me_field_assignment_works() {
+        let output = run_source(
+            r#"
+Class Room
+    Public North As String
+End Class
+
+Class Game
+    Private mHall As Room
+
+    Public Sub Initialize()
+        Set Me.mHall = New Room()
+        Me.mHall.North = "library"
+    End Sub
+
+    Public Function NorthExit() As String
+        Return Me.mHall.North
+    End Function
+End Class
+
+Sub Main()
+    Dim game As Game
+    game = New Game()
+    Console.WriteLine(game.NorthExit())
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["library"]);
+    }
+
+    #[test]
+    fn set_object_field_and_nested_member_assignment_work() {
+        let output = run_source(
+            r#"
+Class Child
+    Public Name As String
+End Class
+
+Class Holder
+    Public Child As Child
+End Class
+
+Sub Main()
+    Dim holder As Holder
+    holder = New Holder()
+    Set holder.Child = New Child()
+    holder.Child.Name = "Valo"
+    Console.WriteLine(holder.Child.Name)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Valo"]);
+    }
+
+    #[test]
+    fn set_object_property_dispatches_property_set() {
+        let output = run_source(
+            r#"
+Class Child
+    Public Name As String
+End Class
+
+Class Holder
+    Private mChild As Child
+
+    Public Property Get Child() As Child
+        Return Me.mChild
+    End Property
+
+    Public Property Set Child(ByVal value As Child)
+        Me.mChild = value
+        Me.mChild.Name = "set"
+    End Property
+End Class
+
+Sub Main()
+    Dim holder As Holder
+    holder = New Holder()
+    Set holder.Child = New Child()
+    holder.Child.Name = holder.Child.Name & " ok"
+    Console.WriteLine(holder.Child.Name)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["set ok"]);
+    }
+
+    #[test]
+    fn nested_object_field_chain_assignment_works() {
+        let output = run_source(
+            r#"
+Class Inner
+    Public Value As String
+End Class
+
+Class Child
+    Public Inner As Inner
+End Class
+
+Class Holder
+    Public Child As Child
+End Class
+
+Sub Main()
+    Dim holder As Holder
+    holder = New Holder()
+    holder.Child = New Child()
+    holder.Child.Inner = New Inner()
+    holder.Child.Inner.Value = "deep"
+    Console.WriteLine(holder.Child.Inner.Value)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["deep"]);
+    }
+
+    #[test]
+    fn chained_assignment_reports_nothing_intermediate() {
+        let error = source_error(
+            r#"
+Class Child
+    Public Name As String
+End Class
+
+Class Holder
+    Public Child As Child
+End Class
+
+Sub Main()
+    Dim holder As Holder
+    holder = New Holder()
+    holder.Child.Name = "Valo"
+End Sub
+"#,
+        );
+
+        assert!(error.contains("Object reference is Nothing"));
+    }
+
+    #[test]
+    fn not_is_precedence_matches_vba_style() {
+        let output = run_source(
+            r#"
+Class User
+    Public Name As String
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User()
+
+    If Not user Is Nothing Then
+        user.Name = "Valo"
+    End If
+
+    Console.WriteLine(user.Name)
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["Valo"]);
+    }
+
+    #[test]
+    fn not_is_other_object_precedence_works() {
+        let output = run_source(
+            r#"
+Class User
+End Class
+
+Sub Main()
+    Dim user As User
+    Dim otherUser As User
+    user = New User()
+    otherUser = New User()
+
+    If Not user Is otherUser Then
+        Console.WriteLine("different")
+    End If
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["different"]);
+    }
+
+    #[test]
+    fn parenthesized_not_is_still_works() {
+        let output = run_source(
+            r#"
+Class User
+End Class
+
+Sub Main()
+    Dim user As User
+    user = New User()
+
+    If Not (user Is Nothing) Then
+        Console.WriteLine("not nothing")
+    End If
+End Sub
+"#,
+        );
+
+        assert_eq!(output, vec!["not nothing"]);
+    }
+
+    #[test]
+    fn set_rejects_boolean_and_type_record_targets() {
+        let boolean_error = source_error(
+            r#"
+Sub Main()
+    Dim active As Boolean
+    Set active = Nothing
+End Sub
+"#,
+        );
+        assert!(boolean_error.contains("Set target must be a class type"));
+
+        let record_error = source_error(
+            r#"
+Type Point
+    X As Integer
+End Type
+
+Sub Main()
+    Dim point As Point
+    Set point = Nothing
+End Sub
+"#,
+        );
+        assert!(record_error.contains("Set target must be a class type"));
+    }
+
+    #[test]
     fn normal_object_assignment_still_works() {
         let output = run_source(
             r#"

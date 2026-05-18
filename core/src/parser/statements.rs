@@ -73,14 +73,14 @@ impl Parser {
     }
 
     fn parse_assignment(&mut self) -> Result<Stmt, Diagnostic> {
-        let start = self.peek().span;
-        let name = self.expect_identifier("Expected assignment target")?;
+        let target = self.parse_assignment_target()?;
+        let start = target.span();
         self.expect_simple(TokenKind::Equal, "Expected '=' in assignment")?;
         let expr = self.parse_expression()?;
         let end = expr.span;
 
         Ok(Stmt::Assign {
-            name,
+            target,
             expr,
             span: Span::new(start.start, end.end),
         })
@@ -88,13 +88,13 @@ impl Parser {
 
     fn parse_set_assignment(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect_simple(TokenKind::Set, "Expected 'Set'")?.span;
-        let name = self.expect_identifier("Expected variable name after 'Set'")?;
+        let target = self.parse_assignment_target()?;
         self.expect_simple(TokenKind::Equal, "Expected '=' in Set assignment")?;
         let expr = self.parse_expression()?;
         let end = expr.span;
 
         Ok(Stmt::SetAssign {
-            name,
+            target,
             expr,
             span: Span::new(start.start, end.end),
         })
@@ -113,6 +113,7 @@ impl Parser {
         let start = self.peek().span;
         let name = self.expect_identifier("Expected name")?;
         let args = self.parse_call_arguments()?;
+        let target_end = self.previous().span;
 
         if self.match_simple(&TokenKind::Equal) {
             if args.len() != 1 {
@@ -125,9 +126,12 @@ impl Parser {
             let index = args.next().expect("len checked");
             let expr = self.parse_expression()?;
             let end = expr.span;
-            return Ok(Stmt::ArrayAssign {
-                name,
-                index,
+            return Ok(Stmt::Assign {
+                target: AssignTarget::ArrayElement {
+                    name,
+                    index,
+                    span: Span::new(start.start, target_end.end),
+                },
                 expr,
                 span: Span::new(start.start, end.end),
             });
@@ -148,9 +152,12 @@ impl Parser {
             self.expect_simple(TokenKind::Equal, "Expected '=' in member assignment")?;
             let expr = self.parse_expression()?;
             let end = expr.span;
-            return Ok(Stmt::MemberAssign {
-                target: *object,
-                field,
+            return Ok(Stmt::Assign {
+                target: AssignTarget::Member {
+                    object: *object,
+                    field,
+                    span: target_span,
+                },
                 expr,
                 span: Span::new(target_span.start, end.end),
             });
@@ -193,12 +200,44 @@ impl Parser {
         let expr = self.parse_expression()?;
         let end = expr.span;
 
-        Ok(Stmt::MemberAssign {
-            target: *object,
-            field,
+        Ok(Stmt::Assign {
+            target: AssignTarget::Member {
+                object: *object,
+                field,
+                span: target_span,
+            },
             expr,
             span: Span::new(target_span.start, end.end),
         })
+    }
+
+    fn parse_assignment_target(&mut self) -> Result<AssignTarget, Diagnostic> {
+        let expr = self.parse_primary()?;
+        let span = expr.span;
+        match expr.kind {
+            ExprKind::Variable(name) => Ok(AssignTarget::Variable { name, span }),
+            ExprKind::Call { name, args } => {
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        "Array assignment requires exactly one index",
+                        Some(span),
+                    ));
+                }
+                let mut args = args.into_iter();
+                Ok(AssignTarget::ArrayElement {
+                    name,
+                    index: args.next().expect("len checked"),
+                    span,
+                })
+            }
+            ExprKind::MemberAccess { object, field } => Ok(AssignTarget::Member {
+                object: *object,
+                field,
+                span,
+            }),
+            ExprKind::Me => Err(Diagnostic::new("Me is not assignable", Some(span))),
+            _ => Err(Diagnostic::new("Expected assignment target", Some(span))),
+        }
     }
 
     fn parse_console_writeline(&mut self) -> Result<Stmt, Diagnostic> {
