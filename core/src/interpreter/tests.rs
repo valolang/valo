@@ -480,6 +480,210 @@ End Sub
 }
 
 #[test]
+fn err_raise_basic_and_optional_properties_are_exposed() {
+    let output = run_source(
+        r#"
+Sub Main()
+    On Error Resume Next
+    Err.Raise(100)
+    Console.WriteLine(Err.Number)
+    Console.WriteLine(Err.Description)
+    Console.WriteLine(Err.Source)
+    Console.WriteLine(Err.HelpFile)
+    Console.WriteLine(Err.HelpContext)
+    Err.Clear()
+    Console.WriteLine(Err.Number)
+    Console.WriteLine(Err.Description)
+    Console.WriteLine(Err.Source)
+    Console.WriteLine(Err.HelpFile)
+    Console.WriteLine(Err.HelpContext)
+End Sub
+"#,
+    );
+
+    assert_eq!(
+        output,
+        vec![
+            "100",
+            "Application-defined or object-defined error",
+            "",
+            "",
+            "0",
+            "0",
+            "",
+            "",
+            "",
+            "0",
+        ]
+    );
+}
+
+#[test]
+fn err_raise_populates_source_description_help_file_and_help_context() {
+    let output = run_source(
+        r#"
+Sub Main()
+    On Error Resume Next
+    Err.Raise(513, "Unit.Test", "custom failure", "help.chm", 42)
+    Console.WriteLine(Err.Number)
+    Console.WriteLine(Err.Source)
+    Console.WriteLine(Err.Description)
+    Console.WriteLine(Err.HelpFile)
+    Console.WriteLine(Err.HelpContext)
+End Sub
+"#,
+    );
+
+    assert_eq!(
+        output,
+        vec!["513", "Unit.Test", "custom failure", "help.chm", "42"]
+    );
+}
+
+#[test]
+fn err_raise_is_handled_by_resume_next_and_goto_label() {
+    let output = run_source(
+        r#"
+Sub Main()
+    On Error Resume Next
+    Err.Raise(7, "next", "resume next")
+    Console.WriteLine(Err.Number)
+    Console.WriteLine(Err.Description)
+    Err.Clear()
+
+    On Error GoTo Handler
+    Err.Raise(8, "handler", "jumped")
+    Console.WriteLine("skip")
+    GoTo Done
+Handler:
+    Console.WriteLine(Err.Number)
+    Console.WriteLine(Err.Source)
+    Console.WriteLine(Err.Description)
+Done:
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["7", "resume next", "8", "handler", "jumped"]);
+}
+
+#[test]
+fn unhandled_err_raise_becomes_runtime_diagnostic() {
+    let error = source_error(
+        r#"
+Sub Main()
+    Err.Raise(77, "Unit.Test", "raised without handler")
+End Sub
+"#,
+    );
+
+    assert!(error.contains("raised without handler"));
+}
+
+#[test]
+fn on_error_goto_minus_one_clears_active_handled_error_but_keeps_err_values() {
+    let output = run_source(
+        r#"
+Sub Main()
+    On Error GoTo Handler
+    Err.Raise(1, "first", "first")
+    Console.WriteLine("skip")
+    GoTo Done
+Handler:
+    Console.WriteLine(Err.Number)
+    On Error GoTo -1
+    Console.WriteLine(Err.Number)
+    GoTo Done
+Done:
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["1", "1"]);
+}
+
+#[test]
+fn resume_after_on_error_goto_minus_one_fails() {
+    let error = source_error(
+        r#"
+Sub Main()
+    On Error GoTo Handler
+    Err.Raise(1)
+    GoTo Done
+Handler:
+    On Error GoTo -1
+    Resume Next
+Done:
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Resume is only valid after a handled runtime error"));
+}
+
+#[test]
+fn numeric_labels_goto_and_resume_work() {
+    let output = run_source(
+        r#"
+Sub Main()
+10 Console.WriteLine("start")
+20 GoTo 40
+30 Console.WriteLine("skip")
+40 Console.WriteLine("done")
+
+    On Error GoTo 70
+50 Err.Raise(5)
+60 Console.WriteLine("after")
+    GoTo 80
+70 Resume 60
+80 Console.WriteLine("finished")
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["start", "done", "after", "finished"]);
+}
+
+#[test]
+fn duplicate_numeric_labels_are_rejected() {
+    let error = source_error(
+        r#"
+Sub Main()
+10 Console.WriteLine("first")
+10 Console.WriteLine("second")
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Label '10' is already declared"));
+}
+
+#[test]
+fn erl_returns_numeric_line_for_handled_error_and_zero_without_one() {
+    let output = run_source(
+        r#"
+Sub Main()
+    On Error GoTo Handler
+10 Err.Raise(10)
+    GoTo Done
+Handler:
+    Console.WriteLine(Erl)
+    On Error GoTo -1
+    Err.Clear()
+    On Error GoTo OtherHandler
+    Err.Raise(11)
+    GoTo Done
+OtherHandler:
+    Console.WriteLine(Erl)
+Done:
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["10", "0"]);
+}
+
+#[test]
 fn reports_type_mismatch_errors() {
     let error = source_error(
         r#"

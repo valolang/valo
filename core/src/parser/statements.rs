@@ -10,6 +10,24 @@ impl Parser {
             if self.matches_any_block_boundary() {
                 break;
             }
+            if matches!(self.peek_kind(), TokenKind::Integer(_)) {
+                let token = self.advance();
+                let TokenKind::Integer(number) = token.kind else {
+                    unreachable!("peek checked");
+                };
+                statements.push(Stmt::Label {
+                    name: number.to_string(),
+                    span: token.span,
+                });
+                if self.check_simple(&TokenKind::Newline)
+                    || self.check_simple(&TokenKind::Eof)
+                    || self.matches_any_block_boundary()
+                {
+                    self.expect_statement_end("Expected newline after statement")?;
+                    self.skip_newlines();
+                    continue;
+                }
+            }
             statements.push(self.parse_stmt()?);
             self.expect_statement_end("Expected newline after statement")?;
             self.skip_newlines();
@@ -702,11 +720,15 @@ impl Parser {
     fn parse_goto(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect_simple(TokenKind::GoTo, "Expected 'GoTo'")?.span;
         let token = self.advance();
-        let TokenKind::Identifier(label) = token.kind else {
-            return Err(Diagnostic::new(
-                "Expected label name after 'GoTo'",
-                Some(token.span),
-            ));
+        let label = match token.kind {
+            TokenKind::Identifier(label) => label,
+            TokenKind::Integer(number) => number.to_string(),
+            _ => {
+                return Err(Diagnostic::new(
+                    "Expected label name after 'GoTo'",
+                    Some(token.span),
+                ));
+            }
         };
         Ok(Stmt::GoTo {
             label,
@@ -724,16 +746,22 @@ impl Parser {
             let token = self.advance();
             let mode = match token.kind {
                 TokenKind::Integer(0) => OnErrorMode::GoToZero,
-                TokenKind::Integer(_) => {
-                    return Err(Diagnostic::new(
-                        "On Error GoTo requires 0 or a label",
-                        Some(token.span),
-                    ));
+                TokenKind::Minus => {
+                    let one = self.advance();
+                    if matches!(one.kind, TokenKind::Integer(1)) {
+                        OnErrorMode::GoToMinusOne
+                    } else {
+                        return Err(Diagnostic::new(
+                            "On Error GoTo requires 0, -1, or a label",
+                            Some(one.span),
+                        ));
+                    }
                 }
+                TokenKind::Integer(number) => OnErrorMode::GoToLabel(number.to_string()),
                 TokenKind::Identifier(label) => OnErrorMode::GoToLabel(label),
                 _ => {
                     return Err(Diagnostic::new(
-                        "On Error GoTo requires 0 or a label",
+                        "On Error GoTo requires 0, -1, or a label",
                         Some(token.span),
                     ));
                 }
@@ -741,7 +769,7 @@ impl Parser {
             mode
         } else {
             return Err(self.error_here(
-                "Expected 'Resume Next', 'GoTo 0', or 'GoTo <label>' after 'On Error'",
+                "Expected 'Resume Next', 'GoTo 0', 'GoTo -1', or 'GoTo <label>' after 'On Error'",
             ));
         };
         let end = self.previous().span;
@@ -770,6 +798,16 @@ impl Parser {
                 };
                 return Ok(Stmt::Resume {
                     target: ResumeTarget::Label(label),
+                    span: Span::new(start.start, token.span.end),
+                });
+            }
+            TokenKind::Integer(_) => {
+                let token = self.advance();
+                let TokenKind::Integer(number) = token.kind else {
+                    unreachable!("peek checked");
+                };
+                return Ok(Stmt::Resume {
+                    target: ResumeTarget::Label(number.to_string()),
                     span: Span::new(start.start, token.span.end),
                 });
             }

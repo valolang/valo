@@ -121,6 +121,7 @@ pub enum Stmt {
 pub enum OnErrorMode {
     ResumeNext,
     GoToZero,
+    GoToMinusOne,
     GoToLabel(String),
 }
 

@@ -100,7 +100,26 @@ pub(super) fn validate_statements(
                     if method.eq_ignore_ascii_case("Clear") && args.is_empty() {
                         continue;
                     }
-                    return Err(Diagnostic::new("Err only supports Clear()", Some(*span)));
+                    if method.eq_ignore_ascii_case("Raise") {
+                        validate_expr(
+                            &Expr {
+                                kind: ExprKind::MemberCall {
+                                    object: Box::new(object.clone()),
+                                    method: method.clone(),
+                                    args: args.clone(),
+                                },
+                                span: *span,
+                            },
+                            symbols,
+                            types,
+                            signatures,
+                        )?;
+                        continue;
+                    }
+                    return Err(Diagnostic::new(
+                        "Err only supports Clear() and Raise()",
+                        Some(*span),
+                    ));
                 }
                 let object_type = validate_expr(object, symbols, types, signatures)?;
                 validate_method_call(

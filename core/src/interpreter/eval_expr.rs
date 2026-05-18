@@ -21,7 +21,9 @@ impl Interpreter {
                 self.new_object(class_name, args, frame, expr.span)
             }
             ExprKind::Variable(name) => {
-                if let Some(value) = self.enum_members.get(&super::values::key(name)) {
+                if name.eq_ignore_ascii_case("Erl") {
+                    Ok(Value::Integer(self.erl))
+                } else if let Some(value) = self.enum_members.get(&super::values::key(name)) {
                     Ok(Value::Integer(*value))
                 } else {
                     frame.get(name, expr.span)
@@ -36,6 +38,15 @@ impl Interpreter {
                     }
                     if field.eq_ignore_ascii_case("Description") {
                         return Ok(Value::String(self.err_description.clone()));
+                    }
+                    if field.eq_ignore_ascii_case("Source") {
+                        return Ok(Value::String(self.err_source.clone()));
+                    }
+                    if field.eq_ignore_ascii_case("HelpFile") {
+                        return Ok(Value::String(self.err_help_file.clone()));
+                    }
+                    if field.eq_ignore_ascii_case("HelpContext") {
+                        return Ok(Value::Integer(self.err_help_context));
                     }
                 }
                 if let ExprKind::Variable(enum_name) = &object.kind

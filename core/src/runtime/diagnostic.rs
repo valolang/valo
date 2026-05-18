@@ -30,10 +30,20 @@ pub struct Diagnostic {
     pub span: Option<Span>,
     pub severity: Severity,
     pub code: DiagnosticCode,
+    pub runtime_error: Option<RuntimeErrorInfo>,
     pub labels: Vec<DiagnosticLabel>,
     pub notes: Vec<String>,
     pub helps: Vec<String>,
     pub related: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeErrorInfo {
+    pub number: i64,
+    pub source: String,
+    pub description: String,
+    pub help_file: String,
+    pub help_context: i64,
 }
 
 impl Diagnostic {
@@ -48,6 +58,7 @@ impl Diagnostic {
             notes: Vec::new(),
             helps: Vec::new(),
             related: Vec::new(),
+            runtime_error: None,
         }
     }
 
@@ -85,6 +96,11 @@ impl Diagnostic {
 
     pub fn with_related(mut self, diagnostic: Diagnostic) -> Self {
         self.related.push(diagnostic);
+        self
+    }
+
+    pub fn with_runtime_error(mut self, info: RuntimeErrorInfo) -> Self {
+        self.runtime_error = Some(info);
         self
     }
 

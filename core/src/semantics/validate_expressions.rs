@@ -108,6 +108,7 @@ pub(super) fn validate_expr(
         }
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
             _ if name.eq_ignore_ascii_case("Err") => Ok(TypeName::Variant),
+            _ if name.eq_ignore_ascii_case("Erl") => Ok(TypeName::Integer),
             Some(VarType::Scalar(ty)) | Some(VarType::Const(ty)) => Ok(ty),
             Some(VarType::Array(_)) => Err(Diagnostic::new(
                 format!("Array variable '{}' cannot be used as a scalar", name),
@@ -131,8 +132,14 @@ pub(super) fn validate_expr(
                 if field.eq_ignore_ascii_case("Number") {
                     return Ok(TypeName::Integer);
                 }
-                if field.eq_ignore_ascii_case("Description") {
+                if field.eq_ignore_ascii_case("Description")
+                    || field.eq_ignore_ascii_case("Source")
+                    || field.eq_ignore_ascii_case("HelpFile")
+                {
                     return Ok(TypeName::String);
+                }
+                if field.eq_ignore_ascii_case("HelpContext") {
+                    return Ok(TypeName::Integer);
                 }
                 return Err(Diagnostic::new(
                     format!("Err has no member '{}'", field),
@@ -171,8 +178,12 @@ pub(super) fn validate_expr(
                 if method.eq_ignore_ascii_case("Clear") && args.is_empty() {
                     return Ok(TypeName::Variant);
                 }
+                if method.eq_ignore_ascii_case("Raise") {
+                    validate_err_raise_args(args, symbols, types, signatures, expr.span)?;
+                    return Ok(TypeName::Variant);
+                }
                 return Err(Diagnostic::new(
-                    "Err only supports Clear()",
+                    "Err only supports Clear() and Raise()",
                     Some(expr.span),
                 ));
             }
@@ -879,4 +890,31 @@ pub(super) fn ensure_assignable(
         ))
         .with_help("change the variable type or assign a value with the expected type"))
     }
+}
+
+fn validate_err_raise_args(
+    args: &[Expr],
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+    span: crate::runtime::Span,
+) -> Result<(), Diagnostic> {
+    if args.is_empty() || args.len() > 5 {
+        return Err(Diagnostic::new(
+            "Err.Raise expects 1 to 5 arguments",
+            Some(span),
+        ));
+    }
+    let expected = [
+        TypeName::Integer,
+        TypeName::String,
+        TypeName::String,
+        TypeName::String,
+        TypeName::Integer,
+    ];
+    for (index, arg) in args.iter().enumerate() {
+        let actual = validate_expr(arg, symbols, types, signatures)?;
+        ensure_assignable(&expected[index], &actual, arg.span)?;
+    }
+    Ok(())
 }

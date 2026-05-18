@@ -1,4 +1,4 @@
-use crate::runtime::{Diagnostic, Value};
+use crate::runtime::{Diagnostic, RuntimeErrorInfo, Value};
 use crate::{
     AssignTarget, CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ResumeTarget,
     Stmt,
@@ -15,6 +15,7 @@ impl Interpreter {
         frame: &mut Frame,
     ) -> Result<ControlFlow, Diagnostic> {
         let labels = index_labels(statements);
+        let line_numbers = index_line_numbers(statements);
         let mut ip = 0;
         while ip < statements.len() {
             match self.exec_stmt(&statements[ip], frame) {
@@ -45,13 +46,13 @@ impl Interpreter {
                 }
                 Ok(flow) => return Ok(flow),
                 Err(error) if frame.resume_next() => {
-                    self.set_err(&error);
+                    self.set_err(&error, line_numbers.get(&ip).copied().unwrap_or(0));
                     ip += 1;
                 }
                 Err(error)
                     if frame.error_handler().is_some() && frame.handled_error_ip().is_none() =>
                 {
-                    self.set_err(&error);
+                    self.set_err(&error, line_numbers.get(&ip).copied().unwrap_or(0));
                     frame.set_handled_error_ip(ip);
                     let handler = frame.error_handler().expect("checked").to_string();
                     ip = labels
@@ -134,6 +135,12 @@ impl Interpreter {
                 {
                     self.clear_err();
                     return Ok(ControlFlow::Continue);
+                }
+                if let crate::ExprKind::Variable(name) = &object.kind
+                    && name.eq_ignore_ascii_case("Err")
+                    && method.eq_ignore_ascii_case("Raise")
+                {
+                    return Err(self.err_raise(args, frame, *span)?);
                 }
                 let object = self.eval_expr(object, frame)?;
                 self.call_method_sub(object, method, args, frame, *span)?;
@@ -338,6 +345,10 @@ impl Interpreter {
                         frame.set_resume_next(false);
                         frame.set_error_handler(None);
                     }
+                    OnErrorMode::GoToMinusOne => {
+                        frame.clear_handled_error();
+                        self.erl = 0;
+                    }
                     OnErrorMode::GoToLabel(label) => {
                         frame.set_error_handler(Some(label.clone()));
                     }
@@ -424,6 +435,57 @@ impl Interpreter {
             }
         }
     }
+
+    fn err_raise(
+        &mut self,
+        args: &[crate::Expr],
+        frame: &mut Frame,
+        span: crate::runtime::Span,
+    ) -> Result<Diagnostic, Diagnostic> {
+        let number = self.eval_integer_expr(&args[0], frame, "Err.Raise number must be Integer")?;
+        let source = if let Some(arg) = args.get(1) {
+            self.eval_string_arg(arg, frame, "Err.Raise source must be String")?
+        } else {
+            String::new()
+        };
+        let description = if let Some(arg) = args.get(2) {
+            self.eval_string_arg(arg, frame, "Err.Raise description must be String")?
+        } else {
+            "Application-defined or object-defined error".to_string()
+        };
+        let help_file = if let Some(arg) = args.get(3) {
+            self.eval_string_arg(arg, frame, "Err.Raise helpFile must be String")?
+        } else {
+            String::new()
+        };
+        let help_context = if let Some(arg) = args.get(4) {
+            self.eval_integer_expr(arg, frame, "Err.Raise helpContext must be Integer")?
+        } else {
+            0
+        };
+
+        Ok(
+            Diagnostic::new(description.clone(), Some(span)).with_runtime_error(RuntimeErrorInfo {
+                number,
+                source,
+                description,
+                help_file,
+                help_context,
+            }),
+        )
+    }
+
+    fn eval_string_arg(
+        &mut self,
+        expr: &crate::Expr,
+        frame: &mut Frame,
+        message: &str,
+    ) -> Result<String, Diagnostic> {
+        match self.eval_expr(expr, frame)? {
+            Value::String(value) => Ok(value),
+            _ => Err(Diagnostic::new(message, Some(expr.span))),
+        }
+    }
 }
 
 fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
@@ -460,4 +522,20 @@ fn index_labels(statements: &[Stmt]) -> HashMap<String, usize> {
         }
     }
     labels
+}
+
+fn index_line_numbers(statements: &[Stmt]) -> HashMap<usize, i64> {
+    let mut line_numbers = HashMap::new();
+    for (index, window) in statements.windows(2).enumerate() {
+        let Stmt::Label { name, span } = &window[0] else {
+            continue;
+        };
+        let Ok(number) = name.parse::<i64>() else {
+            continue;
+        };
+        if span.start.line == stmt_span(&window[1]).start.line {
+            line_numbers.insert(index + 1, number);
+        }
+    }
+    line_numbers
 }

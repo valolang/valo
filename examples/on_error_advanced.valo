@@ -1,0 +1,27 @@
+Sub Main()
+10 Console.WriteLine("advanced start")
+
+    On Error Resume Next
+20 Err.Raise(513, "Example.Advanced", "raised under Resume Next", "valo-help.txt", 7)
+    Console.WriteLine("resume next " & Err.Number)
+    Console.WriteLine(Err.Source)
+    Console.WriteLine(Err.Description)
+    Console.WriteLine(Err.HelpFile)
+    Console.WriteLine(Err.HelpContext)
+    Err.Clear()
+
+    On Error GoTo Handler
+30 Err.Raise(900, "Example.Advanced", "handled by label")
+    Console.WriteLine("unreached")
+    GoTo Done
+
+Handler:
+    Console.WriteLine("handler " & Err.Number)
+    Console.WriteLine("erl " & Erl)
+    On Error GoTo -1
+    Err.Clear()
+    GoTo Done
+
+Done:
+40 Console.WriteLine("advanced done")
+End Sub
