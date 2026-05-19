@@ -1,5 +1,5 @@
+use super::helpers::{run_source, source_error};
 use crate::parser::Parser;
-use super::helpers::run_source;
 
 #[test]
 fn exported_class_envelope_ignored() {
@@ -35,6 +35,107 @@ End Sub
 "#;
     let output = run_source(source);
     assert_eq!(output, vec!["before", "terminated", "after"]);
+}
+
+#[test]
+fn native_constructor_runs() {
+    let source = r#"
+Class Box
+    Public value As Integer
+
+    Public Constructor()
+        value = 10
+    End Constructor
+End Class
+
+Sub Main()
+    Dim box As New Box
+    Console.WriteLine(box.value)
+End Sub
+"#;
+    let output = run_source(source);
+    assert_eq!(output, vec!["10"]);
+}
+
+#[test]
+fn native_constructor_accepts_parameters() {
+    let source = r#"
+Class Box
+    Public value As Integer
+
+    Public Constructor(ByVal initial As Integer)
+        value = initial
+    End Constructor
+End Class
+
+Sub Main()
+    Dim box As Box
+    Set box = New Box(42)
+    Console.WriteLine(box.value)
+End Sub
+"#;
+    let output = run_source(source);
+    assert_eq!(output, vec!["42"]);
+}
+
+#[test]
+fn duplicate_constructor_aliases_are_rejected() {
+    let error = source_error(
+        r#"
+Class Box
+    Public Constructor()
+    End Constructor
+
+    Public Sub Initialize()
+    End Sub
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("duplicate constructor definitions"));
+}
+
+#[test]
+fn native_terminate_runs_on_nothing() {
+    let source = r#"
+Class Logger
+    Public Terminate()
+        Console.WriteLine("terminated")
+    End Terminate
+End Class
+
+Sub Main()
+    Dim l As New Logger
+    Console.WriteLine("before")
+    Set l = Nothing
+    Console.WriteLine("after")
+End Sub
+"#;
+    let output = run_source(source);
+    assert_eq!(output, vec!["before", "terminated", "after"]);
+}
+
+#[test]
+fn duplicate_terminator_aliases_are_rejected() {
+    let error = source_error(
+        r#"
+Class Logger
+    Public Terminate()
+    End Terminate
+
+    Public Sub Class_Terminate()
+    End Sub
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("duplicate terminator definitions"));
 }
 
 #[test]
@@ -129,5 +230,8 @@ Sub Main()
 End Sub
 "#;
     let output = run_source(source);
-    assert_eq!(output, vec!["reassigning", "terminated 0", "done", "terminated 1"]);
+    assert_eq!(
+        output,
+        vec!["reassigning", "terminated 0", "done", "terminated 1"]
+    );
 }

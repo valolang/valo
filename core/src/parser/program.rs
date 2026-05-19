@@ -122,7 +122,10 @@ impl Parser {
                         name,
                         attributes: class_attributes,
                         members: class_members,
-                        span: crate::runtime::Span::new(crate::runtime::SourcePos::new(1, 1), self.previous().span.end),
+                        span: crate::runtime::Span::new(
+                            crate::runtime::SourcePos::new(1, 1),
+                            self.previous().span.end,
+                        ),
                     });
                 }
                 TokenKind::Const => {

@@ -104,6 +104,8 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         let mut functions = HashMap::new();
         let mut properties: HashMap<String, ClassPropertySig> = HashMap::new();
         let mut default_member: Option<String> = None;
+        let mut constructor_span = None;
+        let mut terminator_span = None;
         for member in &class_decl.members {
             match member {
                 ClassMember::Field(field) => {
@@ -159,6 +161,32 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 }
                 ClassMember::Sub(method) => {
                     let method_key = key(&method.procedure.name);
+                    if is_constructor_name(&method_key) {
+                        if constructor_span.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                                format!(
+                                    "Class '{}' has duplicate constructor definitions; use only one of Constructor, Initialize, or Class_Initialize",
+                                    class_decl.name
+                                ),
+                                Some(method.procedure.span),
+                            ));
+                        }
+                        constructor_span = Some(method.procedure.span);
+                    }
+                    if is_terminator_name(&method_key) {
+                        if terminator_span.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                                format!(
+                                    "Class '{}' has duplicate terminator definitions; use only one of Terminate or Class_Terminate",
+                                    class_decl.name
+                                ),
+                                Some(method.procedure.span),
+                            ));
+                        }
+                        terminator_span = Some(method.procedure.span);
+                    }
                     if subs.contains_key(&method_key)
                         || events.contains_key(&method_key)
                         || functions.contains_key(&method_key)
@@ -384,6 +412,14 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     validate_withevents_handlers(program, &registry)?;
 
     Ok(registry)
+}
+
+fn is_constructor_name(name: &str) -> bool {
+    name == "initialize" || name == "class_initialize"
+}
+
+fn is_terminator_name(name: &str) -> bool {
+    name == "terminate" || name == "class_terminate"
 }
 
 fn validate_withevents_handlers(

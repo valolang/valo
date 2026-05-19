@@ -64,6 +64,7 @@ impl Parser {
         let token = self.advance();
         match token.kind {
             TokenKind::Identifier(name) => Ok(name),
+            TokenKind::Version => Ok("VERSION".to_string()),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
                 message,
@@ -143,6 +144,8 @@ pub(super) enum BlockEnd {
     EndIf,
     EndFunction,
     EndProperty,
+    EndConstructor,
+    EndTerminate,
     EndSelect,
     EndSub,
     EndType,

@@ -116,6 +116,28 @@ impl Parser {
                 visibility,
                 procedure: self.parse_procedure(visibility)?,
             })),
+            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Constructor") => {
+                Ok(ClassMember::Sub(ClassSub {
+                    visibility,
+                    procedure: self.parse_lifecycle_procedure(
+                        visibility,
+                        "Constructor",
+                        "Initialize",
+                        BlockEnd::EndConstructor,
+                    )?,
+                }))
+            }
+            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Terminate") => {
+                Ok(ClassMember::Sub(ClassSub {
+                    visibility,
+                    procedure: self.parse_lifecycle_procedure(
+                        visibility,
+                        "Terminate",
+                        "Terminate",
+                        BlockEnd::EndTerminate,
+                    )?,
+                }))
+            }
             TokenKind::Function => Ok(ClassMember::Function(ClassFunction {
                 visibility,
                 function: self.parse_function(visibility)?,
@@ -430,6 +452,53 @@ impl Parser {
         })
     }
 
+    fn parse_lifecycle_procedure(
+        &mut self,
+        visibility: Visibility,
+        syntax_name: &str,
+        canonical_name: &str,
+        block_end: BlockEnd,
+    ) -> Result<Procedure, Diagnostic> {
+        let start = self.expect_identifier(&format!("Expected '{}'", syntax_name))?;
+        debug_assert!(start.eq_ignore_ascii_case(syntax_name));
+        let start_span = self.previous().span;
+        self.expect_simple(
+            TokenKind::LeftParen,
+            &format!("Expected '(' after {}", syntax_name),
+        )?;
+        let params = self.parse_parameters()?;
+        self.expect_simple(
+            TokenKind::RightParen,
+            &format!("Expected ')' after {} parameters", syntax_name),
+        )?;
+        self.expect_newline(&format!(
+            "Expected newline after {} declaration",
+            syntax_name
+        ))?;
+
+        let body = self.parse_block_until(&[block_end])?;
+        self.expect_simple(TokenKind::End, &format!("Expected 'End {}'", syntax_name))?;
+        let end_name =
+            self.expect_identifier(&format!("Expected '{}' after 'End'", syntax_name))?;
+        if !end_name.eq_ignore_ascii_case(syntax_name) {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                format!("Expected '{}' after 'End'", syntax_name),
+                Some(self.previous().span),
+            ));
+        }
+        let end = self.previous().span;
+        self.consume_statement_end();
+
+        Ok(Procedure {
+            visibility,
+            name: canonical_name.to_string(),
+            params,
+            body,
+            span: Span::new(start_span.start, end.end),
+        })
+    }
+
     pub(super) fn parse_function(
         &mut self,
         visibility: Visibility,
@@ -561,14 +630,20 @@ impl Parser {
             )),
         }
     }
-    pub(super) fn apply_class_attribute(&self, attribute: &AttributeDecl, members: &mut [ClassMember]) {
+    pub(super) fn apply_class_attribute(
+        &self,
+        attribute: &AttributeDecl,
+        members: &mut [ClassMember],
+    ) {
         if !attribute.name.eq_ignore_ascii_case("VB_UserMemId") || attribute.value != "0" {
             return;
         }
         let member_name = attribute.target.as_str();
         for member in members.iter_mut().rev() {
             match member {
-                ClassMember::Property(property) if property.name.eq_ignore_ascii_case(member_name) => {
+                ClassMember::Property(property)
+                    if property.name.eq_ignore_ascii_case(member_name) =>
+                {
                     property.is_default = true;
                     return;
                 }

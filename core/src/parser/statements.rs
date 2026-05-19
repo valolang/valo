@@ -1082,6 +1082,20 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Property))
             }
+            BlockEnd::EndConstructor => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(
+                        self.peek_next_kind(),
+                        Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor")
+                    )
+            }
+            BlockEnd::EndTerminate => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(
+                        self.peek_next_kind(),
+                        Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Terminate")
+                    )
+            }
             BlockEnd::EndSelect => {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Select))
@@ -1115,19 +1129,23 @@ impl Parser {
                 | TokenKind::Loop
                 | TokenKind::Case
         ) || (matches!(self.peek_kind(), TokenKind::End)
-            && matches!(
-                self.peek_next_kind(),
+            && match self.peek_next_kind() {
                 Some(
                     TokenKind::If
-                        | TokenKind::Sub
-                        | TokenKind::Function
-                        | TokenKind::Property
-                        | TokenKind::Select
-                        | TokenKind::Type
-                        | TokenKind::Enum
-                        | TokenKind::Class
-                        | TokenKind::With
-                )
-            ))
+                    | TokenKind::Sub
+                    | TokenKind::Function
+                    | TokenKind::Property
+                    | TokenKind::Select
+                    | TokenKind::Type
+                    | TokenKind::Enum
+                    | TokenKind::Class
+                    | TokenKind::With,
+                ) => true,
+                Some(TokenKind::Identifier(name)) => {
+                    name.eq_ignore_ascii_case("Constructor")
+                        || name.eq_ignore_ascii_case("Terminate")
+                }
+                _ => false,
+            })
     }
 }

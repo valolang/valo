@@ -1,0 +1,22 @@
+Class Box
+    Private value As Integer
+
+    Public Constructor(ByVal initial As Integer)
+        value = initial
+    End Constructor
+
+    Public Default Property Get Item() As Integer
+        Return value
+    End Property
+
+    Public Terminate()
+        Console.WriteLine("terminated")
+    End Terminate
+End Class
+
+Sub Main()
+    Dim box As Box
+    Set box = New Box(10)
+    Console.WriteLine(box)
+    Set box = Nothing
+End Sub

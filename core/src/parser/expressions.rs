@@ -210,12 +210,16 @@ impl Parser {
             TokenKind::Me => ExprKind::Me,
             TokenKind::Dot => {
                 let field_token = self.advance();
-                let TokenKind::Identifier(field) = field_token.kind else {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::PARSE,
-                        "Expected member name after '.'",
-                        Some(field_token.span),
-                    ));
+                let field = match field_token.kind {
+                    TokenKind::Identifier(field) => field,
+                    TokenKind::Version => "VERSION".to_string(),
+                    _ => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::PARSE,
+                            "Expected member name after '.'",
+                            Some(field_token.span),
+                        ));
+                    }
                 };
                 let object = Expr {
                     kind: ExprKind::WithTarget,
@@ -283,12 +287,16 @@ impl Parser {
     pub(super) fn parse_member_access(&mut self, mut expr: Expr) -> Result<Expr, Diagnostic> {
         while self.match_simple(&TokenKind::Dot) {
             let field_token = self.advance();
-            let TokenKind::Identifier(field) = field_token.kind else {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PARSE,
-                    "Expected field name after '.'",
-                    Some(field_token.span),
-                ));
+            let field = match field_token.kind {
+                TokenKind::Identifier(field) => field,
+                TokenKind::Version => "VERSION".to_string(),
+                _ => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "Expected field name after '.'",
+                        Some(field_token.span),
+                    ));
+                }
             };
             let span = Span::new(expr.span.start, field_token.span.end);
             if self.match_simple(&TokenKind::LeftParen) {
