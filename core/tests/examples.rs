@@ -32,16 +32,16 @@ fn test_official_examples() {
             match run_source(&source) {
                 Ok(output) => {
                     // Optional: Simple output verification for stable examples
-                    if path.file_name().and_then(|s| s.to_str()) == Some("hello.valo")
-                        || path.file_name().and_then(|s| s.to_str()) == Some("hello.bas")
+                    if (path.file_name().and_then(|s| s.to_str()) == Some("hello.valo")
+                        || path.file_name().and_then(|s| s.to_str()) == Some("hello.bas"))
+                        && output != vec!["Hello, Valo"]
                     {
-                        if output != vec!["Hello, Valo"] {
-                            failures.push(format!(
-                                "{:?}: Expected 'Hello, Valo', got {:?}",
-                                path, output
-                            ));
-                        }
+                        failures.push(format!(
+                            "Example {:?} produced incorrect output: expected [\"Hello, Valo\"], got {:?}",
+                            path, output
+                        ));
                     }
+
                 }
                 Err(diag) => {
                     failures.push(format!("{:?}: Failed with error: {}", path, diag));

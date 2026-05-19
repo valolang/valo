@@ -29,10 +29,6 @@ pub struct Interpreter {
     pub(crate) erl: i64,
 }
 
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;
-
 impl Interpreter {
     pub fn new() -> Self {
         Self {
@@ -157,7 +153,7 @@ impl Interpreter {
             self.err_help_context = info.help_context;
         } else {
             self.err_number = 1;
-            self.err_description = diagnostic.message.clone();
+            self.err_description = diagnostic.message.to_string();
             self.err_source = "Valo.Runtime".to_string();
             self.err_help_file.clear();
             self.err_help_context = 0;

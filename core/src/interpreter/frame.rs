@@ -19,6 +19,7 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn declare(
         &mut self,
         name: &str,
@@ -31,7 +32,11 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Variable '{}' is already declared", name),
+                Some(span),
+            ));
         }
 
         let dynamic_array = matches!(array, Some(ArrayDecl::Dynamic));
@@ -40,7 +45,11 @@ impl Frame {
             let allocated = match array {
                 ArrayDecl::Fixed(upper_bound) => {
                     if upper_bound < option_base {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::OPTION, "Array upper bound must be greater than or equal to Option Base", Some(span),));
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::OPTION,
+                            "Array upper bound must be greater than or equal to Option Base",
+                            Some(span),
+                        ));
                     }
                     for _ in option_base..=upper_bound {
                         elements.push(default_value(&ty, types, enums, span)?);
@@ -72,6 +81,7 @@ impl Frame {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn declare_static(
         &mut self,
         name: &str,
@@ -100,7 +110,11 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Variable '{}' is already declared", name),
+                Some(span),
+            ));
         }
         self.variables.insert(
             key,
@@ -115,6 +129,7 @@ impl Frame {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn declare_module(
         &mut self,
         name: &str,
@@ -146,14 +161,22 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Variable '{}' is already declared", name),
+                Some(span),
+            ));
         }
         if !variable.ty.same_type(&ty) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!(
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                format!(
                     "ByRef argument type {} must match parameter type {}",
                     variable.ty.display_name(),
                     ty.display_name()
-                ), Some(span),));
+                ),
+                Some(span),
+            ));
         }
 
         self.variables.insert(key, variable);
@@ -178,7 +201,11 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Variable '{}' is already declared", name), Some(span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Variable '{}' is already declared", name),
+                Some(span),
+            ));
         }
         self.variables.insert(
             key,
@@ -193,19 +220,22 @@ impl Frame {
         Ok(())
     }
 
-    pub(crate) fn assign(
-        &mut self,
-        name: &str,
-        value: Value,
-        span: Span,
-    ) -> Result<(), Diagnostic> {
+    pub(crate) fn assign(&mut self, name: &str, value: Value, span: Span) -> Result<(), Diagnostic> {
         let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(span))
-                .with_primary_label("unknown variable")
-                .with_help("declare the variable before using it")
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Variable '{}' is not declared", name),
+                Some(span),
+            )
+            .with_primary_label("unknown variable")
+            .with_help("declare the variable before using it")
         })?;
         if variable.is_const {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT, format!("Constant '{}' cannot be assigned", name), Some(span),)
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT,
+                format!("Constant '{}' cannot be assigned", name),
+                Some(span),
+            )
             .with_primary_label("assignment to constant")
             .with_help("remove the assignment or use a non-Const variable"));
         }
@@ -216,7 +246,11 @@ impl Frame {
 
     pub(crate) fn assign_missing(&mut self, name: &str, span: Span) -> Result<(), Diagnostic> {
         let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(span))
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Variable '{}' is not declared", name),
+                Some(span),
+            )
         })?;
         *variable.cell.borrow_mut() = Value::Missing;
         Ok(())
@@ -227,17 +261,25 @@ impl Frame {
             .get(&key(name))
             .map(|variable| variable.cell.borrow().clone())
             .ok_or_else(|| {
-                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(span))
-                    .with_primary_label("unknown variable")
-                    .with_help("declare the variable before using it")
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Variable '{}' is not declared", name),
+                    Some(span),
+                )
+                .with_primary_label("unknown variable")
+                .with_help("declare the variable before using it")
             })
     }
 
     pub(crate) fn variable(&self, name: &str, span: Span) -> Result<Variable, Diagnostic> {
         self.variables.get(&key(name)).cloned().ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Variable '{}' is not declared", name), Some(span))
-                .with_primary_label("unknown variable")
-                .with_help("declare the variable before using it")
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Variable '{}' is not declared", name),
+                Some(span),
+            )
+            .with_primary_label("unknown variable")
+            .with_help("declare the variable before using it")
         })
     }
 
@@ -268,6 +310,7 @@ impl Frame {
         write_array_element(&mut array, index, value, span)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn redim_array(
         &mut self,
         name: &str,
@@ -280,10 +323,12 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let variable = self.variable(name, span)?;
         if !variable.dynamic_array {
-            return Err(
-                Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "ReDim target must be a dynamic array", Some(span))
-                    .with_primary_label("ReDim target is not a dynamic array"),
-            );
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::ARRAY,
+                "ReDim target must be a dynamic array",
+                Some(span),
+            )
+            .with_primary_label("ReDim target is not a dynamic array"));
         }
         let mut array = variable.cell.borrow_mut();
         redim_array(
@@ -302,7 +347,11 @@ impl Frame {
             ExprKind::Integer(value) => Ok(*value),
             ExprKind::Variable(name) => match self.get(name, expr.span)? {
                 Value::Integer(value) => Ok(value),
-                _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array index must be Integer", Some(span))),
+                _ => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    "Array index must be Integer",
+                    Some(span),
+                )),
             },
             _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array member assignment index must be an Integer literal or variable", Some(span),)),
         }

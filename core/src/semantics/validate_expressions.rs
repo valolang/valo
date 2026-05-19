@@ -472,6 +472,7 @@ fn validate_argument_value(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn validate_method_call(
     object_type: &TypeName,
     method: &str,
@@ -540,10 +541,8 @@ pub(super) fn validate_method_call(
 }
 
 fn member_access_class(object: &Expr, object_type: &TypeName) -> Option<String> {
-    if matches!(object.kind, ExprKind::Me) {
-        if let TypeName::User(name) = object_type {
-            return Some(name.clone());
-        }
+    if matches!(object.kind, ExprKind::Me) && let TypeName::User(name) = object_type {
+        return Some(name.clone());
     }
     None
 }

@@ -840,25 +840,23 @@ impl Parser {
             OnErrorMode::ResumeNext
         } else if self.match_simple(&TokenKind::GoTo) {
             let token = self.advance();
-            let mode = match token.kind {
+            match token.kind {
                 TokenKind::Integer(0) => OnErrorMode::GoToZero,
                 TokenKind::Minus => {
                     let one = self.advance();
                     if matches!(one.kind, TokenKind::Integer(1)) {
                         OnErrorMode::GoToMinusOne
                     } else {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "On Error GoTo requires 0, -1, or a label",
-                            Some(one.span),));
+                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "On Error GoTo requires 0, -1, or a label", Some(one.span),));
                     }
                 }
                 TokenKind::Integer(number) => OnErrorMode::GoToLabel(number.to_string()),
                 TokenKind::Identifier(label) => OnErrorMode::GoToLabel(label),
                 _ => {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "On Error GoTo requires 0, -1, or a label",
-                        Some(token.span),));
+                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "On Error GoTo requires 0, -1, or a label", Some(token.span),));
                 }
-            };
-            mode
+            }
+
         } else {
             return Err(self.error_here(
                 "Expected 'Resume Next', 'GoTo 0', 'GoTo -1', or 'GoTo <label>' after 'On Error'",

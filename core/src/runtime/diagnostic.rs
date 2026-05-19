@@ -26,15 +26,15 @@ impl Span {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
-    pub message: String,
-    pub span: Option<Span>,
+    pub message: Box<str>,
+    pub span: Option<Box<Span>>,
     pub severity: Severity,
     pub code: DiagnosticCode,
-    pub runtime_error: Option<RuntimeErrorInfo>,
-    pub labels: Vec<DiagnosticLabel>,
-    pub notes: Vec<String>,
-    pub helps: Vec<String>,
-    pub related: Vec<Diagnostic>,
+    pub runtime_error: Option<Box<RuntimeErrorInfo>>,
+    pub labels: Box<Vec<DiagnosticLabel>>,
+    pub notes: Box<Vec<String>>,
+    pub helps: Box<Vec<String>>,
+    pub related: Box<Vec<Diagnostic>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,13 +50,13 @@ impl Diagnostic {
     pub fn new(code: DiagnosticCode, message: impl Into<String>, span: Option<Span>) -> Self {
         Self {
             code,
-            message: message.into(),
-            span,
+            message: message.into().into_boxed_str(),
+            span: span.map(Box::new),
             severity: Severity::Error,
-            labels: Vec::new(),
-            notes: Vec::new(),
-            helps: Vec::new(),
-            related: Vec::new(),
+            labels: Box::default(),
+            notes: Box::default(),
+            helps: Box::default(),
+            related: Box::default(),
             runtime_error: None,
         }
     }
@@ -72,8 +72,8 @@ impl Diagnostic {
     }
 
     pub fn with_primary_label(mut self, message: impl Into<String>) -> Self {
-        if let Some(span) = self.span {
-            self.labels.push(DiagnosticLabel::primary(span, message));
+        if let Some(span) = &self.span {
+            self.labels.push(DiagnosticLabel::primary(**span, message));
         }
         self
     }
@@ -99,7 +99,7 @@ impl Diagnostic {
     }
 
     pub fn with_runtime_error(mut self, info: RuntimeErrorInfo) -> Self {
-        self.runtime_error = Some(info);
+        self.runtime_error = Some(Box::new(info));
         self
     }
 
@@ -110,27 +110,27 @@ impl Diagnostic {
             self.severity, self.code, self.message
         ));
 
-        if let Some(span) = self.span {
+        if let Some(span) = &self.span {
             out.push_str(&format!(
                 "  --> {}:{}:{}\n",
                 source_name, span.start.line, span.start.column
             ));
             out.push_str("   |\n");
-            render_span_lines(&mut out, source, span, &self.labels);
+            render_span_lines(&mut out, source, **span, &self.labels);
         }
 
-        for note in &self.notes {
+        for note in self.notes.iter() {
             out.push_str(&format!("note: {note}\n"));
         }
-        for help in &self.helps {
+        for help in self.helps.iter() {
             out.push_str(&format!("help: {help}\n"));
         }
-        for related in &self.related {
+        for related in self.related.iter() {
             out.push_str(&format!(
                 "{}[{}]: {}\n",
                 related.severity, related.code, related.message
             ));
-            if let Some(span) = related.span {
+            if let Some(span) = &related.span {
                 out.push_str(&format!(
                     "  --> {}:{}:{}\n",
                     source_name, span.start.line, span.start.column
@@ -144,7 +144,7 @@ impl Diagnostic {
 
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.span {
+        match &self.span {
             Some(span) => write!(
                 f,
                 "{}[{}]: {} at line {}, column {}",

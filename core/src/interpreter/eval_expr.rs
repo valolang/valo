@@ -47,11 +47,12 @@ impl Interpreter {
                     match frame.get(name, expr.span) {
                         Ok(value) => Ok(value),
                         Err(error) => {
-                            if let Ok(me) = frame.get("me", expr.span) {
-                                if let Ok(value) = self.read_member(&me, name, frame, expr.span) {
-                                    return Ok(value);
-                                }
+                            if let Ok(me) = frame.get("me", expr.span)
+                                && let Ok(value) = self.read_member(&me, name, frame, expr.span)
+                            {
+                                return Ok(value);
                             }
+
                             Err(error)
                         }
                     }

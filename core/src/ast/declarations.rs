@@ -16,16 +16,11 @@ pub struct Program {
     pub functions: Vec<Function>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OptionCompare {
+    #[default]
     Binary,
     Text,
-}
-
-impl Default for OptionCompare {
-    fn default() -> Self {
-        Self::Binary
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
