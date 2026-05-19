@@ -1,0 +1,14 @@
+Public Const VERSION As String = "models-1"
+
+Public Type PersonRecord
+    Name As String
+End Type
+
+Public Class User
+    Public Function Id() As Integer
+        Return 42
+    End Function
+End Class
+
+Private Class Hidden
+End Class

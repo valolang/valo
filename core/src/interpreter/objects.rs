@@ -73,18 +73,24 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let class = self.classes.get(&key(class_name)).cloned().ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Class '{}' is not defined", class_name),
-                Some(span),
-            )
-        })?;
+        let class_name = self.resolve_user_type_name(class_name, caller_frame, span)?;
+        let class = self
+            .classes
+            .get(&key(&class_name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::INVALID_QUALIFIED_ACCESS,
+                    format!("'{}' is not a class", class_name),
+                    Some(span),
+                )
+            })?;
         let mut fields = HashMap::new();
         for field in &class.fields {
+            let field_ty = self.resolve_type_name(&field.ty, caller_frame, span)?;
             fields.insert(
                 key(&field.name),
-                default_value(&field.ty, &self.types, &self.enums, span)?,
+                default_value(&field_ty, &self.types, &self.enums, span)?,
             );
         }
         let object = Value::Object(Rc::new(RefCell::new(ObjectValue {
@@ -139,6 +145,29 @@ impl Interpreter {
     ) -> Result<(), Diagnostic> {
         match &target.kind {
             ExprKind::Variable(name) => {
+                if let Ok(module_key) = self.resolve_module_qualifier(name, frame, span) {
+                    if frame.module_key() != Some(module_key.as_str())
+                        && !self
+                            .public_values
+                            .get(&module_key)
+                            .is_some_and(|values| values.contains(&key(member)))
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                            format!("Module member '{}.{}' is Private", name, member),
+                            Some(span),
+                        ));
+                    }
+                    let module_frame =
+                        self.module_frames.get_mut(&module_key).ok_or_else(|| {
+                            Diagnostic::new(
+                                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                                format!("Module '{}' is not loaded", name),
+                                Some(span),
+                            )
+                        })?;
+                    return module_frame.assign(member, value, span);
+                }
                 let variable = frame.variable(name, target.span)?;
                 self.assign_member_to_variable(variable, member, value, span)
             }

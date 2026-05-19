@@ -79,9 +79,10 @@ impl Interpreter {
                 array,
                 span,
             } => {
+                let ty = self.resolve_type_name(ty, frame, *span)?;
                 frame.declare(
                     name,
-                    ty.clone(),
+                    ty,
                     array.clone(),
                     self.option_base,
                     *span,
@@ -96,6 +97,7 @@ impl Interpreter {
                 array,
                 span,
             } => {
+                let ty = self.resolve_type_name(ty, frame, *span)?;
                 let scope = self
                     .scope_stack
                     .last()
@@ -104,7 +106,7 @@ impl Interpreter {
                 let static_frame = self.static_frames.entry(scope).or_default();
                 frame.declare_static(
                     name,
-                    ty.clone(),
+                    ty,
                     array.clone(),
                     self.option_base,
                     *span,
@@ -122,6 +124,7 @@ impl Interpreter {
             } => {
                 let value = self.eval_expr(value, frame)?;
                 let ty = ty.clone().unwrap_or_else(|| value.type_name());
+                let ty = self.resolve_type_name(&ty, frame, *span)?;
                 frame.declare_const(name, ty, value, *span)?;
                 Ok(ControlFlow::Continue)
             }

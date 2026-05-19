@@ -219,6 +219,217 @@ End Sub
 }
 
 #[test]
+fn qualified_imported_class_construction_and_alias_work() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Models As M
+
+Sub Main()
+    Dim user As M.User
+    Set user = New M.User()
+    Console.WriteLine(user.Id())
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Models.valo",
+        r#"
+Public Class User
+    Public Function Id() As Integer
+        Return 7
+    End Function
+End Class
+"#,
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["7".to_string()]
+    );
+}
+
+#[test]
+fn qualified_imported_type_records_work() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Models
+
+Sub Main()
+    Dim p As Models.PersonRecord
+    p.Name = "Ada"
+    Console.WriteLine(p.Name)
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Models.valo",
+        r#"
+Public Type PersonRecord
+    Name As String
+End Type
+"#,
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["Ada".to_string()]
+    );
+}
+
+#[test]
+fn qualified_imported_enum_type_and_member_work() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Enums As E
+
+Sub Main()
+    Dim day As E.Days
+    day = E.Days.Friday
+    Console.WriteLine(day)
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Enums.valo",
+        r#"
+Public Enum Days
+    Monday
+    Friday = 5
+End Enum
+"#,
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["5".to_string()]
+    );
+}
+
+#[test]
+fn qualified_public_module_variable_persists_and_can_be_assigned() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import State
+
+Sub Main()
+    State.GlobalCounter = State.GlobalCounter + 1
+    State.GlobalCounter = State.GlobalCounter + 1
+    Console.WriteLine(State.GlobalCounter)
+End Sub
+"#,
+    );
+    write(&dir, "State.valo", "Public GlobalCounter As Integer\n");
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["2".to_string()]
+    );
+}
+
+#[test]
+fn private_imported_class_and_enum_are_rejected() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Models As M
+
+Sub Main()
+    Dim item As M.Hidden
+End Sub
+"#,
+    );
+    write(&dir, "Models.valo", "Private Class Hidden\nEnd Class\n");
+
+    let error = run_file(dir.join("main.valo")).unwrap_err();
+    assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
+
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Enums As E
+
+Sub Main()
+    Dim value As E.Secret
+End Sub
+"#,
+    );
+    write(&dir, "Enums.valo", "Private Enum Secret\nValue\nEnd Enum\n");
+
+    let error = run_file(dir.join("main.valo")).unwrap_err();
+    assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
+}
+
+#[test]
+fn unknown_qualified_symbol_is_rejected() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Models
+
+Sub Main()
+    Console.WriteLine(Models.Missing)
+End Sub
+"#,
+    );
+    write(&dir, "Models.valo", "");
+
+    let error = run_file(dir.join("main.valo")).unwrap_err();
+    assert_eq!(
+        error.code,
+        crate::runtime::DiagnosticCode::UNKNOWN_QUALIFIED_SYMBOL
+    );
+}
+
+#[test]
+fn invalid_qualified_new_target_is_rejected() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Models As M
+
+Sub Main()
+    Dim p As M.PersonRecord
+    Set p = New M.PersonRecord()
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Models.valo",
+        "Public Type PersonRecord\nName As String\nEnd Type\n",
+    );
+
+    let error = run_file(dir.join("main.valo")).unwrap_err();
+    assert_eq!(
+        error.code,
+        crate::runtime::DiagnosticCode::INVALID_QUALIFIED_ACCESS
+    );
+}
+
+#[test]
 fn missing_module_is_reported() {
     let dir = temp_project();
     write(&dir, "main.valo", "Import Missing\n\nSub Main()\nEnd Sub\n");

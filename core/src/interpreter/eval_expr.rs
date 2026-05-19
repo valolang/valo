@@ -28,7 +28,11 @@ impl Interpreter {
                 let value = self.eval_expr(object_expr, frame)?;
                 let result = match value {
                     Value::Object(object) => {
-                        object.borrow().class_name.eq_ignore_ascii_case(class_name)
+                        let object_class = object.borrow().class_name.clone();
+                        object_class.eq_ignore_ascii_case(class_name)
+                            || object_class
+                                .rsplit_once('.')
+                                .is_some_and(|(_, local)| local.eq_ignore_ascii_case(class_name))
                     }
                     Value::Nothing => false,
                     _ => {
@@ -101,12 +105,57 @@ impl Interpreter {
                         })?;
                     return Ok(Value::Integer(*value));
                 }
+                if let ExprKind::MemberAccess {
+                    object: module_object,
+                    field: enum_name,
+                } = &object.kind
+                    && let ExprKind::Variable(module_name) = &module_object.kind
+                    && let Ok(module_key) =
+                        self.resolve_module_qualifier(module_name, frame, expr.span)
+                {
+                    let enum_key = super::interpreter::qualified_symbol_key(&module_key, enum_name);
+                    if let Some(enum_) = self.enums.get(&enum_key) {
+                        if frame.module_key() != Some(module_key.as_str())
+                            && !self.public_enums.contains(&enum_key)
+                        {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                                format!("Enum '{}.{}' is Private", module_name, enum_name),
+                                Some(expr.span),
+                            ));
+                        }
+                        let value =
+                            enum_
+                                .members
+                                .get(&super::values::key(field))
+                                .ok_or_else(|| {
+                                    Diagnostic::new(
+                                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                        format!("Enum '{}' has no member '{}'", enum_.name, field),
+                                        Some(expr.span),
+                                    )
+                                })?;
+                        return Ok(Value::Integer(*value));
+                    }
+                }
                 if let ExprKind::Variable(module_name) = &object.kind
                     && let Ok(module_key) =
                         self.resolve_module_qualifier(module_name, frame, expr.span)
-                    && let Some(module_frame) = self.module_frames.get(&module_key)
-                    && let Ok(value) = module_frame.get(field, expr.span)
                 {
+                    let Some(module_frame) = self.module_frames.get(&module_key) else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                            format!("Module '{}' is not loaded", module_name),
+                            Some(expr.span),
+                        ));
+                    };
+                    let value = module_frame.get(field, expr.span).map_err(|_| {
+                        Diagnostic::new(
+                            crate::runtime::DiagnosticCode::UNKNOWN_QUALIFIED_SYMBOL,
+                            format!("Module '{}' has no member '{}'", module_name, field),
+                            Some(expr.span),
+                        )
+                    })?;
                     if frame.module_key() != Some(module_key.as_str())
                         && !self
                             .public_values

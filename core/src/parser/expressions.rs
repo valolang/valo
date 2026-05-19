@@ -239,7 +239,13 @@ impl Parser {
                 });
             }
             TokenKind::New => {
-                let class_name = self.expect_identifier("Expected class name after 'New'")?;
+                let mut class_name = self.expect_identifier("Expected class name after 'New'")?;
+                if self.match_simple(&TokenKind::Dot) {
+                    let member =
+                        self.expect_identifier("Expected class name after module qualifier")?;
+                    class_name.push('.');
+                    class_name.push_str(&member);
+                }
                 self.expect_simple(TokenKind::LeftParen, "Expected '(' after class name")?;
                 let args = self.finish_call_arguments()?;
                 ExprKind::New { class_name, args }

@@ -203,6 +203,8 @@ impl DiagnosticCode {
     pub const IMPORT_CYCLE: Self = Self("V1602");
     pub const AMBIGUOUS_IMPORT: Self = Self("V1603");
     pub const CASE_COLLISION: Self = Self("V1604");
+    pub const UNKNOWN_QUALIFIED_SYMBOL: Self = Self("V1605");
+    pub const INVALID_QUALIFIED_ACCESS: Self = Self("V1606");
     pub const RUNTIME: Self = Self("V9000");
 }
 

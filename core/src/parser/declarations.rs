@@ -470,7 +470,15 @@ impl Parser {
             TokenKind::IntegerType => Ok(TypeName::Integer),
             TokenKind::BooleanType => Ok(TypeName::Boolean),
             TokenKind::VariantType => Ok(TypeName::Variant),
-            TokenKind::Identifier(name) => Ok(TypeName::User(name)),
+            TokenKind::Identifier(mut name) => {
+                if self.match_simple(&TokenKind::Dot) {
+                    let member =
+                        self.expect_identifier("Expected type name after module qualifier")?;
+                    name.push('.');
+                    name.push_str(&member);
+                }
+                Ok(TypeName::User(name))
+            }
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::PARSE,
                 "Expected type name",

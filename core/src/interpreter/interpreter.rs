@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::runtime::Diagnostic;
 use crate::{Function, Procedure, Program};
@@ -31,6 +31,12 @@ pub struct Interpreter {
     pub(crate) module_imports: HashMap<String, Vec<RuntimeImport>>,
     pub(crate) function_modules: HashMap<String, Vec<String>>,
     pub(crate) sub_modules: HashMap<String, Vec<String>>,
+    pub(crate) class_modules: HashMap<String, Vec<String>>,
+    pub(crate) type_modules: HashMap<String, Vec<String>>,
+    pub(crate) enum_modules: HashMap<String, Vec<String>>,
+    pub(crate) public_classes: HashSet<String>,
+    pub(crate) public_types: HashSet<String>,
+    pub(crate) public_enums: HashSet<String>,
     pub(crate) public_values: HashMap<String, Vec<String>>,
 }
 
@@ -214,23 +220,45 @@ impl Interpreter {
         &mut self,
         project: &crate::modules::Project,
     ) -> Result<(), Diagnostic> {
+        for module in &project.modules {
+            let module_key = super::values::key(&module.name);
+            self.module_imports.insert(
+                module_key,
+                module
+                    .imports
+                    .iter()
+                    .map(|import| RuntimeImport {
+                        qualifier: import.qualifier.clone(),
+                        module: super::values::key(&project.modules[import.module].name),
+                    })
+                    .collect(),
+            );
+        }
         let entry_key = super::values::key(&project.modules[project.entry].name);
         for module in &project.modules {
             self.option_base = module.program.option_base;
             self.option_compare = module.program.option_compare;
             let module_key = super::values::key(&module.name);
             for type_decl in &module.program.types {
-                if module_key == entry_key || crate::modules::is_public(type_decl.visibility) {
+                let qualified = qualified_symbol_key(&module_key, &type_decl.name);
+                let mut runtime_type = RuntimeType::from(type_decl);
+                runtime_type.name = qualified_display_name(&module.name, &type_decl.name);
+                self.types.insert(qualified.clone(), runtime_type);
+                if module_key == entry_key {
                     self.types.insert(
                         super::values::key(&type_decl.name),
                         RuntimeType::from(type_decl),
                     );
                 }
+                if module_key == entry_key || crate::modules::is_public(type_decl.visibility) {
+                    self.type_modules
+                        .entry(super::values::key(&type_decl.name))
+                        .or_default()
+                        .push(module_key.clone());
+                    self.public_types.insert(qualified);
+                }
             }
             for enum_decl in &module.program.enums {
-                if module_key != entry_key && !crate::modules::is_public(enum_decl.visibility) {
-                    continue;
-                }
                 let mut members = HashMap::new();
                 let mut previous = -1;
                 for member in &enum_decl.members {
@@ -244,20 +272,44 @@ impl Interpreter {
                     self.enum_members
                         .insert(super::values::key(&member.name), value);
                 }
+                let qualified = qualified_symbol_key(&module_key, &enum_decl.name);
                 self.enums.insert(
-                    super::values::key(&enum_decl.name),
+                    qualified.clone(),
                     RuntimeEnum {
-                        name: enum_decl.name.clone(),
+                        name: qualified_display_name(&module.name, &enum_decl.name),
                         members,
                     },
                 );
+                if module_key == entry_key {
+                    let enum_ = self.enums.get(&qualified).expect("inserted").clone();
+                    self.enums
+                        .insert(super::values::key(&enum_decl.name), enum_);
+                }
+                if module_key == entry_key || crate::modules::is_public(enum_decl.visibility) {
+                    self.enum_modules
+                        .entry(super::values::key(&enum_decl.name))
+                        .or_default()
+                        .push(module_key.clone());
+                    self.public_enums.insert(qualified);
+                }
             }
             for class_decl in &module.program.classes {
-                if module_key == entry_key || crate::modules::is_public(class_decl.visibility) {
+                let qualified = qualified_symbol_key(&module_key, &class_decl.name);
+                let mut runtime_class = RuntimeClass::from(class_decl);
+                runtime_class.name = qualified_display_name(&module.name, &class_decl.name);
+                self.classes.insert(qualified.clone(), runtime_class);
+                if module_key == entry_key {
                     self.classes.insert(
                         super::values::key(&class_decl.name),
                         RuntimeClass::from(class_decl),
                     );
+                }
+                if module_key == entry_key || crate::modules::is_public(class_decl.visibility) {
+                    self.class_modules
+                        .entry(super::values::key(&class_decl.name))
+                        .or_default()
+                        .push(module_key.clone());
+                    self.public_classes.insert(qualified);
                 }
             }
             for procedure in &module.program.procedures {
@@ -287,17 +339,6 @@ impl Interpreter {
         }
         for module in &project.modules {
             let module_key = super::values::key(&module.name);
-            self.module_imports.insert(
-                module_key.clone(),
-                module
-                    .imports
-                    .iter()
-                    .map(|import| RuntimeImport {
-                        qualifier: import.qualifier.clone(),
-                        module: super::values::key(&project.modules[import.module].name),
-                    })
-                    .collect(),
-            );
             let mut frame = Frame::default();
             frame.set_module_key(module_key.clone());
             let mut public_values = Vec::new();
@@ -305,9 +346,10 @@ impl Interpreter {
                 if crate::modules::is_public(var.visibility) {
                     public_values.push(super::values::key(&var.name));
                 }
+                let ty = self.resolve_type_name(&var.ty, &frame, var.span)?;
                 frame.declare_module(
                     &var.name,
-                    var.ty.clone(),
+                    ty,
                     var.array.clone(),
                     module.program.option_base,
                     false,
@@ -323,6 +365,7 @@ impl Interpreter {
                 }
                 let value = self.eval_expr(&const_decl.value, &mut frame)?;
                 let ty = const_decl.ty.clone().unwrap_or_else(|| value.type_name());
+                let ty = self.resolve_type_name(&ty, &frame, const_decl.span)?;
                 frame.declare_module(
                     &const_decl.name,
                     ty,
@@ -340,6 +383,14 @@ impl Interpreter {
         }
         Ok(())
     }
+}
+
+pub(crate) fn qualified_symbol_key(module_key: &str, name: &str) -> String {
+    format!("{}.{}", module_key, super::values::key(name))
+}
+
+fn qualified_display_name(module_name: &str, name: &str) -> String {
+    format!("{module_name}.{name}")
 }
 
 pub fn run(program: &Program) -> Result<Vec<String>, Diagnostic> {
@@ -379,6 +430,135 @@ impl Interpreter {
         self.err_help_file.clear();
         self.err_help_context = 0;
         self.erl = 0;
+    }
+
+    pub(crate) fn resolve_type_name(
+        &self,
+        ty: &crate::runtime::TypeName,
+        frame: &Frame,
+        span: crate::runtime::Span,
+    ) -> Result<crate::runtime::TypeName, Diagnostic> {
+        let crate::runtime::TypeName::User(name) = ty else {
+            return Ok(ty.clone());
+        };
+        let resolved = self.resolve_user_type_name(name, frame, span)?;
+        Ok(crate::runtime::TypeName::User(resolved))
+    }
+
+    pub(crate) fn resolve_user_type_name(
+        &self,
+        name: &str,
+        frame: &Frame,
+        span: crate::runtime::Span,
+    ) -> Result<String, Diagnostic> {
+        if let Some((qualifier, member)) = name.split_once('.') {
+            let module_key = self.resolve_module_qualifier(qualifier, frame, span)?;
+            let qualified = qualified_symbol_key(&module_key, member);
+            if self.classes.contains_key(&qualified) {
+                self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
+                return Ok(qualified);
+            }
+            if self.types.contains_key(&qualified) {
+                self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
+                return Ok(qualified);
+            }
+            if self.enums.contains_key(&qualified) {
+                self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
+                return Ok(qualified);
+            }
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_QUALIFIED_SYMBOL,
+                format!(
+                    "Module '{}' has no type, class, or enum '{}'",
+                    qualifier, member
+                ),
+                Some(span),
+            ));
+        }
+
+        if let Some(current) = frame.module_key() {
+            let current_key = qualified_symbol_key(current, name);
+            if self.classes.contains_key(&current_key)
+                || self.types.contains_key(&current_key)
+                || self.enums.contains_key(&current_key)
+            {
+                return Ok(current_key);
+            }
+        }
+
+        self.resolve_unqualified_type(name, frame, span)
+    }
+
+    fn resolve_unqualified_type(
+        &self,
+        name: &str,
+        frame: &Frame,
+        span: crate::runtime::Span,
+    ) -> Result<String, Diagnostic> {
+        let mut candidates = Vec::new();
+        candidates.extend(self.imported_type_candidates(name, frame, &self.class_modules));
+        candidates.extend(self.imported_type_candidates(name, frame, &self.type_modules));
+        candidates.extend(self.imported_type_candidates(name, frame, &self.enum_modules));
+        candidates.sort();
+        candidates.dedup();
+        match candidates.len() {
+            0 => Ok(super::values::key(name)),
+            1 => Ok(qualified_symbol_key(&candidates[0], name)),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT,
+                format!(
+                    "Type '{}' is imported from multiple modules; use a module qualifier",
+                    name
+                ),
+                Some(span),
+            )),
+        }
+    }
+
+    fn imported_type_candidates(
+        &self,
+        name: &str,
+        frame: &Frame,
+        modules_by_name: &HashMap<String, Vec<String>>,
+    ) -> Vec<String> {
+        let Some(modules) = modules_by_name.get(&super::values::key(name)) else {
+            return Vec::new();
+        };
+        let Some(current) = frame.module_key() else {
+            return modules.clone();
+        };
+        modules
+            .iter()
+            .filter(|module| {
+                self.module_imports
+                    .get(current)
+                    .is_some_and(|imports| imports.iter().any(|import| &import.module == *module))
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn ensure_public_qualified_type(
+        &self,
+        qualified: &str,
+        frame: &Frame,
+        module_key: &str,
+        name: &str,
+        span: crate::runtime::Span,
+    ) -> Result<(), Diagnostic> {
+        if frame.module_key() == Some(module_key)
+            || self.public_classes.contains(qualified)
+            || self.public_types.contains(qualified)
+            || self.public_enums.contains(qualified)
+        {
+            Ok(())
+        } else {
+            Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                format!("Imported type '{}' is Private", name),
+                Some(span),
+            ))
+        }
     }
 
     fn eval_enum_const_expr(

@@ -41,16 +41,17 @@ impl Interpreter {
                 frame.inherit_modules_from(caller_frame)?;
             }
             self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
+            let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
 
             match self.exec_block(&function.body, &mut frame)? {
-                ControlFlow::Return(value) => coerce_assignment(&function.return_type, value, span),
+                ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
                 ControlFlow::Continue => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::GENERIC,
                     format!("Function '{}' must return a value", function.name),
                     Some(function.span),
                 )),
                 ControlFlow::ExitFunction => {
-                    default_value(&function.return_type, &self.types, &self.enums, span)
+                    default_value(&return_type, &self.types, &self.enums, span)
                 }
                 ControlFlow::ExitSub => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -174,15 +175,16 @@ impl Interpreter {
             .expect("module loaded");
         frame.set_module_key(module_key);
         self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
+        let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
         match self.exec_block(&function.body, &mut frame)? {
-            ControlFlow::Return(value) => coerce_assignment(&function.return_type, value, span),
+            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
             ControlFlow::Continue => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
                 format!("Function '{}' must return a value", function.name),
                 Some(function.span),
             )),
             ControlFlow::ExitFunction => {
-                default_value(&function.return_type, &self.types, &self.enums, span)
+                default_value(&return_type, &self.types, &self.enums, span)
             }
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -401,6 +403,9 @@ impl Interpreter {
         })?;
         let mut frame = Frame::default();
         frame.inherit_modules_from(caller_frame)?;
+        if let Some((module_key, _)) = key(&class.name).split_once('.') {
+            frame.set_module_key(module_key.to_string());
+        }
         frame.declare_object_alias("me", &class.name, instance, span)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         self.scope_stack
@@ -461,6 +466,9 @@ impl Interpreter {
         })?;
         let mut frame = Frame::default();
         frame.inherit_modules_from(caller_frame)?;
+        if let Some((module_key, _)) = key(&class.name).split_once('.') {
+            frame.set_module_key(module_key.to_string());
+        }
         frame.declare_object_alias("me", &class.name, instance, span)?;
         self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
         self.scope_stack
@@ -521,21 +529,25 @@ impl Interpreter {
         })?;
         let mut frame = Frame::default();
         frame.inherit_modules_from(caller_frame)?;
+        if let Some((module_key, _)) = key(&class.name).split_once('.') {
+            frame.set_module_key(module_key.to_string());
+        }
         frame.declare_object_alias("me", &class.name, instance, span)?;
         self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
+        let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
         self.scope_stack
             .push(format!("{}.{}", class.name, function.name));
         let result = self.exec_block(&function.body, &mut frame);
         self.scope_stack.pop();
         match result? {
-            ControlFlow::Return(value) => coerce_assignment(&function.return_type, value, span),
+            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
             ControlFlow::Continue => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
                 format!("Function '{}' must return a value", function.name),
                 Some(function.span),
             )),
             ControlFlow::ExitFunction => {
-                default_value(&function.return_type, &self.types, &self.enums, span)
+                default_value(&return_type, &self.types, &self.enums, span)
             }
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -631,6 +643,7 @@ impl Interpreter {
         }
 
         for (index, param) in params.iter().enumerate() {
+            let param_ty = self.resolve_type_name(&param.ty, callee_frame, param.span)?;
             if param.is_param_array {
                 let mut elements = Vec::new();
                 for arg in &paramarray_args {
@@ -638,7 +651,7 @@ impl Interpreter {
                 }
                 callee_frame.declare(
                     &param.name,
-                    param.ty.clone(),
+                    param_ty.clone(),
                     Some(crate::ArrayDecl::Dynamic),
                     self.option_base,
                     param.span,
@@ -648,7 +661,7 @@ impl Interpreter {
                 callee_frame.assign(
                     &param.name,
                     Value::Array {
-                        element_type: param.ty.clone(),
+                        element_type: param_ty,
                         elements,
                         lower_bound: self.option_base,
                         allocated: true,
@@ -669,7 +682,7 @@ impl Interpreter {
                     };
                     callee_frame.declare(
                         &param.name,
-                        param.ty.clone(),
+                        param_ty,
                         None,
                         self.option_base,
                         param.span,
@@ -691,7 +704,7 @@ impl Interpreter {
                         };
                         callee_frame.declare(
                             &param.name,
-                            param.ty.clone(),
+                            param_ty.clone(),
                             None,
                             self.option_base,
                             param.span,
@@ -713,12 +726,7 @@ impl Interpreter {
                         ));
                     };
                     let variable = caller_frame.variable(arg_name, arg.span)?;
-                    callee_frame.declare_alias(
-                        &param.name,
-                        param.ty.clone(),
-                        variable,
-                        param.span,
-                    )?;
+                    callee_frame.declare_alias(&param.name, param_ty, variable, param.span)?;
                 }
             }
         }
@@ -740,9 +748,10 @@ impl Interpreter {
             ));
         }
         for (param, value) in params.iter().zip(args.iter()) {
+            let param_ty = self.resolve_type_name(&param.ty, callee_frame, param.span)?;
             callee_frame.declare(
                 &param.name,
-                param.ty.clone(),
+                param_ty,
                 None,
                 self.option_base,
                 param.span,
