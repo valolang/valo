@@ -65,12 +65,29 @@ impl Frame {
                     }
                     true
                 }
+                ArrayDecl::FixedRange { lower, upper } => {
+                    if upper < lower {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "Array upper bound must be greater than or equal to lower bound",
+                            Some(span),
+                        ));
+                    }
+                    for _ in lower..=upper {
+                        elements.push(default_value(&ty, types, enums, span)?);
+                    }
+                    true
+                }
                 ArrayDecl::Dynamic => false,
+            };
+            let lower_bound = match array {
+                ArrayDecl::FixedRange { lower, .. } => lower,
+                _ => option_base,
             };
             Value::Array {
                 element_type: ty.clone(),
                 elements,
-                lower_bound: option_base,
+                lower_bound,
                 allocated,
             }
         } else {
@@ -354,6 +371,39 @@ impl Frame {
             enums,
             span,
         )
+    }
+
+    pub(crate) fn erase_array(
+        &mut self,
+        name: &str,
+        span: Span,
+        types: &HashMap<String, RuntimeType>,
+        enums: &HashMap<String, RuntimeEnum>,
+    ) -> Result<(), Diagnostic> {
+        let variable = self.variable(name, span)?;
+        let mut array = variable.cell.borrow_mut();
+        let Value::Array {
+            element_type,
+            elements,
+            allocated,
+            ..
+        } = &mut *array
+        else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::ARRAY,
+                "Erase target must be an array",
+                Some(span),
+            ));
+        };
+        if variable.dynamic_array {
+            elements.clear();
+            *allocated = false;
+        } else {
+            for element in elements.iter_mut() {
+                *element = default_value(element_type, types, enums, span)?;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn simple_index_value(&self, expr: &Expr, span: Span) -> Result<i64, Diagnostic> {

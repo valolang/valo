@@ -8,12 +8,14 @@ pub enum Stmt {
         name: String,
         ty: TypeName,
         array: Option<ArrayDecl>,
+        as_new: bool,
         span: Span,
     },
     Static {
         name: String,
         ty: TypeName,
         array: Option<ArrayDecl>,
+        as_new: bool,
         span: Span,
     },
     Const {
@@ -97,8 +99,13 @@ pub enum Stmt {
     },
     ReDim {
         name: String,
+        lower_bound: Option<Expr>,
         upper_bound: Expr,
         preserve: bool,
+        span: Span,
+    },
+    Erase {
+        name: String,
         span: Span,
     },
     Label {
@@ -146,6 +153,7 @@ pub enum ResumeTarget {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayDecl {
     Fixed(i64),
+    FixedRange { lower: i64, upper: i64 },
     Dynamic,
 }
 

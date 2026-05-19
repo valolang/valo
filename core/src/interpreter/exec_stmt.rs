@@ -77,9 +77,11 @@ impl Interpreter {
                 name,
                 ty,
                 array,
+                as_new,
                 span,
             } => {
                 let ty = self.resolve_type_name(ty, frame, *span)?;
+                let ty_for_new = ty.clone();
                 frame.declare(
                     name,
                     ty,
@@ -89,14 +91,33 @@ impl Interpreter {
                     &self.types,
                     &self.enums,
                 )?;
+                if *as_new {
+                    let crate::runtime::TypeName::User(class_name) = ty_for_new else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                            "As New requires a class type",
+                            Some(*span),
+                        ));
+                    };
+                    let value = self.new_object(&class_name, &[], frame, *span)?;
+                    frame.assign(name, value, *span)?;
+                }
                 Ok(ControlFlow::Continue)
             }
             Stmt::Static {
                 name,
                 ty,
                 array,
+                as_new,
                 span,
             } => {
+                if *as_new {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        "Static As New is not supported",
+                        Some(*span),
+                    ));
+                }
                 let ty = self.resolve_type_name(ty, frame, *span)?;
                 let scope = self
                     .scope_stack
@@ -371,10 +392,16 @@ impl Interpreter {
             }
             Stmt::ReDim {
                 name,
+                lower_bound,
                 upper_bound,
                 preserve,
                 span,
             } => {
+                let lower_bound = if let Some(lower_bound) = lower_bound {
+                    self.eval_integer_expr(lower_bound, frame, "ReDim lower bound must be Integer")?
+                } else {
+                    self.option_base
+                };
                 let upper_bound = self.eval_integer_expr(
                     upper_bound,
                     frame,
@@ -383,12 +410,16 @@ impl Interpreter {
                 frame.redim_array(
                     name,
                     upper_bound,
-                    self.option_base,
+                    lower_bound,
                     *preserve,
                     &self.types,
                     &self.enums,
                     *span,
                 )?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::Erase { name, span } => {
+                frame.erase_array(name, *span, &self.types, &self.enums)?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::Label { .. } => Ok(ControlFlow::Continue),
@@ -576,6 +607,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::For { span, .. }
         | Stmt::ForEach { span, .. }
         | Stmt::ReDim { span, .. }
+        | Stmt::Erase { span, .. }
         | Stmt::Label { span, .. }
         | Stmt::GoTo { span, .. }
         | Stmt::OnError { span, .. }

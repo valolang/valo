@@ -98,7 +98,11 @@ impl Interpreter {
             fields,
             event_bindings: Vec::new(),
         })));
-        if let Some(init) = class.subs.get("initialize") {
+        if let Some(init) = class
+            .subs
+            .get("initialize")
+            .or_else(|| class.subs.get("class_initialize"))
+        {
             self.call_method_sub(object.clone(), &init.name, args, caller_frame, span)?;
         } else if !args.is_empty() {
             return Err(Diagnostic::new(

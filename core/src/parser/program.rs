@@ -7,6 +7,7 @@ impl Parser {
         let mut saw_option_base = false;
         let mut option_compare = OptionCompare::Binary;
         let mut saw_option_compare = false;
+        let mut attributes = Vec::new();
         let mut imports = Vec::new();
         let mut types = Vec::new();
         let mut enums = Vec::new();
@@ -20,7 +21,8 @@ impl Parser {
         while !self.is_at_end() {
             match self.peek_kind() {
                 TokenKind::Option => {
-                    if !imports.is_empty()
+                    if !attributes.is_empty()
+                        || !imports.is_empty()
                         || !types.is_empty()
                         || !enums.is_empty()
                         || !module_vars.is_empty()
@@ -84,6 +86,9 @@ impl Parser {
                     }
                 }
                 TokenKind::Import => imports.push(self.parse_import_decl()?),
+                TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute") => {
+                    attributes.push(self.parse_attribute_decl()?);
+                }
                 TokenKind::Type => types.push(self.parse_type_decl(Visibility::Public)?),
                 TokenKind::Enum => enums.push(self.parse_enum_decl(Visibility::Public)?),
                 TokenKind::Const => {
@@ -125,6 +130,7 @@ impl Parser {
         }
 
         Ok(Program {
+            attributes,
             imports,
             option_explicit,
             option_base,

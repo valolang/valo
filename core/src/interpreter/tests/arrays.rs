@@ -1,6 +1,28 @@
 use crate::interpreter::tests::helpers::*;
 
 #[test]
+fn vba_array_bounds_lbound_ubound_dimension_and_erase_work() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim fixed(2 To 4) As Integer
+    fixed(2) = 10
+    Console.WriteLine(LBound(fixed, 1) & ":" & UBound(fixed, 1) & ":" & fixed(2))
+
+    Dim dynamic() As Integer
+    ReDim dynamic(0 To 2)
+    dynamic(2) = 7
+    Console.WriteLine(LBound(dynamic) & ":" & UBound(dynamic) & ":" & dynamic(2))
+    Erase dynamic
+    Console.WriteLine(IsArray(dynamic))
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["2:4:10", "0:2:7", "True"]);
+}
+
+#[test]
 fn on_error_resume_next_suppresses_runtime_errors_and_populates_err() {
     let output = run_source(
         r#"
@@ -351,11 +373,11 @@ End Sub
         r#"
 Sub Main()
     Dim values(1) As Integer
-    Console.WriteLine(UBound(values, 1))
+    Console.WriteLine(UBound(values, 2))
 End Sub
 "#,
     );
-    assert!(wrong_count.contains("UBound expects exactly one argument"));
+    assert!(wrong_count.contains("Only one-dimensional arrays are supported"));
 }
 
 #[test]

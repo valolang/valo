@@ -353,7 +353,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         }
                         ensure_known_type(&param.ty, &registry, param.span)?;
                         if property.kind == PropertyKind::Set
-                            && !matches!(&param.ty, TypeName::User(name) if registry.get_class(name).is_some())
+                            && !matches!(&param.ty, TypeName::User(name) if registry.get_class(name).is_some() || name.eq_ignore_ascii_case("Object"))
                         {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -706,7 +706,11 @@ pub(super) fn ensure_const_expr(
     types: &TypeRegistry,
 ) -> Result<(), Diagnostic> {
     match &expr.kind {
-        ExprKind::String(_) | ExprKind::Integer(_) | ExprKind::Boolean(_) => Ok(()),
+        ExprKind::String(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Boolean(_)
+        | ExprKind::Empty
+        | ExprKind::Null => Ok(()),
         ExprKind::Variable(name) => {
             if symbols
                 .get(&key(name))
@@ -800,8 +804,12 @@ pub(super) fn validate_function(
     let mut symbols = HashMap::new();
     add_module_symbols(module_symbols, &mut symbols);
     add_parameters(&function.params, &mut symbols)?;
+    symbols.insert(
+        key(&function.name),
+        VarType::Scalar(function.return_type.clone()),
+    );
 
-    let mut saw_return = false;
+    let mut saw_return = assigns_to_name(&function.body, &function.name);
     validate_statements(
         &function.body,
         &mut symbols,
@@ -824,6 +832,47 @@ pub(super) fn validate_function(
     }
 
     Ok(())
+}
+
+fn assigns_to_name(statements: &[Stmt], name: &str) -> bool {
+    statements.iter().any(|stmt| match stmt {
+        Stmt::Assign {
+            target: crate::AssignTarget::Variable { name: target, .. },
+            ..
+        }
+        | Stmt::SetAssign {
+            target: crate::AssignTarget::Variable { name: target, .. },
+            ..
+        } => target.eq_ignore_ascii_case(name),
+        Stmt::If {
+            then_body,
+            elseif_branches,
+            else_body,
+            ..
+        } => {
+            assigns_to_name(then_body, name)
+                || elseif_branches
+                    .iter()
+                    .any(|branch| assigns_to_name(&branch.body, name))
+                || assigns_to_name(else_body, name)
+        }
+        Stmt::SelectCase {
+            branches,
+            else_body,
+            ..
+        } => {
+            branches
+                .iter()
+                .any(|branch| assigns_to_name(&branch.body, name))
+                || assigns_to_name(else_body, name)
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoLoop { body, .. }
+        | Stmt::For { body, .. }
+        | Stmt::ForEach { body, .. }
+        | Stmt::With { body, .. } => assigns_to_name(body, name),
+        _ => false,
+    })
 }
 
 pub(super) fn add_parameters(

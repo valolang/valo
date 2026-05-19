@@ -57,6 +57,7 @@ impl Parser {
             TokenKind::Resume => self.parse_resume(),
             TokenKind::Exit => self.parse_exit(),
             TokenKind::ReDim => self.parse_redim(),
+            TokenKind::Erase => self.parse_erase(),
             TokenKind::RaiseEvent => self.parse_raise_event(),
             TokenKind::Let => self.parse_let_assignment(),
             TokenKind::Call => self.parse_call_statement(),
@@ -75,59 +76,94 @@ impl Parser {
 
     fn parse_dim(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.advance().span;
-        let (name, array, ty, end) = self.parse_var_decl_after_keyword()?;
+        let (name, array, ty, as_new, end) = self.parse_var_decl_after_keyword()?;
         Ok(Stmt::Dim {
             name,
             ty,
             array,
+            as_new,
             span: Span::new(start.start, end.end),
         })
     }
 
     fn parse_static(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.advance().span;
-        let (name, array, ty, end) = self.parse_var_decl_after_keyword()?;
+        let (name, array, ty, as_new, end) = self.parse_var_decl_after_keyword()?;
         Ok(Stmt::Static {
             name,
             ty,
             array,
+            as_new,
             span: Span::new(start.start, end.end),
         })
     }
 
     fn parse_var_decl_after_keyword(
         &mut self,
-    ) -> Result<(String, Option<ArrayDecl>, crate::runtime::TypeName, Span), Diagnostic> {
+    ) -> Result<
+        (
+            String,
+            Option<ArrayDecl>,
+            crate::runtime::TypeName,
+            bool,
+            Span,
+        ),
+        Diagnostic,
+    > {
         let name = self.expect_identifier("Expected variable name after 'Dim'")?;
         let array = if self.match_simple(&TokenKind::LeftParen) {
             if self.match_simple(&TokenKind::RightParen) {
                 Some(ArrayDecl::Dynamic)
             } else {
-                let size_token = self.advance();
-                let TokenKind::Integer(size) = size_token.kind else {
+                let lower_or_size_token = self.advance();
+                let TokenKind::Integer(lower_or_size) = lower_or_size_token.kind else {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
                         "Array size must be an Integer literal",
-                        Some(size_token.span),
+                        Some(lower_or_size_token.span),
                     ));
                 };
-                if size < 0 {
+                let array = if self.match_simple(&TokenKind::To) {
+                    let upper_token = self.advance();
+                    let TokenKind::Integer(upper) = upper_token.kind else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "Array upper bound must be an Integer literal",
+                            Some(upper_token.span),
+                        ));
+                    };
+                    ArrayDecl::FixedRange {
+                        lower: lower_or_size,
+                        upper,
+                    }
+                } else {
+                    if lower_or_size < 0 {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "Array size must be non-negative",
+                            Some(lower_or_size_token.span),
+                        ));
+                    }
+                    ArrayDecl::Fixed(lower_or_size)
+                };
+                if matches!(array, ArrayDecl::FixedRange { lower, upper } if upper < lower) {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
-                        "Array size must be non-negative",
-                        Some(size_token.span),
+                        "Array upper bound must be greater than or equal to lower bound",
+                        Some(lower_or_size_token.span),
                     ));
                 }
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
-                Some(ArrayDecl::Fixed(size))
+                Some(array)
             }
         } else {
             None
         };
         self.expect_simple(TokenKind::As, "Expected 'As' in variable declaration")?;
+        let as_new = self.match_simple(&TokenKind::New);
         let ty = self.parse_type_name()?;
         let end = self.previous().span;
-        Ok((name, array, ty, end))
+        Ok((name, array, ty, as_new, end))
     }
 
     fn parse_const_stmt(&mut self) -> Result<Stmt, Diagnostic> {
@@ -854,12 +890,35 @@ impl Parser {
         let name = self.expect_identifier("Expected array name after 'ReDim'")?;
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after array name")?;
         let upper_bound = self.parse_expression()?;
+        let lower_bound = if self.match_simple(&TokenKind::To) {
+            Some(upper_bound.clone())
+        } else {
+            None
+        };
+        let upper_bound = if lower_bound.is_some() {
+            self.parse_expression()?
+        } else {
+            upper_bound
+        };
         self.expect_simple(TokenKind::RightParen, "Expected ')' after upper bound")?;
         let end = self.previous().span;
         Ok(Stmt::ReDim {
             name,
+            lower_bound,
             upper_bound,
             preserve,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_erase(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Erase, "Expected 'Erase'")?
+            .span;
+        let name = self.expect_identifier("Expected array name after 'Erase'")?;
+        let end = self.previous().span;
+        Ok(Stmt::Erase {
+            name,
             span: Span::new(start.start, end.end),
         })
     }

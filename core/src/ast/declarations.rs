@@ -4,6 +4,7 @@ use super::Stmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
+    pub attributes: Vec<AttributeDecl>,
     pub imports: Vec<ImportDecl>,
     pub option_explicit: bool,
     pub option_base: i64,
@@ -15,6 +16,14 @@ pub struct Program {
     pub classes: Vec<ClassDecl>,
     pub procedures: Vec<Procedure>,
     pub functions: Vec<Function>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttributeDecl {
+    pub target: String,
+    pub name: String,
+    pub value: String,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,6 +92,7 @@ pub struct FieldDecl {
 pub struct ClassDecl {
     pub visibility: Visibility,
     pub name: String,
+    pub attributes: Vec<AttributeDecl>,
     pub members: Vec<ClassMember>,
     pub span: Span,
 }

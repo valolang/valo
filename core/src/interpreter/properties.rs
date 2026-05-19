@@ -39,21 +39,29 @@ impl Interpreter {
         let mut frame = Frame::default();
         // Property frames see module-level state like Sub and Function calls.
         frame.declare_object_alias("me", &class.name, instance, span)?;
+        let return_type = accessor
+            .return_type
+            .as_ref()
+            .expect("get return type")
+            .clone();
+        if !frame.has_variable(&accessor.name) {
+            frame.declare(
+                &accessor.name,
+                return_type.clone(),
+                None,
+                self.option_base,
+                accessor.span,
+                &self.types,
+                &self.enums,
+            )?;
+        }
         self.scope_stack
             .push(format!("{}.{}", class.name, accessor.name));
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
         match result? {
-            ControlFlow::Return(value) => coerce_assignment(
-                accessor.return_type.as_ref().expect("get return type"),
-                value,
-                span,
-            ),
-            ControlFlow::Continue => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::GENERIC,
-                format!("Property Get '{}' must return a value", accessor.name),
-                Some(accessor.span),
-            )),
+            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
+            ControlFlow::Continue => frame.get(&accessor.name, accessor.span),
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Sub is only valid inside Sub",

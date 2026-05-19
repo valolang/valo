@@ -38,7 +38,11 @@ pub(super) fn validate_class(
                     VarType::Scalar(TypeName::User(class_decl.name.clone())),
                 );
                 add_parameters(&method.function.params, &mut symbols)?;
-                let mut saw_return = false;
+                symbols.insert(
+                    key(&method.function.name),
+                    VarType::Scalar(method.function.return_type.clone()),
+                );
+                let mut saw_return = assigns_to_name(&method.function.body, &method.function.name);
                 validate_statements(
                     &method.function.body,
                     &mut symbols,
@@ -74,7 +78,8 @@ pub(super) fn validate_class(
                             .return_type
                             .clone()
                             .expect("property get return type");
-                        let mut saw_return = false;
+                        symbols.insert(key(&property.name), VarType::Scalar(return_type.clone()));
+                        let mut saw_return = assigns_to_name(&property.body, &property.name);
                         validate_statements(
                             &property.body,
                             &mut symbols,
@@ -114,4 +119,45 @@ pub(super) fn validate_class(
         }
     }
     Ok(())
+}
+
+fn assigns_to_name(statements: &[Stmt], name: &str) -> bool {
+    statements.iter().any(|stmt| match stmt {
+        Stmt::Assign {
+            target: crate::AssignTarget::Variable { name: target, .. },
+            ..
+        }
+        | Stmt::SetAssign {
+            target: crate::AssignTarget::Variable { name: target, .. },
+            ..
+        } => target.eq_ignore_ascii_case(name),
+        Stmt::If {
+            then_body,
+            elseif_branches,
+            else_body,
+            ..
+        } => {
+            assigns_to_name(then_body, name)
+                || elseif_branches
+                    .iter()
+                    .any(|branch| assigns_to_name(&branch.body, name))
+                || assigns_to_name(else_body, name)
+        }
+        Stmt::SelectCase {
+            branches,
+            else_body,
+            ..
+        } => {
+            branches
+                .iter()
+                .any(|branch| assigns_to_name(&branch.body, name))
+                || assigns_to_name(else_body, name)
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoLoop { body, .. }
+        | Stmt::For { body, .. }
+        | Stmt::ForEach { body, .. }
+        | Stmt::With { body, .. } => assigns_to_name(body, name),
+        _ => false,
+    })
 }

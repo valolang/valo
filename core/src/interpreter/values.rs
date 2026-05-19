@@ -18,7 +18,7 @@ pub(crate) fn eval_binary(
         BinaryOp::Add => integer_binary(left, right, span, |a, b| a + b),
         BinaryOp::Subtract => integer_binary(left, right, span, |a, b| a - b),
         BinaryOp::Multiply => integer_binary(left, right, span, |a, b| a * b),
-        BinaryOp::Divide => {
+        BinaryOp::Divide | BinaryOp::IntegerDivide => {
             let (a, b) = expect_integers(left, right, span)?;
             if b == 0 {
                 return Err(Diagnostic::new(
@@ -238,6 +238,7 @@ pub(crate) fn values_equal(left: &Value, right: &Value, compare: OptionCompare) 
         (Value::Integer(a), Value::Integer(b)) => a == b,
         (Value::Boolean(a), Value::Boolean(b)) => a == b,
         (Value::Empty, Value::Empty) => true,
+        (Value::Null, Value::Null) => true,
         _ => false,
     }
 }
@@ -263,6 +264,9 @@ pub(crate) fn default_value(
     let TypeName::User(name) = ty else {
         unreachable!("builtin types are handled above");
     };
+    if name.eq_ignore_ascii_case("Object") {
+        return Ok(Value::Nothing);
+    }
     if enums.contains_key(&key(name)) {
         return Ok(Value::Integer(0));
     }
@@ -303,6 +307,11 @@ pub(crate) fn coerce_assignment(
         ));
     }
     if matches!(value, Value::Nothing) && matches!(ty, TypeName::User(_)) {
+        return Ok(value);
+    }
+    if matches!(ty, TypeName::User(name) if name.rsplit('.').next().is_some_and(|name| name.eq_ignore_ascii_case("Object")))
+        && matches!(value, Value::Object(_) | Value::Nothing)
+    {
         return Ok(value);
     }
     if matches!(ty, TypeName::User(_)) && matches!(value, Value::Integer(_)) {

@@ -100,7 +100,7 @@ pub(super) fn validate_expr(
         ExprKind::String(_) => Ok(TypeName::String),
         ExprKind::Integer(_) => Ok(TypeName::Integer),
         ExprKind::Boolean(_) => Ok(TypeName::Boolean),
-        ExprKind::Nothing => Ok(TypeName::Variant),
+        ExprKind::Nothing | ExprKind::Empty | ExprKind::Null => Ok(TypeName::Variant),
         ExprKind::Missing => Ok(TypeName::Variant),
         ExprKind::NamedArg { .. } => Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::GENERIC,
@@ -151,7 +151,11 @@ pub(super) fn validate_expr(
                     Some(expr.span),
                 )
             })?;
-            if let Some(init) = class_sig.subs.get("initialize") {
+            if let Some(init) = class_sig
+                .subs
+                .get("initialize")
+                .or_else(|| class_sig.subs.get("class_initialize"))
+            {
                 validate_arguments("Sub", init, args, symbols, types, signatures, expr.span)?;
             } else if !args.is_empty() {
                 return Err(Diagnostic::new(
@@ -264,6 +268,11 @@ pub(super) fn validate_expr(
             )
         }
         ExprKind::Call { name, args } => {
+            if let Some(ty) =
+                validate_builtin_function(name, args, symbols, types, signatures, expr.span)?
+            {
+                return Ok(ty);
+            }
             if name.eq_ignore_ascii_case("IsMissing") {
                 if args.len() != 1 {
                     return Err(Diagnostic::new(
@@ -294,14 +303,21 @@ pub(super) fn validate_expr(
                 };
             }
             if name.eq_ignore_ascii_case("LBound") || name.eq_ignore_ascii_case("UBound") {
-                if args.len() != 1 {
+                if args.is_empty() || args.len() > 2 {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::GENERIC,
-                        format!("{} expects exactly one argument", name),
+                        format!("{} expects one array argument and optional dimension", name),
                         Some(expr.span),
                     ));
                 }
                 validate_array_expr(&args[0], symbols, types, signatures)?;
+                if args.len() == 2 {
+                    ensure_assignable(
+                        &TypeName::Integer,
+                        &validate_expr(&args[1], symbols, types, signatures)?,
+                        args[1].span,
+                    )?;
+                }
                 return Ok(TypeName::Integer);
             }
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
@@ -355,6 +371,7 @@ pub(super) fn validate_expr(
                 | BinaryOp::Subtract
                 | BinaryOp::Multiply
                 | BinaryOp::Divide
+                | BinaryOp::IntegerDivide
                 | BinaryOp::Modulo => {
                     ensure_assignable(&TypeName::Integer, &left_type, left.span)?;
                     ensure_assignable(&TypeName::Integer, &right_type, right.span)?;
@@ -469,6 +486,93 @@ pub(super) fn validate_array_expr(
             "Expected array variable",
             Some(expr.span),
         )),
+    }
+}
+
+fn validate_builtin_function(
+    name: &str,
+    args: &[Expr],
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+    span: crate::runtime::Span,
+) -> Result<Option<TypeName>, Diagnostic> {
+    if name.eq_ignore_ascii_case("IsArray") {
+        validate_arg_count(name, args, 1, span)?;
+        if validate_array_expr(&args[0], symbols, types, signatures).is_err() {
+            validate_expr(&args[0], symbols, types, signatures)?;
+        }
+        return Ok(Some(TypeName::Boolean));
+    }
+    let boolean_one_arg = ["IsObject", "IsNull", "IsError"];
+    if boolean_one_arg
+        .iter()
+        .any(|builtin| name.eq_ignore_ascii_case(builtin))
+    {
+        validate_arg_count(name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Boolean));
+    }
+    if name.eq_ignore_ascii_case("VarType")
+        || name.eq_ignore_ascii_case("Sgn")
+        || name.eq_ignore_ascii_case("Int")
+    {
+        validate_arg_count(name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Integer));
+    }
+    if name.eq_ignore_ascii_case("TypeName") || name.eq_ignore_ascii_case("CStr") {
+        validate_arg_count(name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::String));
+    }
+    if name.eq_ignore_ascii_case("IIf") {
+        validate_arg_count(name, args, 3, span)?;
+        ensure_assignable(
+            &TypeName::Boolean,
+            &validate_expr(&args[0], symbols, types, signatures)?,
+            args[0].span,
+        )?;
+        validate_expr(&args[1], symbols, types, signatures)?;
+        validate_expr(&args[2], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Variant));
+    }
+    if name.eq_ignore_ascii_case("StrComp") {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "StrComp expects two strings and optional compare mode",
+                Some(span),
+            ));
+        }
+        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[1], symbols, types, signatures)?;
+        if args.len() == 3 {
+            ensure_assignable(
+                &TypeName::Integer,
+                &validate_expr(&args[2], symbols, types, signatures)?,
+                args[2].span,
+            )?;
+        }
+        return Ok(Some(TypeName::Integer));
+    }
+    Ok(None)
+}
+
+fn validate_arg_count(
+    name: &str,
+    args: &[Expr],
+    expected: usize,
+    span: crate::runtime::Span,
+) -> Result<(), Diagnostic> {
+    if args.len() == expected {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            format!("{name} expects exactly {expected} argument(s)"),
+            Some(span),
+        ))
     }
 }
 
@@ -933,7 +1037,7 @@ pub(super) fn ensure_known_type(
     match ty {
         TypeName::String | TypeName::Integer | TypeName::Boolean | TypeName::Variant => Ok(()),
         TypeName::User(name) => {
-            if types.contains(name) {
+            if name.eq_ignore_ascii_case("Object") || types.contains(name) {
                 Ok(())
             } else {
                 Err(Diagnostic::new(
@@ -984,7 +1088,7 @@ pub(super) fn is_object_reference_expr(expr: &Expr, ty: &TypeName, types: &TypeR
 }
 
 pub(super) fn is_class_type(ty: &TypeName, types: &TypeRegistry) -> bool {
-    matches!(ty, TypeName::User(name) if types.get_class(name).is_some())
+    matches!(ty, TypeName::User(name) if types.get_class(name).is_some() || name.eq_ignore_ascii_case("Object"))
 }
 
 pub(super) fn is_enum_type(ty: &TypeName, types: &TypeRegistry) -> bool {
@@ -1139,6 +1243,8 @@ pub(super) fn ensure_assignable(
     if target.same_type(&TypeName::Variant)
         || source.same_type(&TypeName::Variant)
         || target.same_type(source)
+        || matches!(target, TypeName::User(name) if name.rsplit('.').next().is_some_and(|name| name.eq_ignore_ascii_case("Object")))
+            && matches!(source, TypeName::User(_))
     {
         Ok(())
     } else {

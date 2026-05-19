@@ -152,6 +152,8 @@ impl Parser {
                 Some(BinaryOp::Multiply)
             } else if self.match_simple(&TokenKind::Slash) {
                 Some(BinaryOp::Divide)
+            } else if self.match_simple(&TokenKind::Backslash) {
+                Some(BinaryOp::IntegerDivide)
             } else if self.match_simple(&TokenKind::Mod) {
                 Some(BinaryOp::Modulo)
             } else {
@@ -203,6 +205,8 @@ impl Parser {
             TokenKind::True => ExprKind::Boolean(true),
             TokenKind::False => ExprKind::Boolean(false),
             TokenKind::Nothing => ExprKind::Nothing,
+            TokenKind::Empty => ExprKind::Empty,
+            TokenKind::Null => ExprKind::Null,
             TokenKind::Me => ExprKind::Me,
             TokenKind::Dot => {
                 let field_token = self.advance();

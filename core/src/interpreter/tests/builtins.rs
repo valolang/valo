@@ -1,6 +1,35 @@
 use crate::interpreter::tests::helpers::*;
 
 #[test]
+fn vba_compatibility_builtins_and_literals_work() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim value As Variant
+    value = Null
+    Console.WriteLine(IsNull(value))
+    Console.WriteLine(IsError(value))
+    Console.WriteLine(VarType(Empty))
+    Console.WriteLine(TypeName(Null))
+    Console.WriteLine(IIf(True, "yes", "no"))
+    Console.WriteLine(CStr(12))
+    Console.WriteLine(StrComp("abc", "ABC", 1))
+    Console.WriteLine(Sgn(-10))
+    Console.WriteLine(Int(42))
+    Console.WriteLine(7 \ 2)
+End Sub
+"#,
+    );
+
+    assert_eq!(
+        output,
+        vec![
+            "True", "False", "0", "Null", "yes", "12", "0", "-1", "42", "3"
+        ]
+    );
+}
+
+#[test]
 fn assigns_and_reads_members() {
     let output = run_source(
         r#"

@@ -19,6 +19,7 @@ pub enum Value {
     },
     Object(Rc<RefCell<ObjectValue>>),
     Nothing,
+    Null,
     Missing,
     Empty,
 }
@@ -56,7 +57,7 @@ impl Value {
             Value::Array { .. } => TypeName::Variant,
             Value::Record { type_name, .. } => TypeName::User(type_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
-            Value::Nothing | Value::Missing => TypeName::Variant,
+            Value::Nothing | Value::Null | Value::Missing => TypeName::Variant,
             Value::Empty => TypeName::Variant,
         }
     }
@@ -73,7 +74,7 @@ impl Value {
             } => *allocated && !elements.is_empty(),
             Value::Record { .. } => true,
             Value::Object(_) => true,
-            Value::Nothing | Value::Missing => false,
+            Value::Nothing | Value::Null | Value::Missing => false,
             Value::Empty => false,
         }
     }
@@ -93,6 +94,7 @@ impl Value {
             Value::Record { type_name, .. } => format!("<{}>", type_name),
             Value::Object(object) => format!("<{}>", object.borrow().class_name),
             Value::Nothing => "Nothing".to_string(),
+            Value::Null => "Null".to_string(),
             Value::Missing => "<Missing>".to_string(),
             Value::Empty => String::new(),
         }

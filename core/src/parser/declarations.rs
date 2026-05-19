@@ -2,6 +2,43 @@ use super::*;
 use crate::runtime::{Diagnostic, Span, TypeName};
 
 impl Parser {
+    pub(super) fn parse_attribute_decl(&mut self) -> Result<AttributeDecl, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Attribute'")?;
+        debug_assert!(start.eq_ignore_ascii_case("Attribute"));
+        let start_span = self.previous().span;
+        let mut target = self.expect_identifier("Expected Attribute target")?;
+        while self.match_simple(&TokenKind::Dot) {
+            target.push('.');
+            target.push_str(&self.expect_identifier("Expected Attribute name after '.'")?);
+        }
+        self.expect_simple(TokenKind::Equal, "Expected '=' in Attribute declaration")?;
+        let value_token = self.advance();
+        let value = match value_token.kind {
+            TokenKind::Integer(value) => value.to_string(),
+            TokenKind::String(value) | TokenKind::Identifier(value) => value,
+            TokenKind::True => "True".to_string(),
+            TokenKind::False => "False".to_string(),
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected Attribute value",
+                    Some(value_token.span),
+                ));
+            }
+        };
+        self.expect_statement_end("Expected newline after Attribute declaration")?;
+        let (target, name) = target
+            .rsplit_once('.')
+            .map(|(target, name)| (target.to_string(), name.to_string()))
+            .unwrap_or_else(|| (target, String::new()));
+        Ok(AttributeDecl {
+            target,
+            name,
+            value,
+            span: Span::new(start_span.start, value_token.span.end),
+        })
+    }
+
     pub(super) fn parse_import_decl(&mut self) -> Result<ImportDecl, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Import, "Expected 'Import'")?
@@ -32,9 +69,17 @@ impl Parser {
         self.expect_newline("Expected newline after Class declaration")?;
 
         let mut members = Vec::new();
+        let mut attributes = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndClass]) {
-            members.push(self.parse_class_member()?);
+            if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
+            {
+                let attribute = self.parse_attribute_decl()?;
+                apply_class_attribute(&attribute, &mut members);
+                attributes.push(attribute);
+            } else {
+                members.push(self.parse_class_member()?);
+            }
             self.skip_newlines();
         }
 
@@ -47,6 +92,7 @@ impl Parser {
         Ok(ClassDecl {
             visibility,
             name,
+            attributes,
             members,
             span: Span::new(start.start, end.end),
         })
@@ -254,23 +300,46 @@ impl Parser {
             if self.match_simple(&TokenKind::RightParen) {
                 Some(ArrayDecl::Dynamic)
             } else {
-                let size_token = self.advance();
-                let TokenKind::Integer(size) = size_token.kind else {
+                let lower_or_size_token = self.advance();
+                let TokenKind::Integer(lower_or_size) = lower_or_size_token.kind else {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
                         "Array size must be an Integer literal",
-                        Some(size_token.span),
+                        Some(lower_or_size_token.span),
                     ));
                 };
-                if size < 0 {
+                let array = if self.match_simple(&TokenKind::To) {
+                    let upper_token = self.advance();
+                    let TokenKind::Integer(upper) = upper_token.kind else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "Array upper bound must be an Integer literal",
+                            Some(upper_token.span),
+                        ));
+                    };
+                    ArrayDecl::FixedRange {
+                        lower: lower_or_size,
+                        upper,
+                    }
+                } else {
+                    if lower_or_size < 0 {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "Array size must be non-negative",
+                            Some(lower_or_size_token.span),
+                        ));
+                    }
+                    ArrayDecl::Fixed(lower_or_size)
+                };
+                if matches!(array, ArrayDecl::FixedRange { lower, upper } if upper < lower) {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
-                        "Array size must be non-negative",
-                        Some(size_token.span),
+                        "Array upper bound must be greater than or equal to lower bound",
+                        Some(lower_or_size_token.span),
                     ));
                 }
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
-                Some(ArrayDecl::Fixed(size))
+                Some(array)
             }
         } else {
             None
@@ -471,6 +540,12 @@ impl Parser {
             TokenKind::BooleanType => Ok(TypeName::Boolean),
             TokenKind::VariantType => Ok(TypeName::Variant),
             TokenKind::Identifier(mut name) => {
+                if name.eq_ignore_ascii_case("Long") {
+                    return Ok(TypeName::Integer);
+                }
+                if name.eq_ignore_ascii_case("Object") {
+                    return Ok(TypeName::User("Object".to_string()));
+                }
                 if self.match_simple(&TokenKind::Dot) {
                     let member =
                         self.expect_identifier("Expected type name after module qualifier")?;
@@ -484,6 +559,22 @@ impl Parser {
                 "Expected type name",
                 Some(token.span),
             )),
+        }
+    }
+}
+
+fn apply_class_attribute(attribute: &AttributeDecl, members: &mut [ClassMember]) {
+    if !attribute.name.eq_ignore_ascii_case("VB_UserMemId") || attribute.value != "0" {
+        return;
+    }
+    let member_name = attribute.target.as_str();
+    for member in members.iter_mut().rev() {
+        match member {
+            ClassMember::Property(property) if property.name.eq_ignore_ascii_case(member_name) => {
+                property.is_default = true;
+                return;
+            }
+            _ => {}
         }
     }
 }

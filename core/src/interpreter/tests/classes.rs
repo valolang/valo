@@ -1,6 +1,43 @@
 use crate::interpreter::tests::helpers::*;
 
 #[test]
+fn exported_class_attributes_default_member_as_new_and_class_initialize_work() {
+    let output = run_source(
+        r#"
+Attribute VB_Name = "Box"
+
+Class Box
+    Private stored As Integer
+
+    Private Sub Class_Initialize()
+        stored = 11
+    End Sub
+
+    Public Property Get Value() As Integer
+        Value = stored
+    End Property
+    Attribute Value.VB_UserMemId = 0
+End Class
+
+Function MakeBox() As Object
+    Set MakeBox = New Box()
+End Function
+
+Sub Main()
+    Dim a As New Box
+    Console.WriteLine(a)
+    Console.WriteLine(IsObject(a))
+    Dim b As Object
+    Set b = MakeBox()
+    Console.WriteLine(TypeName(b))
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["11", "True", "Box"]);
+}
+
+#[test]
 fn runtime_diagnostics_include_stack_context_when_available() {
     let source = r#"
 Sub Boom()

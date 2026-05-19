@@ -42,14 +42,21 @@ impl Interpreter {
             }
             self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
             let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
+            if !frame.has_variable(&function.name) {
+                frame.declare(
+                    &function.name,
+                    return_type.clone(),
+                    None,
+                    self.option_base,
+                    function.span,
+                    &self.types,
+                    &self.enums,
+                )?;
+            }
 
             match self.exec_block(&function.body, &mut frame)? {
                 ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-                ControlFlow::Continue => Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::GENERIC,
-                    format!("Function '{}' must return a value", function.name),
-                    Some(function.span),
-                )),
+                ControlFlow::Continue => frame.get(&function.name, function.span),
                 ControlFlow::ExitFunction => {
                     default_value(&return_type, &self.types, &self.enums, span)
                 }
@@ -176,13 +183,20 @@ impl Interpreter {
         frame.set_module_key(module_key);
         self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
         let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
+        if !frame.has_variable(&function.name) {
+            frame.declare(
+                &function.name,
+                return_type.clone(),
+                None,
+                self.option_base,
+                function.span,
+                &self.types,
+                &self.enums,
+            )?;
+        }
         match self.exec_block(&function.body, &mut frame)? {
             ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-            ControlFlow::Continue => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::GENERIC,
-                format!("Function '{}' must return a value", function.name),
-                Some(function.span),
-            )),
+            ControlFlow::Continue => frame.get(&function.name, function.span),
             ControlFlow::ExitFunction => {
                 default_value(&return_type, &self.types, &self.enums, span)
             }
@@ -535,17 +549,24 @@ impl Interpreter {
         frame.declare_object_alias("me", &class.name, instance, span)?;
         self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
         let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
+        if !frame.has_variable(&function.name) {
+            frame.declare(
+                &function.name,
+                return_type.clone(),
+                None,
+                self.option_base,
+                function.span,
+                &self.types,
+                &self.enums,
+            )?;
+        }
         self.scope_stack
             .push(format!("{}.{}", class.name, function.name));
         let result = self.exec_block(&function.body, &mut frame);
         self.scope_stack.pop();
         match result? {
             ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-            ControlFlow::Continue => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::GENERIC,
-                format!("Function '{}' must return a value", function.name),
-                Some(function.span),
-            )),
+            ControlFlow::Continue => frame.get(&function.name, function.span),
             ControlFlow::ExitFunction => {
                 default_value(&return_type, &self.types, &self.enums, span)
             }

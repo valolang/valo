@@ -15,6 +15,8 @@ impl Interpreter {
             ExprKind::Integer(value) => Ok(Value::Integer(*value)),
             ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
             ExprKind::Nothing => Ok(Value::Nothing),
+            ExprKind::Empty => Ok(Value::Empty),
+            ExprKind::Null => Ok(Value::Null),
             ExprKind::Missing => Ok(Value::Missing),
             ExprKind::NamedArg { .. } => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
@@ -174,6 +176,9 @@ impl Interpreter {
                 self.read_member(&object, field, frame, expr.span)
             }
             ExprKind::Call { name, args } => {
+                if let Some(value) = self.eval_builtin_function(name, args, frame, expr.span)? {
+                    return Ok(value);
+                }
                 if name.eq_ignore_ascii_case("IsMissing") {
                     if args.len() != 1 {
                         return Err(Diagnostic::new(
@@ -186,12 +191,26 @@ impl Interpreter {
                     return Ok(Value::Boolean(matches!(value, Value::Missing)));
                 }
                 if name.eq_ignore_ascii_case("LBound") || name.eq_ignore_ascii_case("UBound") {
-                    if args.len() != 1 {
+                    if args.is_empty() || args.len() > 2 {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::GENERIC,
-                            format!("{} expects exactly one argument", name),
+                            format!("{} expects one array argument and optional dimension", name),
                             Some(expr.span),
                         ));
+                    }
+                    if args.len() == 2 {
+                        let dimension = self.eval_integer_expr(
+                            &args[1],
+                            frame,
+                            "Array dimension must be Integer",
+                        )?;
+                        if dimension != 1 {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                "Only one-dimensional arrays are supported",
+                                Some(args[1].span),
+                            ));
+                        }
                     }
                     let value = self.eval_expr(&args[0], frame)?;
                     let bound = if name.eq_ignore_ascii_case("LBound") {
@@ -303,5 +322,141 @@ impl Interpreter {
                 Some(expr.span),
             )),
         }
+    }
+
+    fn eval_builtin_function(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        frame: &mut Frame,
+        span: crate::runtime::Span,
+    ) -> Result<Option<Value>, Diagnostic> {
+        if name.eq_ignore_ascii_case("IsObject") {
+            self.expect_builtin_arg_count(name, args, 1, span)?;
+            let value = self.eval_expr(&args[0], frame)?;
+            return Ok(Some(Value::Boolean(matches!(
+                value,
+                Value::Object(_) | Value::Nothing
+            ))));
+        }
+        if name.eq_ignore_ascii_case("IsArray") {
+            self.expect_builtin_arg_count(name, args, 1, span)?;
+            let value = self.eval_expr(&args[0], frame)?;
+            return Ok(Some(Value::Boolean(matches!(value, Value::Array { .. }))));
+        }
+        if name.eq_ignore_ascii_case("IsNull") {
+            self.expect_builtin_arg_count(name, args, 1, span)?;
+            let value = self.eval_expr(&args[0], frame)?;
+            return Ok(Some(Value::Boolean(matches!(value, Value::Null))));
+        }
+        if name.eq_ignore_ascii_case("IsError") {
+            self.expect_builtin_arg_count(name, args, 1, span)?;
+            return Ok(Some(Value::Boolean(false)));
+        }
+        if name.eq_ignore_ascii_case("VarType") {
+            self.expect_builtin_arg_count(name, args, 1, span)?;
+            let value = self.eval_expr(&args[0], frame)?;
+            return Ok(Some(Value::Integer(vartype(&value))));
+        }
+        if name.eq_ignore_ascii_case("TypeName") {
+            self.expect_builtin_arg_count(name, args, 1, span)?;
+            let value = self.eval_expr(&args[0], frame)?;
+            return Ok(Some(Value::String(value_type_name(&value))));
+        }
+        if name.eq_ignore_ascii_case("IIf") {
+            self.expect_builtin_arg_count(name, args, 3, span)?;
+            let condition = self.eval_expr(&args[0], frame)?.is_truthy();
+            let value = if condition { &args[1] } else { &args[2] };
+            return Ok(Some(self.eval_expr(value, frame)?));
+        }
+        if name.eq_ignore_ascii_case("CStr") {
+            self.expect_builtin_arg_count(name, args, 1, span)?;
+            let value = self.eval_expr(&args[0], frame)?;
+            return Ok(Some(Value::String(value.to_output_string())));
+        }
+        if name.eq_ignore_ascii_case("StrComp") {
+            if args.len() < 2 || args.len() > 3 {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "StrComp expects two strings and optional compare mode",
+                    Some(span),
+                ));
+            }
+            let left = self.eval_expr(&args[0], frame)?.to_output_string();
+            let right = self.eval_expr(&args[1], frame)?.to_output_string();
+            let text_compare = if args.len() == 3 {
+                self.eval_integer_expr(&args[2], frame, "Compare mode must be Integer")? == 1
+            } else {
+                self.option_compare == crate::OptionCompare::Text
+            };
+            let (left, right) = if text_compare {
+                (left.to_ascii_lowercase(), right.to_ascii_lowercase())
+            } else {
+                (left, right)
+            };
+            let result = match left.cmp(&right) {
+                std::cmp::Ordering::Less => -1,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            };
+            return Ok(Some(Value::Integer(result)));
+        }
+        if name.eq_ignore_ascii_case("Sgn") {
+            self.expect_builtin_arg_count(name, args, 1, span)?;
+            let value = self.eval_integer_expr(&args[0], frame, "Sgn argument must be Integer")?;
+            return Ok(Some(Value::Integer(value.signum())));
+        }
+        if name.eq_ignore_ascii_case("Int") {
+            self.expect_builtin_arg_count(name, args, 1, span)?;
+            let value = self.eval_integer_expr(&args[0], frame, "Int argument must be Integer")?;
+            return Ok(Some(Value::Integer(value)));
+        }
+        Ok(None)
+    }
+
+    fn expect_builtin_arg_count(
+        &self,
+        name: &str,
+        args: &[Expr],
+        expected: usize,
+        span: crate::runtime::Span,
+    ) -> Result<(), Diagnostic> {
+        if args.len() == expected {
+            Ok(())
+        } else {
+            Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                format!("{name} expects exactly {expected} argument(s)"),
+                Some(span),
+            ))
+        }
+    }
+}
+
+fn vartype(value: &Value) -> i64 {
+    match value {
+        Value::Empty => 0,
+        Value::Null => 1,
+        Value::Integer(_) => 2,
+        Value::String(_) => 8,
+        Value::Object(_) | Value::Nothing => 9,
+        Value::Boolean(_) => 11,
+        Value::Array { .. } => 8192,
+        Value::Record { .. } | Value::Missing => 12,
+    }
+}
+
+fn value_type_name(value: &Value) -> String {
+    match value {
+        Value::Empty => "Empty".to_string(),
+        Value::Null => "Null".to_string(),
+        Value::Integer(_) => "Integer".to_string(),
+        Value::String(_) => "String".to_string(),
+        Value::Object(object) => object.borrow().class_name.clone(),
+        Value::Nothing => "Nothing".to_string(),
+        Value::Boolean(_) => "Boolean".to_string(),
+        Value::Array { .. } => "Array".to_string(),
+        Value::Record { type_name, .. } => type_name.clone(),
+        Value::Missing => "Missing".to_string(),
     }
 }

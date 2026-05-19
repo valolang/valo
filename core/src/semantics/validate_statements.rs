@@ -25,12 +25,14 @@ pub(super) fn validate_statements(
                 ty,
                 array,
                 span,
+                ..
             }
             | Stmt::Static {
                 name,
                 ty,
                 array,
                 span,
+                ..
             } => {
                 ensure_known_type(ty, types, *span)?;
                 let key = key(name);
@@ -427,6 +429,7 @@ pub(super) fn validate_statements(
             }
             Stmt::ReDim {
                 name,
+                lower_bound,
                 upper_bound,
                 span,
                 ..
@@ -450,6 +453,29 @@ pub(super) fn validate_statements(
                     &validate_expr(upper_bound, symbols, types, signatures)?,
                     upper_bound.span,
                 )?;
+                if let Some(lower_bound) = lower_bound {
+                    ensure_assignable(
+                        &TypeName::Integer,
+                        &validate_expr(lower_bound, symbols, types, signatures)?,
+                        lower_bound.span,
+                    )?;
+                }
+            }
+            Stmt::Erase { name, span } => {
+                let Some(var_type) = symbols.get(&key(name)) else {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Variable '{}' is not declared", name),
+                        Some(*span),
+                    ));
+                };
+                if !matches!(var_type, VarType::Array(_)) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        "Erase target must be an array",
+                        Some(*span),
+                    ));
+                }
             }
             Stmt::Label { .. } => {}
             Stmt::GoTo { .. } => {}
@@ -598,6 +624,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::For { span, .. }
         | Stmt::ForEach { span, .. }
         | Stmt::ReDim { span, .. }
+        | Stmt::Erase { span, .. }
         | Stmt::Label { span, .. }
         | Stmt::GoTo { span, .. }
         | Stmt::OnError { span, .. }
@@ -671,7 +698,15 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
         Stmt::ForEach { iterable, body, .. } => {
             expr_uses_with_target(iterable) || body.iter().any(stmt_uses_with_target)
         }
-        Stmt::ReDim { upper_bound, .. } => expr_uses_with_target(upper_bound),
+        Stmt::ReDim {
+            lower_bound,
+            upper_bound,
+            ..
+        } => {
+            lower_bound.as_ref().is_some_and(expr_uses_with_target)
+                || expr_uses_with_target(upper_bound)
+        }
+        Stmt::Erase { .. } => false,
         Stmt::Label { .. } | Stmt::GoTo { .. } | Stmt::OnError { .. } | Stmt::Resume { .. } => {
             false
         }
@@ -728,6 +763,8 @@ fn expr_uses_with_target(expr: &Expr) -> bool {
         | ExprKind::Integer(_)
         | ExprKind::Boolean(_)
         | ExprKind::Nothing
+        | ExprKind::Empty
+        | ExprKind::Null
         | ExprKind::Missing
         | ExprKind::Me
         | ExprKind::Variable(_) => false,

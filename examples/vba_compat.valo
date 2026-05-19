@@ -1,0 +1,35 @@
+Attribute VB_Name = "CompatExample"
+
+Class Box
+    Private value As Long
+
+    Private Sub Class_Initialize()
+        value = 21 \ 2
+    End Sub
+
+    Public Property Get Item() As Integer
+        Item = value
+    End Property
+    Attribute Item.VB_UserMemId = 0
+End Class
+
+Function MakeBox() As Object
+    Set MakeBox = New Box()
+End Function
+
+Sub Main()
+    Dim box As New Box
+    Console.WriteLine(box)
+
+    Dim values() As Integer
+    ReDim values(0 To 2)
+    values(2) = 5
+    Console.WriteLine(LBound(values, 1) & ":" & UBound(values, 1) & ":" & values(2))
+    Erase values
+
+    Dim maybe As Variant
+    maybe = Null
+    Console.WriteLine(IsNull(maybe))
+    Console.WriteLine(TypeName(MakeBox()))
+    Console.WriteLine(IIf(StrComp("a", "A", 1) = 0, CStr(Sgn(-3)), "no"))
+End Sub
