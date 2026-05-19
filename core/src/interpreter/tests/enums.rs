@@ -47,4 +47,3 @@ End Sub
     );
     assert!(unknown.contains("Enum member 'One' is not defined"));
 }
-

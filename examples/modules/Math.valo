@@ -1,0 +1,7 @@
+Public Function Add(ByVal Left As Integer, ByVal Right As Integer) As Integer
+    Return Left + Right
+End Function
+
+Private Function Hidden() As Integer
+    Return 99
+End Function

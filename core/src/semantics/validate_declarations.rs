@@ -6,17 +6,25 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     for type_decl in &program.types {
         let type_key = key(&type_decl.name);
         if types.contains_key(&type_key) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Type '{}' is already defined", type_decl.name), Some(type_decl.span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Type '{}' is already defined", type_decl.name),
+                Some(type_decl.span),
+            ));
         }
 
         let mut fields = HashMap::new();
         for field in &type_decl.fields {
             let field_key = key(&field.name);
             if fields.contains_key(&field_key) {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!(
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                    format!(
                         "Field '{}' is already declared in Type '{}'",
                         field.name, type_decl.name
-                    ), Some(field.span),));
+                    ),
+                    Some(field.span),
+                ));
             }
             fields.insert(
                 field_key,
@@ -39,17 +47,25 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     for enum_decl in &program.enums {
         let enum_key = key(&enum_decl.name);
         if types.contains_key(&enum_key) || enums.contains_key(&enum_key) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Enum '{}' is already defined", enum_decl.name), Some(enum_decl.span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Enum '{}' is already defined", enum_decl.name),
+                Some(enum_decl.span),
+            ));
         }
         let mut members = HashMap::new();
         let mut previous = -1;
         for member in &enum_decl.members {
             let member_key = key(&member.name);
             if members.contains_key(&member_key) {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!(
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                    format!(
                         "Enum member '{}' is already declared in Enum '{}'",
                         member.name, enum_decl.name
-                    ), Some(member.span),));
+                    ),
+                    Some(member.span),
+                ));
             }
             let value = if let Some(expr) = &member.value {
                 eval_enum_const_expr(expr, &members)?
@@ -75,7 +91,11 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             || enums.contains_key(&class_key)
             || classes.contains_key(&class_key)
         {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Class '{}' is already defined", class_decl.name), Some(class_decl.span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Class '{}' is already defined", class_decl.name),
+                Some(class_decl.span),
+            ));
         }
 
         let mut fields = HashMap::new();
@@ -92,10 +112,14 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         || events.contains_key(&field_key)
                         || properties.contains_key(&field_key)
                     {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
                                 "Field '{}' conflicts with another member in Class '{}'",
                                 field.name, class_decl.name
-                            ), Some(field.span),));
+                            ),
+                            Some(field.span),
+                        ));
                     }
                     fields.insert(
                         field_key,
@@ -114,10 +138,14 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         || functions.contains_key(&event_key)
                         || properties.contains_key(&event_key)
                     {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
                                 "Event '{}' conflicts with another member in Class '{}'",
                                 event.name, class_decl.name
-                            ), Some(event.span),));
+                            ),
+                            Some(event.span),
+                        ));
                     }
                     events.insert(
                         event_key,
@@ -136,10 +164,14 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         || functions.contains_key(&method_key)
                         || properties.contains_key(&method_key)
                     {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
                                 "Method '{}' conflicts with another member in Class '{}'",
                                 method.procedure.name, class_decl.name
-                            ), Some(method.procedure.span),));
+                            ),
+                            Some(method.procedure.span),
+                        ));
                     }
                     subs.insert(
                         method_key,
@@ -158,10 +190,14 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         || functions.contains_key(&method_key)
                         || properties.contains_key(&method_key)
                     {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
                                 "Method '{}' conflicts with another member in Class '{}'",
                                 method.function.name, class_decl.name
-                            ), Some(method.function.span),));
+                            ),
+                            Some(method.function.span),
+                        ));
                     }
                     functions.insert(
                         method_key,
@@ -177,7 +213,11 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     let property_key = key(&property.name);
                     if property.is_default {
                         if default_member.is_some() {
-                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Class '{}' has multiple default members", class_decl.name), Some(property.span),));
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!("Class '{}' has multiple default members", class_decl.name),
+                                Some(property.span),
+                            ));
                         }
                         default_member = Some(property.name.clone());
                     }
@@ -186,10 +226,14 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         || subs.contains_key(&property_key)
                         || functions.contains_key(&property_key)
                     {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
                                 "Property '{}' conflicts with another member in Class '{}'",
                                 property.name, class_decl.name
-                            ), Some(property.span),));
+                            ),
+                            Some(property.span),
+                        ));
                     }
                     let property_sig =
                         properties
@@ -206,10 +250,14 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         PropertyKind::Set => &mut property_sig.set,
                     };
                     if target.is_some() {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!(
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!(
                                 "Property {:?} '{}' is already declared in Class '{}'",
                                 property.kind, property.name, class_decl.name
-                            ), Some(property.span),));
+                            ),
+                            Some(property.span),
+                        ));
                     }
                     *target = Some(PropertyAccessorSig {
                         visibility: property.visibility,
@@ -269,7 +317,11 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 ClassMember::Property(property) => match property.kind {
                     PropertyKind::Get => {
                         if !property.params.is_empty() {
-                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Property Get '{}' cannot have parameters", property.name), Some(property.span),));
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!("Property Get '{}' cannot have parameters", property.name),
+                                Some(property.span),
+                            ));
                         }
                         ensure_known_type(
                             property.return_type.as_ref().expect("get return type"),
@@ -279,34 +331,50 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     }
                     PropertyKind::Let | PropertyKind::Set => {
                         if property.params.len() != 1 {
-                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!(
                                     "Property {:?} '{}' must have exactly one parameter",
                                     property.kind, property.name
-                                ), Some(property.span),));
+                                ),
+                                Some(property.span),
+                            ));
                         }
                         let param = &property.params[0];
                         if param.mode != PassingMode::ByVal {
-                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, format!(
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                format!(
                                     "Property {:?} '{}' parameter must be ByVal",
                                     property.kind, property.name
-                                ), Some(param.span),));
+                                ),
+                                Some(param.span),
+                            ));
                         }
                         ensure_known_type(&param.ty, &registry, param.span)?;
                         if property.kind == PropertyKind::Set
                             && !matches!(&param.ty, TypeName::User(name) if registry.get_class(name).is_some())
                         {
-                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, format!(
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                format!(
                                     "Property Set '{}' parameter must be a class type",
                                     property.name
-                                ), Some(param.span),));
+                                ),
+                                Some(param.span),
+                            ));
                         }
                         if property.kind == PropertyKind::Let
                             && matches!(&param.ty, TypeName::User(name) if registry.get_class(name).is_some())
                         {
-                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!(
                                     "Property Let '{}' parameter cannot be a class type",
                                     property.name
-                                ), Some(param.span),));
+                                ),
+                                Some(param.span),
+                            ));
                         }
                     }
                 },
@@ -338,16 +406,28 @@ fn validate_withevents_handlers(
                 continue;
             }
             let TypeName::User(source_class_name) = &field.ty else {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("WithEvents field '{}' must have a class type", field.name), Some(field.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!("WithEvents field '{}' must have a class type", field.name),
+                    Some(field.span),
+                ));
             };
             let Some(source_class) = registry.get_class(source_class_name) else {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("WithEvents field '{}' must have a class type", field.name), Some(field.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!("WithEvents field '{}' must have a class type", field.name),
+                    Some(field.span),
+                ));
             };
             for event in source_class.events.values() {
                 let handler_name = format!("{}_{}", field.name, event.name);
                 let handler_key = key(&handler_name);
                 if let Some(handler) = class_sig.functions.get(&handler_key) {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, format!("Event handler '{}' must be a Sub method", handler.name), Some(field.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!("Event handler '{}' must be a Sub method", handler.name),
+                        Some(field.span),
+                    ));
                 }
                 let Some(handler) = class_sig.subs.get(&handler_key) else {
                     continue;
@@ -359,10 +439,14 @@ fn validate_withevents_handlers(
                         .zip(event.params.iter())
                         .all(|(left, right)| left.ty.same_type(&right.ty))
                 {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!(
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        format!(
                             "Event handler '{}' signature does not match event '{}'",
                             handler.name, event.name
-                        ), Some(field.span),));
+                        ),
+                        Some(field.span),
+                    ));
                 }
             }
         }
@@ -383,10 +467,14 @@ pub(super) fn collect_signatures(
     }
     for enum_decl in &program.enums {
         if let Some(existing) = names.insert(key(&enum_decl.name), "Enum") {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!(
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!(
                     "Name '{}' conflicts with existing {}",
                     enum_decl.name, existing
-                ), Some(enum_decl.span),));
+                ),
+                Some(enum_decl.span),
+            ));
         }
     }
     for class_decl in &program.classes {
@@ -397,17 +485,25 @@ pub(super) fn collect_signatures(
         ensure_known_type(&var.ty, types, var.span)?;
         let name_key = key(&var.name);
         if let Some(existing) = names.insert(name_key, "module variable") {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Name '{}' conflicts with existing {}", var.name, existing), Some(var.span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Name '{}' conflicts with existing {}", var.name, existing),
+                Some(var.span),
+            ));
         }
     }
 
     for const_decl in &program.module_consts {
         let name_key = key(&const_decl.name);
         if let Some(existing) = names.insert(name_key, "module constant") {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!(
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!(
                     "Name '{}' conflicts with existing {}",
                     const_decl.name, existing
-                ), Some(const_decl.span),));
+                ),
+                Some(const_decl.span),
+            ));
         }
     }
 
@@ -416,10 +512,14 @@ pub(super) fn collect_signatures(
 
         let name_key = key(&procedure.name);
         if let Some(existing) = names.insert(name_key.clone(), "Sub") {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!(
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!(
                     "Name '{}' conflicts with existing {}",
                     procedure.name, existing
-                ), Some(procedure.span),));
+                ),
+                Some(procedure.span),
+            ));
         }
 
         subs.insert(
@@ -439,10 +539,14 @@ pub(super) fn collect_signatures(
 
         let name_key = key(&function.name);
         if let Some(existing) = names.insert(name_key.clone(), "Function") {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!(
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!(
                     "Name '{}' conflicts with existing {}",
                     function.name, existing
-                ), Some(function.span),));
+                ),
+                Some(function.span),
+            ));
         }
 
         functions.insert(
@@ -465,7 +569,11 @@ fn validate_parameter_list(params: &[Parameter], types: &TypeRegistry) -> Result
         ensure_known_type(&param.ty, types, param.span)?;
         if param.is_param_array {
             if index + 1 != params.len() {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "ParamArray must be the last parameter", Some(param.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    "ParamArray must be the last parameter",
+                    Some(param.span),
+                ));
             }
             continue;
         }
@@ -474,10 +582,18 @@ fn validate_parameter_list(params: &[Parameter], types: &TypeRegistry) -> Result
             if let Some(default) = &param.optional_default {
                 ensure_const_expr(default, &HashMap::new(), types)?;
             } else if !param.ty.same_type(&TypeName::Variant) {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Optional parameters without defaults must be Variant", Some(param.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Optional parameters without defaults must be Variant",
+                    Some(param.span),
+                ));
             }
         } else if saw_optional {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Optional parameters must come after required parameters", Some(param.span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Optional parameters must come after required parameters",
+                Some(param.span),
+            ));
         }
     }
     Ok(())
@@ -487,7 +603,11 @@ fn eval_enum_const_expr(expr: &Expr, members: &HashMap<String, i64>) -> Result<i
     match &expr.kind {
         ExprKind::Integer(value) => Ok(*value),
         ExprKind::Variable(name) => members.get(&key(name)).copied().ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Enum member '{}' is not defined", name), Some(expr.span),)
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Enum member '{}' is not defined", name),
+                Some(expr.span),
+            )
         }),
         ExprKind::Unary {
             op: UnaryOp::Negate,
@@ -502,15 +622,27 @@ fn eval_enum_const_expr(expr: &Expr, members: &HashMap<String, i64>) -> Result<i
                 BinaryOp::Multiply => Ok(left * right),
                 BinaryOp::Divide => {
                     if right == 0 {
-                        Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Division by zero", Some(expr.span)))
+                        Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Division by zero",
+                            Some(expr.span),
+                        ))
                     } else {
                         Ok(left / right)
                     }
                 }
-                _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Enum value expression must be numeric", Some(expr.span),)),
+                _ => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Enum value expression must be numeric",
+                    Some(expr.span),
+                )),
             }
         }
-        _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Enum value expression must be numeric", Some(expr.span),)),
+        _ => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Enum value expression must be numeric",
+            Some(expr.span),
+        )),
     }
 }
 
@@ -525,7 +657,11 @@ pub(super) fn collect_module_symbols(
         ensure_known_type(&var.ty, types, var.span)?;
         let name_key = key(&var.name);
         if symbols.contains_key(&name_key) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Module-level name '{}' is already declared", var.name), Some(var.span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Module-level name '{}' is already declared", var.name),
+                Some(var.span),
+            ));
         }
         let var_type = if var.array.is_some() {
             VarType::Array(var.ty.clone())
@@ -549,10 +685,14 @@ pub(super) fn collect_module_symbols(
         )?;
         let name_key = key(&const_decl.name);
         if symbols.contains_key(&name_key) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!(
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!(
                     "Module-level name '{}' is already declared",
                     const_decl.name
-                ), Some(const_decl.span),));
+                ),
+                Some(const_decl.span),
+            ));
         }
         symbols.insert(name_key, VarType::Const(const_type));
     }
@@ -575,7 +715,11 @@ pub(super) fn ensure_const_expr(
             {
                 Ok(())
             } else {
-                Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Const initializer must be a compile-time constant", Some(expr.span),))
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Const initializer must be a compile-time constant",
+                    Some(expr.span),
+                ))
             }
         }
         ExprKind::MemberAccess { object, field } => {
@@ -586,7 +730,11 @@ pub(super) fn ensure_const_expr(
             {
                 Ok(())
             } else {
-                Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Const initializer must be a compile-time constant", Some(expr.span),))
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Const initializer must be a compile-time constant",
+                    Some(expr.span),
+                ))
             }
         }
         ExprKind::Unary { expr, .. } => ensure_const_expr(expr, symbols, types),
@@ -602,7 +750,11 @@ pub(super) fn ensure_const_expr(
         | ExprKind::Call { .. }
         | ExprKind::NamedArg { .. }
         | ExprKind::TypeOfIs { .. }
-        | ExprKind::MemberCall { .. } => Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Const initializer must be a compile-time constant", Some(expr.span),)),
+        | ExprKind::MemberCall { .. } => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Const initializer must be a compile-time constant",
+            Some(expr.span),
+        )),
     }
 }
 
@@ -664,7 +816,11 @@ pub(super) fn validate_function(
     )?;
 
     if !saw_return {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Function '{}' must return a value", function.name), Some(function.span),));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            format!("Function '{}' must return a value", function.name),
+            Some(function.span),
+        ));
     }
 
     Ok(())
@@ -677,7 +833,11 @@ pub(super) fn add_parameters(
     for param in params {
         let param_key = key(&param.name);
         if symbols.contains_key(&param_key) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION, format!("Parameter '{}' is already declared", param.name), Some(param.span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Parameter '{}' is already declared", param.name),
+                Some(param.span),
+            ));
         }
         let var_type = if param.is_param_array {
             VarType::Array(param.ty.clone())

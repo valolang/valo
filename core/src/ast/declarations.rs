@@ -4,6 +4,7 @@ use super::Stmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
+    pub imports: Vec<ImportDecl>,
     pub option_explicit: bool,
     pub option_base: i64,
     pub option_compare: OptionCompare,
@@ -14,6 +15,13 @@ pub struct Program {
     pub classes: Vec<ClassDecl>,
     pub procedures: Vec<Procedure>,
     pub functions: Vec<Function>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportDecl {
+    pub module: String,
+    pub alias: Option<String>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -58,6 +66,7 @@ pub struct EnumMemberDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeDecl {
+    pub visibility: Visibility,
     pub name: String,
     pub fields: Vec<FieldDecl>,
     pub span: Span,
@@ -72,6 +81,7 @@ pub struct FieldDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
+    pub visibility: Visibility,
     pub name: String,
     pub members: Vec<ClassMember>,
     pub span: Span,
@@ -142,6 +152,7 @@ pub enum Visibility {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Procedure {
+    pub visibility: Visibility,
     pub name: String,
     pub params: Vec<Parameter>,
     pub body: Vec<Stmt>,
@@ -150,6 +161,7 @@ pub struct Procedure {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
+    pub visibility: Visibility,
     pub name: String,
     pub params: Vec<Parameter>,
     pub return_type: TypeName,

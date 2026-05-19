@@ -7,6 +7,7 @@ impl Parser {
         let mut saw_option_base = false;
         let mut option_compare = OptionCompare::Binary;
         let mut saw_option_compare = false;
+        let mut imports = Vec::new();
         let mut types = Vec::new();
         let mut enums = Vec::new();
         let mut module_vars = Vec::new();
@@ -19,7 +20,8 @@ impl Parser {
         while !self.is_at_end() {
             match self.peek_kind() {
                 TokenKind::Option => {
-                    if !types.is_empty()
+                    if !imports.is_empty()
+                        || !types.is_empty()
                         || !enums.is_empty()
                         || !module_vars.is_empty()
                         || !module_consts.is_empty()
@@ -44,12 +46,20 @@ impl Parser {
                         }
                         let token = self.advance();
                         let TokenKind::Integer(value) = token.kind else {
-                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::OPTION, "Option Base must be 0 or 1", Some(token.span),)
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::OPTION,
+                                "Option Base must be 0 or 1",
+                                Some(token.span),
+                            )
                             .with_primary_label("invalid Option Base value")
                             .with_help("use either 'Option Base 0' or 'Option Base 1'"));
                         };
                         if value != 0 && value != 1 {
-                            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::OPTION, "Option Base must be 0 or 1", Some(token.span),)
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::OPTION,
+                                "Option Base must be 0 or 1",
+                                Some(token.span),
+                            )
                             .with_primary_label("invalid Option Base value")
                             .with_help("use either 'Option Base 0' or 'Option Base 1'"));
                         }
@@ -73,14 +83,15 @@ impl Parser {
                         return Err(self.error_here("Option must be Explicit, Base, or Compare"));
                     }
                 }
-                TokenKind::Type => types.push(self.parse_type_decl()?),
+                TokenKind::Import => imports.push(self.parse_import_decl()?),
+                TokenKind::Type => types.push(self.parse_type_decl(Visibility::Public)?),
                 TokenKind::Enum => enums.push(self.parse_enum_decl(Visibility::Public)?),
                 TokenKind::Const => {
                     module_consts.push(self.parse_module_const(Visibility::Private)?)
                 }
-                TokenKind::Class => classes.push(self.parse_class_decl()?),
-                TokenKind::Sub => procedures.push(self.parse_procedure()?),
-                TokenKind::Function => functions.push(self.parse_function()?),
+                TokenKind::Class => classes.push(self.parse_class_decl(Visibility::Public)?),
+                TokenKind::Sub => procedures.push(self.parse_procedure(Visibility::Public)?),
+                TokenKind::Function => functions.push(self.parse_function(Visibility::Public)?),
                 TokenKind::Identifier(_) => {
                     module_vars.push(self.parse_module_var(Visibility::Private)?);
                 }
@@ -90,6 +101,14 @@ impl Parser {
                         enums.push(self.parse_enum_decl(visibility)?);
                     } else if self.check_simple(&TokenKind::Const) {
                         module_consts.push(self.parse_module_const(visibility)?);
+                    } else if self.check_simple(&TokenKind::Type) {
+                        types.push(self.parse_type_decl(visibility)?);
+                    } else if self.check_simple(&TokenKind::Class) {
+                        classes.push(self.parse_class_decl(visibility)?);
+                    } else if self.check_simple(&TokenKind::Sub) {
+                        procedures.push(self.parse_procedure(visibility)?);
+                    } else if self.check_simple(&TokenKind::Function) {
+                        functions.push(self.parse_function(visibility)?);
                     } else if matches!(self.peek_kind(), TokenKind::Identifier(_)) {
                         module_vars.push(self.parse_module_var(visibility)?);
                     } else {
@@ -106,6 +125,7 @@ impl Parser {
         }
 
         Ok(Program {
+            imports,
             option_explicit,
             option_base,
             option_compare,

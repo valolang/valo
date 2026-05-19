@@ -89,4 +89,3 @@ End Sub
 
     assert_eq!(output, vec!["True", "True", "True", "True", "True", "True"]);
 }
-

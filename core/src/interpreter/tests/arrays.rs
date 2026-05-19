@@ -524,4 +524,3 @@ End Sub
     );
     assert!(type_conflict.contains("conflicts with existing Type"));
 }
-

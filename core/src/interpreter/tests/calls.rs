@@ -33,4 +33,3 @@ End Sub
 
     assert_eq!(output, vec!["Valo"]);
 }
-

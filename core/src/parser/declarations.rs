@@ -2,7 +2,29 @@ use super::*;
 use crate::runtime::{Diagnostic, Span, TypeName};
 
 impl Parser {
-    pub(super) fn parse_class_decl(&mut self) -> Result<ClassDecl, Diagnostic> {
+    pub(super) fn parse_import_decl(&mut self) -> Result<ImportDecl, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Import, "Expected 'Import'")?
+            .span;
+        let module = self.expect_identifier("Expected module name after 'Import'")?;
+        let alias = if self.match_simple(&TokenKind::As) {
+            Some(self.expect_identifier("Expected import alias after 'As'")?)
+        } else {
+            None
+        };
+        let end = self.previous().span;
+        self.expect_statement_end("Expected newline after Import declaration")?;
+        Ok(ImportDecl {
+            module,
+            alias,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    pub(super) fn parse_class_decl(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<ClassDecl, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Class, "Expected 'Class'")?
             .span;
@@ -23,6 +45,7 @@ impl Parser {
         self.consume_statement_end();
 
         Ok(ClassDecl {
+            visibility,
             name,
             members,
             span: Span::new(start.start, end.end),
@@ -45,11 +68,11 @@ impl Parser {
             }
             TokenKind::Sub => Ok(ClassMember::Sub(ClassSub {
                 visibility,
-                procedure: self.parse_procedure()?,
+                procedure: self.parse_procedure(visibility)?,
             })),
             TokenKind::Function => Ok(ClassMember::Function(ClassFunction {
                 visibility,
-                function: self.parse_function()?,
+                function: self.parse_function(visibility)?,
             })),
             TokenKind::Property => Ok(ClassMember::Property(
                 self.parse_property(visibility, is_default)?,
@@ -233,10 +256,18 @@ impl Parser {
             } else {
                 let size_token = self.advance();
                 let TokenKind::Integer(size) = size_token.kind else {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array size must be an Integer literal", Some(size_token.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        "Array size must be an Integer literal",
+                        Some(size_token.span),
+                    ));
                 };
                 if size < 0 {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array size must be non-negative", Some(size_token.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        "Array size must be non-negative",
+                        Some(size_token.span),
+                    ));
                 }
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
                 Some(ArrayDecl::Fixed(size))
@@ -261,7 +292,10 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_type_decl(&mut self) -> Result<TypeDecl, Diagnostic> {
+    pub(super) fn parse_type_decl(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<TypeDecl, Diagnostic> {
         let start = self.expect_simple(TokenKind::Type, "Expected 'Type'")?.span;
         let name = self.expect_identifier("Expected type name after 'Type'")?;
         self.expect_newline("Expected newline after Type declaration")?;
@@ -290,13 +324,17 @@ impl Parser {
         self.consume_statement_end();
 
         Ok(TypeDecl {
+            visibility,
             name,
             fields,
             span: Span::new(start.start, end.end),
         })
     }
 
-    pub(super) fn parse_procedure(&mut self) -> Result<Procedure, Diagnostic> {
+    pub(super) fn parse_procedure(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<Procedure, Diagnostic> {
         let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
         let name = self.expect_identifier("Expected procedure name after 'Sub'")?;
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after procedure name")?;
@@ -315,6 +353,7 @@ impl Parser {
         self.consume_statement_end();
 
         Ok(Procedure {
+            visibility,
             name,
             params,
             body,
@@ -322,7 +361,10 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_function(&mut self) -> Result<Function, Diagnostic> {
+    pub(super) fn parse_function(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<Function, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Function, "Expected 'Function'")?
             .span;
@@ -345,6 +387,7 @@ impl Parser {
         self.consume_statement_end();
 
         Ok(Function {
+            visibility,
             name,
             params,
             return_type,
@@ -395,7 +438,11 @@ impl Parser {
                 None
             };
             if is_param_array && (!array || ty != TypeName::Variant) {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "ParamArray must be declared as Variant()", Some(Span::new(start.start, self.previous().span.end)),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    "ParamArray must be declared as Variant()",
+                    Some(Span::new(start.start, self.previous().span.end)),
+                ));
             }
             let end = self.previous().span;
             params.push(Parameter {
@@ -424,7 +471,11 @@ impl Parser {
             TokenKind::BooleanType => Ok(TypeName::Boolean),
             TokenKind::VariantType => Ok(TypeName::Variant),
             TokenKind::Identifier(name) => Ok(TypeName::User(name)),
-            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected type name", Some(token.span))),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                "Expected type name",
+                Some(token.span),
+            )),
         }
     }
 }

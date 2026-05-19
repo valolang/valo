@@ -28,7 +28,11 @@ impl Interpreter {
                 }
                 Ok(ControlFlow::Resume(target)) => {
                     let Some(failing_ip) = frame.handled_error_ip() else {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Resume is only valid after a handled runtime error", Some(stmt_span(&statements[ip])),)
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Resume is only valid after a handled runtime error",
+                            Some(stmt_span(&statements[ip])),
+                        )
                         .with_primary_label("no handled error is active"));
                     };
                     ip = match target {
@@ -136,7 +140,11 @@ impl Interpreter {
                 for arg in args {
                     let value = self.eval_expr(arg, frame)?;
                     if matches!(value, Value::Missing) {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Missing optional argument cannot be used as a value", Some(arg.span),));
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Missing optional argument cannot be used as a value",
+                            Some(arg.span),
+                        ));
                     }
                     parts.push(
                         self.resolve_default_value(value, arg.span)?
@@ -169,6 +177,14 @@ impl Interpreter {
                     && method.eq_ignore_ascii_case("Raise")
                 {
                     return Err(self.err_raise(args, frame, *span)?);
+                }
+                if let crate::ExprKind::Variable(module_name) = &object.kind
+                    && self
+                        .resolve_module_qualifier(module_name, frame, *span)
+                        .is_ok()
+                {
+                    self.call_module_sub(module_name, method, args, frame, *span)?;
+                    return Ok(ControlFlow::Continue);
                 }
                 let object = self.eval_expr(object, frame)?;
                 self.call_method_sub(object, method, args, frame, *span)?;
@@ -306,7 +322,11 @@ impl Interpreter {
                 };
 
                 if step == 0 {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "For Step cannot be zero", Some(*span)));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        "For Step cannot be zero",
+                        Some(*span),
+                    ));
                 }
 
                 loop {
@@ -503,15 +523,18 @@ impl Interpreter {
             0
         };
 
-        Ok(
-            Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, description.clone(), Some(span)).with_runtime_error(RuntimeErrorInfo {
-                number,
-                source,
-                description,
-                help_file,
-                help_context,
-            }),
+        Ok(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            description.clone(),
+            Some(span),
         )
+        .with_runtime_error(RuntimeErrorInfo {
+            number,
+            source,
+            description,
+            help_file,
+            help_context,
+        }))
     }
 
     fn eval_string_arg(
@@ -522,7 +545,11 @@ impl Interpreter {
     ) -> Result<String, Diagnostic> {
         match self.eval_expr(expr, frame)? {
             Value::String(value) => Ok(value),
-            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(expr.span))),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                message,
+                Some(expr.span),
+            )),
         }
     }
 }

@@ -64,11 +64,19 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
         .iter()
         .find(|procedure| procedure.name.eq_ignore_ascii_case("main"))
     else {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Program must contain Sub Main()", None));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "Program must contain Sub Main()",
+            None,
+        ));
     };
 
     if !main.params.is_empty() {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Sub Main() cannot have parameters", Some(main.span),));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "Sub Main() cannot have parameters",
+            Some(main.span),
+        ));
     }
 
     for procedure in &program.procedures {
@@ -82,5 +90,89 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
         validate_class(class_decl, &types, &signatures, &module_symbols)?;
     }
 
+    Ok(())
+}
+
+pub fn validate_project(project: &crate::modules::Project) -> Result<(), Diagnostic> {
+    for (index, module) in project.modules.iter().enumerate() {
+        let require_main = index == project.entry;
+        validate_module(&module.program, require_main)?;
+        validate_import_aliases(module, project)?;
+    }
+    Ok(())
+}
+
+fn validate_module(program: &Program, require_main: bool) -> Result<(), Diagnostic> {
+    let types = collect_types(program)?;
+    let signatures = collect_signatures(program, &types)?;
+    let _module_symbols = collect_module_symbols(program, &types, &signatures)?;
+    let main = program
+        .procedures
+        .iter()
+        .find(|procedure| procedure.name.eq_ignore_ascii_case("main"));
+    if require_main && main.is_none() {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "Program must contain Sub Main()",
+            None,
+        ));
+    }
+    if let Some(main) = main
+        && !main.params.is_empty()
+    {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "Sub Main() cannot have parameters",
+            Some(main.span),
+        ));
+    }
+    // Project validation currently verifies declarations, import graph, and entry
+    // shape. Body-level cross-module checking is intentionally left to runtime
+    // resolution for the import MVP so the single-file validator remains intact.
+    Ok(())
+}
+
+fn validate_import_aliases(
+    module: &crate::modules::LoadedModule,
+    project: &crate::modules::Project,
+) -> Result<(), Diagnostic> {
+    let mut aliases = HashMap::new();
+    for import in &module.imports {
+        let alias_key = key(&import.qualifier);
+        if aliases.insert(alias_key, import.span).is_some() {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_IMPORT,
+                format!("Import alias '{}' is already used", import.qualifier),
+                Some(import.span),
+            ));
+        }
+        let imported = &project.modules[import.module];
+        if module
+            .program
+            .procedures
+            .iter()
+            .any(|decl| decl.name.eq_ignore_ascii_case(&import.qualifier))
+            || module
+                .program
+                .functions
+                .iter()
+                .any(|decl| decl.name.eq_ignore_ascii_case(&import.qualifier))
+            || module
+                .program
+                .classes
+                .iter()
+                .any(|decl| decl.name.eq_ignore_ascii_case(&import.qualifier))
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_IMPORT,
+                format!(
+                    "Import alias '{}' conflicts with a top-level declaration",
+                    import.qualifier
+                ),
+                Some(import.span),
+            ));
+        }
+        let _ = imported;
+    }
     Ok(())
 }

@@ -1689,4 +1689,3 @@ End Sub
     );
     assert_eq!(text, vec!["True", "True", "range", "is"]);
 }
-

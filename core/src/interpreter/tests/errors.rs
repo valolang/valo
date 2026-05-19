@@ -496,4 +496,3 @@ End Sub
     );
     assert!(unexpected_end.contains("Unexpected '#End If'"));
 }
-

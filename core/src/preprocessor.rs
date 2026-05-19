@@ -69,9 +69,11 @@ pub fn preprocess(source: &str) -> Result<String, Diagnostic> {
         } else {
             "Missing '#End If' for conditional compilation block"
         };
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(span))
-            .with_primary_label("conditional compilation block is not closed")
-            .with_help("add '#End If' for this conditional block"));
+        return Err(
+            Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(span))
+                .with_primary_label("conditional compilation block is not closed")
+                .with_help("add '#End If' for this conditional block"),
+        );
     }
 
     Ok(join_line_continuations(&output))
@@ -230,12 +232,20 @@ fn parse_option_compare_line(line: &str) -> Option<Result<OptionCompare, Diagnos
     }
     let mode = parts.next();
     if parts.next().is_some() {
-        return Some(Err(Diagnostic::new(crate::runtime::DiagnosticCode::OPTION, "Option Compare must be Binary or Text", None,)));
+        return Some(Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::OPTION,
+            "Option Compare must be Binary or Text",
+            None,
+        )));
     }
     Some(match mode {
         Some(mode) if mode.eq_ignore_ascii_case("Binary") => Ok(OptionCompare::Binary),
         Some(mode) if mode.eq_ignore_ascii_case("Text") => Ok(OptionCompare::Text),
-        _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::OPTION, "Option Compare must be Binary or Text", None,)),
+        _ => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::OPTION,
+            "Option Compare must be Binary or Text",
+            None,
+        )),
     })
 }
 
@@ -271,7 +281,12 @@ fn key(name: &str) -> String {
 
 fn diagnostic(line: usize, column: usize, message: &str) -> Diagnostic {
     let pos = SourcePos::new(line, column);
-    Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(Span::new(pos, pos))).with_primary_label(message)
+    Diagnostic::new(
+        crate::runtime::DiagnosticCode::GENERIC,
+        message,
+        Some(Span::new(pos, pos)),
+    )
+    .with_primary_label(message)
 }
 
 impl ConstValue {

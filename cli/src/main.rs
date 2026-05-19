@@ -1,6 +1,6 @@
 use std::{env, fs, process};
 
-use valo_core::run_source;
+use valo_core::run_file;
 
 fn main() {
     if let Err(error) = real_main() {
@@ -25,9 +25,10 @@ fn real_main() -> Result<(), String> {
                 return Err(usage());
             }
 
-            let source =
-                fs::read_to_string(&path).map_err(|err| format!("failed to read {path}: {err}"))?;
-            let output = run_source(&source).map_err(|err| err.render(&path, &source))?;
+            let output = run_file(&path).map_err(|err| {
+                let source = fs::read_to_string(&path).unwrap_or_default();
+                err.render(&path, &source)
+            })?;
 
             for line in output {
                 println!("{line}");

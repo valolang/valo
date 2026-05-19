@@ -22,7 +22,11 @@ impl Interpreter {
     ) -> Result<(), Diagnostic> {
         let source = frame.get("me", span)?;
         let Value::Object(source) = source else {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, "RaiseEvent is only valid inside class methods", Some(span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "RaiseEvent is only valid inside class methods",
+                Some(span),
+            ));
         };
         let class_name = source.borrow().class_name.clone();
         let class = self
@@ -30,10 +34,18 @@ impl Interpreter {
             .get(&key(&class_name))
             .cloned()
             .ok_or_else(|| {
-                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(span))
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Class '{}' is not defined", class_name),
+                    Some(span),
+                )
             })?;
         if !class.events.contains_key(&key(name)) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Class '{}' has no event '{}'", class.name, name), Some(span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                format!("Class '{}' has no event '{}'", class.name, name),
+                Some(span),
+            ));
         }
         let mut values = Vec::new();
         for arg in args {
@@ -62,7 +74,11 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, Diagnostic> {
         let class = self.classes.get(&key(class_name)).cloned().ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(span))
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Class '{}' is not defined", class_name),
+                Some(span),
+            )
         })?;
         let mut fields = HashMap::new();
         for field in &class.fields {
@@ -79,7 +95,11 @@ impl Interpreter {
         if let Some(init) = class.subs.get("initialize") {
             self.call_method_sub(object.clone(), &init.name, args, caller_frame, span)?;
         } else if !args.is_empty() {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Class '{}' has no Initialize constructor", class.name), Some(span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                format!("Class '{}' has no Initialize constructor", class.name),
+                Some(span),
+            ));
         }
         Ok(object)
     }
@@ -95,9 +115,13 @@ impl Interpreter {
             return read_field_member(value, member, span);
         }
         if matches!(value, Value::Nothing) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, "Object reference is Nothing", Some(span))
-                .with_primary_label("attempted to access a member on Nothing")
-                .with_help("assign an object before accessing its members"));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Object reference is Nothing",
+                Some(span),
+            )
+            .with_primary_label("attempted to access a member on Nothing")
+            .with_help("assign an object before accessing its members"));
         }
         if matches!(value, Value::Object(_)) {
             return self.call_property_get(value.clone(), member, span);
@@ -124,7 +148,11 @@ impl Interpreter {
             }
             ExprKind::Call { name, args } => {
                 if args.len() != 1 {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array access requires exactly one index", Some(target.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        "Array access requires exactly one index",
+                        Some(target.span),
+                    ));
                 }
                 let index = frame.simple_index_value(&args[0], span)?;
                 let variable = frame.variable(name, target.span)?;
@@ -231,10 +259,18 @@ pub(crate) fn ensure_object(
 ) -> Result<Rc<RefCell<ObjectValue>>, Diagnostic> {
     match value {
         Value::Object(object) => Ok(object),
-        Value::Nothing => Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, "Object reference is Nothing", Some(span))
-            .with_primary_label("attempted to call a method on Nothing")
-            .with_help("assign an object before calling its methods")),
-        _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Method call requires an object", Some(span),)),
+        Value::Nothing => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            "Object reference is Nothing",
+            Some(span),
+        )
+        .with_primary_label("attempted to call a method on Nothing")
+        .with_help("assign an object before calling its methods")),
+        _ => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Method call requires an object",
+            Some(span),
+        )),
     }
 }
 

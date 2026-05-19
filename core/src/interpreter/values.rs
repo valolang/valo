@@ -21,14 +21,22 @@ pub(crate) fn eval_binary(
         BinaryOp::Divide => {
             let (a, b) = expect_integers(left, right, span)?;
             if b == 0 {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Division by zero", Some(span)));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "Division by zero",
+                    Some(span),
+                ));
             }
             Ok(Value::Integer(a / b))
         }
         BinaryOp::Modulo => {
             let (a, b) = expect_integers(left, right, span)?;
             if b == 0 {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Modulo by zero", Some(span)));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "Modulo by zero",
+                    Some(span),
+                ));
             }
             Ok(Value::Integer(a % b))
         }
@@ -57,7 +65,11 @@ fn like_values(
     span: Span,
 ) -> Result<Value, Diagnostic> {
     let (Value::String(mut value), Value::String(mut pattern)) = (left, right) else {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Like requires String operands", Some(span)));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Like requires String operands",
+            Some(span),
+        ));
     };
     if compare == OptionCompare::Text {
         value = value.to_ascii_lowercase();
@@ -160,7 +172,11 @@ fn integer_binary(
 fn expect_integers(left: Value, right: Value, span: Span) -> Result<(i64, i64), Diagnostic> {
     match (left, right) {
         (Value::Integer(a), Value::Integer(b)) => Ok((a, b)),
-        _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Arithmetic operators require Integer operands", Some(span),)),
+        _ => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "Arithmetic operators require Integer operands",
+            Some(span),
+        )),
     }
 }
 
@@ -174,7 +190,11 @@ fn logical_or_bitwise(
     match (left, right) {
         (Value::Boolean(a), Value::Boolean(b)) => Ok(Value::Boolean(bool_op(a, b))),
         (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(int_op(a, b))),
-        _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Logical operators require Boolean or Integer operands", Some(span),)),
+        _ => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "Logical operators require Boolean or Integer operands",
+            Some(span),
+        )),
     }
 }
 
@@ -195,7 +215,11 @@ fn compare_values(
             }
         }
         _ => {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Comparison requires matching Integer or String operands", Some(span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Comparison requires matching Integer or String operands",
+                Some(span),
+            ));
         }
     };
 
@@ -242,9 +266,13 @@ pub(crate) fn default_value(
     if enums.contains_key(&key(name)) {
         return Ok(Value::Integer(0));
     }
-    let type_def = types
-        .get(&key(name))
-        .ok_or_else(|| Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Type '{}' is not defined", name), Some(span)));
+    let type_def = types.get(&key(name)).ok_or_else(|| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+            format!("Type '{}' is not defined", name),
+            Some(span),
+        )
+    });
     let Ok(type_def) = type_def else {
         return Ok(Value::Nothing);
     };
@@ -268,7 +296,11 @@ pub(crate) fn coerce_assignment(
     span: Span,
 ) -> Result<Value, Diagnostic> {
     if matches!(value, Value::Missing) {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Missing optional argument cannot be used as a value", Some(span),));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "Missing optional argument cannot be used as a value",
+            Some(span),
+        ));
     }
     if matches!(value, Value::Nothing) && matches!(ty, TypeName::User(_)) {
         return Ok(value);
@@ -279,11 +311,15 @@ pub(crate) fn coerce_assignment(
     if ty.same_type(&TypeName::Variant) || ty.same_type(&value.type_name()) {
         Ok(value)
     } else {
-        Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, format!(
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
                 "Cannot assign {} value to {} variable",
                 value.type_name().display_name(),
                 ty.display_name()
-            ), Some(span),)
+            ),
+            Some(span),
+        )
         .with_primary_label(format!(
             "expected {}, found {}",
             ty.display_name(),

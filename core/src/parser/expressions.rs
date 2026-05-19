@@ -207,7 +207,11 @@ impl Parser {
             TokenKind::Dot => {
                 let field_token = self.advance();
                 let TokenKind::Identifier(field) = field_token.kind else {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected member name after '.'", Some(field_token.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "Expected member name after '.'",
+                        Some(field_token.span),
+                    ));
                 };
                 let object = Expr {
                     kind: ExprKind::WithTarget,
@@ -253,7 +257,13 @@ impl Parser {
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after expression")?;
                 return Ok(expr);
             }
-            _ => return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected expression", Some(span))),
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected expression",
+                    Some(span),
+                ));
+            }
         };
 
         let expr = Expr { kind, span };
@@ -264,7 +274,11 @@ impl Parser {
         while self.match_simple(&TokenKind::Dot) {
             let field_token = self.advance();
             let TokenKind::Identifier(field) = field_token.kind else {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected field name after '.'", Some(field_token.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected field name after '.'",
+                    Some(field_token.span),
+                ));
             };
             let span = Span::new(expr.span.start, field_token.span.end);
             if self.match_simple(&TokenKind::LeftParen) {
@@ -306,7 +320,11 @@ impl Parser {
                 if matches!(arg.kind, ExprKind::NamedArg { .. }) {
                     saw_named = true;
                 } else if saw_named {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Positional arguments cannot appear after named arguments", Some(arg.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        "Positional arguments cannot appear after named arguments",
+                        Some(arg.span),
+                    ));
                 }
                 args.push(arg);
                 if !self.match_simple(&TokenKind::Comma) {

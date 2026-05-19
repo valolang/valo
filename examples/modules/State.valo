@@ -1,0 +1,13 @@
+Private Total As Integer
+
+Public Sub Increment()
+    Total = Total + 1
+End Sub
+
+Public Function Count() As Integer
+    Return Total
+End Function
+
+Sub Main()
+    Console.WriteLine(999)
+End Sub

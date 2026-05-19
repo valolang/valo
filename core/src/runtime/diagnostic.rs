@@ -198,8 +198,12 @@ impl DiagnosticCode {
     pub const CONTROL_FLOW: Self = Self("V1300");
     pub const MEMBER_ACCESS: Self = Self("V1400");
     pub const SELECT_CASE: Self = Self("V1500");
+    pub const MODULE_NOT_FOUND: Self = Self("V1600");
+    pub const DUPLICATE_IMPORT: Self = Self("V1601");
+    pub const IMPORT_CYCLE: Self = Self("V1602");
+    pub const AMBIGUOUS_IMPORT: Self = Self("V1603");
+    pub const CASE_COLLISION: Self = Self("V1604");
     pub const RUNTIME: Self = Self("V9000");
-
 }
 
 impl fmt::Display for DiagnosticCode {
@@ -305,12 +309,16 @@ mod tests {
     fn renders_code_labels_notes_and_help() {
         let span = Span::new(SourcePos::new(2, 5), SourcePos::new(2, 8));
         let other = Span::new(SourcePos::new(1, 1), SourcePos::new(1, 4));
-        let diagnostic = Diagnostic::new(DiagnosticCode::GENERIC, "cannot assign String to Integer", Some(span))
-            .with_code(DiagnosticCode::TYPE_MISMATCH)
-            .with_primary_label("expected Integer, found String")
-            .with_secondary_label(other, "variable declared here")
-            .with_note("assignment types must match")
-            .with_help("change the variable type or assign an Integer value");
+        let diagnostic = Diagnostic::new(
+            DiagnosticCode::GENERIC,
+            "cannot assign String to Integer",
+            Some(span),
+        )
+        .with_code(DiagnosticCode::TYPE_MISMATCH)
+        .with_primary_label("expected Integer, found String")
+        .with_secondary_label(other, "variable declared here")
+        .with_note("assignment types must match")
+        .with_help("change the variable type or assign an Integer value");
 
         let rendered = diagnostic.render("test.valo", "Dim age As Integer\n    age = \"Valo\"");
 

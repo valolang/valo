@@ -13,6 +13,7 @@ pub enum TokenKind {
     Integer(i64),
     Sub,
     Function,
+    Import,
     Const,
     Option,
     Explicit,

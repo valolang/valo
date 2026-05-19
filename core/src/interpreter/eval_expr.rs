@@ -16,7 +16,11 @@ impl Interpreter {
             ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
             ExprKind::Nothing => Ok(Value::Nothing),
             ExprKind::Missing => Ok(Value::Missing),
-            ExprKind::NamedArg { .. } => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Named arguments are only valid inside call argument lists", Some(expr.span),)),
+            ExprKind::NamedArg { .. } => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Named arguments are only valid inside call argument lists",
+                Some(expr.span),
+            )),
             ExprKind::TypeOfIs {
                 expr: object_expr,
                 class_name,
@@ -28,7 +32,11 @@ impl Interpreter {
                     }
                     Value::Nothing => false,
                     _ => {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "TypeOf requires a class object", Some(object_expr.span),));
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                            "TypeOf requires a class object",
+                            Some(object_expr.span),
+                        ));
                     }
                 };
                 Ok(Value::Boolean(result))
@@ -85,9 +93,33 @@ impl Interpreter {
                         .members
                         .get(&super::values::key(field))
                         .ok_or_else(|| {
-                            Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Enum '{}' has no member '{}'", enum_.name, field), Some(expr.span),)
+                            Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!("Enum '{}' has no member '{}'", enum_.name, field),
+                                Some(expr.span),
+                            )
                         })?;
                     return Ok(Value::Integer(*value));
+                }
+                if let ExprKind::Variable(module_name) = &object.kind
+                    && let Ok(module_key) =
+                        self.resolve_module_qualifier(module_name, frame, expr.span)
+                    && let Some(module_frame) = self.module_frames.get(&module_key)
+                    && let Ok(value) = module_frame.get(field, expr.span)
+                {
+                    if frame.module_key() != Some(module_key.as_str())
+                        && !self
+                            .public_values
+                            .get(&module_key)
+                            .is_some_and(|values| values.contains(&super::values::key(field)))
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                            format!("Module member '{}.{}' is Private", module_name, field),
+                            Some(expr.span),
+                        ));
+                    }
+                    return Ok(value);
                 }
                 let object = self.eval_expr(object, frame)?;
                 self.read_member(&object, field, frame, expr.span)
@@ -95,14 +127,22 @@ impl Interpreter {
             ExprKind::Call { name, args } => {
                 if name.eq_ignore_ascii_case("IsMissing") {
                     if args.len() != 1 {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "IsMissing expects exactly one argument", Some(expr.span),));
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "IsMissing expects exactly one argument",
+                            Some(expr.span),
+                        ));
                     }
                     let value = self.eval_expr(&args[0], frame)?;
                     return Ok(Value::Boolean(matches!(value, Value::Missing)));
                 }
                 if name.eq_ignore_ascii_case("LBound") || name.eq_ignore_ascii_case("UBound") {
                     if args.len() != 1 {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("{} expects exactly one argument", name), Some(expr.span),));
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            format!("{} expects exactly one argument", name),
+                            Some(expr.span),
+                        ));
                     }
                     let value = self.eval_expr(&args[0], frame)?;
                     let bound = if name.eq_ignore_ascii_case("LBound") {
@@ -114,7 +154,11 @@ impl Interpreter {
                 }
                 if frame.has_variable(name) {
                     if args.len() != 1 {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array access requires exactly one index", Some(expr.span),));
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "Array access requires exactly one index",
+                            Some(expr.span),
+                        ));
                     }
                     let index =
                         self.eval_integer_expr(&args[0], frame, "Array index must be Integer")?;
@@ -127,6 +171,13 @@ impl Interpreter {
                 method,
                 args,
             } => {
+                if let ExprKind::Variable(module_name) = &object.kind
+                    && self
+                        .resolve_module_qualifier(module_name, frame, expr.span)
+                        .is_ok()
+                {
+                    return self.call_module_function(module_name, method, args, frame, expr.span);
+                }
                 let object = self.eval_expr(object, frame)?;
                 self.call_method_function(object, method, args, frame, expr.span)
             }
@@ -134,20 +185,36 @@ impl Interpreter {
                 let value = self.eval_expr(inner, frame)?;
                 match (op, value) {
                     (UnaryOp::Negate, Value::Integer(value)) => Ok(Value::Integer(-value)),
-                    (UnaryOp::Negate, _) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Unary '-' requires an Integer expression", Some(expr.span),)),
+                    (UnaryOp::Negate, _) => Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        "Unary '-' requires an Integer expression",
+                        Some(expr.span),
+                    )),
                     (UnaryOp::LogicalNot, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
-                    (UnaryOp::LogicalNot, _) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Not requires a Boolean expression", Some(expr.span),)),
+                    (UnaryOp::LogicalNot, _) => Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        "Not requires a Boolean expression",
+                        Some(expr.span),
+                    )),
                 }
             }
             ExprKind::Binary { left, op, right } => {
                 let left_value = self.eval_expr(left, frame)?;
                 if matches!(left_value, Value::Missing) {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Missing optional argument cannot be used as a value", Some(left.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        "Missing optional argument cannot be used as a value",
+                        Some(left.span),
+                    ));
                 }
                 let left = self.resolve_default_value(left_value, expr.span)?;
                 let right_value = self.eval_expr(right, frame)?;
                 if matches!(right_value, Value::Missing) {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Missing optional argument cannot be used as a value", Some(right.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        "Missing optional argument cannot be used as a value",
+                        Some(right.span),
+                    ));
                 }
                 let right = self.resolve_default_value(right_value, expr.span)?;
                 eval_binary(left, *op, right, self.option_compare, expr.span)
@@ -181,7 +248,11 @@ impl Interpreter {
     ) -> Result<i64, Diagnostic> {
         match self.eval_expr(expr, frame)? {
             Value::Integer(value) => Ok(value),
-            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(expr.span))),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                message,
+                Some(expr.span),
+            )),
         }
     }
 }

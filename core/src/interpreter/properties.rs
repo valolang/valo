@@ -19,14 +19,22 @@ impl Interpreter {
             .get(&key(&class_name))
             .cloned()
             .ok_or_else(|| {
-                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(span))
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Class '{}' is not defined", class_name),
+                    Some(span),
+                )
             })?;
         let accessor = class
             .properties
             .get(&key(property))
             .and_then(|property| property.get.clone())
             .ok_or_else(|| {
-                Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Property '{}' has no Get accessor", property), Some(span),)
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!("Property '{}' has no Get accessor", property),
+                    Some(span),
+                )
             })?;
         let mut frame = Frame::default();
         // Property frames see module-level state like Sub and Function calls.
@@ -41,14 +49,30 @@ impl Interpreter {
                 value,
                 span,
             ),
-            ControlFlow::Continue => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Property Get '{}' must return a value", accessor.name), Some(accessor.span),)),
-            ControlFlow::ExitSub => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Sub is only valid inside Sub", Some(accessor.span),)),
-            ControlFlow::ExitFunction => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Function is only valid inside Function", Some(accessor.span),)),
+            ControlFlow::Continue => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                format!("Property Get '{}' must return a value", accessor.name),
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Sub is only valid inside Sub",
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Function is only valid inside Function",
+                Some(accessor.span),
+            )),
             ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
-            | ControlFlow::Resume(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit statement escaped its block", Some(span),)),
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
         }
     }
 
@@ -66,13 +90,21 @@ impl Interpreter {
             .get(&key(&class_name))
             .cloned()
             .ok_or_else(|| {
-                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(span))
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Class '{}' is not defined", class_name),
+                    Some(span),
+                )
             })?;
         let property_sig = class.properties.get(&key(property)).ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!(
                     "Class '{}' has no field or property '{}'",
                     class.name, property
-                ), Some(span),)
+                ),
+                Some(span),
+            )
         })?;
         let accessor = if matches!(value, Value::Object(_) | Value::Nothing) {
             property_sig.set.as_ref().or(property_sig.let_.as_ref())
@@ -81,13 +113,21 @@ impl Interpreter {
         }
         .cloned()
         .ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Property '{}' has no Let or Set accessor", property), Some(span),)
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Property '{}' has no Let or Set accessor", property),
+                Some(span),
+            )
         })?;
         let Some(param) = accessor.params.first() else {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!(
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!(
                     "Property {:?} '{}' expects one parameter",
                     accessor.kind, property
-                ), Some(accessor.span),));
+                ),
+                Some(accessor.span),
+            ));
         };
         let mut frame = Frame::default();
         frame.declare_object_alias("me", &class.name, instance, span)?;
@@ -107,14 +147,30 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Continue => Ok(()),
-            ControlFlow::Return(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Return is only allowed inside Function or Property Get", Some(accessor.span),)),
-            ControlFlow::ExitSub => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Sub is only valid inside Sub", Some(accessor.span),)),
-            ControlFlow::ExitFunction => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Function is only valid inside Function", Some(accessor.span),)),
+            ControlFlow::Return(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Return is only allowed inside Function or Property Get",
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Sub is only valid inside Sub",
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Function is only valid inside Function",
+                Some(accessor.span),
+            )),
             ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
-            | ControlFlow::Resume(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit statement escaped its block", Some(span),)),
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
         }
     }
 }

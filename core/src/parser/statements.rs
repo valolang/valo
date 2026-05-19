@@ -105,10 +105,18 @@ impl Parser {
             } else {
                 let size_token = self.advance();
                 let TokenKind::Integer(size) = size_token.kind else {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array size must be an Integer literal", Some(size_token.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        "Array size must be an Integer literal",
+                        Some(size_token.span),
+                    ));
                 };
                 if size < 0 {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array size must be non-negative", Some(size_token.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        "Array size must be non-negative",
+                        Some(size_token.span),
+                    ));
                 }
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
                 Some(ArrayDecl::Fixed(size))
@@ -230,7 +238,11 @@ impl Parser {
                 args,
                 span: Span::new(start.start, target.span.end),
             }),
-            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Call statement requires a Sub call", Some(target.span),)),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Call statement requires a Sub call",
+                Some(target.span),
+            )),
         }
     }
 
@@ -279,7 +291,11 @@ impl Parser {
                 return self.parse_primary();
             }
             other => {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, format!("Expected call target after 'Call', found {:?}", other), Some(start),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    format!("Expected call target after 'Call', found {:?}", other),
+                    Some(start),
+                ));
             }
         };
         self.parse_member_access(base)
@@ -305,7 +321,11 @@ impl Parser {
             if matches!(arg.kind, ExprKind::NamedArg { .. }) {
                 saw_named = true;
             } else if saw_named {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Positional arguments cannot appear after named arguments", Some(arg.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "Positional arguments cannot appear after named arguments",
+                    Some(arg.span),
+                ));
             }
             args.push(arg);
             if !self.match_simple(&TokenKind::Comma) {
@@ -323,7 +343,11 @@ impl Parser {
 
         if self.match_simple(&TokenKind::Equal) {
             if args.len() != 1 {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array assignment requires exactly one index", Some(start),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    "Array assignment requires exactly one index",
+                    Some(start),
+                ));
             }
             let mut args = args.into_iter();
             let index = args.next().expect("len checked");
@@ -347,7 +371,11 @@ impl Parser {
             })?;
             let target_span = target.span;
             let ExprKind::MemberAccess { object, field } = target.kind else {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected member assignment target", Some(target_span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected member assignment target",
+                    Some(target_span),
+                ));
             };
             self.expect_simple(TokenKind::Equal, "Expected '=' in member assignment")?;
             let expr = self.parse_expression()?;
@@ -382,7 +410,11 @@ impl Parser {
                 args,
             } => (object, method, Some(args)),
             _ => {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected member assignment target", Some(target_span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected member assignment target",
+                    Some(target_span),
+                ));
             }
         };
         if let Some(args) = args {
@@ -432,7 +464,11 @@ impl Parser {
             ExprKind::Variable(name) => Ok(AssignTarget::Variable { name, span }),
             ExprKind::Call { name, args } => {
                 if args.len() != 1 {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array assignment requires exactly one index", Some(span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        "Array assignment requires exactly one index",
+                        Some(span),
+                    ));
                 }
                 let mut args = args.into_iter();
                 Ok(AssignTarget::ArrayElement {
@@ -446,8 +482,16 @@ impl Parser {
                 field,
                 span,
             }),
-            ExprKind::Me => Err(Diagnostic::new(crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT, "Me is not assignable", Some(span))),
-            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected assignment target", Some(span))),
+            ExprKind::Me => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT,
+                "Me is not assignable",
+                Some(span),
+            )),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                "Expected assignment target",
+                Some(span),
+            )),
         }
     }
 
@@ -660,7 +704,11 @@ impl Parser {
             TokenKind::Greater => Ok(CaseCompareOp::Greater),
             TokenKind::LessEqual => Ok(CaseCompareOp::LessEqual),
             TokenKind::GreaterEqual => Ok(CaseCompareOp::GreaterEqual),
-            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected comparison operator after 'Case Is'", Some(token.span),)),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                "Expected comparison operator after 'Case Is'",
+                Some(token.span),
+            )),
         }
     }
 
@@ -823,7 +871,11 @@ impl Parser {
             TokenKind::Identifier(label) => label,
             TokenKind::Integer(number) => number.to_string(),
             _ => {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected label name after 'GoTo'", Some(token.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected label name after 'GoTo'",
+                    Some(token.span),
+                ));
             }
         };
         Ok(Stmt::GoTo {
@@ -847,16 +899,23 @@ impl Parser {
                     if matches!(one.kind, TokenKind::Integer(1)) {
                         OnErrorMode::GoToMinusOne
                     } else {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "On Error GoTo requires 0, -1, or a label", Some(one.span),));
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                            "On Error GoTo requires 0, -1, or a label",
+                            Some(one.span),
+                        ));
                     }
                 }
                 TokenKind::Integer(number) => OnErrorMode::GoToLabel(number.to_string()),
                 TokenKind::Identifier(label) => OnErrorMode::GoToLabel(label),
                 _ => {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "On Error GoTo requires 0, -1, or a label", Some(token.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        "On Error GoTo requires 0, -1, or a label",
+                        Some(token.span),
+                    ));
                 }
             }
-
         } else {
             return Err(self.error_here(
                 "Expected 'Resume Next', 'GoTo 0', 'GoTo -1', or 'GoTo <label>' after 'On Error'",
@@ -919,8 +978,11 @@ impl Parser {
             TokenKind::While => ExitTarget::While,
             TokenKind::Do => ExitTarget::Do,
             _ => {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, "Expected 'Sub', 'Function', 'For', 'While', or 'Do' after 'Exit'",
-                    Some(token.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected 'Sub', 'Function', 'For', 'While', or 'Do' after 'Exit'",
+                    Some(token.span),
+                ));
             }
         };
         Ok(Stmt::Exit {

@@ -1,8 +1,8 @@
 use crate::ast::Program;
-use crate::runtime::Diagnostic;
-use crate::parser::Parser;
-use crate::semantics::validate;
 use crate::interpreter::run;
+use crate::parser::Parser;
+use crate::runtime::Diagnostic;
+use crate::semantics::validate;
 
 pub fn parse_and_validate(source: &str) -> Result<Program, Diagnostic> {
     let program = Parser::parse_source(source)?;

@@ -9,9 +9,10 @@ use super::arrays::{read_array_element, redim_array, write_array_element};
 use super::records::{RuntimeEnum, RuntimeType};
 use super::values::{coerce_assignment, default_value, key};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Frame {
     variables: HashMap<String, Variable>,
+    module_key: Option<String>,
     with_stack: Vec<Value>,
     resume_next: bool,
     error_handler: Option<String>,
@@ -19,6 +20,14 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
+    pub(crate) fn set_module_key(&mut self, module_key: String) {
+        self.module_key = Some(module_key);
+    }
+
+    pub(crate) fn module_key(&self) -> Option<&str> {
+        self.module_key.as_deref()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn declare(
         &mut self,
@@ -220,7 +229,12 @@ impl Frame {
         Ok(())
     }
 
-    pub(crate) fn assign(&mut self, name: &str, value: Value, span: Span) -> Result<(), Diagnostic> {
+    pub(crate) fn assign(
+        &mut self,
+        name: &str,
+        value: Value,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
         let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -353,7 +367,11 @@ impl Frame {
                     Some(span),
                 )),
             },
-            _ => Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Array member assignment index must be an Integer literal or variable", Some(span),)),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::ARRAY,
+                "Array member assignment index must be an Integer literal or variable",
+                Some(span),
+            )),
         }
     }
 
@@ -367,7 +385,11 @@ impl Frame {
 
     pub(crate) fn current_with_target(&self, span: Span) -> Result<Value, Diagnostic> {
         self.with_stack.last().cloned().ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "Dot member access requires an active With block", Some(span),)
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Dot member access requires an active With block",
+                Some(span),
+            )
             .with_primary_label("no active With target")
             .with_help("use dotted member access only inside a With block")
         })

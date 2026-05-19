@@ -13,8 +13,14 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let function = self.functions.get(&key(name)).cloned().ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Function '{}' is not defined", name), Some(span))
+        let module_key = self.resolve_function_module(name, caller_frame, span)?;
+        let lookup = qualified_key(module_key.as_deref(), name);
+        let function = self.functions.get(&lookup).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Function '{}' is not defined", name),
+                Some(span),
+            )
         })?;
 
         self.call_stack
@@ -22,21 +28,44 @@ impl Interpreter {
         self.scope_stack.push(format!("Function {}", function.name));
         let result = (|| {
             let mut frame = Frame::default();
-            frame.inherit_modules_from(caller_frame)?;
+            if let Some(module_key) = &module_key {
+                frame = self.module_frames.get(module_key).cloned().ok_or_else(|| {
+                    Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Module '{}' is not loaded", module_key),
+                        Some(span),
+                    )
+                })?;
+                frame.set_module_key(module_key.clone());
+            } else {
+                frame.inherit_modules_from(caller_frame)?;
+            }
             self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
 
             match self.exec_block(&function.body, &mut frame)? {
                 ControlFlow::Return(value) => coerce_assignment(&function.return_type, value, span),
-                ControlFlow::Continue => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Function '{}' must return a value", function.name), Some(function.span),)),
+                ControlFlow::Continue => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    format!("Function '{}' must return a value", function.name),
+                    Some(function.span),
+                )),
                 ControlFlow::ExitFunction => {
                     default_value(&function.return_type, &self.types, &self.enums, span)
                 }
-                ControlFlow::ExitSub => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Sub is only valid inside Sub", Some(function.span),)),
+                ControlFlow::ExitSub => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Exit Sub is only valid inside Sub",
+                    Some(function.span),
+                )),
                 ControlFlow::ExitFor
                 | ControlFlow::ExitWhile
                 | ControlFlow::ExitDo
                 | ControlFlow::GoTo(_)
-                | ControlFlow::Resume(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit statement escaped its block", Some(span),)),
+                | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Exit statement escaped its block",
+                    Some(span),
+                )),
             }
         })();
         let result = result.map_err(|diagnostic| self.with_stack_context(diagnostic));
@@ -52,33 +81,294 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let procedure =
-            self.procedures.get(&key(name)).cloned().ok_or_else(|| {
-                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Sub '{}' is not defined", name), Some(span))
-            })?;
+        let module_key = self.resolve_sub_module(name, caller_frame, span)?;
+        let lookup = qualified_key(module_key.as_deref(), name);
+        let procedure = self.procedures.get(&lookup).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Sub '{}' is not defined", name),
+                Some(span),
+            )
+        })?;
 
         self.call_stack.push(format!("Sub '{}'", procedure.name));
         self.scope_stack.push(format!("Sub {}", procedure.name));
         let result = (|| {
             let mut frame = Frame::default();
-            frame.inherit_modules_from(caller_frame)?;
+            if let Some(module_key) = &module_key {
+                frame = self.module_frames.get(module_key).cloned().ok_or_else(|| {
+                    Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Module '{}' is not loaded", module_key),
+                        Some(span),
+                    )
+                })?;
+                frame.set_module_key(module_key.clone());
+            } else {
+                frame.inherit_modules_from(caller_frame)?;
+            }
             self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
 
             match self.exec_block(&procedure.body, &mut frame)? {
                 ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
-                ControlFlow::Return(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Return is only allowed inside Function", Some(procedure.span),)),
-                ControlFlow::ExitFunction => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Function is only valid inside Function", Some(procedure.span),)),
+                ControlFlow::Return(_) => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Return is only allowed inside Function",
+                    Some(procedure.span),
+                )),
+                ControlFlow::ExitFunction => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Exit Function is only valid inside Function",
+                    Some(procedure.span),
+                )),
                 ControlFlow::ExitFor
                 | ControlFlow::ExitWhile
                 | ControlFlow::ExitDo
                 | ControlFlow::GoTo(_)
-                | ControlFlow::Resume(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit statement escaped its block", Some(span),)),
+                | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Exit statement escaped its block",
+                    Some(span),
+                )),
             }
         })();
         let result = result.map_err(|diagnostic| self.with_stack_context(diagnostic));
         self.scope_stack.pop();
         self.call_stack.pop();
         result
+    }
+
+    pub(crate) fn call_module_function(
+        &mut self,
+        qualifier: &str,
+        name: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let module_key = self.resolve_module_qualifier(qualifier, caller_frame, span)?;
+        let function = self
+            .functions
+            .get(&qualified_key(Some(&module_key), name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Function '{}.{}' is not defined", qualifier, name),
+                    Some(span),
+                )
+            })?;
+        if caller_frame.module_key() != Some(module_key.as_str())
+            && !crate::modules::is_public(function.visibility)
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                format!("Function '{}.{}' is Private", qualifier, name),
+                Some(span),
+            ));
+        }
+        let mut frame = self
+            .module_frames
+            .get(&module_key)
+            .cloned()
+            .expect("module loaded");
+        frame.set_module_key(module_key);
+        self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
+        match self.exec_block(&function.body, &mut frame)? {
+            ControlFlow::Return(value) => coerce_assignment(&function.return_type, value, span),
+            ControlFlow::Continue => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                format!("Function '{}' must return a value", function.name),
+                Some(function.span),
+            )),
+            ControlFlow::ExitFunction => {
+                default_value(&function.return_type, &self.types, &self.enums, span)
+            }
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Sub is only valid inside Sub",
+                Some(function.span),
+            )),
+            ControlFlow::ExitFor
+            | ControlFlow::ExitWhile
+            | ControlFlow::ExitDo
+            | ControlFlow::GoTo(_)
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
+        }
+    }
+
+    pub(crate) fn call_module_sub(
+        &mut self,
+        qualifier: &str,
+        name: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let module_key = self.resolve_module_qualifier(qualifier, caller_frame, span)?;
+        let procedure = self
+            .procedures
+            .get(&qualified_key(Some(&module_key), name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Sub '{}.{}' is not defined", qualifier, name),
+                    Some(span),
+                )
+            })?;
+        if caller_frame.module_key() != Some(module_key.as_str())
+            && !crate::modules::is_public(procedure.visibility)
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                format!("Sub '{}.{}' is Private", qualifier, name),
+                Some(span),
+            ));
+        }
+        let mut frame = self
+            .module_frames
+            .get(&module_key)
+            .cloned()
+            .expect("module loaded");
+        frame.set_module_key(module_key);
+        self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
+        match self.exec_block(&procedure.body, &mut frame)? {
+            ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+            ControlFlow::Return(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Return is only allowed inside Function",
+                Some(procedure.span),
+            )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Function is only valid inside Function",
+                Some(procedure.span),
+            )),
+            ControlFlow::ExitFor
+            | ControlFlow::ExitWhile
+            | ControlFlow::ExitDo
+            | ControlFlow::GoTo(_)
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
+        }
+    }
+
+    fn resolve_function_module(
+        &self,
+        name: &str,
+        frame: &Frame,
+        span: Span,
+    ) -> Result<Option<String>, Diagnostic> {
+        if self.functions.contains_key(&key(name)) {
+            return Ok(None);
+        }
+        if let Some(current) = frame.module_key()
+            && self
+                .functions
+                .contains_key(&qualified_key(Some(current), name))
+        {
+            return Ok(Some(current.to_string()));
+        }
+        self.resolve_unqualified(name, frame, span, &self.function_modules, "Function")
+    }
+
+    fn resolve_sub_module(
+        &self,
+        name: &str,
+        frame: &Frame,
+        span: Span,
+    ) -> Result<Option<String>, Diagnostic> {
+        if self.procedures.contains_key(&key(name)) {
+            return Ok(None);
+        }
+        if let Some(current) = frame.module_key()
+            && self
+                .procedures
+                .contains_key(&qualified_key(Some(current), name))
+        {
+            return Ok(Some(current.to_string()));
+        }
+        self.resolve_unqualified(name, frame, span, &self.sub_modules, "Sub")
+    }
+
+    fn resolve_unqualified(
+        &self,
+        name: &str,
+        frame: &Frame,
+        span: Span,
+        modules_by_name: &std::collections::HashMap<String, Vec<String>>,
+        kind: &str,
+    ) -> Result<Option<String>, Diagnostic> {
+        let Some(modules) = modules_by_name.get(&key(name)) else {
+            return Ok(None);
+        };
+        if let Some(current) = frame.module_key()
+            && modules.iter().any(|module| module == current)
+        {
+            return Ok(Some(current.to_string()));
+        }
+        let imported: Vec<_> = frame
+            .module_key()
+            .and_then(|current| self.module_imports.get(current))
+            .into_iter()
+            .flatten()
+            .filter(|import| modules.iter().any(|module| module == &import.module))
+            .map(|import| import.module.clone())
+            .collect();
+        let candidates = if imported.is_empty() {
+            modules.clone()
+        } else {
+            imported
+        };
+        if candidates.len() == 1 {
+            Ok(Some(candidates[0].clone()))
+        } else {
+            Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT,
+                format!(
+                    "{} '{}' is imported from multiple modules; use a module qualifier",
+                    kind, name
+                ),
+                Some(span),
+            ))
+        }
+    }
+
+    pub(crate) fn resolve_module_qualifier(
+        &self,
+        qualifier: &str,
+        frame: &Frame,
+        span: Span,
+    ) -> Result<String, Diagnostic> {
+        let qualifier_key = key(qualifier);
+        if let Some(current) = frame.module_key() {
+            if current == qualifier_key {
+                return Ok(current.to_string());
+            }
+            if let Some(imports) = self.module_imports.get(current)
+                && let Some(import) = imports
+                    .iter()
+                    .find(|import| import.qualifier.eq_ignore_ascii_case(qualifier))
+            {
+                return Ok(import.module.clone());
+            }
+        }
+        if self.module_frames.contains_key(&qualifier_key) {
+            return Ok(qualifier_key);
+        }
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+            format!("Module '{}' is not imported", qualifier),
+            Some(span),
+        ))
     }
 
     pub(crate) fn call_method_sub(
@@ -96,10 +386,18 @@ impl Interpreter {
             .get(&key(&class_name))
             .cloned()
             .ok_or_else(|| {
-                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(span))
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Class '{}' is not defined", class_name),
+                    Some(span),
+                )
             })?;
         let procedure = class.subs.get(&key(method)).cloned().ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Class '{}' has no method '{}'", class.name, method), Some(span),)
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Class '{}' has no method '{}'", class.name, method),
+                Some(span),
+            )
         })?;
         let mut frame = Frame::default();
         frame.inherit_modules_from(caller_frame)?;
@@ -111,13 +409,25 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
-            ControlFlow::Return(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Return is only allowed inside Function", Some(procedure.span),)),
-            ControlFlow::ExitFunction => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Function is only valid inside Function", Some(procedure.span),)),
+            ControlFlow::Return(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Return is only allowed inside Function",
+                Some(procedure.span),
+            )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Function is only valid inside Function",
+                Some(procedure.span),
+            )),
             ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
-            | ControlFlow::Resume(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit statement escaped its block", Some(span),)),
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
         }
     }
 
@@ -136,10 +446,18 @@ impl Interpreter {
             .get(&key(&class_name))
             .cloned()
             .ok_or_else(|| {
-                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(span))
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Class '{}' is not defined", class_name),
+                    Some(span),
+                )
             })?;
         let procedure = class.subs.get(&key(method)).cloned().ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Class '{}' has no method '{}'", class.name, method), Some(span),)
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Class '{}' has no method '{}'", class.name, method),
+                Some(span),
+            )
         })?;
         let mut frame = Frame::default();
         frame.inherit_modules_from(caller_frame)?;
@@ -151,13 +469,25 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
-            ControlFlow::Return(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Return is only allowed inside Function", Some(procedure.span),)),
-            ControlFlow::ExitFunction => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Function is only valid inside Function", Some(procedure.span),)),
+            ControlFlow::Return(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Return is only allowed inside Function",
+                Some(procedure.span),
+            )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Function is only valid inside Function",
+                Some(procedure.span),
+            )),
             ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
-            | ControlFlow::Resume(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit statement escaped its block", Some(span),)),
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
         }
     }
 
@@ -176,10 +506,18 @@ impl Interpreter {
             .get(&key(&class_name))
             .cloned()
             .ok_or_else(|| {
-                Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Class '{}' is not defined", class_name), Some(span))
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Class '{}' is not defined", class_name),
+                    Some(span),
+                )
             })?;
         let function = class.functions.get(&key(method)).cloned().ok_or_else(|| {
-            Diagnostic::new(crate::runtime::DiagnosticCode::MEMBER_ACCESS, format!("Class '{}' has no method '{}'", class.name, method), Some(span),)
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Class '{}' has no method '{}'", class.name, method),
+                Some(span),
+            )
         })?;
         let mut frame = Frame::default();
         frame.inherit_modules_from(caller_frame)?;
@@ -191,16 +529,28 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Return(value) => coerce_assignment(&function.return_type, value, span),
-            ControlFlow::Continue => Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Function '{}' must return a value", function.name), Some(function.span),)),
+            ControlFlow::Continue => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                format!("Function '{}' must return a value", function.name),
+                Some(function.span),
+            )),
             ControlFlow::ExitFunction => {
                 default_value(&function.return_type, &self.types, &self.enums, span)
             }
-            ControlFlow::ExitSub => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit Sub is only valid inside Sub", Some(function.span),)),
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Sub is only valid inside Sub",
+                Some(function.span),
+            )),
             ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
-            | ControlFlow::Resume(_) => Err(Diagnostic::new(crate::runtime::DiagnosticCode::CONTROL_FLOW, "Exit statement escaped its block", Some(span),)),
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
         }
     }
 
@@ -217,7 +567,11 @@ impl Interpreter {
             .count();
         let has_param_array = params.last().is_some_and(|param| param.is_param_array);
         if args.len() < required || (!has_param_array && args.len() > params.len()) {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, format!("Expected {} argument(s), got {}", required, args.len()), args.first().map(|arg| arg.span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                format!("Expected {} argument(s), got {}", required, args.len()),
+                args.first().map(|arg| arg.span),
+            ));
         }
         let mut ordered: Vec<Option<&Expr>> = vec![None; params.len()];
         let mut paramarray_args = Vec::new();
@@ -230,19 +584,35 @@ impl Interpreter {
                     .iter()
                     .position(|param| param.name.eq_ignore_ascii_case(name))
                 else {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::UNKNOWN_NAME, format!("Unknown named argument '{}'", name), Some(arg.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Unknown named argument '{}'", name),
+                        Some(arg.span),
+                    ));
                 };
                 if params[index].is_param_array {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "ParamArray arguments cannot be supplied by name", Some(arg.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        "ParamArray arguments cannot be supplied by name",
+                        Some(arg.span),
+                    ));
                 }
                 if ordered[index].is_some() {
-                    return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, format!("Argument '{}' is specified more than once", name), Some(arg.span),));
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        format!("Argument '{}' is specified more than once", name),
+                        Some(arg.span),
+                    ));
                 }
                 ordered[index] = Some(expr);
                 continue;
             }
             if saw_named {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, "Positional arguments cannot appear after named arguments", Some(arg.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "Positional arguments cannot appear after named arguments",
+                    Some(arg.span),
+                ));
             }
             if positional_index < params.len() && params[positional_index].is_param_array {
                 paramarray_args.push(arg);
@@ -252,7 +622,11 @@ impl Interpreter {
             } else if has_param_array {
                 paramarray_args.push(arg);
             } else {
-                return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, format!("Expected {} argument(s), got {}", params.len(), args.len()), Some(arg.span),));
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    format!("Expected {} argument(s), got {}", params.len(), args.len()),
+                    Some(arg.span),
+                ));
             }
         }
 
@@ -332,7 +706,11 @@ impl Interpreter {
                         continue;
                     };
                     let ExprKind::Variable(arg_name) = &arg.kind else {
-                        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::TYPE_MISMATCH, "ByRef argument must be a variable", Some(arg.span),));
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                            "ByRef argument must be a variable",
+                            Some(arg.span),
+                        ));
                     };
                     let variable = caller_frame.variable(arg_name, arg.span)?;
                     callee_frame.declare_alias(
@@ -355,7 +733,11 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), Diagnostic> {
         if args.len() != params.len() {
-            return Err(Diagnostic::new(crate::runtime::DiagnosticCode::PARSE, format!("Expected {} argument(s), got {}", params.len(), args.len()), Some(span),));
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                format!("Expected {} argument(s), got {}", params.len(), args.len()),
+                Some(span),
+            ));
         }
         for (param, value) in params.iter().zip(args.iter()) {
             callee_frame.declare(
@@ -370,5 +752,12 @@ impl Interpreter {
             callee_frame.assign(&param.name, value.clone(), param.span)?;
         }
         Ok(())
+    }
+}
+
+fn qualified_key(module_key: Option<&str>, name: &str) -> String {
+    match module_key {
+        Some(module_key) => format!("{}::{}", module_key, key(name)),
+        None => key(name),
     }
 }

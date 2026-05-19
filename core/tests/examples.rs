@@ -41,7 +41,6 @@ fn test_official_examples() {
                             path, output
                         ));
                     }
-
                 }
                 Err(diag) => {
                     failures.push(format!("{:?}: Failed with error: {}", path, diag));

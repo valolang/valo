@@ -1,0 +1,9 @@
+Import Math
+Import State
+
+Sub Main()
+    Console.WriteLine(Math.Add(10, 20))
+    State.Increment()
+    State.Increment()
+    Console.WriteLine(State.Count())
+End Sub

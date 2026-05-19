@@ -16,7 +16,11 @@ pub(crate) fn read_array_element(
         ..
     } = value
     else {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Value is not an array", Some(span)));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "Value is not an array",
+            Some(span),
+        ));
     };
     ensure_allocated(*allocated, span)?;
     let index = checked_index(index, *lower_bound, elements.len(), span)?;
@@ -36,7 +40,11 @@ pub(crate) fn write_array_element(
         allocated,
     } = value
     else {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Value is not an array", Some(span)));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "Value is not an array",
+            Some(span),
+        ));
     };
     ensure_allocated(*allocated, span)?;
     let index = checked_index(index, *lower_bound, elements.len(), span)?;
@@ -56,7 +64,11 @@ pub(crate) fn array_element_mut(
         ..
     } = value
     else {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Value is not an array", Some(span)));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "Value is not an array",
+            Some(span),
+        ));
     };
     ensure_allocated(*allocated, span)?;
     let index = checked_index(index, *lower_bound, elements.len(), span)?;
@@ -70,7 +82,11 @@ pub(crate) fn lbound(value: &Value, span: Span) -> Result<i64, Diagnostic> {
         ..
     } = value
     else {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "LBound requires an array", Some(span)));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "LBound requires an array",
+            Some(span),
+        ));
     };
     ensure_allocated(*allocated, span)?;
     Ok(*lower_bound)
@@ -84,7 +100,11 @@ pub(crate) fn ubound(value: &Value, span: Span) -> Result<i64, Diagnostic> {
         ..
     } = value
     else {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "UBound requires an array", Some(span)));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "UBound requires an array",
+            Some(span),
+        ));
     };
     ensure_allocated(*allocated, span)?;
     Ok(*lower_bound + elements.len() as i64 - 1)
@@ -106,7 +126,8 @@ pub(crate) fn redim_array(
             "ReDim upper bound must be greater than or equal to the array lower bound"
         };
         return Err(
-            Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(span)).with_primary_label("invalid ReDim upper bound")
+            Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, message, Some(span))
+                .with_primary_label("invalid ReDim upper bound"),
         );
     }
     let Value::Array {
@@ -116,10 +137,12 @@ pub(crate) fn redim_array(
         allocated,
     } = value
     else {
-        return Err(
-            Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "ReDim target must be a dynamic array", Some(span))
-                .with_primary_label("ReDim target is not a dynamic array"),
-        );
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "ReDim target must be a dynamic array",
+            Some(span),
+        )
+        .with_primary_label("ReDim target is not a dynamic array"));
     };
     let new_len = (upper_bound - lower_bound + 1) as usize;
     let mut new_elements = Vec::new();
@@ -142,7 +165,11 @@ pub(crate) fn array_values(value: &Value, span: Span) -> Result<Vec<Value>, Diag
         ..
     } = value
     else {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "For Each requires an array", Some(span)));
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "For Each requires an array",
+            Some(span),
+        ));
     };
     ensure_allocated(*allocated, span)?;
     Ok(elements.clone())
@@ -152,7 +179,11 @@ fn ensure_allocated(allocated: bool, span: Span) -> Result<(), Diagnostic> {
     if allocated {
         Ok(())
     } else {
-        Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, "Dynamic array is unallocated", Some(span)))
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "Dynamic array is unallocated",
+            Some(span),
+        ))
     }
 }
 
@@ -164,7 +195,9 @@ fn checked_index(
 ) -> Result<usize, Diagnostic> {
     let offset = index - lower_bound;
     if index < lower_bound || offset as usize >= len {
-        return Err(Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, if lower_bound == 0 {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            if lower_bound == 0 {
                 format!("Array index {} is out of bounds for length {}", index, len)
             } else {
                 format!(
@@ -173,7 +206,9 @@ fn checked_index(
                     lower_bound,
                     lower_bound + len as i64 - 1
                 )
-            }, Some(span),)
+            },
+            Some(span),
+        )
         .with_primary_label("array index is outside the valid bounds"));
     }
     Ok(offset as usize)
