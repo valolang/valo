@@ -240,6 +240,16 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 ClassMember::Property(property) => {
                     let property_key = key(&property.name);
                     if property.is_default {
+                        if property.kind != PropertyKind::Get {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!(
+                                    "Only Property Get can be marked as Default in Class '{}'",
+                                    class_decl.name
+                                ),
+                                Some(property.span),
+                            ));
+                        }
                         if default_member.is_some() {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -304,6 +314,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 subs,
                 functions,
                 properties,
+                default_property: default_member,
             },
         );
     }
@@ -344,12 +355,8 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 }
                 ClassMember::Property(property) => match property.kind {
                     PropertyKind::Get => {
-                        if !property.params.is_empty() {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                                format!("Property Get '{}' cannot have parameters", property.name),
-                                Some(property.span),
-                            ));
+                        for param in &property.params {
+                            ensure_known_type(&param.ty, &registry, param.span)?;
                         }
                         ensure_known_type(
                             property.return_type.as_ref().expect("get return type"),
@@ -358,50 +365,52 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         )?;
                     }
                     PropertyKind::Let | PropertyKind::Set => {
-                        if property.params.len() != 1 {
+                        if property.params.is_empty() {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                                 format!(
-                                    "Property {:?} '{}' must have exactly one parameter",
+                                    "Property {:?} '{}' must have at least one parameter",
                                     property.kind, property.name
                                 ),
                                 Some(property.span),
                             ));
                         }
-                        let param = &property.params[0];
-                        if param.mode != PassingMode::ByVal {
+                        for param in &property.params {
+                            ensure_known_type(&param.ty, &registry, param.span)?;
+                        }
+                        let last_param = property.params.last().unwrap();
+                        if last_param.mode != PassingMode::ByVal {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                                 format!(
-                                    "Property {:?} '{}' parameter must be ByVal",
+                                    "Property {:?} '{}' value parameter must be ByVal",
                                     property.kind, property.name
                                 ),
-                                Some(param.span),
+                                Some(last_param.span),
                             ));
                         }
-                        ensure_known_type(&param.ty, &registry, param.span)?;
                         if property.kind == PropertyKind::Set
-                            && !matches!(&param.ty, TypeName::User(name) if registry.get_class(name).is_some() || name.eq_ignore_ascii_case("Object"))
+                            && !matches!(&last_param.ty, TypeName::User(name) if registry.get_class(name).is_some() || name.eq_ignore_ascii_case("Object"))
                         {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                                 format!(
-                                    "Property Set '{}' parameter must be a class type",
+                                    "Property Set '{}' value parameter must be a class type",
                                     property.name
                                 ),
-                                Some(param.span),
+                                Some(last_param.span),
                             ));
                         }
                         if property.kind == PropertyKind::Let
-                            && matches!(&param.ty, TypeName::User(name) if registry.get_class(name).is_some())
+                            && matches!(&last_param.ty, TypeName::User(name) if registry.get_class(name).is_some())
                         {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                                 format!(
-                                    "Property Let '{}' parameter cannot be a class type",
+                                    "Property Let '{}' value parameter cannot be a class type",
                                     property.name
                                 ),
-                                Some(param.span),
+                                Some(last_param.span),
                             ));
                         }
                     }

@@ -171,7 +171,7 @@ impl Interpreter {
                         ));
                     }
                     parts.push(
-                        self.resolve_default_value(value, arg.span)?
+                        self.resolve_default_value(value, frame, arg.span)?
                             .to_output_string(),
                     );
                 }
@@ -188,6 +188,21 @@ impl Interpreter {
                 args,
                 span,
             } => {
+                if let crate::ExprKind::Variable(name) = &object.kind
+                    && name.eq_ignore_ascii_case("Console")
+                    && method.eq_ignore_ascii_case("WriteLine")
+                {
+                    let mut parts = Vec::new();
+                    for arg in args {
+                        let value = self.eval_expr(arg, frame)?;
+                        parts.push(
+                            self.resolve_default_value(value, frame, arg.span)?
+                                .to_output_string(),
+                        );
+                    }
+                    self.output.push(parts.join(" "));
+                    return Ok(ControlFlow::Continue);
+                }
                 if let crate::ExprKind::Variable(name) = &object.kind
                     && name.eq_ignore_ascii_case("Err")
                     && method.eq_ignore_ascii_case("Clear")

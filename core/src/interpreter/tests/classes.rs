@@ -718,7 +718,7 @@ End Sub
 "#,
     );
 
-    assert!(error.contains("Property Let 'Name' must have exactly one parameter"));
+    assert!(error.contains("Property Let 'Name' must have at least one parameter"));
 }
 
 #[test]

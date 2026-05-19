@@ -1,0 +1,20 @@
+Class Box
+    Private value As Integer
+
+    Public Sub Initialize()
+        Me.value = 10
+    End Sub
+
+    Public Default Property Get Item() As Integer
+        Return Me.value
+    End Property
+End Class
+
+Sub Main()
+    Dim b As New Box
+    ' Default property used in string concatenation
+    Console.WriteLine("Box value: " & b)
+    
+    ' Default property used in implicit conversion to Variant (Console.WriteLine argument)
+    Console.WriteLine(b)
+End Sub

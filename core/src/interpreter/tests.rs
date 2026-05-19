@@ -11,3 +11,4 @@ mod expressions;
 mod lifecycle;
 mod modules;
 mod variables;
+mod modernization;

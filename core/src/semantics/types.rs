@@ -56,6 +56,7 @@ pub(super) struct ClassSig {
     pub(super) subs: HashMap<String, ClassMethodSig>,
     pub(super) functions: HashMap<String, ClassMethodSig>,
     pub(super) properties: HashMap<String, ClassPropertySig>,
+    pub(super) default_property: Option<String>,
 }
 
 #[derive(Debug, Clone)]

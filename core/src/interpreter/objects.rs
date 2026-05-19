@@ -119,7 +119,7 @@ impl Interpreter {
         &mut self,
         value: &Value,
         member: &str,
-        _frame: &mut Frame,
+        frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
         if object_has_field(value, member) {
@@ -135,7 +135,7 @@ impl Interpreter {
             .with_help("assign an object before accessing its members"));
         }
         if matches!(value, Value::Object(_)) {
-            return self.call_property_get(value.clone(), member, span);
+            return self.call_property_get(value.clone(), member, &[], frame, span);
         }
         read_field_member(value, member, span)
     }

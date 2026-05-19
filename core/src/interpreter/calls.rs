@@ -525,7 +525,7 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let instance = ensure_object(object, span)?;
+        let instance = ensure_object(object.clone(), span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
             .classes
@@ -538,57 +538,81 @@ impl Interpreter {
                     Some(span),
                 )
             })?;
-        let function = class.functions.get(&key(method)).cloned().ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                format!("Class '{}' has no method '{}'", class.name, method),
-                Some(span),
-            )
-        })?;
-        let mut frame = Frame::default();
-        frame.inherit_modules_from(caller_frame)?;
-        if let Some((module_key, _)) = key(&class.name).split_once('.') {
-            frame.set_module_key(module_key.to_string());
-        }
-        frame.declare_object_alias("me", &class.name, instance, span)?;
-        self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
-        let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
-        if !frame.has_variable(&function.name) {
-            frame.declare(
-                &function.name,
-                return_type.clone(),
-                None,
-                self.option_base,
-                function.span,
-                &self.types,
-                &self.enums,
-            )?;
-        }
-        self.scope_stack
-            .push(format!("{}.{}", class.name, function.name));
-        let result = self.exec_block(&function.body, &mut frame);
-        self.scope_stack.pop();
-        match result? {
-            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-            ControlFlow::Continue => frame.get(&function.name, function.span),
-            ControlFlow::ExitFunction => {
-                default_value(&return_type, &self.types, &self.enums, span)
+        if let Some(function) = class.functions.get(&key(method)).cloned() {
+            let mut frame = Frame::default();
+            frame.inherit_modules_from(caller_frame)?;
+            if let Some((module_key, _)) = key(&class.name).split_once('.') {
+                frame.set_module_key(module_key.to_string());
             }
-            ControlFlow::ExitSub => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                "Exit Sub is only valid inside Sub",
-                Some(function.span),
-            )),
-            ControlFlow::ExitFor
-            | ControlFlow::ExitWhile
-            | ControlFlow::ExitDo
-            | ControlFlow::GoTo(_)
-            | ControlFlow::Resume(_) => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                "Exit statement escaped its block",
-                Some(span),
-            )),
+            frame.declare_object_alias("me", &class.name, instance, span)?;
+            self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
+            let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
+            if !frame.has_variable(&function.name) {
+                frame.declare(
+                    &function.name,
+                    return_type.clone(),
+                    None,
+                    self.option_base,
+                    function.span,
+                    &self.types,
+                    &self.enums,
+                )?;
+            }
+            self.scope_stack
+                .push(format!("{}.{}", class.name, function.name));
+            let result = self.exec_block(&function.body, &mut frame);
+            self.scope_stack.pop();
+            return match result? {
+                ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
+                ControlFlow::Continue => frame.get(&function.name, function.span),
+                ControlFlow::ExitFunction => {
+                    default_value(&return_type, &self.types, &self.enums, span)
+                }
+                ControlFlow::ExitSub => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Exit Sub is only valid inside Sub",
+                    Some(function.span),
+                )),
+                ControlFlow::ExitFor
+                | ControlFlow::ExitWhile
+                | ControlFlow::ExitDo
+                | ControlFlow::GoTo(_)
+                | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Exit statement escaped its block",
+                    Some(span),
+                )),
+            };
         }
+
+        if class.properties.contains_key(&key(method)) {
+            // Try Case 1: The property itself takes these arguments
+            if let Ok(value) = self.call_property_get(object.clone(), method, args, caller_frame, span) {
+                return Ok(value);
+            }
+
+            // Try Case 2: The property returns an object that has a default property
+            let value = self.call_property_get(object, method, &[], caller_frame, span)?;
+            if let Value::Object(ref inner_object) = value {
+                let inner_class_name = inner_object.borrow().class_name.clone();
+                if let Some(default_prop_name) = self.classes.get(&key(&inner_class_name))
+                    .and_then(|c| c.default_member.clone()) {
+                    return self.call_method_function(
+                        value,
+                        &default_prop_name,
+                        args,
+                        caller_frame,
+                        span,
+                    );
+                }
+            }
+        }
+
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            format!("Class '{}' has no method or property '{}'", class.name, method),
+            Some(span),
+        ))
     }
 
     pub(crate) fn bind_parameters(

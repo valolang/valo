@@ -1,0 +1,12 @@
+Class List
+    Public Default Property Get Item(ByVal index As Integer) As String
+        Return "val" & index
+    End Property
+End Class
+
+Sub Main()
+    Dim l As New List
+    ' object(index) syntax calls the default property
+    Console.WriteLine("Indexer(0): " & l(0))
+    Console.WriteLine("Indexer(1): " & l(1))
+End Sub

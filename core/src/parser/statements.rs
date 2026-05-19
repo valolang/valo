@@ -326,6 +326,10 @@ impl Parser {
                     }
                 }
             }
+            TokenKind::Console => Expr {
+                kind: ExprKind::Variable("Console".to_string()),
+                span: start,
+            },
             TokenKind::Me => Expr {
                 kind: ExprKind::Me,
                 span: start,

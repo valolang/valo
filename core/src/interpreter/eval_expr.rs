@@ -221,16 +221,52 @@ impl Interpreter {
                     return Ok(Value::Integer(bound));
                 }
                 if frame.has_variable(name) {
-                    if args.len() != 1 {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::ARRAY,
-                            "Array access requires exactly one index",
-                            Some(expr.span),
-                        ));
+                    let value = frame.get(name, expr.span)?;
+                    match value {
+                        Value::Array { .. } => {
+                            if args.len() != 1 {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::ARRAY,
+                                    "Array access requires exactly one index",
+                                    Some(expr.span),
+                                ));
+                            }
+                            let index = self.eval_integer_expr(
+                                &args[0],
+                                frame,
+                                "Array index must be Integer",
+                            )?;
+                            return frame.get_array_element(name, index, expr.span);
+                        }
+                        Value::Object(ref object) => {
+                            let class_name = object.borrow().class_name.clone();
+                            if let Some(default_member) = self.classes.get(&super::values::key(&class_name))
+                                .and_then(|c| c.default_member.clone()) {
+                                return self.call_method_function(
+                                    value.clone(),
+                                    &default_member,
+                                    args,
+                                    frame,
+                                    expr.span,
+                                );
+                            }
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                format!(
+                                    "Variable '{}' is not an array or a class with a default property",
+                                    name
+                                ),
+                                Some(expr.span),
+                            ));
+                        }
+                        _ => {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                format!("Variable '{}' is not an array", name),
+                                Some(expr.span),
+                            ));
+                        }
                     }
-                    let index =
-                        self.eval_integer_expr(&args[0], frame, "Array index must be Integer")?;
-                    return frame.get_array_element(name, index, expr.span);
                 }
                 self.call_function(name, args, frame, expr.span)
             }
@@ -275,7 +311,7 @@ impl Interpreter {
                         Some(left.span),
                     ));
                 }
-                let left = self.resolve_default_value(left_value, expr.span)?;
+                let left = self.resolve_default_value(left_value, frame, expr.span)?;
                 let right_value = self.eval_expr(right, frame)?;
                 if matches!(right_value, Value::Missing) {
                     return Err(Diagnostic::new(
@@ -284,7 +320,7 @@ impl Interpreter {
                         Some(right.span),
                     ));
                 }
-                let right = self.resolve_default_value(right_value, expr.span)?;
+                let right = self.resolve_default_value(right_value, frame, expr.span)?;
                 eval_binary(left, *op, right, self.option_compare, expr.span)
             }
         }
@@ -293,6 +329,7 @@ impl Interpreter {
     pub(crate) fn resolve_default_value(
         &mut self,
         value: Value,
+        frame: &mut Frame,
         span: crate::runtime::Span,
     ) -> Result<Value, Diagnostic> {
         let Value::Object(object) = &value else {
@@ -305,7 +342,7 @@ impl Interpreter {
         let Some(default_member) = class.default_member.clone() else {
             return Ok(value);
         };
-        self.call_property_get(value, &default_member, span)
+        self.call_property_get(value, &default_member, &[], frame, span)
     }
 
     pub(crate) fn eval_integer_expr(

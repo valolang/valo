@@ -290,6 +290,7 @@ impl Parser {
             let field = match field_token.kind {
                 TokenKind::Identifier(field) => field,
                 TokenKind::Version => "VERSION".to_string(),
+                TokenKind::WriteLine => "WriteLine".to_string(),
                 _ => {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::PARSE,

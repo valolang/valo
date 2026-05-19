@@ -1,5 +1,5 @@
 use crate::runtime::{Diagnostic, Span, TypeName, Value};
-use crate::{ClassProperty, PropertyKind, Stmt};
+use crate::{ClassProperty, Expr, PropertyKind, Stmt};
 
 use super::objects::ensure_object;
 use super::values::{coerce_assignment, key};
@@ -10,6 +10,8 @@ impl Interpreter {
         &mut self,
         object: Value,
         property: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
         let instance = ensure_object(object, span)?;
@@ -37,13 +39,21 @@ impl Interpreter {
                 )
             })?;
         let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
+        if let Some((module_key, _)) = key(&class.name).split_once('.') {
+            frame.set_module_key(module_key.to_string());
+        }
         // Property frames see module-level state like Sub and Function calls.
         frame.declare_object_alias("me", &class.name, instance, span)?;
+        self.bind_parameters(&accessor.params, args, caller_frame, &mut frame)?;
+
         let return_type = accessor
             .return_type
             .as_ref()
             .expect("get return type")
             .clone();
+        let return_type = self.resolve_type_name(&return_type, &frame, span)?;
+
         if !frame.has_variable(&accessor.name) {
             frame.declare(
                 &accessor.name,
