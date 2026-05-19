@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::Path;
-use valo_core::run_source;
 
 #[test]
 fn test_official_examples() {
@@ -26,10 +25,7 @@ fn test_official_examples() {
 
         if extension == Some("valo") || extension == Some("bas") {
             count += 1;
-            let source = fs::read_to_string(&path)
-                .unwrap_or_else(|_| panic!("Failed to read example file: {:?}", path));
-
-            match run_source(&source) {
+            match valo_core::run_file(&path) {
                 Ok(output) => {
                     // Optional: Simple output verification for stable examples
                     if (path.file_name().and_then(|s| s.to_str()) == Some("hello.valo")

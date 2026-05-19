@@ -251,7 +251,7 @@ impl Frame {
         name: &str,
         value: Value,
         span: Span,
-    ) -> Result<(), Diagnostic> {
+    ) -> Result<Value, Diagnostic> {
         let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -271,8 +271,9 @@ impl Frame {
             .with_help("remove the assignment or use a non-Const variable"));
         }
 
+        let old = variable.cell.borrow().clone();
         *variable.cell.borrow_mut() = coerce_assignment(&variable.ty, value, span)?;
-        Ok(())
+        Ok(old)
     }
 
     pub(crate) fn assign_missing(&mut self, name: &str, span: Span) -> Result<(), Diagnostic> {
@@ -335,7 +336,7 @@ impl Frame {
         index: i64,
         value: Value,
         span: Span,
-    ) -> Result<(), Diagnostic> {
+    ) -> Result<Value, Diagnostic> {
         let variable = self.variable(name, span)?;
         let mut array = variable.cell.borrow_mut();
         write_array_element(&mut array, index, value, span)
@@ -443,6 +444,10 @@ impl Frame {
             .with_primary_label("no active With target")
             .with_help("use dotted member access only inside a With block")
         })
+    }
+
+    pub(crate) fn into_variables(self) -> HashMap<String, Variable> {
+        self.variables
     }
 
     pub(crate) fn set_resume_next(&mut self, enabled: bool) {

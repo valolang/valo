@@ -21,6 +21,8 @@ pub enum TokenKind {
     Compare,
     Binary,
     Text,
+    Version,
+    Begin,
     Type,
     Enum,
     Class,

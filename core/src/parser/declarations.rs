@@ -30,7 +30,7 @@ impl Parser {
         let (target, name) = target
             .rsplit_once('.')
             .map(|(target, name)| (target.to_string(), name.to_string()))
-            .unwrap_or_else(|| (target, String::new()));
+            .unwrap_or_else(|| (String::new(), target));
         Ok(AttributeDecl {
             target,
             name,
@@ -75,7 +75,7 @@ impl Parser {
             if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
             {
                 let attribute = self.parse_attribute_decl()?;
-                apply_class_attribute(&attribute, &mut members);
+                self.apply_class_attribute(&attribute, &mut members);
                 attributes.push(attribute);
             } else {
                 members.push(self.parse_class_member()?);
@@ -98,7 +98,7 @@ impl Parser {
         })
     }
 
-    fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
+    pub(super) fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
         let visibility = self.parse_optional_visibility();
         let with_events = self.match_simple(&TokenKind::WithEvents);
         let is_default = self.match_simple(&TokenKind::Default);
@@ -561,20 +561,19 @@ impl Parser {
             )),
         }
     }
-}
-
-fn apply_class_attribute(attribute: &AttributeDecl, members: &mut [ClassMember]) {
-    if !attribute.name.eq_ignore_ascii_case("VB_UserMemId") || attribute.value != "0" {
-        return;
-    }
-    let member_name = attribute.target.as_str();
-    for member in members.iter_mut().rev() {
-        match member {
-            ClassMember::Property(property) if property.name.eq_ignore_ascii_case(member_name) => {
-                property.is_default = true;
-                return;
+    pub(super) fn apply_class_attribute(&self, attribute: &AttributeDecl, members: &mut [ClassMember]) {
+        if !attribute.name.eq_ignore_ascii_case("VB_UserMemId") || attribute.value != "0" {
+            return;
+        }
+        let member_name = attribute.target.as_str();
+        for member in members.iter_mut().rev() {
+            match member {
+                ClassMember::Property(property) if property.name.eq_ignore_ascii_case(member_name) => {
+                    property.is_default = true;
+                    return;
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
 }

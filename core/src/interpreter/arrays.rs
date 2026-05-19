@@ -32,7 +32,7 @@ pub(crate) fn write_array_element(
     index: i64,
     new_value: Value,
     span: Span,
-) -> Result<(), Diagnostic> {
+) -> Result<Value, Diagnostic> {
     let Value::Array {
         element_type,
         elements,
@@ -48,8 +48,9 @@ pub(crate) fn write_array_element(
     };
     ensure_allocated(*allocated, span)?;
     let index = checked_index(index, *lower_bound, elements.len(), span)?;
+    let old = elements[index].clone();
     elements[index] = coerce_assignment(element_type, new_value, span)?;
-    Ok(())
+    Ok(old)
 }
 
 pub(crate) fn array_element_mut(

@@ -29,6 +29,7 @@ pub struct ObjectValue {
     pub class_name: String,
     pub fields: HashMap<String, Value>,
     pub event_bindings: Vec<EventBinding>,
+    pub terminated: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -100,7 +100,7 @@ impl Interpreter {
                         ));
                     };
                     let value = self.new_object(&class_name, &[], frame, *span)?;
-                    frame.assign(name, value, *span)?;
+                    let _ = frame.assign(name, value, *span)?;
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -358,7 +358,8 @@ impl Interpreter {
                         break;
                     }
 
-                    frame.assign(variable, Value::Integer(current), *span)?;
+                    let old = frame.assign(variable, Value::Integer(current), *span)?;
+                    self.maybe_terminate(old, *span)?;
                     match self.exec_block(body, frame)? {
                         ControlFlow::Continue => {}
                         ControlFlow::ExitFor => return Ok(ControlFlow::Continue),
@@ -380,7 +381,8 @@ impl Interpreter {
                 let iterable = self.eval_expr(iterable, frame)?;
                 let values = super::arrays::array_values(&iterable, *span)?;
                 for value in values {
-                    frame.assign(variable, value, *span)?;
+                    let old = frame.assign(variable, value, *span)?;
+                    self.maybe_terminate(old, *span)?;
                     match self.exec_block(body, frame)? {
                         ControlFlow::Continue => {}
                         ControlFlow::ExitFor => return Ok(ControlFlow::Continue),
@@ -469,7 +471,8 @@ impl Interpreter {
         match target {
             AssignTarget::Variable { name, .. } => {
                 if frame.has_variable(name) {
-                    frame.assign(name, value, span)
+                    let old = frame.assign(name, value, span)?;
+                    self.maybe_terminate(old, span)
                 } else {
                     let owner = frame.get("me", span)?;
                     self.assign_bare_class_field(owner, name, value, span)
@@ -477,7 +480,8 @@ impl Interpreter {
             }
             AssignTarget::ArrayElement { name, index, .. } => {
                 let index = self.eval_integer_expr(index, frame, "Array index must be Integer")?;
-                frame.assign_array_element(name, index, value, span)
+                let old = frame.assign_array_element(name, index, value, span)?;
+                self.maybe_terminate(old, span)
             }
             AssignTarget::Member { object, field, .. } => {
                 self.assign_member(object, field, value, frame, span)

@@ -59,7 +59,7 @@ impl Interpreter {
             .push(format!("{}.{}", class.name, accessor.name));
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
-        match result? {
+        let result = match result? {
             ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
             ControlFlow::Continue => frame.get(&accessor.name, accessor.span),
             ControlFlow::ExitSub => Err(Diagnostic::new(
@@ -81,7 +81,9 @@ impl Interpreter {
                 "Exit statement escaped its block",
                 Some(span),
             )),
-        }
+        };
+        self.terminate_frame_variables(frame, span)?;
+        result
     }
 
     pub(crate) fn call_property_set(
@@ -148,12 +150,12 @@ impl Interpreter {
             &self.types,
             &self.enums,
         )?;
-        frame.assign(&param.name, value, span)?;
+        let _ = frame.assign(&param.name, value, span)?;
         self.scope_stack
             .push(format!("{}.{}", class.name, accessor.name));
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
-        match result? {
+        let result = match result? {
             ControlFlow::Continue => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -179,7 +181,9 @@ impl Interpreter {
                 "Exit statement escaped its block",
                 Some(span),
             )),
-        }
+        };
+        self.terminate_frame_variables(frame, span)?;
+        result
     }
 }
 

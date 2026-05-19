@@ -54,7 +54,7 @@ impl Interpreter {
                 )?;
             }
 
-            match self.exec_block(&function.body, &mut frame)? {
+            let result = match self.exec_block(&function.body, &mut frame)? {
                 ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
                 ControlFlow::Continue => frame.get(&function.name, function.span),
                 ControlFlow::ExitFunction => {
@@ -74,7 +74,9 @@ impl Interpreter {
                     "Exit statement escaped its block",
                     Some(span),
                 )),
-            }
+            };
+            self.terminate_frame_variables(frame, span)?;
+            result
         })();
         let result = result.map_err(|diagnostic| self.with_stack_context(diagnostic));
         self.scope_stack.pop();
@@ -117,7 +119,7 @@ impl Interpreter {
             }
             self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
 
-            match self.exec_block(&procedure.body, &mut frame)? {
+            let result = match self.exec_block(&procedure.body, &mut frame)? {
                 ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
                 ControlFlow::Return(_) => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -138,7 +140,9 @@ impl Interpreter {
                     "Exit statement escaped its block",
                     Some(span),
                 )),
-            }
+            };
+            self.terminate_frame_variables(frame, span)?;
+            result
         })();
         let result = result.map_err(|diagnostic| self.with_stack_context(diagnostic));
         self.scope_stack.pop();
@@ -679,16 +683,17 @@ impl Interpreter {
                     &self.types,
                     &self.enums,
                 )?;
-                callee_frame.assign(
+                let _ = callee_frame.assign(
                     &param.name,
                     Value::Array {
-                        element_type: param_ty,
+                        element_type: param.ty.clone(),
                         elements,
                         lower_bound: self.option_base,
                         allocated: true,
                     },
                     param.span,
                 )?;
+
                 continue;
             }
             let arg = ordered[index];
@@ -713,7 +718,7 @@ impl Interpreter {
                     if matches!(value, Value::Missing) {
                         callee_frame.assign_missing(&param.name, param.span)?;
                     } else {
-                        callee_frame.assign(&param.name, value, param.span)?;
+                        let _ = callee_frame.assign(&param.name, value, param.span)?;
                     }
                 }
                 PassingMode::ByRef => {
@@ -735,7 +740,7 @@ impl Interpreter {
                         if matches!(value, Value::Missing) {
                             callee_frame.assign_missing(&param.name, param.span)?;
                         } else {
-                            callee_frame.assign(&param.name, value, param.span)?;
+                            let _ = callee_frame.assign(&param.name, value, param.span)?;
                         }
                         continue;
                     };
@@ -779,7 +784,7 @@ impl Interpreter {
                 &self.types,
                 &self.enums,
             )?;
-            callee_frame.assign(&param.name, value.clone(), param.span)?;
+            let _ = callee_frame.assign(&param.name, value.clone(), param.span)?;
         }
         Ok(())
     }

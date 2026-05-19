@@ -49,7 +49,7 @@ pub(crate) fn write_member(
     field: &str,
     new_value: Value,
     span: Span,
-) -> Result<(), Diagnostic> {
+) -> Result<Value, Diagnostic> {
     if let Value::Object(object) = value {
         let mut object = object.borrow_mut();
         let Some(slot) = object.fields.get_mut(&key(field)) else {
@@ -60,8 +60,9 @@ pub(crate) fn write_member(
             ));
         };
         let ty = slot.type_name();
+        let old = slot.clone();
         *slot = coerce_assignment(&ty, new_value, span)?;
-        return Ok(());
+        return Ok(old);
     }
     if matches!(value, Value::Nothing) {
         return Err(Diagnostic::new(
@@ -89,8 +90,9 @@ pub(crate) fn write_member(
     };
 
     let ty = slot.type_name();
+    let old = slot.clone();
     *slot = coerce_assignment(&ty, new_value, span)?;
-    Ok(())
+    Ok(old)
 }
 
 #[derive(Debug, Clone)]

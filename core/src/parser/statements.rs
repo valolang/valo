@@ -64,6 +64,14 @@ impl Parser {
             TokenKind::Set => self.parse_set_assignment(),
             TokenKind::Console => self.parse_console_writeline(),
             TokenKind::Return => self.parse_return(),
+            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute") => {
+                let _ = self.parse_attribute_decl()?;
+                // Return a dummy statement that does nothing
+                Ok(Stmt::Label {
+                    name: String::new(),
+                    span: self.previous().span,
+                })
+            }
             TokenKind::Identifier(_) | TokenKind::Me | TokenKind::Dot => {
                 self.parse_identifier_statement()
             }

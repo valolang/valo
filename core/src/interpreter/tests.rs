@@ -8,5 +8,6 @@ mod control_flow;
 mod enums;
 mod errors;
 mod expressions;
+mod lifecycle;
 mod modules;
 mod variables;

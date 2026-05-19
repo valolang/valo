@@ -93,6 +93,8 @@ impl<'a> Lexer<'a> {
             "compare" => TokenKind::Compare,
             "binary" => TokenKind::Binary,
             "text" => TokenKind::Text,
+            "version" => TokenKind::Version,
+            "begin" => TokenKind::Begin,
             "type" => TokenKind::Type,
             "enum" => TokenKind::Enum,
             "class" => TokenKind::Class,

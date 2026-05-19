@@ -16,13 +16,18 @@ impl Parser {
         let mut classes = Vec::new();
         let mut procedures = Vec::new();
         let mut functions = Vec::new();
+        let mut is_class_module = false;
         self.skip_newlines();
+
+        if self.check_simple(&TokenKind::Version) {
+            self.parse_cls_envelope()?;
+            is_class_module = true;
+        }
 
         while !self.is_at_end() {
             match self.peek_kind() {
                 TokenKind::Option => {
-                    if !attributes.is_empty()
-                        || !imports.is_empty()
+                    if !imports.is_empty()
                         || !types.is_empty()
                         || !enums.is_empty()
                         || !module_vars.is_empty()
@@ -91,6 +96,35 @@ impl Parser {
                 }
                 TokenKind::Type => types.push(self.parse_type_decl(Visibility::Public)?),
                 TokenKind::Enum => enums.push(self.parse_enum_decl(Visibility::Public)?),
+                _ if is_class_module => {
+                    let mut class_members = Vec::new();
+                    let mut class_attributes = Vec::new();
+                    while !self.is_at_end() {
+                        if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
+                        {
+                            let attribute = self.parse_attribute_decl()?;
+                            self.apply_class_attribute(&attribute, &mut class_members);
+                            class_attributes.push(attribute);
+                        } else {
+                            class_members.push(self.parse_class_member()?);
+                        }
+                        self.skip_newlines();
+                    }
+                    let name = attributes
+                        .iter()
+                        .find(|attr| {
+                            attr.target.is_empty() && attr.name.eq_ignore_ascii_case("VB_Name")
+                        })
+                        .map(|attr| attr.value.clone())
+                        .unwrap_or_else(|| "ClassModule".to_string());
+                    classes.push(ClassDecl {
+                        visibility: Visibility::Public,
+                        name,
+                        attributes: class_attributes,
+                        members: class_members,
+                        span: crate::runtime::Span::new(crate::runtime::SourcePos::new(1, 1), self.previous().span.end),
+                    });
+                }
                 TokenKind::Const => {
                     module_consts.push(self.parse_module_const(Visibility::Private)?)
                 }
@@ -143,5 +177,31 @@ impl Parser {
             procedures,
             functions,
         })
+    }
+
+    pub(super) fn parse_cls_envelope(&mut self) -> Result<(), Diagnostic> {
+        self.expect_simple(TokenKind::Version, "Expected 'VERSION'")?;
+        // Skip version number (e.g., 1.0)
+        while !self.is_at_end() && !self.check_simple(&TokenKind::Class) {
+            self.advance();
+        }
+        self.expect_simple(TokenKind::Class, "Expected 'CLASS'")?;
+        self.expect_statement_end("Expected newline after VERSION")?;
+
+        if self.match_simple(&TokenKind::Begin) {
+            self.skip_newlines();
+            let mut depth = 1;
+            while !self.is_at_end() && depth > 0 {
+                if self.match_simple(&TokenKind::Begin) {
+                    depth += 1;
+                } else if self.match_simple(&TokenKind::End) {
+                    depth -= 1;
+                } else {
+                    self.advance();
+                }
+            }
+            self.expect_statement_end("Expected newline after END")?;
+        }
+        Ok(())
     }
 }

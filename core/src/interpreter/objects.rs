@@ -97,6 +97,7 @@ impl Interpreter {
             class_name: class.name.clone(),
             fields,
             event_bindings: Vec::new(),
+            terminated: false,
         })));
         if let Some(init) = class
             .subs
@@ -170,7 +171,8 @@ impl Interpreter {
                                 Some(span),
                             )
                         })?;
-                    return module_frame.assign(member, value, span);
+                    let old = module_frame.assign(member, value, span)?;
+                    return self.maybe_terminate(old, span);
                 }
                 let variable = frame.variable(name, target.span)?;
                 self.assign_member_to_variable(variable, member, value, span)
@@ -192,7 +194,9 @@ impl Interpreter {
                 let mut root = variable.cell.borrow_mut();
                 let element = array_element_mut(&mut root, index, span)?;
                 if object_has_field(element, member) || !matches!(element, Value::Object(_)) {
-                    return write_member(element, member, value, span);
+                    let old = write_member(element, member, value, span)?;
+                    self.maybe_terminate(old, span)?;
+                    return Ok(());
                 }
                 let object = element.clone();
                 drop(root);
@@ -262,11 +266,8 @@ impl Interpreter {
             }
             _ => None,
         };
-        let old_value = owner
-            .as_ref()
-            .and_then(|object| object.borrow().fields.get(&key(member)).cloned());
-        write_member(target, member, value, span)?;
-        if let (Some(owner), Some(old_value)) = (owner, old_value) {
+        let old_value = write_member(target, member, value, span)?;
+        if let Some(owner) = owner {
             let new_value = owner
                 .borrow()
                 .fields
@@ -275,6 +276,7 @@ impl Interpreter {
                 .unwrap_or(Value::Nothing);
             self.rebind_withevents_field(owner, member, &old_value, &new_value);
         }
+        self.maybe_terminate(old_value, span)?;
         Ok(())
     }
 }

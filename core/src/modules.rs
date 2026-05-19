@@ -128,8 +128,9 @@ fn module_name(path: &Path) -> String {
 
 fn resolve_import_path(current: &Path, import: &ImportDecl) -> Result<PathBuf, Diagnostic> {
     let dir = current.parent().unwrap_or_else(|| Path::new("."));
-    let target_name = format!("{}.valo", import.module);
-    let target_key = target_name.to_ascii_lowercase();
+    let target_valo = format!("{}.valo", import.module).to_ascii_lowercase();
+    let target_bas = format!("{}.bas", import.module).to_ascii_lowercase();
+    let target_cls = format!("{}.cls", import.module).to_ascii_lowercase();
     let mut matches = Vec::new();
     for entry in fs::read_dir(dir).map_err(|err| {
         Diagnostic::new(
@@ -153,8 +154,8 @@ fn resolve_import_path(current: &Path, import: &ImportDecl) -> Result<PathBuf, D
                 Some(import.span),
             )
         })?;
-        let name = entry.file_name();
-        if name.to_string_lossy().to_ascii_lowercase() == target_key {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if name == target_valo || name == target_bas || name == target_cls {
             matches.push(entry.path());
         }
     }

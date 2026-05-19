@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
-use crate::runtime::Diagnostic;
+use crate::runtime::{Diagnostic, Value};
 use crate::{Function, Procedure, Program};
 
 use super::records::RuntimeType;
@@ -139,6 +140,8 @@ impl Interpreter {
         self.scope_stack.push(format!("Sub {}", main.name));
         let result = self.exec_block(&main.body, &mut frame);
         self.scope_stack.pop();
+        self.terminate_frame_variables(frame, main.span)?;
+
         match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output),
             ControlFlow::Return(_) => Err(Diagnostic::new(
@@ -192,6 +195,15 @@ impl Interpreter {
         self.scope_stack.push(format!("Sub {}", main.name));
         let result = self.exec_block(&main.body, &mut frame);
         self.scope_stack.pop();
+
+        self.terminate_frame_variables(frame, main.span)?;
+        let module_keys: Vec<_> = self.module_frames.keys().cloned().collect();
+        for key in module_keys {
+            if let Some(module_frame) = self.module_frames.remove(&key) {
+                self.terminate_frame_variables(module_frame, main.span)?;
+            }
+        }
+
         match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output),
             ControlFlow::Return(_) => Err(Diagnostic::new(
@@ -611,5 +623,65 @@ impl Interpreter {
                 Some(expr.span),
             )),
         }
+    }
+
+    pub(crate) fn maybe_terminate(
+        &mut self,
+        value: Value,
+        span: crate::runtime::Span,
+    ) -> Result<(), Diagnostic> {
+        match value {
+            Value::Object(rc) if Rc::strong_count(&rc) == 1 => {
+                let mut borrow = rc.borrow_mut();
+                if borrow.terminated {
+                    return Ok(());
+                }
+                borrow.terminated = true;
+                let class_name = borrow.class_name.clone();
+                drop(borrow);
+
+                if let Some(class) = self.classes.get(&key(&class_name)).cloned()
+                    && let Some(terminate) = class
+                        .subs
+                        .get("terminate")
+                        .or_else(|| class.subs.get("class_terminate"))
+                {
+                    let mut frame = Frame::default();
+                    frame.set_module_key(key(class_name.split('.').next().unwrap_or(&class_name)));
+                    self.call_method_sub_values(
+                        Value::Object(rc),
+                        &terminate.name,
+                        &[],
+                        &mut frame,
+                        span,
+                    )?;
+                }
+            }
+            Value::Array { elements, .. } => {
+                for element in elements {
+                    self.maybe_terminate(element, span)?;
+                }
+            }
+            Value::Record { fields, .. } => {
+                for field_value in fields.into_values() {
+                    self.maybe_terminate(field_value, span)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub(crate) fn terminate_frame_variables(
+        &mut self,
+        frame: Frame,
+        span: crate::runtime::Span,
+    ) -> Result<(), Diagnostic> {
+        for (_, variable) in frame.into_variables() {
+            let value = variable.cell.borrow().clone();
+            drop(variable);
+            self.maybe_terminate(value, span)?;
+        }
+        Ok(())
     }
 }
