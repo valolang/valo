@@ -1,0 +1,47 @@
+#If VALO Then
+Sub Main()
+    Console.WriteLine("Runtime: Valo")
+
+#If Windows Then
+    Console.WriteLine("Platform: Windows")
+#ElseIf Linux Then
+    Console.WriteLine("Platform: Linux")
+#ElseIf Android Then
+    Console.WriteLine("Platform: Android")
+#ElseIf MacOS Then
+    Console.WriteLine("Platform: macOS")
+#ElseIf IOS Then
+    Console.WriteLine("Platform: iOS")
+#ElseIf Wasm Then
+    Console.WriteLine("Platform: WebAssembly")
+#Else
+    Console.WriteLine("Platform: Other")
+#End If
+
+#If X64 Then
+    Console.WriteLine("Arch: x64")
+#ElseIf Arm64 Then
+    Console.WriteLine("Arch: arm64")
+#ElseIf X86 Then
+    Console.WriteLine("Arch: x86")
+#ElseIf Arm Then
+    Console.WriteLine("Arch: arm")
+#ElseIf RiscV64 Then
+    Console.WriteLine("Arch: riscv64")
+#ElseIf RiscV32 Then
+    Console.WriteLine("Arch: riscv32")
+#ElseIf Wasm32 Then
+    Console.WriteLine("Arch: wasm32")
+#ElseIf Wasm64 Then
+    Console.WriteLine("Arch: wasm64")
+#Else
+    Console.WriteLine("Arch: Other")
+#End If
+
+#If Debug Then
+    Console.WriteLine("Build: Debug")
+#ElseIf Release Then
+    Console.WriteLine("Build: Release")
+#End If
+End Sub
+#End If

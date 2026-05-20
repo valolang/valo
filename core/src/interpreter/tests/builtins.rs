@@ -335,3 +335,99 @@ End Sub
     );
     assert_eq!(output, vec!["nested else"]);
 }
+
+#[test]
+fn conditional_compilation_builtin_valo_and_vba_constants_work() {
+    let output = run_source(
+        r#"
+Sub Main()
+#If VALO Then
+    Console.WriteLine("VALO")
+#Else
+    invalid inactive Valo
+#End If
+#If Valo Then
+    Console.WriteLine("Valo")
+#End If
+#If valoruntime Then
+    Console.WriteLine("ValoRuntime")
+#End If
+#If VBA7 Then
+    Console.WriteLine("VBA7")
+#End If
+#If VBA6 Then
+    invalid inactive VBA6
+#Else
+    Console.WriteLine("not VBA6")
+#End If
+End Sub
+"#,
+    );
+
+    assert_eq!(
+        output,
+        vec!["VALO", "Valo", "ValoRuntime", "VBA7", "not VBA6"]
+    );
+}
+
+#[test]
+fn conditional_compilation_builtin_build_platform_and_arch_constants_work() {
+    let output = run_source(
+        r#"
+Sub Main()
+#If Debug Or Release Then
+    Console.WriteLine("build")
+#Else
+    invalid inactive build
+#End If
+#If Windows Or Linux Or MacOS Or Android Or IOS Or FreeBSD Or OpenBSD Or NetBSD Or DragonFly Or Solaris Or Illumos Or Haiku Or Wasm Or Unix Then
+    Console.WriteLine("platform")
+#Else
+    invalid inactive platform
+#End If
+#If X86 Or X64 Or Arm Or Arm64 Or Armv7 Or RiscV32 Or RiscV64 Or Wasm32 Or Wasm64 Or S390x Or PowerPC Or PowerPC64 Or Mips Or Mips64 Or LoongArch64 Then
+    Console.WriteLine("arch")
+#Else
+    invalid inactive arch
+#End If
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["build", "platform", "arch"]);
+}
+
+#[test]
+fn conditional_compilation_builtin_vba_platform_aliases_are_available() {
+    let output = run_source(
+        r#"
+Sub Main()
+#If Win32 Or Win64 Or Mac Or Mac64 Or Not (Win32 Or Win64 Or Mac Or Mac64) Then
+    Console.WriteLine("aliases")
+#Else
+    invalid inactive aliases
+#End If
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["aliases"]);
+}
+
+#[test]
+fn conditional_compilation_user_const_can_override_builtin_constant() {
+    let output = run_source(
+        r#"
+#Const Valo = False
+Sub Main()
+#If Valo Then
+    invalid inactive override
+#Else
+    Console.WriteLine("override")
+#End If
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["override"]);
+}

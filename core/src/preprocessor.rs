@@ -97,7 +97,9 @@ fn join_line_continuations(source: &str) -> String {
 
 fn builtin_constants() -> HashMap<String, ConstValue> {
     let mut constants = HashMap::new();
+    constants.insert(key("VALO"), ConstValue::Boolean(true));
     constants.insert(key("Valo"), ConstValue::Boolean(true));
+    constants.insert(key("ValoRuntime"), ConstValue::Boolean(true));
     constants.insert(key("Debug"), ConstValue::Boolean(cfg!(debug_assertions)));
     constants.insert(key("Release"), ConstValue::Boolean(!cfg!(debug_assertions)));
     constants.insert(
@@ -110,9 +112,105 @@ fn builtin_constants() -> HashMap<String, ConstValue> {
         key("Android"),
         ConstValue::Boolean(cfg!(target_os = "android")),
     );
+    constants.insert(key("IOS"), ConstValue::Boolean(cfg!(target_os = "ios")));
+    constants.insert(
+        key("FreeBSD"),
+        ConstValue::Boolean(cfg!(target_os = "freebsd")),
+    );
+    constants.insert(
+        key("OpenBSD"),
+        ConstValue::Boolean(cfg!(target_os = "openbsd")),
+    );
+    constants.insert(
+        key("NetBSD"),
+        ConstValue::Boolean(cfg!(target_os = "netbsd")),
+    );
+    constants.insert(
+        key("DragonFly"),
+        ConstValue::Boolean(cfg!(target_os = "dragonfly")),
+    );
+    constants.insert(
+        key("Solaris"),
+        ConstValue::Boolean(cfg!(target_os = "solaris")),
+    );
+    constants.insert(
+        key("Illumos"),
+        ConstValue::Boolean(cfg!(target_os = "illumos")),
+    );
+    constants.insert(key("Haiku"), ConstValue::Boolean(cfg!(target_os = "haiku")));
     constants.insert(
         key("Wasm"),
+        ConstValue::Boolean(cfg!(target_arch = "wasm32") || cfg!(target_arch = "wasm64")),
+    );
+    constants.insert(key("Unix"), ConstValue::Boolean(cfg!(unix)));
+    constants.insert(key("X86"), ConstValue::Boolean(cfg!(target_arch = "x86")));
+    constants.insert(
+        key("X64"),
+        ConstValue::Boolean(cfg!(target_arch = "x86_64")),
+    );
+    constants.insert(key("Arm"), ConstValue::Boolean(cfg!(target_arch = "arm")));
+    constants.insert(
+        key("Arm64"),
+        ConstValue::Boolean(cfg!(target_arch = "aarch64")),
+    );
+    constants.insert(key("Armv7"), ConstValue::Boolean(false));
+    constants.insert(
+        key("RiscV32"),
+        ConstValue::Boolean(cfg!(target_arch = "riscv32")),
+    );
+    constants.insert(
+        key("RiscV64"),
+        ConstValue::Boolean(cfg!(target_arch = "riscv64")),
+    );
+    constants.insert(
+        key("Wasm32"),
         ConstValue::Boolean(cfg!(target_arch = "wasm32")),
+    );
+    constants.insert(
+        key("Wasm64"),
+        ConstValue::Boolean(cfg!(target_arch = "wasm64")),
+    );
+    constants.insert(
+        key("S390x"),
+        ConstValue::Boolean(cfg!(target_arch = "s390x")),
+    );
+    constants.insert(
+        key("PowerPC"),
+        ConstValue::Boolean(cfg!(target_arch = "powerpc")),
+    );
+    constants.insert(
+        key("PowerPC64"),
+        ConstValue::Boolean(cfg!(target_arch = "powerpc64")),
+    );
+    constants.insert(
+        key("Mips"),
+        ConstValue::Boolean(cfg!(target_arch = "mips") || cfg!(target_arch = "mips32r6")),
+    );
+    constants.insert(
+        key("Mips64"),
+        ConstValue::Boolean(cfg!(target_arch = "mips64") || cfg!(target_arch = "mips64r6")),
+    );
+    constants.insert(
+        key("LoongArch64"),
+        ConstValue::Boolean(cfg!(target_arch = "loongarch64")),
+    );
+    constants.insert(key("VBA7"), ConstValue::Boolean(true));
+    constants.insert(key("VBA6"), ConstValue::Boolean(false));
+    constants.insert(
+        key("Win32"),
+        ConstValue::Boolean(cfg!(target_os = "windows") && cfg!(target_arch = "x86")),
+    );
+    constants.insert(
+        key("Win64"),
+        ConstValue::Boolean(cfg!(target_os = "windows") && cfg!(target_arch = "x86_64")),
+    );
+    constants.insert(key("Mac"), ConstValue::Boolean(cfg!(target_os = "macos")));
+    constants.insert(
+        key("Mac64"),
+        ConstValue::Boolean(
+            cfg!(target_os = "macos")
+                && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")),
+        ),
     );
     constants
 }
@@ -338,7 +436,8 @@ impl<'a> ConstExprParser<'a> {
     fn parse_or(&mut self) -> Result<ConstValue, Diagnostic> {
         let mut value = self.parse_and()?;
         while self.match_keyword("or") {
-            value = ConstValue::Boolean(value.truthy() || self.parse_and()?.truthy());
+            let right = self.parse_and()?;
+            value = ConstValue::Boolean(value.truthy() || right.truthy());
         }
         Ok(value)
     }
@@ -346,7 +445,8 @@ impl<'a> ConstExprParser<'a> {
     fn parse_and(&mut self) -> Result<ConstValue, Diagnostic> {
         let mut value = self.parse_not()?;
         while self.match_keyword("and") {
-            value = ConstValue::Boolean(value.truthy() && self.parse_not()?.truthy());
+            let right = self.parse_not()?;
+            value = ConstValue::Boolean(value.truthy() && right.truthy());
         }
         Ok(value)
     }
