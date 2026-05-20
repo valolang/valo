@@ -227,6 +227,29 @@ impl Interpreter {
                                 Some(expr.span),
                             ));
                         }
+                        Value::Record { ref type_name, .. } => {
+                            if let Some(default_member) = self
+                                .types
+                                .get(&super::values::key(type_name))
+                                .and_then(|t| t.default_property.clone())
+                            {
+                                return self.call_record_function(
+                                    value.clone(),
+                                    &default_member,
+                                    args,
+                                    frame,
+                                    expr.span,
+                                );
+                            }
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                format!(
+                                    "Variable '{}' is not an array or a Structure with a default property",
+                                    name
+                                ),
+                                Some(expr.span),
+                            ));
+                        }
                         _ => {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::ARRAY,
@@ -265,6 +288,9 @@ impl Interpreter {
                     return self.call_module_function(module_name, method, args, frame, expr.span);
                 }
                 let object = self.eval_expr(object, frame)?;
+                if matches!(object, Value::Record { .. }) {
+                    return self.call_record_function(object, method, args, frame, expr.span);
+                }
                 self.call_method_function(object, method, args, frame, expr.span)
             }
             ExprKind::Unary { op, expr: inner } => {
@@ -316,6 +342,18 @@ impl Interpreter {
         frame: &mut Frame,
         span: crate::runtime::Span,
     ) -> Result<Value, Diagnostic> {
+        if matches!(value, Value::Record { .. }) {
+            let type_name = match &value {
+                Value::Record { type_name, .. } => type_name.clone(),
+                _ => unreachable!(),
+            };
+            if let Some(type_def) = self.types.get(&super::values::key(&type_name))
+                && let Some(default_member) = type_def.default_property.clone()
+            {
+                return self.call_record_property_get(value, &default_member, &[], frame, span);
+            }
+            return Ok(value);
+        }
         let Value::Object(object) = &value else {
             return Ok(value);
         };

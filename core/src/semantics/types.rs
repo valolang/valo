@@ -8,13 +8,20 @@ use crate::semantics::symbols::key;
 
 #[derive(Debug, Clone)]
 pub(super) struct FieldSig {
+    pub(super) visibility: Visibility,
     pub(super) ty: TypeName,
+    pub(super) array: Option<ArrayDecl>,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct TypeSig {
     pub(super) name: String,
+    pub(super) is_structure: bool,
     pub(super) fields: HashMap<String, FieldSig>,
+    pub(super) subs: HashMap<String, ClassMethodSig>,
+    pub(super) functions: HashMap<String, ClassMethodSig>,
+    pub(super) properties: HashMap<String, ClassPropertySig>,
+    pub(super) default_property: Option<String>,
 }
 
 pub(super) struct TypeRegistry {

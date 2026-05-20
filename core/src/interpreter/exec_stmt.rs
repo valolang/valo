@@ -211,6 +211,20 @@ impl Interpreter {
                     self.call_module_sub(module_name, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
                 }
+                if let crate::ExprKind::Variable(name) = &object.kind
+                    && let Ok(variable) = frame.variable(name, object.span)
+                    && matches!(&*variable.cell.borrow(), Value::Record { .. })
+                {
+                    self.call_record_sub_variable(variable, method, args, frame, *span)?;
+                    return Ok(ControlFlow::Continue);
+                }
+                if matches!(object.kind, crate::ExprKind::Me)
+                    && let Ok(variable) = frame.variable("me", object.span)
+                    && matches!(&*variable.cell.borrow(), Value::Record { .. })
+                {
+                    self.call_record_sub_variable(variable, method, args, frame, *span)?;
+                    return Ok(ControlFlow::Continue);
+                }
                 let object = self.eval_expr(object, frame)?;
                 self.call_method_sub(object, method, args, frame, *span)?;
                 Ok(ControlFlow::Continue)
@@ -678,12 +692,30 @@ impl Interpreter {
     ) -> Result<(), Diagnostic> {
         match target {
             AssignTarget::Variable { name, .. } => {
+                if let Ok(owner_variable) = frame.variable("me", span) {
+                    let is_record_field = {
+                        let owner = owner_variable.cell.borrow();
+                        matches!(
+                            &*owner,
+                            Value::Record { fields, .. }
+                                if fields.contains_key(&super::values::key(name))
+                        )
+                    };
+                    if is_record_field {
+                        return self.assign_member_to_variable(owner_variable, name, value, span);
+                    }
+                }
                 if frame.has_variable(name) {
                     let old = frame.assign(name, value, span)?;
                     self.maybe_terminate(old, span)
                 } else {
-                    let owner = frame.get("me", span)?;
-                    self.assign_bare_class_field(owner, name, value, span)
+                    let owner_variable = frame.variable("me", span)?;
+                    if matches!(&*owner_variable.cell.borrow(), Value::Record { .. }) {
+                        self.assign_member_to_variable(owner_variable, name, value, span)
+                    } else {
+                        let owner = owner_variable.cell.borrow().clone();
+                        self.assign_bare_class_field(owner, name, value, span)
+                    }
                 }
             }
             AssignTarget::ArrayElement { name, indices, .. } => {

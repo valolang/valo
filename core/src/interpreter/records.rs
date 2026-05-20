@@ -1,6 +1,7 @@
-use crate::TypeDecl;
 use crate::runtime::{Diagnostic, Span, TypeName, Value};
+use crate::{ClassMember, TypeDecl, TypeKind};
 
+use super::properties::{RuntimeProperty, RuntimePropertyAccessor};
 use super::values::{coerce_assignment, key};
 
 pub(crate) fn read_field_member(
@@ -98,7 +99,12 @@ pub(crate) fn write_member(
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeType {
     pub(crate) name: String,
+    pub(crate) is_structure: bool,
     pub(crate) fields: Vec<RuntimeField>,
+    pub(crate) subs: std::collections::HashMap<String, crate::Procedure>,
+    pub(crate) functions: std::collections::HashMap<String, crate::Function>,
+    pub(crate) properties: std::collections::HashMap<String, RuntimeProperty>,
+    pub(crate) default_property: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -111,16 +117,64 @@ impl From<&TypeDecl> for RuntimeType {
     fn from(value: &TypeDecl) -> Self {
         Self {
             name: value.name.clone(),
+            is_structure: value.kind == TypeKind::Structure,
             fields: value
                 .fields
                 .iter()
                 .map(|field| RuntimeField {
                     name: field.name.clone(),
                     ty: field.ty.clone(),
-                    array: None,
+                    array: field.array.clone(),
                     with_events: false,
                 })
                 .collect(),
+            subs: value
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    ClassMember::Sub(method) => {
+                        Some((key(&method.procedure.name), method.procedure.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            functions: value
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    ClassMember::Function(method) => {
+                        Some((key(&method.function.name), method.function.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            properties: value
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    ClassMember::Property(property) => Some(property),
+                    _ => None,
+                })
+                .fold(std::collections::HashMap::new(), |mut props, property| {
+                    let entry = props.entry(key(&property.name)).or_insert(RuntimeProperty {
+                        get: None,
+                        let_: None,
+                        set: None,
+                    });
+                    let accessor = RuntimePropertyAccessor::from(property);
+                    match property.kind {
+                        crate::PropertyKind::Get => entry.get = Some(accessor),
+                        crate::PropertyKind::Let => entry.let_ = Some(accessor),
+                        crate::PropertyKind::Set => entry.set = Some(accessor),
+                    }
+                    props
+                }),
+            default_property: value.members.iter().find_map(|member| match member {
+                ClassMember::Property(property) if property.is_default => {
+                    Some(property.name.clone())
+                }
+                _ => None,
+            }),
         }
     }
 }

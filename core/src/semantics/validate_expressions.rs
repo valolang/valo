@@ -12,11 +12,14 @@ pub(super) fn validate_assignment_target(
         AssignTarget::Variable { name, span } => {
             let target_type = if let Some(target_type) = symbols.get(&key(name)).cloned() {
                 target_type
-            } else if let Some(class_name) = context.current_class() {
-                let class_sig = types
-                    .get_class(class_name)
-                    .expect("current class validated");
-                if let Some(field_sig) = class_sig.fields.get(&key(name)) {
+            } else if let Some(owner_name) = context.current_class() {
+                if let Some(class_sig) = types.get_class(owner_name)
+                    && let Some(field_sig) = class_sig.fields.get(&key(name))
+                {
+                    VarType::Scalar(field_sig.ty.clone())
+                } else if let Some(type_sig) = types.get(owner_name)
+                    && let Some(field_sig) = type_sig.fields.get(&key(name))
+                {
                     VarType::Scalar(field_sig.ty.clone())
                 } else {
                     return Err(Diagnostic::new(
@@ -55,11 +58,24 @@ pub(super) fn validate_assignment_target(
         } => {
             let var_type = if let Some(var_type) = symbols.get(&key(name)).cloned() {
                 var_type
-            } else if let Some(class_name) = context.current_class() {
-                let class_sig = types
-                    .get_class(class_name)
-                    .expect("current class validated");
-                if let Some(field_sig) = class_sig.fields.get(&key(name)) {
+            } else if let Some(owner_name) = context.current_class() {
+                if let Some(class_sig) = types.get_class(owner_name)
+                    && let Some(field_sig) = class_sig.fields.get(&key(name))
+                {
+                    if field_sig.array.is_some() {
+                        VarType::Array(field_sig.ty.clone())
+                    } else if field_sig.ty.same_type(&TypeName::Variant) {
+                        VarType::Scalar(TypeName::Variant)
+                    } else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            format!("Variable '{}' is not an array", name),
+                            Some(*span),
+                        ));
+                    }
+                } else if let Some(type_sig) = types.get(owner_name)
+                    && let Some(field_sig) = type_sig.fields.get(&key(name))
+                {
                     if field_sig.array.is_some() {
                         VarType::Array(field_sig.ty.clone())
                     } else if field_sig.ty.same_type(&TypeName::Variant) {
@@ -191,10 +207,32 @@ pub(super) fn validate_expr(
         },
         ExprKind::WithTarget => Ok(TypeName::Variant),
         ExprKind::New { class_name, args } => {
+            if let Some(type_sig) = types.get(class_name) {
+                if !type_sig.is_structure {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!(
+                            "Type '{}' cannot be constructed with New; use Structure",
+                            type_sig.name
+                        ),
+                        Some(expr.span),
+                    ));
+                }
+                if let Some(init) = type_sig.subs.get("initialize") {
+                    validate_arguments("Sub", init, args, symbols, types, signatures, expr.span)?;
+                } else if !args.is_empty() {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        format!("Structure '{}' has no Constructor", type_sig.name),
+                        Some(expr.span),
+                    ));
+                }
+                return Ok(TypeName::User(type_sig.name.clone()));
+            }
             let class_sig = types.get_class(class_name).ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                    format!("Class '{}' is not defined", class_name),
+                    format!("Class or Structure '{}' is not defined", class_name),
                     Some(expr.span),
                 )
             })?;
@@ -270,18 +308,31 @@ pub(super) fn validate_expr(
             if builtins.iter().any(|b| name.eq_ignore_ascii_case(b)) {
                 return Ok(TypeName::Integer);
             }
-            if let Some(VarType::Scalar(TypeName::User(class_name))) = symbols.get("me").cloned()
-                && let Some(class_sig) = types.get_class(&class_name)
-                && let Some(field_sig) = class_sig.fields.get(&key(name))
-            {
-                if field_sig.array.is_some() {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::ARRAY,
-                        format!("Array variable '{}' cannot be used as a scalar", name),
-                        Some(expr.span),
-                    ));
+            if let Some(VarType::Scalar(TypeName::User(owner_name))) = symbols.get("me").cloned() {
+                if let Some(class_sig) = types.get_class(&owner_name)
+                    && let Some(field_sig) = class_sig.fields.get(&key(name))
+                {
+                    if field_sig.array.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            format!("Array variable '{}' cannot be used as a scalar", name),
+                            Some(expr.span),
+                        ));
+                    }
+                    return Ok(field_sig.ty.clone());
                 }
-                return Ok(field_sig.ty.clone());
+                if let Some(type_sig) = types.get(&owner_name)
+                    && let Some(field_sig) = type_sig.fields.get(&key(name))
+                {
+                    if field_sig.array.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            format!("Array variable '{}' cannot be used as a scalar", name),
+                            Some(expr.span),
+                        ));
+                    }
+                    return Ok(field_sig.ty.clone());
+                }
             }
             if enum_member_value_type(name, types).is_some() {
                 Ok(TypeName::Integer)
@@ -453,6 +504,22 @@ pub(super) fn validate_expr(
                     VarType::Scalar(TypeName::User(class_name))
                     | VarType::Optional(TypeName::User(class_name))
                     | VarType::Const(TypeName::User(class_name)) => {
+                        if let Some(type_sig) = types.get(&class_name)
+                            && type_sig.is_structure
+                            && let Some(default_prop_name) = &type_sig.default_property
+                        {
+                            return validate_method_call(
+                                &TypeName::User(class_name.clone()),
+                                default_prop_name,
+                                args,
+                                true,
+                                expr.span,
+                                symbols,
+                                types,
+                                signatures,
+                                None,
+                            );
+                        }
                         if let Some(default_prop_name) = types
                             .get_class(&class_name)
                             .and_then(|c| c.default_property.as_ref())
@@ -1137,13 +1204,19 @@ pub(super) fn validate_method_call(
             Some(span),
         ));
     };
-    let class_sig = types.get_class(class_name).ok_or_else(|| {
-        Diagnostic::new(
-            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-            format!("Class '{}' is not defined", class_name),
-            Some(span),
-        )
-    })?;
+    let Some(class_sig) = types.get_class(class_name) else {
+        return validate_structure_method_call(
+            object_type,
+            method,
+            args,
+            as_expression,
+            span,
+            symbols,
+            types,
+            signatures,
+            current_class,
+        );
+    };
 
     if as_expression {
         if let Some(method_sig) = class_sig.functions.get(&key(method)) {
@@ -1272,6 +1345,119 @@ pub(super) fn validate_method_call(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn validate_structure_method_call(
+    object_type: &TypeName,
+    method: &str,
+    args: &[Expr],
+    as_expression: bool,
+    span: crate::runtime::Span,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+    current_type: Option<&str>,
+) -> Result<TypeName, Diagnostic> {
+    let TypeName::User(type_name) = object_type else {
+        unreachable!();
+    };
+    let type_sig = types.get(type_name).ok_or_else(|| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+            format!("Type '{}' is not defined", type_name),
+            Some(span),
+        )
+    })?;
+    if !type_sig.is_structure {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Method call requires a class or Structure instance",
+            Some(span),
+        ));
+    }
+    if as_expression {
+        if let Some(method_sig) = type_sig.functions.get(&key(method)) {
+            ensure_visible(
+                method_sig.visibility,
+                &type_sig.name,
+                method,
+                current_type,
+                span,
+            )?;
+            validate_arguments(
+                "Function", method_sig, args, symbols, types, signatures, span,
+            )?;
+            return Ok(method_sig.return_type.clone().expect("function return"));
+        }
+        if let Some(get) = type_sig
+            .properties
+            .get(&key(method))
+            .and_then(|p| p.get.as_ref())
+        {
+            ensure_visible(get.visibility, &type_sig.name, method, current_type, span)?;
+            let return_type = get.return_type.clone().expect("property return type");
+            let dummy_sig = CallableSig {
+                visibility: get.visibility,
+                name: method.to_string(),
+                params: get.params.clone(),
+                return_type: Some(return_type.clone()),
+            };
+            validate_arguments(
+                "Property", &dummy_sig, args, symbols, types, signatures, span,
+            )?;
+            return Ok(return_type);
+        }
+        if type_sig.subs.contains_key(&key(method)) {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Sub method '{}' cannot be used as an expression", method),
+                Some(span),
+            ));
+        }
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            format!(
+                "Structure '{}' has no method or property '{}'",
+                type_sig.name, method
+            ),
+            Some(span),
+        ))
+    } else {
+        if method.eq_ignore_ascii_case("Constructor") || method.eq_ignore_ascii_case("Initialize") {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Structure constructor cannot be called as a normal method",
+                Some(span),
+            ));
+        }
+        if let Some(method_sig) = type_sig.subs.get(&key(method)) {
+            ensure_visible(
+                method_sig.visibility,
+                &type_sig.name,
+                method,
+                current_type,
+                span,
+            )?;
+            validate_arguments("Sub", method_sig, args, symbols, types, signatures, span)?;
+            return Ok(TypeName::Variant);
+        }
+        if type_sig.functions.contains_key(&key(method)) {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!(
+                    "Function method '{}' cannot be called as a statement",
+                    method
+                ),
+                Some(span),
+            ));
+        }
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            format!("Structure '{}' has no method '{}'", type_sig.name, method),
+            Some(span),
+        ))
+    }
+}
+
 fn member_access_class(object: &Expr, object_type: &TypeName) -> Option<String> {
     if matches!(object.kind, ExprKind::Me)
         && let TypeName::User(name) = object_type
@@ -1300,17 +1486,40 @@ pub(super) fn member_read_type(
     };
 
     if let Some(type_sig) = types.get(type_name) {
-        return type_sig
-            .fields
-            .get(&key(member))
-            .map(|field| field.ty.clone())
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                    format!("Type '{}' has no field '{}'", type_sig.name, member),
-                    Some(span),
+        if let Some(field) = type_sig.fields.get(&key(member)) {
+            ensure_visible(
+                field.visibility,
+                &type_sig.name,
+                member,
+                current_class,
+                span,
+            )?;
+            return Ok(field.ty.clone());
+        }
+        let Some(property_sig) = type_sig.properties.get(&key(member)) else {
+            let message = if type_sig.is_structure {
+                format!(
+                    "Type '{}' has no field or property '{}'",
+                    type_sig.name, member
                 )
-            });
+            } else {
+                format!("Type '{}' has no field '{}'", type_sig.name, member)
+            };
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                message,
+                Some(span),
+            ));
+        };
+        let get = property_sig.get.as_ref().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Property '{}' has no Get accessor", property_sig.name),
+                Some(span),
+            )
+        })?;
+        ensure_visible(get.visibility, &type_sig.name, member, current_class, span)?;
+        return Ok(get.return_type.clone().expect("get return type"));
     }
 
     let class_sig = types.get_class(type_name).ok_or_else(|| {
@@ -1372,17 +1581,55 @@ fn member_assignment_type(
     };
 
     if let Some(type_sig) = types.get(type_name) {
-        return type_sig
-            .fields
-            .get(&key(member))
-            .map(|field| field.ty.clone())
+        if let Some(field) = type_sig.fields.get(&key(member)) {
+            ensure_visible(
+                field.visibility,
+                &type_sig.name,
+                member,
+                current_class,
+                span,
+            )?;
+            return Ok(field.ty.clone());
+        }
+        let property_sig = type_sig.properties.get(&key(member)).ok_or_else(|| {
+            let message = if type_sig.is_structure {
+                format!(
+                    "Type '{}' has no field or property '{}'",
+                    type_sig.name, member
+                )
+            } else {
+                format!("Type '{}' has no field '{}'", type_sig.name, member)
+            };
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                message,
+                Some(span),
+            )
+        })?;
+        let accessor =
+            if is_class_type(value_type, types) || value_type.same_type(&TypeName::Variant) {
+                property_sig.set.as_ref().or(property_sig.let_.as_ref())
+            } else {
+                property_sig.let_.as_ref()
+            }
             .ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                    format!("Type '{}' has no field '{}'", type_sig.name, member),
+                    format!(
+                        "Property '{}' has no Let or Set accessor",
+                        property_sig.name
+                    ),
                     Some(span),
                 )
-            });
+            })?;
+        ensure_visible(
+            accessor.visibility,
+            &type_sig.name,
+            member,
+            current_class,
+            span,
+        )?;
+        return Ok(accessor.params[0].ty.clone());
     }
 
     let class_sig = types.get_class(type_name).ok_or_else(|| {

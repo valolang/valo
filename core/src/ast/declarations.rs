@@ -77,15 +77,25 @@ pub struct EnumMemberDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeDecl {
     pub visibility: Visibility,
+    pub kind: TypeKind,
     pub name: String,
     pub fields: Vec<FieldDecl>,
+    pub members: Vec<ClassMember>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypeKind {
+    Type,
+    Structure,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDecl {
+    pub visibility: Visibility,
     pub name: String,
     pub ty: TypeName,
+    pub array: Option<super::ArrayDecl>,
     pub span: Span,
 }
 

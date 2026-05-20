@@ -100,7 +100,8 @@ Implemented today:
 - classes, properties, events, and object lifecycle
 - native `Sub Constructor` / `Sub Terminate`
 - VBA `Class_Initialize` / `Class_Terminate`
-- native `Structure` value types and VBA-compatible `Type`
+- native `Structure` value types with methods, properties, and constructors
+- VBA-compatible fields-only `Type`
 - default properties and indexer-style access
 - `Try / Catch / Finally`
 - VBA `On Error`, `Err`, `Resume`, and `Erl`
@@ -149,6 +150,15 @@ End Class
 Public Structure Point
     Public X As Integer
     Public Y As Integer
+
+    Public Sub Constructor(ByVal x As Integer, ByVal y As Integer)
+        X = x
+        Y = y
+    End Sub
+
+    Public Function Sum() As Integer
+        Return X + Y
+    End Function
 End Structure
 
 Sub WriteBytes()

@@ -114,3 +114,9 @@ End Class
 Valo supports `Public` and `Private` visibility for fields, methods, and properties.
 *   **Public:** Accessible from anywhere.
 *   **Private:** Accessible only within the declaring class.
+
+## Classes vs Structures
+
+Use `Class` for reference objects with identity, lifecycle hooks, events, `WithEvents`, and `Nothing`.
+
+Use `Structure` for native value types. Structures can have fields, methods, properties, and constructors, but they are copied on assignment and do not support class lifecycle, events, inheritance, interfaces, `Set`, `Nothing`, or `Is` identity checks.

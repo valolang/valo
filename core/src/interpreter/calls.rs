@@ -1,11 +1,147 @@
-use crate::runtime::{Diagnostic, Span, Value};
+use crate::runtime::{Diagnostic, Span, TypeName, Value};
 use crate::{Expr, ExprKind, Function, PassingMode};
 
+use super::frame::Variable;
 use super::objects::ensure_object;
 use super::values::{coerce_assignment, default_value, key};
 use super::{ControlFlow, Frame, Interpreter};
 
 impl Interpreter {
+    pub(crate) fn call_record_sub_variable(
+        &mut self,
+        variable: Variable,
+        method: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let record = variable.cell.borrow().clone();
+        let Value::Record { type_name, .. } = &record else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Structure method call requires a Structure value",
+                Some(span),
+            ));
+        };
+        let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Structure '{}' is not defined", type_name),
+                Some(span),
+            )
+        })?;
+        if method.eq_ignore_ascii_case("Constructor") {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Structure constructor cannot be called as a normal method",
+                Some(span),
+            ));
+        }
+        let procedure = structure.subs.get(&key(method)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Structure '{}' has no method '{}'", structure.name, method),
+                Some(span),
+            )
+        })?;
+        let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
+        if let Some((module_key, _)) = key(&structure.name).split_once('.') {
+            frame.set_module_key(module_key.to_string());
+        }
+        frame.declare_alias("me", TypeName::User(structure.name.clone()), variable, span)?;
+        self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
+        self.scope_stack
+            .push(format!("{}.{}", structure.name, procedure.name));
+        let result = self.exec_block(&procedure.body, &mut frame);
+        self.scope_stack.pop();
+        match result? {
+            ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+            ControlFlow::Return(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Return is only allowed inside Function",
+                Some(procedure.span),
+            )),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
+        }
+    }
+
+    pub(crate) fn call_record_function(
+        &mut self,
+        record: Value,
+        method: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let Value::Record { type_name, .. } = &record else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Structure method call requires a Structure value",
+                Some(span),
+            ));
+        };
+        let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Structure '{}' is not defined", type_name),
+                Some(span),
+            )
+        })?;
+        if let Some(function) = structure.functions.get(&key(method)).cloned() {
+            let mut frame = Frame::default();
+            frame.inherit_modules_from(caller_frame)?;
+            if let Some((module_key, _)) = key(&structure.name).split_once('.') {
+                frame.set_module_key(module_key.to_string());
+            }
+            frame.declare_const("me", TypeName::User(structure.name.clone()), record, span)?;
+            self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
+            let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
+            if !frame.has_variable(&function.name) {
+                frame.declare(
+                    &function.name,
+                    return_type.clone(),
+                    None,
+                    self.option_base,
+                    function.span,
+                    &self.types,
+                    &self.enums,
+                )?;
+            }
+            self.scope_stack
+                .push(format!("{}.{}", structure.name, function.name));
+            let result = self.exec_block(&function.body, &mut frame);
+            self.scope_stack.pop();
+            return match result? {
+                ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
+                ControlFlow::Continue => frame.get(&function.name, function.span),
+                ControlFlow::ExitFunction => {
+                    default_value(&return_type, &self.types, &self.enums, span)
+                }
+                _ => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Exit statement escaped its block",
+                    Some(span),
+                )),
+            };
+        }
+        if structure.properties.contains_key(&key(method)) {
+            return self.call_record_property_get(record, method, args, caller_frame, span);
+        }
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            format!(
+                "Structure '{}' has no method or property '{}'",
+                structure.name, method
+            ),
+            Some(span),
+        ))
+    }
+
     pub(crate) fn call_function(
         &mut self,
         name: &str,

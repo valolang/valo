@@ -1,11 +1,183 @@
 use crate::runtime::{Diagnostic, Span, TypeName, Value};
 use crate::{ClassProperty, Expr, PropertyKind, Stmt};
 
+use super::frame::Variable;
 use super::objects::ensure_object;
 use super::values::{coerce_assignment, key};
 use super::{ControlFlow, Frame, Interpreter};
 
 impl Interpreter {
+    pub(crate) fn call_record_property_get(
+        &mut self,
+        record: Value,
+        property: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let Value::Record { type_name, .. } = &record else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Property access requires a Structure value",
+                Some(span),
+            ));
+        };
+        let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Structure '{}' is not defined", type_name),
+                Some(span),
+            )
+        })?;
+        let accessor = structure
+            .properties
+            .get(&key(property))
+            .and_then(|property| property.get.clone())
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!("Property '{}' has no Get accessor", property),
+                    Some(span),
+                )
+            })?;
+        let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
+        if let Some((module_key, _)) = key(&structure.name).split_once('.') {
+            frame.set_module_key(module_key.to_string());
+        }
+        frame.declare_const("me", TypeName::User(structure.name.clone()), record, span)?;
+        self.bind_parameters(&accessor.params, args, caller_frame, &mut frame)?;
+        let return_type = self.resolve_type_name(
+            accessor.return_type.as_ref().expect("get return type"),
+            &frame,
+            span,
+        )?;
+        if !frame.has_variable(&accessor.name) {
+            frame.declare(
+                &accessor.name,
+                return_type.clone(),
+                None,
+                self.option_base,
+                accessor.span,
+                &self.types,
+                &self.enums,
+            )?;
+        }
+        self.scope_stack
+            .push(format!("{}.{}", structure.name, accessor.name));
+        let result = self.exec_block(&accessor.body, &mut frame);
+        self.scope_stack.pop();
+        match result? {
+            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
+            ControlFlow::Continue => frame.get(&accessor.name, accessor.span),
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Sub is only valid inside Sub",
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitFunction => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Function is only valid inside Function",
+                Some(accessor.span),
+            )),
+            ControlFlow::ExitFor
+            | ControlFlow::ExitWhile
+            | ControlFlow::ExitDo
+            | ControlFlow::GoTo(_)
+            | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
+        }
+    }
+
+    pub(crate) fn call_record_property_set(
+        &mut self,
+        variable: Variable,
+        property: &str,
+        value: Value,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let record = variable.cell.borrow().clone();
+        let Value::Record { type_name, .. } = &record else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Property assignment requires a Structure value",
+                Some(span),
+            ));
+        };
+        let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Structure '{}' is not defined", type_name),
+                Some(span),
+            )
+        })?;
+        let property_sig = structure.properties.get(&key(property)).ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!(
+                    "Structure '{}' has no field or property '{}'",
+                    structure.name, property
+                ),
+                Some(span),
+            )
+        })?;
+        let accessor = if matches!(value, Value::Object(_) | Value::Nothing) {
+            property_sig.set.as_ref().or(property_sig.let_.as_ref())
+        } else {
+            property_sig.let_.as_ref()
+        }
+        .cloned()
+        .ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Property '{}' has no Let or Set accessor", property),
+                Some(span),
+            )
+        })?;
+        let Some(param) = accessor.params.first() else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!(
+                    "Property {:?} '{}' expects one parameter",
+                    accessor.kind, property
+                ),
+                Some(accessor.span),
+            ));
+        };
+        let mut frame = Frame::default();
+        frame.declare_alias("me", TypeName::User(structure.name.clone()), variable, span)?;
+        frame.declare(
+            &param.name,
+            param.ty.clone(),
+            None,
+            self.option_base,
+            param.span,
+            &self.types,
+            &self.enums,
+        )?;
+        let _ = frame.assign(&param.name, value, span)?;
+        self.scope_stack
+            .push(format!("{}.{}", structure.name, accessor.name));
+        let result = self.exec_block(&accessor.body, &mut frame);
+        self.scope_stack.pop();
+        match result? {
+            ControlFlow::Continue => Ok(()),
+            ControlFlow::Return(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Return is only allowed inside Function or Property Get",
+                Some(accessor.span),
+            )),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
+        }
+    }
+
     pub(crate) fn call_property_get(
         &mut self,
         object: Value,

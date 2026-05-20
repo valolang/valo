@@ -121,6 +121,359 @@ End Sub
 }
 
 #[test]
+fn structure_function_reads_fields_and_sub_mutates_fields() {
+    let output = run_source(
+        r#"
+Structure Point
+    Public X As Integer
+    Public Y As Integer
+
+    Public Function Sum() As Integer
+        Return X + Y
+    End Function
+
+    Public Sub MoveBy(ByVal dx As Integer, ByVal dy As Integer)
+        X = X + dx
+        Y = Y + dy
+    End Sub
+End Structure
+
+Sub Main()
+    Dim p As Point
+    p.X = 10
+    p.Y = 20
+    Console.WriteLine(p.Sum())
+    p.MoveBy(1, 2)
+    Console.WriteLine(p.X)
+    Console.WriteLine(p.Y)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["30", "11", "22"]);
+}
+
+#[test]
+fn structure_methods_support_me_member_access() {
+    let output = run_source(
+        r#"
+Structure Point
+    Public X As Integer
+
+    Public Sub MoveBy(ByVal dx As Integer)
+        Me.X = Me.X + dx
+    End Sub
+End Structure
+
+Sub Main()
+    Dim p As Point
+    p.X = 10
+    p.MoveBy(5)
+    Console.WriteLine(p.X)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["15"]);
+}
+
+#[test]
+fn structure_properties_get_and_let_work() {
+    let output = run_source(
+        r#"
+Structure Point
+    Public X As Integer
+    Public Y As Integer
+
+    Public Property Get IsZero() As Boolean
+        Return X = 0 And Y = 0
+    End Property
+
+    Public Property Let Both(ByVal value As Integer)
+        X = value
+        Y = value
+    End Property
+End Structure
+
+Sub Main()
+    Dim p As Point
+    Console.WriteLine(p.IsZero)
+    p.Both = 10
+    Console.WriteLine(p.IsZero)
+    Console.WriteLine(p.X)
+    Console.WriteLine(p.Y)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["True", "False", "10", "10"]);
+}
+
+#[test]
+fn structure_constructor_initializes_fields_and_default_construction_still_works() {
+    let output = run_source(
+        r#"
+Structure Point
+    Public X As Integer
+    Public Y As Integer
+
+    Public Sub Constructor(ByVal x As Integer, ByVal y As Integer)
+        X = x
+        Y = y
+    End Sub
+End Structure
+
+Sub Main()
+    Dim p As New Point(10, 20)
+    Dim zero As Point
+    Console.WriteLine(p.X)
+    Console.WriteLine(p.Y)
+    Console.WriteLine(zero.X)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["10", "20", "0"]);
+}
+
+#[test]
+fn structure_default_property_indexer_works() {
+    let output = run_source(
+        r#"
+Structure Pair
+    Public A As Integer
+    Public B As Integer
+
+    Public Default Property Get Item(ByVal index As Integer) As Integer
+        If index = 0 Then
+            Return A
+        End If
+        If index = 1 Then
+            Return B
+        End If
+        Return -1
+    End Property
+End Structure
+
+Sub Main()
+    Dim p As Pair
+    p.A = 10
+    p.B = 20
+    Console.WriteLine(p(0))
+    Console.WriteLine(p(1))
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["10", "20"]);
+}
+
+#[test]
+fn structure_byval_parameter_copies_and_byref_parameter_mutates() {
+    let output = run_source(
+        r#"
+Structure Point
+    Public X As Integer
+End Structure
+
+Sub ByValMove(ByVal p As Point)
+    p.X = 99
+End Sub
+
+Sub ByRefMove(ByRef p As Point)
+    p.X = 42
+End Sub
+
+Sub Main()
+    Dim p As Point
+    p.X = 10
+    ByValMove(p)
+    Console.WriteLine(p.X)
+    ByRefMove(p)
+    Console.WriteLine(p.X)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["10", "42"]);
+}
+
+#[test]
+fn structure_array_elements_preserve_value_semantics() {
+    let output = run_source(
+        r#"
+Structure Point
+    Public X As Integer
+End Structure
+
+Sub Main()
+    Dim points(1) As Point
+    Dim copy As Point
+    points(0).X = 10
+    copy = points(0)
+    copy.X = 99
+    Console.WriteLine(points(0).X)
+    Console.WriteLine(copy.X)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["10", "99"]);
+}
+
+#[test]
+fn structure_restrictions_are_rejected() {
+    let terminate = source_error(
+        r#"
+Structure Point
+    Public Sub Terminate()
+    End Sub
+End Structure
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(terminate.contains("Structure cannot declare Terminate"));
+
+    let class_initialize = source_error(
+        r#"
+Structure Point
+    Public Sub Class_Initialize()
+    End Sub
+End Structure
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(class_initialize.contains("Structure cannot declare Class_Initialize"));
+
+    let event = source_error(
+        r#"
+Structure Point
+    Public Event Changed()
+End Structure
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(event.contains("Structure cannot declare events"));
+
+    let withevents = source_error(
+        r#"
+Structure Point
+    Public WithEvents Source As Object
+End Structure
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(withevents.contains("Structure fields cannot use WithEvents"));
+}
+
+#[test]
+fn structure_constructor_and_private_member_diagnostics_work() {
+    let duplicate = source_error(
+        r#"
+Structure Point
+    Public Sub Constructor()
+    End Sub
+
+    Public Sub Initialize()
+    End Sub
+End Structure
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(duplicate.contains("duplicate constructor"));
+
+    let constructor_function = source_error(
+        r#"
+Structure Point
+    Public Function Constructor() As Integer
+        Return 1
+    End Function
+End Structure
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(constructor_function.contains("constructor must be declared as Sub Constructor"));
+
+    let direct_call = source_error(
+        r#"
+Structure Point
+    Public Sub Constructor()
+    End Sub
+End Structure
+
+Sub Main()
+    Dim p As Point
+    p.Constructor()
+End Sub
+"#,
+    );
+    assert!(direct_call.contains("constructor cannot be called as a normal method"));
+
+    let private_method = source_error(
+        r#"
+Structure Point
+    Private Sub Hidden()
+    End Sub
+End Structure
+
+Sub Main()
+    Dim p As Point
+    p.Hidden()
+End Sub
+"#,
+    );
+    assert!(private_method.contains("Private"));
+
+    let private_property = source_error(
+        r#"
+Structure Point
+    Private Property Get Hidden() As Integer
+        Return 1
+    End Property
+End Structure
+
+Sub Main()
+    Dim p As Point
+    Console.WriteLine(p.Hidden)
+End Sub
+"#,
+    );
+    assert!(private_property.contains("Private"));
+}
+
+#[test]
+fn type_remains_fields_only() {
+    let error = source_error(
+        r#"
+Type Point
+    X As Integer
+
+    Public Function Sum() As Integer
+        Return X
+    End Function
+End Type
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Type declarations support fields only"));
+}
+
+#[test]
 fn static_local_variables_persist_between_calls() {
     let output = run_source(
         r#"

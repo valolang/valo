@@ -348,6 +348,65 @@ End Structure
 }
 
 #[test]
+fn imported_structure_methods_properties_and_constructor_work() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Geometry
+
+Sub Main()
+    Dim p As New Geometry.Point(10, 20)
+    Console.WriteLine(p.Sum())
+    Console.WriteLine(p.IsZero)
+    p.MoveBy(1, 2)
+    Console.WriteLine(p.X)
+    Console.WriteLine(p.Y)
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Geometry.valo",
+        r#"
+Public Structure Point
+    Public X As Integer
+    Public Y As Integer
+
+    Public Sub Constructor(ByVal x As Integer, ByVal y As Integer)
+        X = x
+        Y = y
+    End Sub
+
+    Public Function Sum() As Integer
+        Return X + Y
+    End Function
+
+    Public Sub MoveBy(ByVal dx As Integer, ByVal dy As Integer)
+        X = X + dx
+        Y = Y + dy
+    End Sub
+
+    Public Property Get IsZero() As Boolean
+        Return X = 0 And Y = 0
+    End Property
+End Structure
+"#,
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec![
+            "30".to_string(),
+            "False".to_string(),
+            "11".to_string(),
+            "22".to_string()
+        ]
+    );
+}
+
+#[test]
 fn qualified_imported_enum_type_and_member_work() {
     let dir = temp_project();
     write(

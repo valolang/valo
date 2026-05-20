@@ -1,4 +1,5 @@
 use super::*;
+use crate::TypeKind;
 
 pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
     let mut types = HashMap::new();
@@ -89,6 +90,11 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         }
 
         let mut fields = HashMap::new();
+        let mut subs = HashMap::new();
+        let mut functions = HashMap::new();
+        let mut properties: HashMap<String, ClassPropertySig> = HashMap::new();
+        let mut default_member: Option<String> = None;
+        let mut constructor_span = None;
         for field in &type_decl.fields {
             let field_key = key(&field.name);
             if fields.contains_key(&field_key) {
@@ -104,16 +110,207 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             fields.insert(
                 field_key,
                 FieldSig {
+                    visibility: field.visibility,
                     ty: field.ty.clone(),
+                    array: field.array.clone(),
                 },
             );
+        }
+
+        if type_decl.kind == TypeKind::Type && !type_decl.members.is_empty() {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Type declarations support fields only; use Structure for methods and properties",
+                Some(type_decl.span),
+            ));
+        }
+
+        for member in &type_decl.members {
+            match member {
+                ClassMember::Field(_) | ClassMember::Fields(_) => {
+                    unreachable!("structure fields are stored separately")
+                }
+                ClassMember::Event(event) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        "Structure cannot declare events",
+                        Some(event.span),
+                    ));
+                }
+                ClassMember::Iterator(method) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        "Structure cannot declare Iterator members",
+                        Some(method.function.span),
+                    ));
+                }
+                ClassMember::Sub(method) => {
+                    let method_key = key(&method.procedure.name);
+                    if method_key == "terminate" || method_key == "class_terminate" {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            "Structure cannot declare Terminate or Class_Terminate",
+                            Some(method.procedure.span),
+                        ));
+                    }
+                    if method_key == "class_initialize" {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            "Structure cannot declare Class_Initialize; use Sub Constructor",
+                            Some(method.procedure.span),
+                        ));
+                    }
+                    if is_constructor_name(&method_key) {
+                        if constructor_span.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                                format!(
+                                    "Structure '{}' has duplicate constructor definitions",
+                                    type_decl.name
+                                ),
+                                Some(method.procedure.span),
+                            ));
+                        }
+                        constructor_span = Some(method.procedure.span);
+                    }
+                    if fields.contains_key(&method_key)
+                        || subs.contains_key(&method_key)
+                        || functions.contains_key(&method_key)
+                        || properties.contains_key(&method_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
+                                "Method '{}' conflicts with another member in Structure '{}'",
+                                method.procedure.name, type_decl.name
+                            ),
+                            Some(method.procedure.span),
+                        ));
+                    }
+                    subs.insert(
+                        method_key,
+                        ClassMethodSig {
+                            visibility: method.visibility,
+                            name: method.procedure.name.clone(),
+                            params: params_to_sigs(&method.procedure.params),
+                            return_type: None,
+                        },
+                    );
+                }
+                ClassMember::Function(method) => {
+                    let method_key = key(&method.function.name);
+                    if method_key == "constructor" || method_key == "initialize" {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            "Structure constructor must be declared as Sub Constructor",
+                            Some(method.function.span),
+                        ));
+                    }
+                    if fields.contains_key(&method_key)
+                        || subs.contains_key(&method_key)
+                        || functions.contains_key(&method_key)
+                        || properties.contains_key(&method_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
+                                "Method '{}' conflicts with another member in Structure '{}'",
+                                method.function.name, type_decl.name
+                            ),
+                            Some(method.function.span),
+                        ));
+                    }
+                    functions.insert(
+                        method_key,
+                        ClassMethodSig {
+                            visibility: method.visibility,
+                            name: method.function.name.clone(),
+                            params: params_to_sigs(&method.function.params),
+                            return_type: Some(method.function.return_type.clone()),
+                        },
+                    );
+                }
+                ClassMember::Property(property) => {
+                    let property_key = key(&property.name);
+                    if property.is_default {
+                        if property.kind != PropertyKind::Get {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!(
+                                    "Only Property Get can be marked as Default in Structure '{}'",
+                                    type_decl.name
+                                ),
+                                Some(property.span),
+                            ));
+                        }
+                        if default_member.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                                format!(
+                                    "Structure '{}' has multiple default members",
+                                    type_decl.name
+                                ),
+                                Some(property.span),
+                            ));
+                        }
+                        default_member = Some(property.name.clone());
+                    }
+                    if fields.contains_key(&property_key)
+                        || subs.contains_key(&property_key)
+                        || functions.contains_key(&property_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
+                                "Property '{}' conflicts with another member in Structure '{}'",
+                                property.name, type_decl.name
+                            ),
+                            Some(property.span),
+                        ));
+                    }
+                    let property_sig =
+                        properties
+                            .entry(property_key)
+                            .or_insert_with(|| ClassPropertySig {
+                                name: property.name.clone(),
+                                get: None,
+                                let_: None,
+                                set: None,
+                            });
+                    let target = match property.kind {
+                        PropertyKind::Get => &mut property_sig.get,
+                        PropertyKind::Let => &mut property_sig.let_,
+                        PropertyKind::Set => &mut property_sig.set,
+                    };
+                    if target.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!(
+                                "Property {:?} '{}' is already declared in Structure '{}'",
+                                property.kind, property.name, type_decl.name
+                            ),
+                            Some(property.span),
+                        ));
+                    }
+                    *target = Some(PropertyAccessorSig {
+                        visibility: property.visibility,
+                        params: params_to_sigs(&property.params),
+                        return_type: property.return_type.clone(),
+                    });
+                }
+            }
         }
 
         types.insert(
             type_key,
             TypeSig {
                 name: type_decl.name.clone(),
+                is_structure: type_decl.kind == TypeKind::Structure,
                 fields,
+                subs,
+                functions,
+                properties,
+                default_property: default_member,
             },
         );
     }
@@ -462,6 +659,79 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     for type_decl in &program.types {
         for field in &type_decl.fields {
             ensure_known_type(&field.ty, &registry, field.span)?;
+        }
+        for member in &type_decl.members {
+            match member {
+                ClassMember::Field(_)
+                | ClassMember::Fields(_)
+                | ClassMember::Event(_)
+                | ClassMember::Iterator(_) => {}
+                ClassMember::Sub(method) => {
+                    for param in &method.procedure.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                }
+                ClassMember::Function(method) => {
+                    ensure_known_type(
+                        &method.function.return_type,
+                        &registry,
+                        method.function.span,
+                    )?;
+                    for param in &method.function.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                }
+                ClassMember::Property(property) => match property.kind {
+                    PropertyKind::Get => {
+                        for param in &property.params {
+                            ensure_known_type(&param.ty, &registry, param.span)?;
+                        }
+                        ensure_known_type(
+                            property.return_type.as_ref().expect("get return type"),
+                            &registry,
+                            property.span,
+                        )?;
+                    }
+                    PropertyKind::Let | PropertyKind::Set => {
+                        if property.params.is_empty() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!(
+                                    "Property {:?} '{}' must have at least one parameter",
+                                    property.kind, property.name
+                                ),
+                                Some(property.span),
+                            ));
+                        }
+                        for param in &property.params {
+                            ensure_known_type(&param.ty, &registry, param.span)?;
+                        }
+                        let last_param = property.params.last().unwrap();
+                        if last_param.mode != PassingMode::ByVal {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                format!(
+                                    "Property {:?} '{}' value parameter must be ByVal",
+                                    property.kind, property.name
+                                ),
+                                Some(last_param.span),
+                            ));
+                        }
+                        if property.kind == PropertyKind::Set
+                            && !matches!(&last_param.ty, TypeName::User(name) if registry.get_class(name).is_some() || name.eq_ignore_ascii_case("Object"))
+                        {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                format!(
+                                    "Property Set '{}' value parameter must be a class type",
+                                    property.name
+                                ),
+                                Some(last_param.span),
+                            ));
+                        }
+                    }
+                },
+            }
         }
     }
     for class_decl in &program.classes {

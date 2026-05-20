@@ -23,7 +23,7 @@ mod validate_expressions;
 #[path = "validate_statements.rs"]
 mod validate_statements;
 
-use validate_classes::validate_class;
+use validate_classes::{validate_class, validate_structure};
 use validate_declarations::{
     add_module_symbols, add_parameters, collect_module_symbols, collect_signatures, collect_types,
     ensure_const_expr, validate_function, validate_procedure,
@@ -92,6 +92,11 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
 
     for function in &program.functions {
         validate_function(function, &types, &signatures, &module_symbols)?;
+    }
+    for type_decl in &program.types {
+        if type_decl.kind == crate::TypeKind::Structure {
+            validate_structure(type_decl, &types, &signatures, &module_symbols)?;
+        }
     }
     for class_decl in &program.classes {
         validate_class(class_decl, &types, &signatures, &module_symbols)?;

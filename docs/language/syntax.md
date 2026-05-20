@@ -42,6 +42,8 @@ Public Structure Point
 End Structure
 ```
 
+Structures may also declare methods, properties, and `Sub Constructor`, while keeping value-copy semantics.
+
 Byte arrays use Basic-style array declarations:
 
 ```vb

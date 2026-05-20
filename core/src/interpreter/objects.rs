@@ -109,6 +109,83 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, Diagnostic> {
         let class_name = self.resolve_user_type_name(class_name, caller_frame, span)?;
+        if let Some(type_def) = self.types.get(&key(&class_name)).cloned() {
+            if !type_def.is_structure {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::INVALID_QUALIFIED_ACCESS,
+                    format!("'{}' is not a Structure", class_name),
+                    Some(span),
+                ));
+            }
+            let record = default_value(
+                &TypeName::User(type_def.name.clone()),
+                &self.types,
+                &self.enums,
+                span,
+            )?;
+            if let Some(init) = type_def.subs.get("initialize").cloned() {
+                let mut frame = Frame::default();
+                frame.inherit_modules_from(caller_frame)?;
+                if let Some((module_key, _)) = key(&type_def.name).split_once('.') {
+                    frame.set_module_key(module_key.to_string());
+                }
+                frame.declare_const("tmp", TypeName::User(type_def.name.clone()), record, span)?;
+                let variable = frame.variable("tmp", span)?;
+                let mut init_frame = Frame::default();
+                init_frame.inherit_modules_from(caller_frame)?;
+                if let Some((module_key, _)) = key(&type_def.name).split_once('.') {
+                    init_frame.set_module_key(module_key.to_string());
+                }
+                init_frame.declare_alias(
+                    "me",
+                    TypeName::User(type_def.name.clone()),
+                    variable,
+                    span,
+                )?;
+                self.bind_parameters(&init.params, args, caller_frame, &mut init_frame)?;
+                self.scope_stack
+                    .push(format!("{}.{}", type_def.name, init.name));
+                let result = self.exec_block(&init.body, &mut init_frame);
+                self.scope_stack.pop();
+                match result? {
+                    super::ControlFlow::Continue | super::ControlFlow::ExitSub => {}
+                    super::ControlFlow::Return(_) => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Return is only allowed inside Function",
+                            Some(init.span),
+                        ));
+                    }
+                    _ => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Exit statement escaped its block",
+                            Some(span),
+                        ));
+                    }
+                }
+                return frame.get("tmp", span);
+            }
+            if !args.is_empty() {
+                let mut constructed = record;
+                let Value::Record { fields, .. } = &mut constructed else {
+                    unreachable!();
+                };
+                if args.len() != type_def.fields.len() {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        format!("Structure '{}' has no Constructor", type_def.name),
+                        Some(span),
+                    ));
+                }
+                for (field, arg) in type_def.fields.iter().zip(args.iter()) {
+                    let value = self.eval_expr(arg, caller_frame)?;
+                    fields.insert(key(&field.name), value);
+                }
+                return Ok(constructed);
+            }
+            return Ok(record);
+        }
         let class = self
             .classes
             .get(&key(&class_name))
@@ -170,7 +247,21 @@ impl Interpreter {
         if matches!(value, Value::Object(_)) {
             return self.call_property_get(value.clone(), member, &[], frame, span);
         }
-        read_field_member(value, member, span)
+        match read_field_member(value, member, span) {
+            Ok(value) => Ok(value),
+            Err(error) if matches!(value, Value::Record { .. }) => {
+                if let Value::Record { type_name, .. } = value
+                    && self
+                        .types
+                        .get(&key(type_name))
+                        .is_some_and(|type_def| type_def.properties.contains_key(&key(member)))
+                {
+                    return self.call_record_property_get(value.clone(), member, &[], frame, span);
+                }
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub(crate) fn assign_member(
@@ -257,6 +348,16 @@ impl Interpreter {
     ) -> Result<(), Diagnostic> {
         let mut root = variable.cell.borrow_mut();
         if object_has_field(&root, member) || !matches!(&*root, Value::Object(_)) {
+            if let Value::Record { type_name, fields } = &*root
+                && !fields.contains_key(&key(member))
+                && self
+                    .types
+                    .get(&key(type_name))
+                    .is_some_and(|type_def| type_def.properties.contains_key(&key(member)))
+            {
+                drop(root);
+                return self.call_record_property_set(variable, member, value, span);
+            }
             return self.write_object_member(&mut root, member, value, span);
         }
         let object = root.clone();

@@ -1,6 +1,24 @@
 Public Structure Point
     Public X As Integer
     Public Y As Integer
+
+    Public Sub Constructor(ByVal x As Integer, ByVal y As Integer)
+        X = x
+        Y = y
+    End Sub
+
+    Public Function Sum() As Integer
+        Return X + Y
+    End Function
+
+    Public Sub MoveBy(ByVal dx As Integer, ByVal dy As Integer)
+        X = X + dx
+        Y = Y + dy
+    End Sub
+
+    Public Property Get IsZero() As Boolean
+        Return X = 0 And Y = 0
+    End Property
 End Structure
 
 Function Offset(ByVal p As Point, ByVal dx As Integer, ByVal dy As Integer) As Point
@@ -11,12 +29,24 @@ Function Offset(ByVal p As Point, ByVal dx As Integer, ByVal dy As Integer) As P
     Return result
 End Function
 
-Sub Main()
-    Dim p As Point
-    Dim moved As Point
+Sub Nudge(ByRef p As Point)
+    p.MoveBy(1, 1)
+End Sub
 
-    p.X = 10
-    p.Y = 20
+Sub Main()
+    Dim p As New Point(10, 20)
+    Dim moved As Point
+    Dim copy As Point
+
+    Console.WriteLine(p.Sum())
+    Console.WriteLine(p.IsZero)
+
+    copy = p
+    copy.MoveBy(100, 100)
+    Console.WriteLine(p.X)
+    Console.WriteLine(copy.X)
+
+    Nudge(p)
     moved = Offset(p, 5, 7)
 
     Console.WriteLine(p.X)

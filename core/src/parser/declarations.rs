@@ -405,12 +405,18 @@ impl Parser {
         &mut self,
         visibility: Visibility,
     ) -> Result<TypeDecl, Diagnostic> {
-        let (start, keyword, end_block) = if self.match_simple(&TokenKind::Type) {
-            (self.previous().span, "Type", BlockEnd::EndType)
+        let (start, kind, keyword, end_block) = if self.match_simple(&TokenKind::Type) {
+            (
+                self.previous().span,
+                TypeKind::Type,
+                "Type",
+                BlockEnd::EndType,
+            )
         } else {
             (
                 self.expect_simple(TokenKind::Structure, "Expected 'Type' or 'Structure'")?
                     .span,
+                TypeKind::Structure,
                 "Structure",
                 BlockEnd::EndStructure,
             )
@@ -419,20 +425,57 @@ impl Parser {
         self.expect_newline(&format!("Expected newline after {keyword} declaration"))?;
 
         let mut fields = Vec::new();
+        let mut members = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[end_block]) {
-            let field_start = self.peek().span;
-            self.parse_optional_visibility();
-            let field_name = self.expect_identifier("Expected field name")?;
-            self.expect_simple(TokenKind::As, "Expected 'As' in field declaration")?;
-            let ty = self.parse_type_name()?;
-            let field_end = self.previous().span;
-            fields.push(FieldDecl {
-                name: field_name,
-                ty,
-                span: Span::new(field_start.start, field_end.end),
-            });
-            self.expect_statement_end("Expected newline after field declaration")?;
+            if kind == TypeKind::Type && self.type_member_starts_non_field() {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    "Type declarations support fields only; use Structure for methods and properties",
+                    Some(self.peek().span),
+                ));
+            }
+
+            if kind == TypeKind::Structure && self.structure_member_starts_non_field() {
+                members.push(self.parse_structure_member()?);
+            } else {
+                let visibility = self.parse_optional_visibility();
+                if self.match_simple(&TokenKind::WithEvents) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        "Structure fields cannot use WithEvents",
+                        Some(self.previous().span),
+                    ));
+                }
+                if self.match_simple(&TokenKind::Dim) {
+                    // Optional Dim is accepted for structure fields.
+                }
+                let decls = self.parse_variable_declarators("field")?;
+                self.expect_statement_end("Expected newline after field declaration")?;
+                for decl in decls {
+                    let Some(ty) = decl.ty else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                            "Structure and Type fields must declare an explicit type",
+                            Some(decl.span),
+                        ));
+                    };
+                    if decl.initializer.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                            "Structure and Type field initializers are not supported yet",
+                            Some(decl.span),
+                        ));
+                    }
+                    fields.push(FieldDecl {
+                        visibility,
+                        name: decl.name,
+                        ty,
+                        array: decl.array,
+                        span: decl.span,
+                    });
+                }
+            }
             self.skip_newlines();
         }
 
@@ -448,10 +491,105 @@ impl Parser {
 
         Ok(TypeDecl {
             visibility,
+            kind,
             name,
             fields,
+            members,
             span: Span::new(start.start, end.end),
         })
+    }
+
+    fn type_member_starts_non_field(&self) -> bool {
+        match self.peek_kind() {
+            TokenKind::Sub
+            | TokenKind::Function
+            | TokenKind::Iterator
+            | TokenKind::Property
+            | TokenKind::Default
+            | TokenKind::Event
+            | TokenKind::WithEvents => true,
+            TokenKind::Public | TokenKind::Private => matches!(
+                self.peek_next_kind(),
+                Some(
+                    TokenKind::Sub
+                        | TokenKind::Function
+                        | TokenKind::Iterator
+                        | TokenKind::Property
+                        | TokenKind::Default
+                        | TokenKind::Event
+                        | TokenKind::WithEvents
+                )
+            ),
+            _ => false,
+        }
+    }
+
+    fn structure_member_starts_non_field(&self) -> bool {
+        match self.peek_kind() {
+            TokenKind::Sub
+            | TokenKind::Function
+            | TokenKind::Iterator
+            | TokenKind::Property
+            | TokenKind::Default
+            | TokenKind::Event => true,
+            TokenKind::Public | TokenKind::Private => matches!(
+                self.peek_next_kind(),
+                Some(
+                    TokenKind::Sub
+                        | TokenKind::Function
+                        | TokenKind::Iterator
+                        | TokenKind::Property
+                        | TokenKind::Default
+                        | TokenKind::Event
+                )
+            ),
+            _ => false,
+        }
+    }
+
+    fn parse_structure_member(&mut self) -> Result<ClassMember, Diagnostic> {
+        let visibility = self.parse_optional_visibility();
+        let is_default = self.match_simple(&TokenKind::Default);
+        match self.peek_kind() {
+            TokenKind::Event => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Structure cannot declare events",
+                Some(self.peek().span),
+            )),
+            TokenKind::Iterator => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Structure cannot declare Iterator members",
+                Some(self.peek().span),
+            )),
+            TokenKind::Sub => {
+                if matches!(
+                    self.peek_next_kind(),
+                    Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor")
+                ) {
+                    Ok(ClassMember::Sub(ClassSub {
+                        visibility,
+                        procedure: self.parse_lifecycle_sub_procedure(
+                            visibility,
+                            "Constructor",
+                            "Initialize",
+                        )?,
+                    }))
+                } else {
+                    Ok(ClassMember::Sub(ClassSub {
+                        visibility,
+                        procedure: self.parse_procedure(visibility)?,
+                    }))
+                }
+            }
+            TokenKind::Function => Ok(ClassMember::Function(
+                self.parse_class_function(visibility)?,
+            )),
+            TokenKind::Property => Ok(ClassMember::Property(
+                self.parse_property(visibility, is_default)?,
+            )),
+            _ if is_default => Err(self.error_here("Default is only supported on Property")),
+            _ => Err(self.error_here("Expected structure member")),
+        }
     }
 
     pub(super) fn parse_procedure(

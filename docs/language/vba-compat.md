@@ -30,6 +30,8 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 - `Multidimensional Arrays`: Fully supported with `ReDim Preserve` compatibility (last-dimension only resizing).
 - `Declare`/`PtrSafe`: Reserved for future FFI work; not implemented yet.
 
+`Structure` is the native Valo value type and supports methods, properties, constructors, and copy semantics. `Type` remains the VBA-compatible fields-only record syntax.
+
 ## Intentional Differences
 
 While Valo strives for high compatibility, it is not a "bug-for-bug" clone. Some differences are intentional to improve safety and performance:
