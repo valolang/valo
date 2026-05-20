@@ -1,24 +1,15 @@
-use super::super::Frame;
-use super::super::Interpreter;
-use crate::Expr;
 use crate::runtime::{Diagnostic, Value};
 
 pub(crate) fn eval_arrays(
-    interpreter: &mut Interpreter,
     name: &str,
-    args: &[Expr],
-    frame: &mut Frame,
+    args: &[Value],
     span: crate::runtime::Span,
 ) -> Result<Option<Value>, Diagnostic> {
     if name.eq_ignore_ascii_case("Array") {
-        let mut elements = Vec::new();
-        for arg in args {
-            elements.push(interpreter.eval_expr(arg, frame)?);
-        }
-        let len = elements.len() as i64;
+        let len = args.len() as i64;
         return Ok(Some(Value::Array {
             element_type: crate::runtime::TypeName::Variant,
-            elements,
+            elements: args.to_vec(),
             bounds: vec![crate::runtime::ArrayBound {
                 lower: 0,
                 upper: len - 1,
@@ -36,16 +27,21 @@ pub(crate) fn eval_arrays(
             ));
         }
         let dimension = if args.len() == 2 {
-            interpreter.eval_integer_expr(&args[1], frame, "Array dimension must be Integer")?
-                as usize
+            super::super::values::value_to_i64(&args[1]).ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Array dimension must be Integer",
+                    Some(span),
+                )
+            })? as usize
         } else {
             1
         };
-        let value = interpreter.eval_expr(&args[0], frame)?;
+        let value = &args[0];
         let bound = if name.eq_ignore_ascii_case("LBound") {
-            super::super::arrays::lbound(&value, dimension, span)?
+            super::super::arrays::lbound(value, dimension, span)?
         } else {
-            super::super::arrays::ubound(&value, dimension, span)?
+            super::super::arrays::ubound(value, dimension, span)?
         };
         return Ok(Some(Value::Int64(bound)));
     }

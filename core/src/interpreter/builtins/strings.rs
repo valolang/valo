@@ -1,13 +1,10 @@
-use super::super::Frame;
 use super::super::Interpreter;
-use crate::Expr;
 use crate::runtime::{Diagnostic, Value};
 
 pub(crate) fn eval_strings(
     interpreter: &mut Interpreter,
     name: &str,
-    args: &[Expr],
-    frame: &mut Frame,
+    args: &[Value],
     span: crate::runtime::Span,
 ) -> Result<Option<Value>, Diagnostic> {
     if name.eq_ignore_ascii_case("Split") {
@@ -18,9 +15,9 @@ pub(crate) fn eval_strings(
                 Some(span),
             ));
         }
-        let text = interpreter.eval_expr(&args[0], frame)?.to_output_string();
+        let text = args[0].to_output_string();
         let delimiter = if args.len() == 2 {
-            interpreter.eval_expr(&args[1], frame)?.to_output_string()
+            args[1].to_output_string()
         } else {
             " ".to_string()
         };
@@ -51,13 +48,13 @@ pub(crate) fn eval_strings(
                 Some(span),
             ));
         }
-        let array_value = interpreter.eval_expr(&args[0], frame)?;
+        let array_value = &args[0];
         let delimiter = if args.len() == 2 {
-            interpreter.eval_expr(&args[1], frame)?.to_output_string()
+            args[1].to_output_string()
         } else {
             " ".to_string()
         };
-        let elements = super::super::arrays::array_values(&array_value, args[0].span)?;
+        let elements = super::super::arrays::array_values(array_value, span)?;
         let strings: Vec<String> = elements.iter().map(|v| v.to_output_string()).collect();
         return Ok(Some(Value::String(strings.join(&delimiter))));
     }
@@ -70,20 +67,26 @@ pub(crate) fn eval_strings(
                 Some(span),
             ));
         }
-        let array_value = interpreter.eval_expr(&args[0], frame)?;
-        let match_text = interpreter.eval_expr(&args[1], frame)?.to_output_string();
+        let array_value = &args[0];
+        let match_text = args[1].to_output_string();
         let include = if args.len() >= 3 {
-            interpreter.eval_expr(&args[2], frame)?.is_truthy()
+            args[2].is_truthy()
         } else {
             true
         };
         let compare = if args.len() == 4 {
-            interpreter.eval_integer_expr(&args[3], frame, "Compare mode must be Integer")? == 1
+            super::super::values::value_to_i64(&args[3]).ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Compare mode must be Integer",
+                    Some(span),
+                )
+            })? == 1
         } else {
             interpreter.option_compare == crate::OptionCompare::Text
         };
 
-        let elements = super::super::arrays::array_values(&array_value, args[0].span)?;
+        let elements = super::super::arrays::array_values(array_value, span)?;
         let mut filtered = Vec::new();
         for val in elements {
             let s = val.to_output_string();
@@ -110,9 +113,14 @@ pub(crate) fn eval_strings(
     }
 
     if name.eq_ignore_ascii_case("CStr") {
-        super::expect_arg_count(name, args, 1, span)?;
-        let value = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(Value::String(value.to_output_string())));
+        if args.len() != 1 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "CStr expects exactly 1 argument",
+                Some(span),
+            ));
+        }
+        return Ok(Some(Value::String(args[0].to_output_string())));
     }
 
     if name.eq_ignore_ascii_case("StrComp") {
@@ -123,10 +131,16 @@ pub(crate) fn eval_strings(
                 Some(span),
             ));
         }
-        let left = interpreter.eval_expr(&args[0], frame)?.to_output_string();
-        let right = interpreter.eval_expr(&args[1], frame)?.to_output_string();
+        let left = args[0].to_output_string();
+        let right = args[1].to_output_string();
         let text_compare = if args.len() == 3 {
-            interpreter.eval_integer_expr(&args[2], frame, "Compare mode must be Integer")? == 1
+            super::super::values::value_to_i64(&args[2]).ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Compare mode must be Integer",
+                    Some(span),
+                )
+            })? == 1
         } else {
             interpreter.option_compare == crate::OptionCompare::Text
         };

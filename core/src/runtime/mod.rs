@@ -1,3 +1,9 @@
+//! Valo Runtime
+//!
+//! The runtime defines the core data model and behavior of the language,
+//! including the value system, type definitions, and diagnostics.
+//! It is designed to be independent of the execution backend.
+
 mod diagnostic;
 mod type_name;
 mod value;

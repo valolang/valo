@@ -7,6 +7,9 @@ use crate::runtime::{Diagnostic, Span, TypeName, Value};
 
 use super::records::{RuntimeEnum, RuntimeType};
 
+// TODO: Move value operations (eval_binary, coercion, equality) to the runtime layer
+// to make them accessible to future backends (e.g., Bytecode VM).
+
 pub(crate) fn eval_binary(
     left: Value,
     op: BinaryOp,

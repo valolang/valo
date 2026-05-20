@@ -1,3 +1,8 @@
+//! Valo Backend: Tree-walking Interpreter
+//!
+//! This module implements the reference execution engine for Valo.
+//! It consumes the validated AST and executes it by traversing the tree.
+
 mod arrays;
 pub(crate) mod builtins;
 mod calls;

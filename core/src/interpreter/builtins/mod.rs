@@ -1,3 +1,10 @@
+//! Valo Builtins
+//!
+//! Standard library functions and procedures.
+//!
+//! TODO: Decouple builtins from the Interpreter and Expr AST.
+//! Builtins should ideally take &[Value] and be backend-agnostic.
+
 use super::{ControlFlow, Frame, Interpreter};
 use crate::Expr;
 use crate::runtime::{Diagnostic, Value};
@@ -12,20 +19,28 @@ pub(crate) fn dispatch_stmt(
 ) -> Result<Option<ControlFlow>, Diagnostic> {
     // Handle VBA namespace fallback: VBA.MsgBox(...) -> MsgBox(...)
     let effective_object_name = if object_name.eq_ignore_ascii_case("VBA") {
-        // If it's VBA.Something, we might want to treat Something as a global sub call
-        // if it's one of our builtins.
-        // For now, let's just handle it by checking if it matches our builtin sub targets.
         "VBA"
     } else {
         object_name
     };
 
-    if effective_object_name.eq_ignore_ascii_case("Console") {
-        return console::exec_console(interpreter, method, args, frame, span);
+    if effective_object_name.eq_ignore_ascii_case("Console")
+        || effective_object_name.eq_ignore_ascii_case("Debug")
+    {
+        let mut values = Vec::with_capacity(args.len());
+        for arg in args {
+            let val = interpreter.eval_expr(arg, frame)?;
+            let resolved = interpreter.resolve_default_value(val, frame, arg.span)?;
+            values.push(resolved);
+        }
+
+        if effective_object_name.eq_ignore_ascii_case("Console") {
+            return console::exec_console(interpreter, method, &values, span);
+        } else {
+            return debug::exec_debug(interpreter, method, &values, span);
+        }
     }
-    if effective_object_name.eq_ignore_ascii_case("Debug") {
-        return debug::exec_debug(interpreter, method, args, frame, span);
-    }
+
     if effective_object_name.eq_ignore_ascii_case("Err") {
         return err::exec_err(interpreter, method, args, frame, span);
     }
@@ -58,29 +73,63 @@ pub(crate) fn dispatch_function(
         name
     };
 
-    if effective_name.eq_ignore_ascii_case("IsMissing") {
-        expect_arg_count(effective_name, args, 1, span)?;
-        let value = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(Value::Boolean(matches!(value, Value::Missing))));
+    // Special forms that require lazy evaluation or direct Expr access
+    if effective_name.eq_ignore_ascii_case("IIf") {
+        expect_arg_count(effective_name, args, 3, span)?;
+        let condition = interpreter.eval_expr(&args[0], frame)?.is_truthy();
+        let value_expr = if condition { &args[1] } else { &args[2] };
+        return Ok(Some(interpreter.eval_expr(value_expr, frame)?));
     }
 
-    if let Some(val) = types::eval_types(interpreter, effective_name, args, frame, span)? {
+    if effective_name.eq_ignore_ascii_case("CallByName") {
+        return dispatch_callbyname(interpreter, effective_name, args, frame, span);
+    }
+
+    if !is_builtin_function(effective_name) {
+        return Ok(None);
+    }
+
+    // Normal functions: evaluate all arguments first
+    let mut values = Vec::with_capacity(args.len());
+    for arg in args {
+        values.push(interpreter.eval_expr(arg, frame)?);
+    }
+
+    if effective_name.eq_ignore_ascii_case("IsMissing") {
+        if values.len() != 1 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "IsMissing expects exactly 1 argument",
+                Some(span),
+            ));
+        }
+        return Ok(Some(Value::Boolean(matches!(values[0], Value::Missing))));
+    }
+
+    if let Some(val) = types::eval_types(effective_name, &values, span)? {
         return Ok(Some(val));
     }
-    if let Some(val) = arrays::eval_arrays(interpreter, effective_name, args, frame, span)? {
+    if let Some(val) = arrays::eval_arrays(effective_name, &values, span)? {
         return Ok(Some(val));
     }
-    if let Some(val) = strings::eval_strings(interpreter, effective_name, args, frame, span)? {
+    if let Some(val) = strings::eval_strings(interpreter, effective_name, &values, span)? {
         return Ok(Some(val));
     }
-    if let Some(val) = math::eval_math(interpreter, effective_name, args, frame, span)? {
-        return Ok(Some(val));
-    }
-    if let Some(val) = dispatch_callbyname(interpreter, effective_name, args, frame, span)? {
+    if let Some(val) = math::eval_math(interpreter, effective_name, &values, span)? {
         return Ok(Some(val));
     }
 
     Ok(None)
+}
+
+fn is_builtin_function(name: &str) -> bool {
+    match name.to_ascii_lowercase().as_str() {
+        "sgn" | "int" | "randomize" | "rnd" | "split" | "join" | "filter" | "cstr" | "strcomp"
+        | "isobject" | "isarray" | "isnull" | "isempty" | "iserror" | "vartype" | "typename"
+        | "cbyte" | "cint" | "clng" | "clnglng" | "cint64" | "csng" | "cdbl" | "cdec" | "ccur"
+        | "cdate" | "array" | "lbound" | "ubound" | "ismissing" => true,
+        _ => false,
+    }
 }
 
 fn dispatch_callbyname(

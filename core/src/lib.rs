@@ -1,3 +1,11 @@
+//! Valo Core
+//!
+//! This crate contains the core logic for the Valo language, divided into three primary layers:
+//!
+//! 1. **Frontend**: Lexer, Parser, AST, Semantics, and Module loading.
+//! 2. **Runtime**: Core value system, type names, and diagnostics.
+//! 3. **Backend**: The execution engine (currently a tree-walking interpreter).
+
 pub mod ast;
 pub mod interpreter;
 pub mod lexer;

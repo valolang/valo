@@ -1,3 +1,7 @@
+//! Valo Module System
+//!
+//! Handles discovery, loading, and resolution of Valo modules and projects.
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -1,3 +1,7 @@
+//! Valo Parser
+//!
+//! A recursive descent parser that transforms tokens into an Abstract Syntax Tree (AST).
+
 mod declarations;
 mod expressions;
 mod program;

@@ -1,6 +1,4 @@
-use super::super::Frame;
 use super::super::Interpreter;
-use crate::Expr;
 use crate::runtime::{Diagnostic, Value};
 use rand::Rng;
 use rand::SeedableRng;
@@ -9,14 +7,12 @@ use rand_pcg::Pcg64;
 pub(crate) fn eval_math(
     interpreter: &mut Interpreter,
     name: &str,
-    args: &[Expr],
-    frame: &mut Frame,
+    args: &[Value],
     span: crate::runtime::Span,
 ) -> Result<Option<Value>, Diagnostic> {
     if name.eq_ignore_ascii_case("Sgn") {
-        super::expect_arg_count(name, args, 1, span)?;
-        let value = interpreter.eval_expr(&args[0], frame)?;
-        let num = super::super::values::value_to_f64(&value).ok_or_else(|| {
+        expect_value_count(name, args, 1, span)?;
+        let num = super::super::values::value_to_f64(&args[0]).ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "Sgn requires a numeric argument",
@@ -32,9 +28,8 @@ pub(crate) fn eval_math(
         })));
     }
     if name.eq_ignore_ascii_case("Int") {
-        super::expect_arg_count(name, args, 1, span)?;
-        let value = interpreter.eval_expr(&args[0], frame)?;
-        let num = super::super::values::value_to_f64(&value).ok_or_else(|| {
+        expect_value_count(name, args, 1, span)?;
+        let num = super::super::values::value_to_f64(&args[0]).ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "Int requires a numeric argument",
@@ -54,7 +49,13 @@ pub(crate) fn eval_math(
         let seed = if args.is_empty() {
             rand::thread_rng().r#gen::<u64>()
         } else {
-            interpreter.eval_integer_expr(&args[0], frame, "Randomize seed must be Integer")? as u64
+            super::super::values::value_to_i64(&args[0]).ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Randomize seed must be Integer",
+                    Some(span),
+                )
+            })? as u64
         };
         interpreter.rng = Pcg64::seed_from_u64(seed);
         return Ok(Some(Value::Empty));
@@ -71,4 +72,21 @@ pub(crate) fn eval_math(
     }
 
     Ok(None)
+}
+
+fn expect_value_count(
+    name: &str,
+    args: &[Value],
+    expected: usize,
+    span: crate::runtime::Span,
+) -> Result<(), Diagnostic> {
+    if args.len() == expected {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            format!("{name} expects exactly {expected} argument(s)"),
+            Some(span),
+        ))
+    }
 }
