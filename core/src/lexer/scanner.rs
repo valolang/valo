@@ -242,7 +242,10 @@ impl<'a> Lexer<'a> {
                 if text.parse::<u64>().is_ok() {
                     return Diagnostic::new(
                         crate::runtime::DiagnosticCode::PARSE,
-                        format!("Integer literal '{}' is too large (use Int64 or Double)", text),
+                        format!(
+                            "Integer literal '{}' is too large (use Int64 or Double)",
+                            text
+                        ),
                         Some(Span::new(start, self.pos())),
                     );
                 }

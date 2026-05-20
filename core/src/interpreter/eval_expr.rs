@@ -12,7 +12,16 @@ impl Interpreter {
     ) -> Result<Value, Diagnostic> {
         match &expr.kind {
             ExprKind::String(value) => Ok(Value::String(value.clone())),
-            ExprKind::Integer(value) => Ok(Value::Int64(*value)),
+            ExprKind::Integer(value) => {
+                let val = *value;
+                if val >= i16::MIN as i64 && val <= i16::MAX as i64 {
+                    Ok(Value::Int16(val as i16))
+                } else if val >= i32::MIN as i64 && val <= i32::MAX as i64 {
+                    Ok(Value::Int32(val as i32))
+                } else {
+                    Ok(Value::Int64(val))
+                }
+            }
             ExprKind::Double(value) => Ok(Value::Double(*value)),
             ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
             ExprKind::Nothing => Ok(Value::Nothing),
@@ -85,12 +94,10 @@ impl Interpreter {
                     {
                         return Ok(val);
                     }
-                    if name.eq_ignore_ascii_case("VBA")
-                        || name.eq_ignore_ascii_case("Console")
-                    {
-                         // VBA doesn't have fields in our current builtin model, but we handle it here
-                         // to prevent it being treated as a potential module qualifier that might fail later.
-                         // Actually dispatch_function handles it for MemberCall.
+                    if name.eq_ignore_ascii_case("VBA") || name.eq_ignore_ascii_case("Console") {
+                        // VBA doesn't have fields in our current builtin model, but we handle it here
+                        // to prevent it being treated as a potential module qualifier that might fail later.
+                        // Actually dispatch_function handles it for MemberCall.
                     }
                 }
                 if let ExprKind::Variable(enum_name) = &object.kind

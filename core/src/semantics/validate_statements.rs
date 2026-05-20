@@ -631,7 +631,10 @@ fn validate_sub_call(
         if signatures.functions.contains_key(&key(effective_name)) {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
-                format!("Function '{}' cannot be called as a statement", effective_name),
+                format!(
+                    "Function '{}' cannot be called as a statement",
+                    effective_name
+                ),
                 Some(span),
             ));
         }

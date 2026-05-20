@@ -1,8 +1,8 @@
-use crate::runtime::{Diagnostic, TypeName, Value};
-use crate::Expr;
 use super::super::Frame;
 use super::super::Interpreter;
 use super::expect_arg_count;
+use crate::Expr;
+use crate::runtime::{Diagnostic, TypeName, Value};
 
 pub(crate) fn eval_types(
     interpreter: &mut Interpreter,
@@ -57,47 +57,83 @@ pub(crate) fn eval_types(
     if name.eq_ignore_ascii_case("CByte") {
         expect_arg_count(name, args, 1, span)?;
         let val = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(super::super::values::coerce_assignment(&TypeName::Byte, val, span)?));
+        return Ok(Some(super::super::values::coerce_assignment(
+            &TypeName::Byte,
+            val,
+            span,
+        )?));
     }
     if name.eq_ignore_ascii_case("CInt") {
         expect_arg_count(name, args, 1, span)?;
         let val = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(super::super::values::coerce_assignment(&TypeName::Integer, val, span)?));
+        return Ok(Some(super::super::values::coerce_assignment(
+            &TypeName::Integer,
+            val,
+            span,
+        )?));
     }
     if name.eq_ignore_ascii_case("CLng") {
         expect_arg_count(name, args, 1, span)?;
         let val = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(super::super::values::coerce_assignment(&TypeName::Long, val, span)?));
+        return Ok(Some(super::super::values::coerce_assignment(
+            &TypeName::Long,
+            val,
+            span,
+        )?));
     }
     if name.eq_ignore_ascii_case("CLngLng") || name.eq_ignore_ascii_case("CInt64") {
         expect_arg_count(name, args, 1, span)?;
         let val = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(super::super::values::coerce_assignment(&TypeName::Int64, val, span)?));
+        return Ok(Some(super::super::values::coerce_assignment(
+            &TypeName::Int64,
+            val,
+            span,
+        )?));
     }
     if name.eq_ignore_ascii_case("CSng") {
         expect_arg_count(name, args, 1, span)?;
         let val = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(super::super::values::coerce_assignment(&TypeName::Single, val, span)?));
+        return Ok(Some(super::super::values::coerce_assignment(
+            &TypeName::Single,
+            val,
+            span,
+        )?));
     }
     if name.eq_ignore_ascii_case("CDbl") {
         expect_arg_count(name, args, 1, span)?;
         let val = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(super::super::values::coerce_assignment(&TypeName::Double, val, span)?));
+        return Ok(Some(super::super::values::coerce_assignment(
+            &TypeName::Double,
+            val,
+            span,
+        )?));
     }
     if name.eq_ignore_ascii_case("CDec") {
         expect_arg_count(name, args, 1, span)?;
         let val = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(super::super::values::coerce_assignment(&TypeName::Decimal, val, span)?));
+        return Ok(Some(super::super::values::coerce_assignment(
+            &TypeName::Decimal,
+            val,
+            span,
+        )?));
     }
     if name.eq_ignore_ascii_case("CCur") {
         expect_arg_count(name, args, 1, span)?;
         let val = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(super::super::values::coerce_assignment(&TypeName::Currency, val, span)?));
+        return Ok(Some(super::super::values::coerce_assignment(
+            &TypeName::Currency,
+            val,
+            span,
+        )?));
     }
     if name.eq_ignore_ascii_case("CDate") {
         expect_arg_count(name, args, 1, span)?;
         let val = interpreter.eval_expr(&args[0], frame)?;
-        return Ok(Some(super::super::values::coerce_assignment(&TypeName::Date, val, span)?));
+        return Ok(Some(super::super::values::coerce_assignment(
+            &TypeName::Date,
+            val,
+            span,
+        )?));
     }
 
     Ok(None)

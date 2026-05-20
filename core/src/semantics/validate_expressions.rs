@@ -110,7 +110,16 @@ pub(super) fn validate_expr(
 ) -> Result<TypeName, Diagnostic> {
     match &expr.kind {
         ExprKind::String(_) => Ok(TypeName::String),
-        ExprKind::Integer(_) => Ok(TypeName::Int64),
+        ExprKind::Integer(value) => {
+            let val = *value;
+            if val >= i16::MIN as i64 && val <= i16::MAX as i64 {
+                Ok(TypeName::Integer)
+            } else if val >= i32::MIN as i64 && val <= i32::MAX as i64 {
+                Ok(TypeName::Long)
+            } else {
+                Ok(TypeName::Int64)
+            }
+        }
         ExprKind::Double(_) => Ok(TypeName::Double),
         ExprKind::Boolean(_) => Ok(TypeName::Boolean),
         ExprKind::Nothing | ExprKind::Empty | ExprKind::Null => Ok(TypeName::Variant),
@@ -182,7 +191,9 @@ pub(super) fn validate_expr(
         ExprKind::Variable(name) => {
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
                 match var_type {
-                    VarType::Scalar(ty) | VarType::Optional(ty) | VarType::Const(ty) => return Ok(ty),
+                    VarType::Scalar(ty) | VarType::Optional(ty) | VarType::Const(ty) => {
+                        return Ok(ty);
+                    }
                     VarType::Array(_) => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
@@ -205,12 +216,31 @@ pub(super) fn validate_expr(
                 return Ok(TypeName::Variant);
             }
             let builtins = [
-                "vbBinaryCompare", "vbTextCompare",
-                "vbEmpty", "vbNull", "vbInteger", "vbLong", "vbSingle", "vbDouble",
-                "vbCurrency", "vbDate", "vbString", "vbObject", "vbError", "vbBoolean",
-                "vbVariant", "vbDataObject", "vbDecimal", "vbByte", "vbLongLong",
-                "vbUserDefinedType", "vbArray",
-                "VbMethod", "VbGet", "VbLet", "VbSet"
+                "vbBinaryCompare",
+                "vbTextCompare",
+                "vbEmpty",
+                "vbNull",
+                "vbInteger",
+                "vbLong",
+                "vbSingle",
+                "vbDouble",
+                "vbCurrency",
+                "vbDate",
+                "vbString",
+                "vbObject",
+                "vbError",
+                "vbBoolean",
+                "vbVariant",
+                "vbDataObject",
+                "vbDecimal",
+                "vbByte",
+                "vbLongLong",
+                "vbUserDefinedType",
+                "vbArray",
+                "VbMethod",
+                "VbGet",
+                "VbLet",
+                "VbSet",
             ];
             if builtins.iter().any(|b| name.eq_ignore_ascii_case(b)) {
                 return Ok(TypeName::Integer);
@@ -291,7 +321,6 @@ pub(super) fn validate_expr(
             if let ExprKind::Variable(name) = &object.kind
                 && name.eq_ignore_ascii_case("Err")
             {
-
                 if method.eq_ignore_ascii_case("Clear") && args.is_empty() {
                     return Ok(TypeName::Variant);
                 }
@@ -520,7 +549,8 @@ pub(super) fn validate_expr(
                 | BinaryOp::LessEqual
                 | BinaryOp::GreaterEqual => {
                     if (is_numeric_type(&left_type) && is_numeric_type(&right_type))
-                        || (left_type.same_type(&TypeName::String) && right_type.same_type(&TypeName::String))
+                        || (left_type.same_type(&TypeName::String)
+                            && right_type.same_type(&TypeName::String))
                     {
                         Ok(TypeName::Boolean)
                     } else {
@@ -623,17 +653,17 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         let arg = &args[0];
         if let ExprKind::Variable(name) = &arg.kind {
-            if let Some(var_type) = symbols.get(&key(name)) {
-                if !matches!(var_type, VarType::Optional(_)) {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                        "IsMissing is only valid for Optional parameters",
-                        Some(arg.span),
-                    ));
-                }
+            if let Some(var_type) = symbols.get(&key(name))
+                && !matches!(var_type, VarType::Optional(_))
+            {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "IsMissing is only valid for Optional parameters",
+                    Some(arg.span),
+                ));
             }
         } else {
-             return Err(Diagnostic::new(
+            return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "IsMissing is only valid for Optional parameters",
                 Some(arg.span),
@@ -674,7 +704,9 @@ fn validate_builtin_function(
         validate_expr(&args[0], symbols, types, signatures)?;
         return Ok(Some(TypeName::Long));
     }
-    if effective_name.eq_ignore_ascii_case("CLngLng") || effective_name.eq_ignore_ascii_case("CInt64") {
+    if effective_name.eq_ignore_ascii_case("CLngLng")
+        || effective_name.eq_ignore_ascii_case("CInt64")
+    {
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures)?;
         return Ok(Some(TypeName::Int64));
@@ -1402,7 +1434,7 @@ pub(super) fn ensure_assignable_expr(
     if matches!(source_expr.kind, ExprKind::Nothing) {
         return ensure_class_type(target, types, span, "Nothing requires a class object type");
     }
-    if is_enum_type(target, types) && source.same_type(&TypeName::Integer) {
+    if is_enum_type(target, types) && is_numeric_type(source) {
         return Ok(());
     }
 
@@ -1458,8 +1490,9 @@ pub(super) fn ensure_case_comparable(
     if subject.same_type(&TypeName::Variant)
         || value.same_type(&TypeName::Variant)
         || subject.same_type(value)
-        || (matches!(subject, TypeName::User(_)) && value.same_type(&TypeName::Integer))
-        || (subject.same_type(&TypeName::Integer) && matches!(value, TypeName::User(_)))
+        || (is_numeric_type(subject) && is_numeric_type(value))
+        || (matches!(subject, TypeName::User(_)) && is_numeric_type(value))
+        || (is_numeric_type(subject) && matches!(value, TypeName::User(_)))
     {
         Ok(())
     } else {
@@ -1509,15 +1542,12 @@ pub(super) fn validate_case_item(
 }
 
 fn ensure_case_orderable(ty: &TypeName, span: crate::runtime::Span) -> Result<(), Diagnostic> {
-    if ty.same_type(&TypeName::Integer)
-        || ty.same_type(&TypeName::String)
-        || ty.same_type(&TypeName::Variant)
-    {
+    if is_numeric_type(ty) || ty.same_type(&TypeName::String) || ty.same_type(&TypeName::Variant) {
         Ok(())
     } else {
         Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::SELECT_CASE,
-            "Case range or comparison requires Integer or String operands",
+            "Case range or comparison requires numeric or String operands",
             Some(span),
         )
         .with_primary_label("range or comparison is not orderable"))

@@ -16,8 +16,12 @@ pub(crate) fn eval_binary(
 ) -> Result<Value, Diagnostic> {
     match op {
         BinaryOp::Add => math_binary(left, right, span, |a, b| a.wrapping_add(b), |a, b| a + b),
-        BinaryOp::Subtract => math_binary(left, right, span, |a, b| a.wrapping_sub(b), |a, b| a - b),
-        BinaryOp::Multiply => math_binary(left, right, span, |a, b| a.wrapping_mul(b), |a, b| a * b),
+        BinaryOp::Subtract => {
+            math_binary(left, right, span, |a, b| a.wrapping_sub(b), |a, b| a - b)
+        }
+        BinaryOp::Multiply => {
+            math_binary(left, right, span, |a, b| a.wrapping_mul(b), |a, b| a * b)
+        }
         BinaryOp::Divide => {
             let (a, b) = expect_numbers(left, right, span)?;
             if b == 0.0 {
@@ -265,6 +269,25 @@ pub(crate) fn value_to_i64(v: &Value) -> Option<i64> {
     }
 }
 
+pub(crate) fn value_to_u64(v: &Value) -> Option<u64> {
+    match v {
+        Value::Byte(n) => Some(*n as u64),
+        Value::Int16(n) if *n >= 0 => Some(*n as u64),
+        Value::Int32(n) if *n >= 0 => Some(*n as u64),
+        Value::Int64(n) if *n >= 0 => Some(*n as u64),
+        Value::UInt32(n) => Some(*n as u64),
+        Value::UInt64(n) => Some(*n),
+        Value::Single(n) if *n >= 0.0 && *n <= u64::MAX as f32 => Some(*n as u64),
+        Value::Double(n) if *n >= 0.0 && *n <= u64::MAX as f64 => Some(*n as u64),
+        Value::Currency(n) if *n >= 0 => Some((*n as f64 / 10000.0) as u64),
+        Value::Decimal(n) if *n >= 0 && *n <= u64::MAX as i128 => Some(*n as u64),
+        Value::Boolean(b) => Some(if *b { 1 } else { 0 }),
+        Value::Ptr(n) => Some(*n as u64),
+        Value::FuncPtr(n) => Some(*n as u64),
+        _ => None,
+    }
+}
+
 pub(crate) fn value_to_f64(v: &Value) -> Option<f64> {
     match v {
         Value::Byte(n) => Some(*n as f64),
@@ -480,11 +503,8 @@ pub(crate) fn coerce_assignment(
             Ok(Value::UInt32(v as u32))
         }
         TypeName::UInt64 => {
-            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
-            if v < 0 {
-                return Err(overflow_err(span));
-            }
-            Ok(Value::UInt64(v as u64))
+            let v = value_to_u64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            Ok(Value::UInt64(v))
         }
         TypeName::Single => {
             let v = value_to_f64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
@@ -570,7 +590,11 @@ fn type_mismatch_err(ty: &TypeName, value: &Value, span: Span) -> Diagnostic {
 }
 
 fn overflow_err(span: Span) -> Diagnostic {
-    Diagnostic::new(crate::runtime::DiagnosticCode::RUNTIME, "Overflow", Some(span))
+    Diagnostic::new(
+        crate::runtime::DiagnosticCode::RUNTIME,
+        "Overflow",
+        Some(span),
+    )
 }
 
 pub(crate) fn key(name: &str) -> String {

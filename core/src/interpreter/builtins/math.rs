@@ -1,10 +1,10 @@
+use super::super::Frame;
+use super::super::Interpreter;
+use crate::Expr;
+use crate::runtime::{Diagnostic, Value};
 use rand::Rng;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
-use crate::runtime::{Diagnostic, Value};
-use crate::Expr;
-use super::super::Frame;
-use super::super::Interpreter;
 
 pub(crate) fn eval_math(
     interpreter: &mut Interpreter,

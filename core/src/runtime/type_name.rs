@@ -2,9 +2,9 @@
 pub enum TypeName {
     String,
     Byte,
-    Integer,    // 16-bit
-    Long,       // 32-bit
-    Int64,      // 64-bit
+    Integer, // 16-bit
+    Long,    // 32-bit
+    Int64,   // 64-bit
     UInt32,
     UInt64,
     Single,

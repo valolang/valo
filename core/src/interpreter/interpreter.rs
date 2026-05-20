@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crate::runtime::{Diagnostic, Value};
 use crate::{Function, Procedure, Program};

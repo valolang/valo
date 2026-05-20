@@ -26,7 +26,10 @@ fn test_numeric_ranges_and_overflow() {
     let program = Parser::parse_source(source).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
-    assert_eq!(output, vec!["255", "32767", "2147483647", "9223372036854775807"]);
+    assert_eq!(
+        output,
+        vec!["255", "32767", "2147483647", "9223372036854775807"]
+    );
 }
 
 #[test]

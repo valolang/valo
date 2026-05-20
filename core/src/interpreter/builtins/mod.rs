@@ -36,7 +36,7 @@ pub(crate) fn dispatch_stmt(
             // If it returns a value but was called as a stmt, we just ignore the value
             // (or maybe check if it's a valid stmt builtin)
             if matches!(val, Value::Empty) || method.eq_ignore_ascii_case("Randomize") {
-                 return Ok(Some(ControlFlow::Continue));
+                return Ok(Some(ControlFlow::Continue));
             }
         }
     }
@@ -100,23 +100,20 @@ fn dispatch_callbyname(
         }
         let obj = interpreter.eval_expr(&args[0], frame)?;
         let member = interpreter.eval_expr(&args[1], frame)?.to_output_string();
-        let call_type = interpreter.eval_integer_expr(&args[2], frame, "Call type must be Integer")?;
+        let call_type =
+            interpreter.eval_integer_expr(&args[2], frame, "Call type must be Integer")?;
 
         let remaining_args = &args[3..];
 
         match call_type {
             1 => {
                 // VbMethod
-                if let Err(err) = interpreter.call_method_sub(
-                    obj.clone(),
-                    &member,
-                    remaining_args,
-                    frame,
-                    span,
-                ) {
+                if let Err(err) =
+                    interpreter.call_method_sub(obj.clone(), &member, remaining_args, frame, span)
+                {
                     if matches!(err.code, crate::runtime::DiagnosticCode("V1400")) {
-                         // Not found as Sub, try Function
-                         return Ok(Some(interpreter.call_method_function(
+                        // Not found as Sub, try Function
+                        return Ok(Some(interpreter.call_method_function(
                             obj,
                             &member,
                             remaining_args,
