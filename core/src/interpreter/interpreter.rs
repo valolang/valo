@@ -3,7 +3,7 @@ use rand_pcg::Pcg64;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use crate::runtime::{Diagnostic, Value};
+use crate::runtime::{Diagnostic, TypeName, Value};
 use crate::{Function, Procedure, Program};
 
 use super::records::RuntimeType;
@@ -256,13 +256,24 @@ impl Interpreter {
 
         let mut frame = Frame::default();
         for var in &program.module_vars {
+            let value = if let Some(initializer) = &var.initializer {
+                Some(self.eval_expr(initializer, &mut frame)?)
+            } else {
+                None
+            };
+            let ty = var.ty.clone().unwrap_or_else(|| {
+                value
+                    .as_ref()
+                    .map(Value::type_name)
+                    .unwrap_or(TypeName::Variant)
+            });
             frame.declare_module(
                 &var.name,
-                var.ty.clone(),
+                ty,
                 var.array.clone(),
                 self.option_base,
                 false,
-                None,
+                value,
                 var.span,
                 &self.types,
                 &self.enums,
@@ -373,13 +384,24 @@ impl Interpreter {
 
         for var in &program.module_vars {
             if !frame.has_variable(&var.name) {
+                let value = if let Some(initializer) = &var.initializer {
+                    Some(self.eval_expr(initializer, frame)?)
+                } else {
+                    None
+                };
+                let ty = var.ty.clone().unwrap_or_else(|| {
+                    value
+                        .as_ref()
+                        .map(Value::type_name)
+                        .unwrap_or(TypeName::Variant)
+                });
                 frame.declare_module(
                     &var.name,
-                    var.ty.clone(),
+                    ty,
                     var.array.clone(),
                     self.option_base,
                     false,
-                    None,
+                    value,
                     var.span,
                     &self.types,
                     &self.enums,
@@ -609,14 +631,25 @@ impl Interpreter {
                 if crate::modules::is_public(var.visibility) {
                     public_values.push(super::values::key(&var.name));
                 }
-                let ty = self.resolve_type_name(&var.ty, &frame, var.span)?;
+                let value = if let Some(initializer) = &var.initializer {
+                    Some(self.eval_expr(initializer, &mut frame)?)
+                } else {
+                    None
+                };
+                let ty = var.ty.clone().unwrap_or_else(|| {
+                    value
+                        .as_ref()
+                        .map(Value::type_name)
+                        .unwrap_or(TypeName::Variant)
+                });
+                let ty = self.resolve_type_name(&ty, &frame, var.span)?;
                 frame.declare_module(
                     &var.name,
                     ty,
                     var.array.clone(),
                     module.program.option_base,
                     false,
-                    None,
+                    value,
                     var.span,
                     &self.types,
                     &self.enums,

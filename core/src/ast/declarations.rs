@@ -44,8 +44,9 @@ pub enum OptionCompare {
 pub struct ModuleVarDecl {
     pub visibility: Visibility,
     pub name: String,
-    pub ty: TypeName,
+    pub ty: Option<TypeName>,
     pub array: Option<super::ArrayDecl>,
+    pub initializer: Option<super::Expr>,
     pub span: Span,
 }
 
@@ -100,6 +101,7 @@ pub struct ClassDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClassMember {
     Field(ClassField),
+    Fields(Vec<ClassField>),
     Event(ClassEvent),
     Sub(ClassSub),
     Function(ClassFunction),
@@ -112,8 +114,9 @@ pub struct ClassField {
     pub visibility: Visibility,
     pub with_events: bool,
     pub name: String,
-    pub ty: TypeName,
+    pub ty: Option<TypeName>,
     pub array: Option<super::ArrayDecl>,
+    pub initializer: Option<super::Expr>,
     pub span: Span,
 }
 

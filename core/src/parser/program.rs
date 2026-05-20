@@ -131,11 +131,15 @@ impl Parser {
                 TokenKind::Const => {
                     module_consts.push(self.parse_module_const(Visibility::Private)?)
                 }
+                TokenKind::Dim => {
+                    self.expect_simple(TokenKind::Dim, "Expected 'Dim'")?;
+                    module_vars.extend(self.parse_module_vars(Visibility::Private)?);
+                }
                 TokenKind::Class => classes.push(self.parse_class_decl(Visibility::Public)?),
                 TokenKind::Sub => procedures.push(self.parse_procedure(Visibility::Public)?),
                 TokenKind::Function => functions.push(self.parse_function(Visibility::Public)?),
                 TokenKind::Identifier(_) => {
-                    module_vars.push(self.parse_module_var(Visibility::Private)?);
+                    module_vars.extend(self.parse_module_vars(Visibility::Private)?);
                 }
                 TokenKind::Public | TokenKind::Private => {
                     let visibility = self.parse_optional_visibility();
@@ -151,8 +155,11 @@ impl Parser {
                         procedures.push(self.parse_procedure(visibility)?);
                     } else if self.check_simple(&TokenKind::Function) {
                         functions.push(self.parse_function(visibility)?);
+                    } else if self.check_simple(&TokenKind::Dim) {
+                        self.expect_simple(TokenKind::Dim, "Expected 'Dim'")?;
+                        module_vars.extend(self.parse_module_vars(visibility)?);
                     } else if matches!(self.peek_kind(), TokenKind::Identifier(_)) {
-                        module_vars.push(self.parse_module_var(visibility)?);
+                        module_vars.extend(self.parse_module_vars(visibility)?);
                     } else {
                         return Err(self.error_here(
                             "Public/Private are only allowed for module declarations or inside Class",

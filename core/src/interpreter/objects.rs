@@ -511,10 +511,26 @@ impl From<&crate::ClassDecl> for RuntimeClass {
             match member {
                 ClassMember::Field(field) => fields.push(RuntimeField {
                     name: field.name.clone(),
-                    ty: field.ty.clone(),
+                    ty: field
+                        .ty
+                        .clone()
+                        .unwrap_or(crate::runtime::TypeName::Variant),
                     array: field.array.clone(),
                     with_events: field.with_events,
                 }),
+                ClassMember::Fields(class_fields) => {
+                    for field in class_fields {
+                        fields.push(RuntimeField {
+                            name: field.name.clone(),
+                            ty: field
+                                .ty
+                                .clone()
+                                .unwrap_or(crate::runtime::TypeName::Variant),
+                            array: field.array.clone(),
+                            with_events: field.with_events,
+                        });
+                    }
+                }
                 ClassMember::Event(event) => {
                     events.insert(
                         key(&event.name),

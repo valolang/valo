@@ -1,0 +1,47 @@
+Class User
+    Public Name As String
+
+    Public Sub Initialize(ByVal name As String)
+        Me.Name = name
+    End Sub
+End Class
+
+Sub Main()
+    Dim name As String = "Valo"
+    Dim age = 20
+    Dim price = 10.5
+    Dim active = True
+    Dim big As UInt64 = 18446744073709551615
+    Dim today As Date = CDate(1)
+    Dim b As Byte = CByte(255)
+    Dim convertedLong = CLng(10)
+    Dim convertedDouble = CDbl(10.5)
+
+    Dim first As Integer = 1, second = "two", third As Double = 3.5
+    Dim i%, l&, s$ = "typed", x!, d#, c@
+
+    Dim numbers() As Integer, labels$()
+    ReDim numbers(0 To 2)
+    ReDim labels(0 To 1)
+    numbers(0) = first
+    numbers(1) = age
+    numbers(2) = b
+    labels(0) = name
+    labels(1) = s
+
+    Dim user As New User("Valo")
+    Dim other = New User("Modern")
+    Dim parts = Split("A,B,C", ",")
+    Dim values = Array(1, 2, 3)
+
+    Console.WriteLine(name & " " & age)
+    Console.WriteLine(TypeName(price) & " " & TypeName(active))
+    Console.WriteLine(TypeName(big) & " " & TypeName(today))
+    Console.WriteLine(TypeName(convertedLong) & " " & TypeName(convertedDouble))
+    Console.WriteLine(second & " " & third)
+    Console.WriteLine(TypeName(i) & " " & TypeName(l) & " " & labels(1))
+    Console.WriteLine(TypeName(x) & " " & TypeName(d) & " " & TypeName(c))
+    Console.WriteLine(numbers(0) + numbers(1) + numbers(2))
+    Console.WriteLine(user.Name & " " & other.Name)
+    Console.WriteLine(TypeName(parts) & " " & TypeName(values))
+End Sub

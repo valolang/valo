@@ -24,6 +24,9 @@ pub(super) fn validate_statements(
                 name,
                 ty,
                 array,
+                as_new,
+                new_args,
+                initializer,
                 span,
                 ..
             }
@@ -31,10 +34,33 @@ pub(super) fn validate_statements(
                 name,
                 ty,
                 array,
+                as_new,
+                new_args,
+                initializer,
                 span,
                 ..
             } => {
-                ensure_known_type(ty, types, *span)?;
+                let ty =
+                    declared_variable_type(ty, initializer, symbols, types, signatures, *span)?;
+                ensure_known_type(&ty, types, *span)?;
+                validate_as_new(*as_new, &ty, new_args, symbols, types, signatures, *span)?;
+                if let Some(initializer) = initializer {
+                    if array.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "Array declarations cannot use an initializer",
+                            Some(initializer.span),
+                        ));
+                    }
+                    let source_type = validate_expr(initializer, symbols, types, signatures)?;
+                    ensure_assignable_expr(
+                        &ty,
+                        &source_type,
+                        initializer,
+                        types,
+                        initializer.span,
+                    )?;
+                }
                 let key = key(name);
                 if symbols.contains_key(&key) {
                     return Err(Diagnostic::new(
@@ -44,11 +70,72 @@ pub(super) fn validate_statements(
                     ));
                 }
                 let var_type = if array.is_some() {
-                    VarType::Array(ty.clone())
+                    VarType::Array(ty)
                 } else {
-                    VarType::Scalar(ty.clone())
+                    VarType::Scalar(ty)
                 };
                 symbols.insert(key, var_type);
+            }
+            Stmt::DimMany { decls, .. } | Stmt::StaticMany { decls, .. } => {
+                let mut seen = HashSet::new();
+                for decl in decls {
+                    let decl_key = key(&decl.name);
+                    if !seen.insert(decl_key.clone()) {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!("Variable '{}' is declared more than once", decl.name),
+                            Some(decl.span),
+                        ));
+                    }
+                    let ty = declared_variable_type(
+                        &decl.ty,
+                        &decl.initializer,
+                        symbols,
+                        types,
+                        signatures,
+                        decl.span,
+                    )?;
+                    ensure_known_type(&ty, types, decl.span)?;
+                    validate_as_new(
+                        decl.as_new,
+                        &ty,
+                        &decl.new_args,
+                        symbols,
+                        types,
+                        signatures,
+                        decl.span,
+                    )?;
+                    if let Some(initializer) = &decl.initializer {
+                        if decl.array.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                "Array declarations cannot use an initializer",
+                                Some(initializer.span),
+                            ));
+                        }
+                        let source_type = validate_expr(initializer, symbols, types, signatures)?;
+                        ensure_assignable_expr(
+                            &ty,
+                            &source_type,
+                            initializer,
+                            types,
+                            initializer.span,
+                        )?;
+                    }
+                    if symbols.contains_key(&decl_key) {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!("Variable '{}' is already declared", decl.name),
+                            Some(decl.span),
+                        ));
+                    }
+                    let var_type = if decl.array.is_some() {
+                        VarType::Array(ty)
+                    } else {
+                        VarType::Scalar(ty)
+                    };
+                    symbols.insert(decl_key, var_type);
+                }
             }
             Stmt::Const {
                 name,
@@ -559,6 +646,53 @@ pub(super) fn validate_statements(
     Ok(())
 }
 
+fn declared_variable_type(
+    ty: &Option<TypeName>,
+    initializer: &Option<Expr>,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+    span: crate::runtime::Span,
+) -> Result<TypeName, Diagnostic> {
+    if let Some(ty) = ty {
+        return Ok(ty.clone());
+    }
+    if let Some(initializer) = initializer {
+        return validate_expr(initializer, symbols, types, signatures);
+    }
+    let _ = span;
+    Ok(TypeName::Variant)
+}
+
+fn validate_as_new(
+    as_new: bool,
+    ty: &TypeName,
+    args: &[Expr],
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+    span: crate::runtime::Span,
+) -> Result<(), Diagnostic> {
+    if !as_new {
+        return Ok(());
+    }
+    let TypeName::User(class_name) = ty else {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "As New requires a class type",
+            Some(span),
+        ));
+    };
+    let expr = Expr {
+        kind: ExprKind::New {
+            class_name: class_name.clone(),
+            args: args.to_vec(),
+        },
+        span,
+    };
+    validate_expr(&expr, symbols, types, signatures).map(|_| ())
+}
+
 fn validate_labels(statements: &[Stmt]) -> Result<(), Diagnostic> {
     let mut labels = HashSet::new();
     for stmt in statements {
@@ -737,7 +871,9 @@ fn redim_target_is_dynamic_array(
 fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
     match stmt {
         Stmt::Dim { span, .. }
+        | Stmt::DimMany { span, .. }
         | Stmt::Static { span, .. }
+        | Stmt::StaticMany { span, .. }
         | Stmt::Const { span, .. }
         | Stmt::Assign { span, .. }
         | Stmt::SetAssign { span, .. }
@@ -851,7 +987,13 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             false
         }
         Stmt::With { target, .. } => expr_uses_with_target(target),
-        Stmt::Dim { .. } | Stmt::Static { .. } | Stmt::Exit { .. } => false,
+        Stmt::Dim { initializer, .. } | Stmt::Static { initializer, .. } => {
+            initializer.as_ref().is_some_and(expr_uses_with_target)
+        }
+        Stmt::DimMany { decls, .. } | Stmt::StaticMany { decls, .. } => decls
+            .iter()
+            .any(|decl| decl.initializer.as_ref().is_some_and(expr_uses_with_target)),
+        Stmt::Exit { .. } => false,
     }
 }
 

@@ -184,29 +184,12 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         for member in &class_decl.members {
             match member {
                 ClassMember::Field(field) => {
-                    let field_key = key(&field.name);
-                    if fields.contains_key(&field_key)
-                        || events.contains_key(&field_key)
-                        || properties.contains_key(&field_key)
-                    {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                            format!(
-                                "Field '{}' conflicts with another member in Class '{}'",
-                                field.name, class_decl.name
-                            ),
-                            Some(field.span),
-                        ));
+                    insert_class_field(class_decl, field, &mut fields, &events, &properties)?;
+                }
+                ClassMember::Fields(class_fields) => {
+                    for field in class_fields {
+                        insert_class_field(class_decl, field, &mut fields, &events, &properties)?;
                     }
-                    fields.insert(
-                        field_key,
-                        ClassFieldSig {
-                            visibility: field.visibility,
-                            with_events: field.with_events,
-                            ty: field.ty.clone(),
-                            array: field.array.clone(),
-                        },
-                    );
                 }
                 ClassMember::Event(event) => {
                     let event_key = key(&event.name);
@@ -477,7 +460,12 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     for class_decl in &program.classes {
         for member in &class_decl.members {
             match member {
-                ClassMember::Field(field) => ensure_known_type(&field.ty, &registry, field.span)?,
+                ClassMember::Field(field) => validate_class_field_type(field, &registry)?,
+                ClassMember::Fields(fields) => {
+                    for field in fields {
+                        validate_class_field_type(field, &registry)?;
+                    }
+                }
                 ClassMember::Event(event) => {
                     for param in &event.params {
                         ensure_known_type(&param.ty, &registry, param.span)?;
@@ -578,6 +566,56 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     Ok(registry)
 }
 
+fn insert_class_field(
+    class_decl: &crate::ClassDecl,
+    field: &crate::ClassField,
+    fields: &mut HashMap<String, ClassFieldSig>,
+    events: &HashMap<String, ClassEventSig>,
+    properties: &HashMap<String, ClassPropertySig>,
+) -> Result<(), Diagnostic> {
+    let field_key = key(&field.name);
+    if fields.contains_key(&field_key)
+        || events.contains_key(&field_key)
+        || properties.contains_key(&field_key)
+    {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            format!(
+                "Field '{}' conflicts with another member in Class '{}'",
+                field.name, class_decl.name
+            ),
+            Some(field.span),
+        ));
+    }
+    fields.insert(
+        field_key,
+        ClassFieldSig {
+            visibility: field.visibility,
+            with_events: field.with_events,
+            ty: field.ty.clone().unwrap_or(TypeName::Variant),
+            array: field.array.clone(),
+        },
+    );
+    Ok(())
+}
+
+fn validate_class_field_type(
+    field: &crate::ClassField,
+    registry: &TypeRegistry,
+) -> Result<(), Diagnostic> {
+    if let Some(ty) = &field.ty {
+        ensure_known_type(ty, registry, field.span)?;
+    }
+    if field.initializer.is_some() {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Class field initializers are not supported yet",
+            Some(field.span),
+        ));
+    }
+    Ok(())
+}
+
 fn is_constructor_name(name: &str) -> bool {
     name == "initialize" || name == "class_initialize"
 }
@@ -595,58 +633,62 @@ fn validate_withevents_handlers(
             .get_class(&class_decl.name)
             .expect("class signature collected");
         for member in &class_decl.members {
-            let ClassMember::Field(field) = member else {
-                continue;
+            let fields: Vec<&crate::ClassField> = match member {
+                ClassMember::Field(field) => vec![field],
+                ClassMember::Fields(fields) => fields.iter().collect(),
+                _ => continue,
             };
-            let owner_field_sig = class_sig
-                .fields
-                .get(&key(&field.name))
-                .expect("field collected");
-            if !owner_field_sig.with_events {
-                continue;
-            }
-            let TypeName::User(source_class_name) = &field.ty else {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                    format!("WithEvents field '{}' must have a class type", field.name),
-                    Some(field.span),
-                ));
-            };
-            let Some(source_class) = registry.get_class(source_class_name) else {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                    format!("WithEvents field '{}' must have a class type", field.name),
-                    Some(field.span),
-                ));
-            };
-            for event in source_class.events.values() {
-                let handler_name = format!("{}_{}", field.name, event.name);
-                let handler_key = key(&handler_name);
-                if let Some(handler) = class_sig.functions.get(&handler_key) {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                        format!("Event handler '{}' must be a Sub method", handler.name),
-                        Some(field.span),
-                    ));
-                }
-                let Some(handler) = class_sig.subs.get(&handler_key) else {
+            for field in fields {
+                let owner_field_sig = class_sig
+                    .fields
+                    .get(&key(&field.name))
+                    .expect("field collected");
+                if !owner_field_sig.with_events {
                     continue;
-                };
-                if handler.params.len() != event.params.len()
-                    || !handler
-                        .params
-                        .iter()
-                        .zip(event.params.iter())
-                        .all(|(left, right)| left.ty.same_type(&right.ty))
-                {
+                }
+                let TypeName::User(source_class_name) = &owner_field_sig.ty else {
                     return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::GENERIC,
-                        format!(
-                            "Event handler '{}' signature does not match event '{}'",
-                            handler.name, event.name
-                        ),
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        format!("WithEvents field '{}' must have a class type", field.name),
                         Some(field.span),
                     ));
+                };
+                let Some(source_class) = registry.get_class(source_class_name) else {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        format!("WithEvents field '{}' must have a class type", field.name),
+                        Some(field.span),
+                    ));
+                };
+                for event in source_class.events.values() {
+                    let handler_name = format!("{}_{}", field.name, event.name);
+                    let handler_key = key(&handler_name);
+                    if let Some(handler) = class_sig.functions.get(&handler_key) {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                            format!("Event handler '{}' must be a Sub method", handler.name),
+                            Some(field.span),
+                        ));
+                    }
+                    let Some(handler) = class_sig.subs.get(&handler_key) else {
+                        continue;
+                    };
+                    if handler.params.len() != event.params.len()
+                        || !handler
+                            .params
+                            .iter()
+                            .zip(event.params.iter())
+                            .all(|(left, right)| left.ty.same_type(&right.ty))
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            format!(
+                                "Event handler '{}' signature does not match event '{}'",
+                                handler.name, event.name
+                            ),
+                            Some(field.span),
+                        ));
+                    }
                 }
             }
         }
@@ -682,7 +724,9 @@ pub(super) fn collect_signatures(
     }
 
     for var in &program.module_vars {
-        ensure_known_type(&var.ty, types, var.span)?;
+        if let Some(ty) = &var.ty {
+            ensure_known_type(ty, types, var.span)?;
+        }
         let name_key = key(&var.name);
         if let Some(existing) = names.insert(name_key, "module variable") {
             return Err(Diagnostic::new(
@@ -854,7 +898,25 @@ pub(super) fn collect_module_symbols(
     let mut symbols = HashMap::new();
 
     for var in &program.module_vars {
-        ensure_known_type(&var.ty, types, var.span)?;
+        let ty = if let Some(ty) = &var.ty {
+            ensure_known_type(ty, types, var.span)?;
+            ty.clone()
+        } else if let Some(initializer) = &var.initializer {
+            validate_expr(initializer, &symbols, types, signatures)?
+        } else {
+            TypeName::Variant
+        };
+        if let Some(initializer) = &var.initializer {
+            if var.array.is_some() {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    "Array declarations cannot use an initializer",
+                    Some(initializer.span),
+                ));
+            }
+            let source_type = validate_expr(initializer, &symbols, types, signatures)?;
+            ensure_assignable_expr(&ty, &source_type, initializer, types, initializer.span)?;
+        }
         let name_key = key(&var.name);
         if symbols.contains_key(&name_key) {
             return Err(Diagnostic::new(
@@ -864,9 +926,9 @@ pub(super) fn collect_module_symbols(
             ));
         }
         let var_type = if var.array.is_some() {
-            VarType::Array(var.ty.clone())
+            VarType::Array(ty)
         } else {
-            VarType::Scalar(var.ty.clone())
+            VarType::Scalar(ty)
         };
         symbols.insert(name_key, var_type);
     }

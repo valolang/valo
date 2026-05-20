@@ -80,29 +80,34 @@ impl Interpreter {
                 ty,
                 array,
                 as_new,
+                new_args,
+                initializer,
                 span,
             } => {
-                let ty = self.resolve_type_name(ty, frame, *span)?;
-                let ty_for_new = ty.clone();
-                frame.declare(
+                self.exec_variable_declaration(
                     name,
                     ty,
-                    array.clone(),
-                    self.option_base,
+                    array,
+                    *as_new,
+                    new_args,
+                    initializer,
+                    frame,
                     *span,
-                    &self.types,
-                    &self.enums,
                 )?;
-                if *as_new {
-                    let crate::runtime::TypeName::User(class_name) = ty_for_new else {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                            "As New requires a class type",
-                            Some(*span),
-                        ));
-                    };
-                    let value = self.new_object(&class_name, &[], frame, *span)?;
-                    let _ = frame.assign(name, value, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::DimMany { decls, .. } => {
+                for decl in decls {
+                    self.exec_variable_declaration(
+                        &decl.name,
+                        &decl.ty,
+                        &decl.array,
+                        decl.as_new,
+                        &decl.new_args,
+                        &decl.initializer,
+                        frame,
+                        decl.span,
+                    )?;
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -111,32 +116,35 @@ impl Interpreter {
                 ty,
                 array,
                 as_new,
+                new_args,
+                initializer,
                 span,
             } => {
-                if *as_new {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                        "Static As New is not supported",
-                        Some(*span),
-                    ));
-                }
-                let ty = self.resolve_type_name(ty, frame, *span)?;
-                let scope = self
-                    .scope_stack
-                    .last()
-                    .cloned()
-                    .unwrap_or_else(|| "<module>".to_string());
-                let static_frame = self.static_frames.entry(scope).or_default();
-                frame.declare_static(
+                self.exec_static_declaration(
                     name,
                     ty,
-                    array.clone(),
-                    self.option_base,
+                    array,
+                    *as_new,
+                    new_args,
+                    initializer,
+                    frame,
                     *span,
-                    &self.types,
-                    &self.enums,
-                    static_frame,
                 )?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::StaticMany { decls, .. } => {
+                for decl in decls {
+                    self.exec_static_declaration(
+                        &decl.name,
+                        &decl.ty,
+                        &decl.array,
+                        decl.as_new,
+                        &decl.new_args,
+                        &decl.initializer,
+                        frame,
+                        decl.span,
+                    )?;
+                }
                 Ok(ControlFlow::Continue)
             }
             Stmt::Const {
@@ -513,6 +521,122 @@ impl Interpreter {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn exec_variable_declaration(
+        &mut self,
+        name: &str,
+        ty: &Option<crate::runtime::TypeName>,
+        array: &Option<crate::ArrayDecl>,
+        as_new: bool,
+        new_args: &[crate::Expr],
+        initializer: &Option<crate::Expr>,
+        frame: &mut Frame,
+        span: crate::runtime::Span,
+    ) -> Result<(), Diagnostic> {
+        let initial_value = if let Some(initializer) = initializer {
+            Some(self.eval_expr(initializer, frame)?)
+        } else {
+            None
+        };
+        let ty = if let Some(ty) = ty {
+            self.resolve_type_name(ty, frame, span)?
+        } else {
+            initial_value
+                .as_ref()
+                .map(Value::type_name)
+                .unwrap_or(crate::runtime::TypeName::Variant)
+        };
+        let ty_for_new = ty.clone();
+        frame.declare(
+            name,
+            ty,
+            array.clone(),
+            self.option_base,
+            span,
+            &self.types,
+            &self.enums,
+        )?;
+        if as_new {
+            let crate::runtime::TypeName::User(class_name) = ty_for_new else {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "As New requires a class type",
+                    Some(span),
+                ));
+            };
+            let value = self.new_object(&class_name, new_args, frame, span)?;
+            let _ = frame.assign(name, value, span)?;
+        }
+        if let Some(value) = initial_value {
+            let init_span = initializer
+                .as_ref()
+                .expect("value came from initializer")
+                .span;
+            let _ = frame.assign(name, value, init_span)?;
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn exec_static_declaration(
+        &mut self,
+        name: &str,
+        ty: &Option<crate::runtime::TypeName>,
+        array: &Option<crate::ArrayDecl>,
+        as_new: bool,
+        _new_args: &[crate::Expr],
+        initializer: &Option<crate::Expr>,
+        frame: &mut Frame,
+        span: crate::runtime::Span,
+    ) -> Result<(), Diagnostic> {
+        if as_new {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Static As New is not supported",
+                Some(span),
+            ));
+        }
+        let initial_value = if let Some(initializer) = initializer {
+            Some(self.eval_expr(initializer, frame)?)
+        } else {
+            None
+        };
+        let ty = if let Some(ty) = ty {
+            self.resolve_type_name(ty, frame, span)?
+        } else {
+            initial_value
+                .as_ref()
+                .map(Value::type_name)
+                .unwrap_or(crate::runtime::TypeName::Variant)
+        };
+        let scope = self
+            .scope_stack
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "<module>".to_string());
+        let mut static_frame = self.static_frames.remove(&scope).unwrap_or_default();
+        let already_declared = static_frame.has_variable(name);
+        frame.declare_static(
+            name,
+            ty,
+            array.clone(),
+            self.option_base,
+            span,
+            &self.types,
+            &self.enums,
+            &mut static_frame,
+        )?;
+        if !already_declared && let Some(value) = initial_value {
+            let init_span = initializer
+                .as_ref()
+                .expect("value came from initializer")
+                .span;
+            let _ = frame.assign(name, value, init_span)?;
+        }
+        self.static_frames.insert(scope, static_frame);
+        Ok(())
+    }
+
     fn create_error_object(&self, diagnostic: &Diagnostic) -> Value {
         let mut fields = HashMap::new();
         if let Some(info) = &diagnostic.runtime_error {
@@ -691,7 +815,9 @@ impl Interpreter {
 fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
     match stmt {
         Stmt::Dim { span, .. }
+        | Stmt::DimMany { span, .. }
         | Stmt::Static { span, .. }
+        | Stmt::StaticMany { span, .. }
         | Stmt::Const { span, .. }
         | Stmt::Assign { span, .. }
         | Stmt::SetAssign { span, .. }

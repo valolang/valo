@@ -159,79 +159,31 @@ impl Parser {
                 self.parse_property(visibility, is_default)?,
             )),
             _ if is_default => Err(self.error_here("Default is only supported on Property")),
-            TokenKind::Identifier(_) => {
-                let start = self.peek().span;
-                let name = self.expect_identifier("Expected class field name")?;
-                let array = if self.match_simple(&TokenKind::LeftParen) {
-                    if self.match_simple(&TokenKind::RightParen) {
-                        Some(ArrayDecl::Dynamic)
-                    } else {
-                        let mut bounds = Vec::new();
-                        loop {
-                            let lower_or_size_token = self.advance();
-                            let TokenKind::Integer(lower_or_size) = lower_or_size_token.kind else {
-                                return Err(Diagnostic::new(
-                                    crate::runtime::DiagnosticCode::ARRAY,
-                                    "Array size must be an Integer literal",
-                                    Some(lower_or_size_token.span),
-                                ));
-                            };
-                            let bound = if self.match_simple(&TokenKind::To) {
-                                let upper_token = self.advance();
-                                let TokenKind::Integer(upper) = upper_token.kind else {
-                                    return Err(Diagnostic::new(
-                                        crate::runtime::DiagnosticCode::ARRAY,
-                                        "Array upper bound must be an Integer literal",
-                                        Some(upper_token.span),
-                                    ));
-                                };
-                                crate::runtime::ArrayBound {
-                                    lower: lower_or_size,
-                                    upper,
-                                }
-                            } else {
-                                if lower_or_size < 0 {
-                                    return Err(Diagnostic::new(
-                                        crate::runtime::DiagnosticCode::ARRAY,
-                                        "Array size must be non-negative",
-                                        Some(lower_or_size_token.span),
-                                    ));
-                                }
-                                crate::runtime::ArrayBound {
-                                    lower: 0,
-                                    upper: lower_or_size,
-                                }
-                            };
-                            if bound.upper < bound.lower {
-                                return Err(Diagnostic::new(
-                                    crate::runtime::DiagnosticCode::ARRAY,
-                                    "Array upper bound must be greater than or equal to lower bound",
-                                    Some(lower_or_size_token.span),
-                                ));
-                            }
-                            bounds.push(bound);
-                            if !self.match_simple(&TokenKind::Comma) {
-                                break;
-                            }
-                        }
-                        self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
-                        Some(ArrayDecl::Fixed(bounds))
-                    }
-                } else {
-                    None
-                };
-                self.expect_simple(TokenKind::As, "Expected 'As' in class field declaration")?;
-                let ty = self.parse_type_name()?;
-                let end = self.previous().span;
+            TokenKind::Identifier(_) | TokenKind::Dim => {
+                if self.match_simple(&TokenKind::Dim) && with_events {
+                    return Err(self.error_here("WithEvents is not supported with Dim fields"));
+                }
+                let decls = self.parse_variable_declarators("field")?;
                 self.expect_statement_end("Expected newline after class field")?;
-                Ok(ClassMember::Field(ClassField {
-                    visibility,
-                    with_events,
-                    name,
-                    ty,
-                    array,
-                    span: Span::new(start.start, end.end),
-                }))
+                let fields = decls
+                    .into_iter()
+                    .map(|decl| ClassField {
+                        visibility,
+                        with_events,
+                        name: decl.name,
+                        ty: decl.ty,
+                        array: decl.array,
+                        initializer: decl.initializer,
+                        span: decl.span,
+                    })
+                    .collect::<Vec<_>>();
+                if fields.len() == 1 {
+                    Ok(ClassMember::Field(
+                        fields.into_iter().next().expect("len checked"),
+                    ))
+                } else {
+                    Ok(ClassMember::Fields(fields))
+                }
             }
             _ => Err(self.error_here("Expected class member")),
         }
@@ -401,85 +353,24 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_module_var(
+    pub(super) fn parse_module_vars(
         &mut self,
         visibility: Visibility,
-    ) -> Result<ModuleVarDecl, Diagnostic> {
-        let start = self.peek().span;
-        let name = self.expect_identifier("Expected module variable name")?;
-        let array = if self.match_simple(&TokenKind::LeftParen) {
-            if self.match_simple(&TokenKind::RightParen) {
-                Some(ArrayDecl::Dynamic)
-            } else {
-                let mut bounds = Vec::new();
-                loop {
-                    let lower_or_size_token = self.advance();
-                    let TokenKind::Integer(lower_or_size) = lower_or_size_token.kind else {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::ARRAY,
-                            "Array size must be an Integer literal",
-                            Some(lower_or_size_token.span),
-                        ));
-                    };
-                    let bound = if self.match_simple(&TokenKind::To) {
-                        let upper_token = self.advance();
-                        let TokenKind::Integer(upper) = upper_token.kind else {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::ARRAY,
-                                "Array upper bound must be an Integer literal",
-                                Some(upper_token.span),
-                            ));
-                        };
-                        crate::runtime::ArrayBound {
-                            lower: lower_or_size,
-                            upper,
-                        }
-                    } else {
-                        if lower_or_size < 0 {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::ARRAY,
-                                "Array size must be non-negative",
-                                Some(lower_or_size_token.span),
-                            ));
-                        }
-                        crate::runtime::ArrayBound {
-                            lower: 0,
-                            upper: lower_or_size,
-                        }
-                    };
-                    if bound.upper < bound.lower {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::ARRAY,
-                            "Array upper bound must be greater than or equal to lower bound",
-                            Some(lower_or_size_token.span),
-                        ));
-                    }
-                    bounds.push(bound);
-                    if !self.match_simple(&TokenKind::Comma) {
-                        break;
-                    }
-                }
-                self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
-                Some(ArrayDecl::Fixed(bounds))
-            }
-        } else {
-            None
-        };
-        self.expect_simple(
-            TokenKind::As,
-            "Expected 'As' in module variable declaration",
-        )?;
-        let ty = self.parse_type_name()?;
-        let end = self.previous().span;
+    ) -> Result<Vec<ModuleVarDecl>, Diagnostic> {
+        let decls = self.parse_variable_declarators("module variable")?;
         self.expect_statement_end("Expected newline after module variable declaration")?;
 
-        Ok(ModuleVarDecl {
-            visibility,
-            name,
-            ty,
-            array,
-            span: Span::new(start.start, end.end),
-        })
+        Ok(decls
+            .into_iter()
+            .map(|decl| ModuleVarDecl {
+                visibility,
+                name: decl.name,
+                ty: decl.ty,
+                array: decl.array,
+                initializer: decl.initializer,
+                span: decl.span,
+            })
+            .collect())
     }
 
     pub(super) fn parse_type_decl(

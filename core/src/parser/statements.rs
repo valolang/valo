@@ -85,41 +85,72 @@ impl Parser {
 
     fn parse_dim(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.advance().span;
-        let (name, array, ty, as_new, end) = self.parse_var_decl_after_keyword()?;
-        Ok(Stmt::Dim {
-            name,
-            ty,
-            array,
-            as_new,
-            span: Span::new(start.start, end.end),
-        })
+        let decls = self.parse_variable_declarators("Dim")?;
+        let end = decls.last().map(|decl| decl.span).unwrap_or(start);
+        if decls.len() == 1 {
+            let decl = decls.into_iter().next().expect("len checked");
+            Ok(Stmt::Dim {
+                name: decl.name,
+                ty: decl.ty,
+                array: decl.array,
+                as_new: decl.as_new,
+                new_args: decl.new_args,
+                initializer: decl.initializer,
+                span: Span::new(start.start, end.end),
+            })
+        } else {
+            Ok(Stmt::DimMany {
+                decls,
+                span: Span::new(start.start, end.end),
+            })
+        }
     }
 
     fn parse_static(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.advance().span;
-        let (name, array, ty, as_new, end) = self.parse_var_decl_after_keyword()?;
-        Ok(Stmt::Static {
-            name,
-            ty,
-            array,
-            as_new,
-            span: Span::new(start.start, end.end),
-        })
+        let decls = self.parse_variable_declarators("Static")?;
+        let end = decls.last().map(|decl| decl.span).unwrap_or(start);
+        if decls.len() == 1 {
+            let decl = decls.into_iter().next().expect("len checked");
+            Ok(Stmt::Static {
+                name: decl.name,
+                ty: decl.ty,
+                array: decl.array,
+                as_new: decl.as_new,
+                new_args: decl.new_args,
+                initializer: decl.initializer,
+                span: Span::new(start.start, end.end),
+            })
+        } else {
+            Ok(Stmt::StaticMany {
+                decls,
+                span: Span::new(start.start, end.end),
+            })
+        }
     }
 
-    fn parse_var_decl_after_keyword(
+    pub(super) fn parse_variable_declarators(
         &mut self,
-    ) -> Result<
-        (
-            String,
-            Option<ArrayDecl>,
-            crate::runtime::TypeName,
-            bool,
-            Span,
-        ),
-        Diagnostic,
-    > {
-        let name = self.expect_identifier("Expected variable name after 'Dim'")?;
+        keyword: &str,
+    ) -> Result<Vec<VariableDecl>, Diagnostic> {
+        let mut decls = Vec::new();
+        loop {
+            decls.push(self.parse_variable_declarator(keyword)?);
+            if !self.match_simple(&TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(decls)
+    }
+
+    pub(super) fn parse_variable_declarator(
+        &mut self,
+        keyword: &str,
+    ) -> Result<VariableDecl, Diagnostic> {
+        let start = self.peek().span;
+        let name =
+            self.expect_identifier(&format!("Expected variable name after '{}'", keyword))?;
+        let type_char = self.parse_type_declaration_character();
         let array = if self.match_simple(&TokenKind::LeftParen) {
             if self.match_simple(&TokenKind::RightParen) {
                 Some(ArrayDecl::Dynamic)
@@ -178,11 +209,87 @@ impl Parser {
         } else {
             None
         };
-        self.expect_simple(TokenKind::As, "Expected 'As' in variable declaration")?;
-        let as_new = self.match_simple(&TokenKind::New);
-        let ty = self.parse_type_name()?;
-        let end = self.previous().span;
-        Ok((name, array, ty, as_new, end))
+        let mut as_new = false;
+        let mut new_args = Vec::new();
+        let as_ty = if self.match_simple(&TokenKind::As) {
+            as_new = self.match_simple(&TokenKind::New);
+            let ty = self.parse_type_name()?;
+            if as_new && self.match_simple(&TokenKind::LeftParen) {
+                new_args = self.finish_call_arguments()?;
+            }
+            Some(ty)
+        } else {
+            None
+        };
+        if let (Some(type_char), Some(as_ty)) = (&type_char, &as_ty)
+            && !type_char.same_type(as_ty)
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!(
+                    "Type-declaration character implies {}, but As clause declares {}",
+                    type_char.display_name(),
+                    as_ty.display_name()
+                ),
+                Some(start),
+            ));
+        }
+        let ty = as_ty.or(type_char);
+        let initializer = if self.match_simple(&TokenKind::Equal) {
+            if as_new {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "As New declarations cannot also use an '=' initializer",
+                    Some(start),
+                ));
+            }
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        let end = initializer
+            .as_ref()
+            .map(|expr| expr.span)
+            .unwrap_or_else(|| self.previous().span);
+        Ok(VariableDecl {
+            name,
+            ty,
+            array,
+            as_new,
+            new_args,
+            initializer,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    pub(super) fn parse_type_declaration_character(&mut self) -> Option<crate::runtime::TypeName> {
+        match self.peek_kind() {
+            TokenKind::Percent => {
+                self.advance();
+                Some(crate::runtime::TypeName::Integer)
+            }
+            TokenKind::Ampersand => {
+                self.advance();
+                Some(crate::runtime::TypeName::Long)
+            }
+            TokenKind::Exclamation => {
+                self.advance();
+                Some(crate::runtime::TypeName::Single)
+            }
+            TokenKind::Hash => {
+                self.advance();
+                Some(crate::runtime::TypeName::Double)
+            }
+            TokenKind::At => {
+                self.advance();
+                Some(crate::runtime::TypeName::Currency)
+            }
+            TokenKind::Dollar => {
+                self.advance();
+                Some(crate::runtime::TypeName::String)
+            }
+            _ => None,
+        }
     }
 
     fn parse_const_stmt(&mut self) -> Result<Stmt, Diagnostic> {

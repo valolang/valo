@@ -6,16 +6,28 @@ use super::Expr;
 pub enum Stmt {
     Dim {
         name: String,
-        ty: TypeName,
+        ty: Option<TypeName>,
         array: Option<ArrayDecl>,
         as_new: bool,
+        new_args: Vec<Expr>,
+        initializer: Option<Expr>,
+        span: Span,
+    },
+    DimMany {
+        decls: Vec<VariableDecl>,
         span: Span,
     },
     Static {
         name: String,
-        ty: TypeName,
+        ty: Option<TypeName>,
         array: Option<ArrayDecl>,
         as_new: bool,
+        new_args: Vec<Expr>,
+        initializer: Option<Expr>,
+        span: Span,
+    },
+    StaticMany {
+        decls: Vec<VariableDecl>,
         span: Span,
     },
     Const {
@@ -188,6 +200,17 @@ pub enum AssignTarget {
         field: String,
         span: Span,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VariableDecl {
+    pub name: String,
+    pub ty: Option<TypeName>,
+    pub array: Option<ArrayDecl>,
+    pub as_new: bool,
+    pub new_args: Vec<Expr>,
+    pub initializer: Option<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
