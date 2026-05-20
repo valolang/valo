@@ -1,7 +1,8 @@
 use crate::runtime::{ArrayBound, Diagnostic, Span, Value};
 
 use super::records::{RuntimeEnum, RuntimeType};
-use super::values::{coerce_assignment, default_value};
+use super::values::{coerce_assignment, default_value, key};
+use super::{Frame, Interpreter};
 use std::collections::HashMap;
 
 pub(crate) fn read_array_element(
@@ -213,6 +214,106 @@ pub(crate) fn array_values(value: &Value, span: Span) -> Result<Vec<Value>, Diag
     };
     ensure_allocated(*allocated, span)?;
     Ok(elements.clone())
+}
+
+pub(crate) fn enumerable_values(
+    interpreter: &mut Interpreter,
+    value: Value,
+    frame: &mut Frame,
+    span: Span,
+) -> Result<Vec<Value>, Diagnostic> {
+    enumerable_values_with_depth(interpreter, value, frame, span, 0)
+}
+
+fn enumerable_values_with_depth(
+    interpreter: &mut Interpreter,
+    value: Value,
+    frame: &mut Frame,
+    span: Span,
+    depth: usize,
+) -> Result<Vec<Value>, Diagnostic> {
+    if depth > 16 {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "Enumerable object chain is too deep",
+            Some(span),
+        ));
+    }
+
+    if matches!(value, Value::Array { .. }) {
+        return array_values(&value, span);
+    }
+
+    let Value::Object(object) = value.clone() else {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "For Each requires an array, Variant array, or enumerable object",
+            Some(span),
+        ));
+    };
+    let class_name = object.borrow().class_name.clone();
+    let class = interpreter
+        .classes
+        .get(&key(&class_name))
+        .cloned()
+        .ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Class '{}' is not defined", class_name),
+                Some(span),
+            )
+        })?;
+
+    if let Some(iterator) = class.iterator {
+        let returned = interpreter.call_method_function_decl(value, iterator, frame, span)?;
+        return enumerable_values_with_depth(interpreter, returned, frame, span, depth + 1)
+            .map_err(|diagnostic| {
+                if diagnostic.message.contains("For Each requires") {
+                    Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        format!(
+                            "Iterator for Class '{}' did not return an enumerable value",
+                            class.name
+                        ),
+                        Some(span),
+                    )
+                } else {
+                    diagnostic
+                }
+            });
+    }
+
+    if let Some(member) = class.enumerator_member {
+        let returned = if class.functions.contains_key(&key(&member)) {
+            interpreter.call_method_function(value, &member, &[], frame, span)?
+        } else {
+            interpreter.call_property_get(value, &member, &[], frame, span)?
+        };
+        return enumerable_values_with_depth(interpreter, returned, frame, span, depth + 1)
+            .map_err(|diagnostic| {
+                if diagnostic.message.contains("For Each requires") {
+                    Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        format!(
+                            "VB_UserMemId = -4 enumerator '{}' for Class '{}' did not return an enumerable value",
+                            member, class.name
+                        ),
+                        Some(span),
+                    )
+                } else {
+                    diagnostic
+                }
+            });
+    }
+
+    Err(Diagnostic::new(
+        crate::runtime::DiagnosticCode::ARRAY,
+        format!(
+            "Class '{}' is not enumerable; define an Iterator or a VB_UserMemId = -4 _NewEnum member",
+            class.name
+        ),
+        Some(span),
+    ))
 }
 
 fn ensure_allocated(allocated: bool, span: Span) -> Result<(), Diagnostic> {

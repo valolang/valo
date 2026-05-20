@@ -143,6 +143,7 @@ pub(super) enum BlockEnd {
     ElseIf,
     EndIf,
     EndFunction,
+    EndIterator,
     EndProperty,
     EndConstructor,
     EndTerminate,

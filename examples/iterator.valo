@@ -1,0 +1,20 @@
+Class Words
+    Private values As Variant
+
+    Public Constructor()
+        values = Array("Valo", "is", "modern")
+    End Constructor
+
+    Public Iterator Items() As Variant
+        Return values
+    End Iterator
+End Class
+
+Sub Main()
+    Dim words As New Words
+    Dim item As Variant
+
+    For Each item In words
+        Console.WriteLine(item)
+    Next item
+End Sub

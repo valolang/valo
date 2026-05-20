@@ -71,7 +71,9 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             events: HashMap::new(),
             subs: HashMap::new(),
             functions: HashMap::new(),
+            iterator: None,
             properties: HashMap::new(),
+            enumerator: None,
             default_property: None,
         },
     );
@@ -175,6 +177,8 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         let mut functions = HashMap::new();
         let mut properties: HashMap<String, ClassPropertySig> = HashMap::new();
         let mut default_member: Option<String> = None;
+        let mut iterator: Option<ClassMethodSig> = None;
+        let mut enumerator_member: Option<String> = None;
         let mut constructor_span = None;
         let mut terminator_span = None;
         for member in &class_decl.members {
@@ -285,6 +289,19 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 }
                 ClassMember::Function(method) => {
                     let method_key = key(&method.function.name);
+                    if method.is_enumerator {
+                        if enumerator_member.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                                format!(
+                                    "Class '{}' has multiple VB_UserMemId = -4 enumerator members",
+                                    class_decl.name
+                                ),
+                                Some(method.function.span),
+                            ));
+                        }
+                        enumerator_member = Some(method.function.name.clone());
+                    }
                     if subs.contains_key(&method_key)
                         || events.contains_key(&method_key)
                         || functions.contains_key(&method_key)
@@ -309,8 +326,62 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         },
                     );
                 }
+                ClassMember::Iterator(method) => {
+                    let method_key = key(&method.function.name);
+                    if iterator.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!("Class '{}' has multiple Iterator members", class_decl.name),
+                            Some(method.function.span),
+                        ));
+                    }
+                    if subs.contains_key(&method_key)
+                        || events.contains_key(&method_key)
+                        || functions.contains_key(&method_key)
+                        || properties.contains_key(&method_key)
+                        || fields.contains_key(&method_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
+                                "Iterator '{}' conflicts with another member in Class '{}'",
+                                method.function.name, class_decl.name
+                            ),
+                            Some(method.function.span),
+                        ));
+                    }
+                    iterator = Some(ClassMethodSig {
+                        visibility: method.visibility,
+                        name: method.function.name.clone(),
+                        params: params_to_sigs(&method.function.params),
+                        return_type: Some(method.function.return_type.clone()),
+                    });
+                }
                 ClassMember::Property(property) => {
                     let property_key = key(&property.name);
+                    if property.is_enumerator {
+                        if property.kind != PropertyKind::Get {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!(
+                                    "Only Property Get can be marked as VB_UserMemId = -4 in Class '{}'",
+                                    class_decl.name
+                                ),
+                                Some(property.span),
+                            ));
+                        }
+                        if enumerator_member.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                                format!(
+                                    "Class '{}' has multiple VB_UserMemId = -4 enumerator members",
+                                    class_decl.name
+                                ),
+                                Some(property.span),
+                            ));
+                        }
+                        enumerator_member = Some(property.name.clone());
+                    }
                     if property.is_default {
                         if property.kind != PropertyKind::Get {
                             return Err(Diagnostic::new(
@@ -385,7 +456,9 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 events,
                 subs,
                 functions,
+                iterator,
                 properties,
+                enumerator: enumerator_member,
                 default_property: default_member,
             },
         );
@@ -416,6 +489,16 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     }
                 }
                 ClassMember::Function(method) => {
+                    ensure_known_type(
+                        &method.function.return_type,
+                        &registry,
+                        method.function.span,
+                    )?;
+                    for param in &method.function.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                }
+                ClassMember::Iterator(method) => {
                     ensure_known_type(
                         &method.function.return_type,
                         &registry,

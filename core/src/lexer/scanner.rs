@@ -85,6 +85,7 @@ impl<'a> Lexer<'a> {
         let kind = match lower.as_str() {
             "sub" => TokenKind::Sub,
             "function" => TokenKind::Function,
+            "iterator" => TokenKind::Iterator,
             "import" => TokenKind::Import,
             "const" => TokenKind::Const,
             "option" => TokenKind::Option,

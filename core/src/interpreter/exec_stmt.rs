@@ -372,7 +372,7 @@ impl Interpreter {
                 ..
             } => {
                 let iterable = self.eval_expr(iterable, frame)?;
-                let values = super::arrays::array_values(&iterable, *span)?;
+                let values = super::arrays::enumerable_values(self, iterable, frame, *span)?;
                 for value in values {
                     let old = frame.assign(variable, value, *span)?;
                     self.maybe_terminate(old, *span)?;

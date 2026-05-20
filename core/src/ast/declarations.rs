@@ -103,6 +103,7 @@ pub enum ClassMember {
     Event(ClassEvent),
     Sub(ClassSub),
     Function(ClassFunction),
+    Iterator(ClassIterator),
     Property(ClassProperty),
 }
 
@@ -133,6 +134,13 @@ pub struct ClassSub {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassFunction {
     pub visibility: Visibility,
+    pub is_enumerator: bool,
+    pub function: Function,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassIterator {
+    pub visibility: Visibility,
     pub function: Function,
 }
 
@@ -140,6 +148,7 @@ pub struct ClassFunction {
 pub struct ClassProperty {
     pub visibility: Visibility,
     pub is_default: bool,
+    pub is_enumerator: bool,
     pub name: String,
     pub kind: PropertyKind,
     pub params: Vec<Parameter>,

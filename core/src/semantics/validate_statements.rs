@@ -411,7 +411,8 @@ pub(super) fn validate_statements(
                         Some(*span),
                     ));
                 };
-                let array_type = validate_array_expr(iterable, symbols, types, signatures)?;
+                let array_type =
+                    validate_for_each_iterable_expr(iterable, symbols, types, signatures)?;
                 ensure_assignable(&loop_type, &array_type, *span)?;
                 if let Some((next_variable, next_span)) = next_variable
                     && !next_variable.eq_ignore_ascii_case(variable)
@@ -851,6 +852,48 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
         }
         Stmt::With { target, .. } => expr_uses_with_target(target),
         Stmt::Dim { .. } | Stmt::Static { .. } | Stmt::Exit { .. } => false,
+    }
+}
+
+fn validate_for_each_iterable_expr(
+    expr: &Expr,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+) -> Result<TypeName, Diagnostic> {
+    if let Ok(element_type) = validate_array_expr(expr, symbols, types, signatures) {
+        return Ok(element_type);
+    }
+
+    let iterable_type = validate_expr(expr, symbols, types, signatures)?;
+    match iterable_type {
+        TypeName::Variant => Ok(TypeName::Variant),
+        TypeName::User(class_name) => {
+            let Some(class_sig) = types.get_class(&class_name) else {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    format!("For Each target '{}' is not enumerable", class_name),
+                    Some(expr.span),
+                ));
+            };
+            if class_sig.iterator.is_some() || class_sig.enumerator.is_some() {
+                Ok(TypeName::Variant)
+            } else {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    format!(
+                        "Class '{}' is not enumerable; define an Iterator or a VB_UserMemId = -4 _NewEnum member",
+                        class_sig.name
+                    ),
+                    Some(expr.span),
+                ))
+            }
+        }
+        _ => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARRAY,
+            "For Each requires an array, Variant array, or enumerable object",
+            Some(expr.span),
+        )),
     }
 }
 

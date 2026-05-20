@@ -64,6 +64,40 @@ pub(super) fn validate_class(
                     ));
                 }
             }
+            ClassMember::Iterator(method) => {
+                let mut symbols = HashMap::new();
+                add_module_symbols(module_symbols, &mut symbols);
+                symbols.insert(
+                    "me".to_string(),
+                    VarType::Scalar(TypeName::User(class_decl.name.clone())),
+                );
+                add_parameters(&method.function.params, &mut symbols)?;
+                symbols.insert(
+                    key(&method.function.name),
+                    VarType::Scalar(method.function.return_type.clone()),
+                );
+                let mut saw_return = assigns_to_name(&method.function.body, &method.function.name);
+                validate_statements(
+                    &method.function.body,
+                    &mut symbols,
+                    types,
+                    signatures,
+                    Context::MethodFunction {
+                        class_name: class_decl.name.clone(),
+                        return_type: method.function.return_type.clone(),
+                        saw_return: &mut saw_return,
+                    },
+                    LoopContext::default(),
+                    false,
+                )?;
+                if !saw_return {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        format!("Iterator '{}' must return a value", method.function.name),
+                        Some(method.function.span),
+                    ));
+                }
+            }
             ClassMember::Property(property) => {
                 let mut symbols = HashMap::new();
                 add_module_symbols(module_symbols, &mut symbols);

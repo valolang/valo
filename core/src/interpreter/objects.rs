@@ -491,7 +491,9 @@ pub(crate) struct RuntimeClass {
     pub(crate) events: HashMap<String, RuntimeEvent>,
     pub(crate) subs: HashMap<String, Procedure>,
     pub(crate) functions: HashMap<String, Function>,
+    pub(crate) iterator: Option<Function>,
     pub(crate) properties: HashMap<String, RuntimeProperty>,
+    pub(crate) enumerator_member: Option<String>,
     pub(crate) default_member: Option<String>,
 }
 
@@ -501,7 +503,9 @@ impl From<&crate::ClassDecl> for RuntimeClass {
         let mut events = HashMap::new();
         let mut subs = HashMap::new();
         let mut functions = HashMap::new();
+        let mut iterator = None;
         let mut properties = HashMap::new();
+        let mut enumerator_member = None;
         let mut default_member = None;
         for member in &value.members {
             match member {
@@ -523,11 +527,20 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                     subs.insert(key(&method.procedure.name), method.procedure.clone());
                 }
                 ClassMember::Function(method) => {
+                    if method.is_enumerator {
+                        enumerator_member = Some(method.function.name.clone());
+                    }
                     functions.insert(key(&method.function.name), method.function.clone());
+                }
+                ClassMember::Iterator(method) => {
+                    iterator = Some(method.function.clone());
                 }
                 ClassMember::Property(property) => {
                     if property.is_default {
                         default_member = Some(property.name.clone());
+                    }
+                    if property.is_enumerator {
+                        enumerator_member = Some(property.name.clone());
                     }
                     let property_entry =
                         properties
@@ -552,7 +565,9 @@ impl From<&crate::ClassDecl> for RuntimeClass {
             events,
             subs,
             functions,
+            iterator,
             properties,
+            enumerator_member,
             default_member,
         }
     }

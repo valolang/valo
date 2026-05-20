@@ -15,6 +15,16 @@ impl Parser {
         let value_token = self.advance();
         let value = match value_token.kind {
             TokenKind::Integer(value) => value.to_string(),
+            TokenKind::Minus => {
+                let integer = self.expect_simple(
+                    TokenKind::Integer(0),
+                    "Expected integer literal after '-' in Attribute value",
+                )?;
+                let TokenKind::Integer(value) = integer.kind else {
+                    unreachable!();
+                };
+                format!("-{value}")
+            }
             TokenKind::String(value) | TokenKind::Identifier(value) => value,
             TokenKind::True => "True".to_string(),
             TokenKind::False => "False".to_string(),
@@ -138,9 +148,12 @@ impl Parser {
                     )?,
                 }))
             }
-            TokenKind::Function => Ok(ClassMember::Function(ClassFunction {
+            TokenKind::Function => Ok(ClassMember::Function(
+                self.parse_class_function(visibility)?,
+            )),
+            TokenKind::Iterator => Ok(ClassMember::Iterator(ClassIterator {
                 visibility,
-                function: self.parse_function(visibility)?,
+                function: self.parse_iterator(visibility)?,
             })),
             TokenKind::Property => Ok(ClassMember::Property(
                 self.parse_property(visibility, is_default)?,
@@ -250,6 +263,8 @@ impl Parser {
         let start = self
             .expect_simple(TokenKind::Property, "Expected 'Property'")?
             .span;
+        let mut is_default = is_default;
+        let mut is_enumerator = false;
         let kind = if self.match_simple(&TokenKind::Get) {
             PropertyKind::Get
         } else if self.match_simple(&TokenKind::Let) {
@@ -273,6 +288,20 @@ impl Parser {
             None
         };
         self.expect_newline("Expected newline after property declaration")?;
+        while matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
+        {
+            let attribute = self.parse_attribute_decl()?;
+            if attribute.target.eq_ignore_ascii_case(&name)
+                && attribute.name.eq_ignore_ascii_case("VB_UserMemId")
+            {
+                if attribute.value == "0" {
+                    is_default = true;
+                } else if attribute.value == "-4" {
+                    is_enumerator = true;
+                }
+            }
+            self.skip_newlines();
+        }
 
         let body = self.parse_block_until(&[BlockEnd::EndProperty])?;
         self.expect_simple(TokenKind::End, "Expected 'End Property'")?;
@@ -284,6 +313,7 @@ impl Parser {
         Ok(ClassProperty {
             visibility,
             is_default,
+            is_enumerator,
             name,
             kind,
             params,
@@ -603,6 +633,90 @@ impl Parser {
         })
     }
 
+    fn parse_class_function(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<ClassFunction, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Function, "Expected 'Function'")?
+            .span;
+        let name = self.expect_identifier("Expected function name after 'Function'")?;
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' after function name")?;
+        let params = self.parse_parameters()?;
+        self.expect_simple(
+            TokenKind::RightParen,
+            "Expected ')' after function parameters",
+        )?;
+        self.expect_simple(TokenKind::As, "Expected 'As' before function return type")?;
+        let return_type = self.parse_type_name()?;
+        self.expect_newline("Expected newline after function declaration")?;
+
+        let mut is_enumerator = false;
+        while matches!(self.peek_kind(), TokenKind::Identifier(attribute) if attribute.eq_ignore_ascii_case("Attribute"))
+        {
+            let attribute = self.parse_attribute_decl()?;
+            if attribute.target.eq_ignore_ascii_case(&name)
+                && attribute.name.eq_ignore_ascii_case("VB_UserMemId")
+                && attribute.value == "-4"
+            {
+                is_enumerator = true;
+            }
+            self.skip_newlines();
+        }
+
+        let body = self.parse_block_until(&[BlockEnd::EndFunction])?;
+        self.expect_simple(TokenKind::End, "Expected 'End Function'")?;
+        let end = self
+            .expect_simple(TokenKind::Function, "Expected 'Function' after 'End'")?
+            .span;
+        self.consume_statement_end();
+
+        Ok(ClassFunction {
+            visibility,
+            is_enumerator,
+            function: Function {
+                visibility,
+                name,
+                params,
+                return_type,
+                body,
+                span: Span::new(start.start, end.end),
+            },
+        })
+    }
+
+    fn parse_iterator(&mut self, visibility: Visibility) -> Result<Function, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Iterator, "Expected 'Iterator'")?
+            .span;
+        let name = self.expect_identifier("Expected iterator name after 'Iterator'")?;
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' after iterator name")?;
+        let params = self.parse_parameters()?;
+        self.expect_simple(
+            TokenKind::RightParen,
+            "Expected ')' after iterator parameters",
+        )?;
+        self.expect_simple(TokenKind::As, "Expected 'As' before iterator return type")?;
+        let return_type = self.parse_type_name()?;
+        self.expect_newline("Expected newline after iterator declaration")?;
+
+        let body = self.parse_block_until(&[BlockEnd::EndIterator])?;
+        self.expect_simple(TokenKind::End, "Expected 'End Iterator'")?;
+        let end = self
+            .expect_simple(TokenKind::Iterator, "Expected 'Iterator' after 'End'")?
+            .span;
+        self.consume_statement_end();
+
+        Ok(Function {
+            visibility,
+            name,
+            params,
+            return_type,
+            body,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
     pub(super) fn parse_parameters(&mut self) -> Result<Vec<Parameter>, Diagnostic> {
         let mut params = Vec::new();
         if self.check_simple(&TokenKind::RightParen) {
@@ -737,16 +851,34 @@ impl Parser {
         attribute: &AttributeDecl,
         members: &mut [ClassMember],
     ) {
-        if !attribute.name.eq_ignore_ascii_case("VB_UserMemId") || attribute.value != "0" {
+        if !attribute.name.eq_ignore_ascii_case("VB_UserMemId") {
+            return;
+        }
+        let is_default_member = attribute.value == "0";
+        let is_enumerator = attribute.value == "-4";
+        if !is_default_member && !is_enumerator {
             return;
         }
         let member_name = attribute.target.as_str();
         for member in members.iter_mut().rev() {
             match member {
                 ClassMember::Property(property)
-                    if property.name.eq_ignore_ascii_case(member_name) =>
+                    if property.name.eq_ignore_ascii_case(member_name) && is_default_member =>
                 {
                     property.is_default = true;
+                    return;
+                }
+                ClassMember::Property(property)
+                    if property.name.eq_ignore_ascii_case(member_name) && is_enumerator =>
+                {
+                    property.is_enumerator = true;
+                    return;
+                }
+                ClassMember::Function(function)
+                    if function.function.name.eq_ignore_ascii_case(member_name)
+                        && is_enumerator =>
+                {
+                    function.is_enumerator = true;
                     return;
                 }
                 _ => {}

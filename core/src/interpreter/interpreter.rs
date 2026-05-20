@@ -181,7 +181,9 @@ impl Interpreter {
                 events: HashMap::new(),
                 subs: HashMap::new(),
                 functions: HashMap::new(),
+                iterator: None,
                 properties: HashMap::new(),
+                enumerator_member: None,
                 default_member: None,
             },
         );

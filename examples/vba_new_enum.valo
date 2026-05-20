@@ -1,0 +1,21 @@
+Class Words
+    Private values As Variant
+
+    Public Constructor()
+        values = Array("VBA", "_NewEnum", "works")
+    End Constructor
+
+    Public Property Get _NewEnum() As Variant
+    Attribute _NewEnum.VB_UserMemId = -4
+        _NewEnum = values
+    End Property
+End Class
+
+Sub Main()
+    Dim words As New Words
+    Dim item As Variant
+
+    For Each item In words
+        Console.WriteLine(item)
+    Next item
+End Sub

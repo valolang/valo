@@ -14,6 +14,7 @@ pub enum TokenKind {
     Float(String),
     Sub,
     Function,
+    Iterator,
     Import,
     Const,
     Option,
