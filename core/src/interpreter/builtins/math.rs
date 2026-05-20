@@ -15,14 +15,33 @@ pub(crate) fn eval_math(
 ) -> Result<Option<Value>, Diagnostic> {
     if name.eq_ignore_ascii_case("Sgn") {
         super::expect_arg_count(name, args, 1, span)?;
-        let value =
-            interpreter.eval_integer_expr(&args[0], frame, "Sgn argument must be Integer")?;
-        return Ok(Some(Value::Integer(value.signum())));
+        let value = interpreter.eval_expr(&args[0], frame)?;
+        let num = super::super::values::value_to_f64(&value).ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Sgn requires a numeric argument",
+                Some(span),
+            )
+        })?;
+        return Ok(Some(Value::Int16(if num > 0.0 {
+            1
+        } else if num < 0.0 {
+            -1
+        } else {
+            0
+        })));
     }
     if name.eq_ignore_ascii_case("Int") {
         super::expect_arg_count(name, args, 1, span)?;
-        let value = interpreter.eval_integer_expr(&args[0], frame, "Int argument must be Integer")?;
-        return Ok(Some(Value::Integer(value)));
+        let value = interpreter.eval_expr(&args[0], frame)?;
+        let num = super::super::values::value_to_f64(&value).ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Int requires a numeric argument",
+                Some(span),
+            )
+        })?;
+        return Ok(Some(Value::Int64(num.floor() as i64)));
     }
     if name.eq_ignore_ascii_case("Randomize") {
         if args.len() > 1 {

@@ -15,9 +15,9 @@ pub(crate) fn eval_binary(
     span: Span,
 ) -> Result<Value, Diagnostic> {
     match op {
-        BinaryOp::Add => math_binary(left, right, span, |a, b| a + b, |a, b| a + b),
-        BinaryOp::Subtract => math_binary(left, right, span, |a, b| a - b, |a, b| a - b),
-        BinaryOp::Multiply => math_binary(left, right, span, |a, b| a * b, |a, b| a * b),
+        BinaryOp::Add => math_binary(left, right, span, |a, b| a.wrapping_add(b), |a, b| a + b),
+        BinaryOp::Subtract => math_binary(left, right, span, |a, b| a.wrapping_sub(b), |a, b| a - b),
+        BinaryOp::Multiply => math_binary(left, right, span, |a, b| a.wrapping_mul(b), |a, b| a * b),
         BinaryOp::Divide => {
             let (a, b) = expect_numbers(left, right, span)?;
             if b == 0.0 {
@@ -38,7 +38,7 @@ pub(crate) fn eval_binary(
                     Some(span),
                 ));
             }
-            Ok(Value::Integer(a / b))
+            Ok(Value::Int64(a / b))
         }
         BinaryOp::Modulo => {
             let (a, b) = expect_integers(left, right, span)?;
@@ -49,7 +49,7 @@ pub(crate) fn eval_binary(
                     Some(span),
                 ));
             }
-            Ok(Value::Integer(a % b))
+            Ok(Value::Int64(a % b))
         }
         BinaryOp::Concat => Ok(Value::String(format!(
             "{}{}",
@@ -177,44 +177,111 @@ fn math_binary(
     int_op: impl FnOnce(i64, i64) -> i64,
     double_op: impl FnOnce(f64, f64) -> f64,
 ) -> Result<Value, Diagnostic> {
-    match (left, right) {
-        (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(int_op(a, b))),
-        (Value::Double(a), Value::Double(b)) => Ok(Value::Double(double_op(a, b))),
-        (Value::Integer(a), Value::Double(b)) => Ok(Value::Double(double_op(a as f64, b))),
-        (Value::Double(a), Value::Integer(b)) => Ok(Value::Double(double_op(a, b as f64))),
-        _ => Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::GENERIC,
-            "Arithmetic operators require numeric operands",
-            Some(span),
-        )),
+    if is_float_promotion(&left) || is_float_promotion(&right) {
+        let (a, b) = expect_numbers(left, right, span)?;
+        Ok(Value::Double(double_op(a, b)))
+    } else {
+        let (a, b) = expect_integers(left, right, span)?;
+        Ok(Value::Int64(int_op(a, b)))
     }
+}
+
+fn is_float_promotion(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Double(_)
+            | Value::Single(_)
+            | Value::Date(_)
+            | Value::Currency(_)
+            | Value::Decimal(_)
+    )
 }
 
 fn expect_integers(left: Value, right: Value, span: Span) -> Result<(i64, i64), Diagnostic> {
-    match (left, right) {
-        (Value::Integer(a), Value::Integer(b)) => Ok((a, b)),
-        (Value::Double(a), Value::Double(b)) => Ok((a as i64, b as i64)),
-        (Value::Integer(a), Value::Double(b)) => Ok((a, b as i64)),
-        (Value::Double(a), Value::Integer(b)) => Ok((a as i64, b)),
-        _ => Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::GENERIC,
-            "Operation requires Integer operands",
+    let a = value_to_i64(&left).ok_or_else(|| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
+                "Operation requires integer operand, found {}",
+                left.type_name().display_name()
+            ),
             Some(span),
-        )),
-    }
+        )
+    })?;
+    let b = value_to_i64(&right).ok_or_else(|| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
+                "Operation requires integer operand, found {}",
+                right.type_name().display_name()
+            ),
+            Some(span),
+        )
+    })?;
+    Ok((a, b))
 }
 
 fn expect_numbers(left: Value, right: Value, span: Span) -> Result<(f64, f64), Diagnostic> {
-    match (left, right) {
-        (Value::Integer(a), Value::Integer(b)) => Ok((a as f64, b as f64)),
-        (Value::Double(a), Value::Double(b)) => Ok((a, b)),
-        (Value::Integer(a), Value::Double(b)) => Ok((a as f64, b)),
-        (Value::Double(a), Value::Integer(b)) => Ok((a, b as f64)),
-        _ => Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::GENERIC,
-            "Operation requires numeric operands",
+    let a = value_to_f64(&left).ok_or_else(|| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
+                "Operation requires numeric operand, found {}",
+                left.type_name().display_name()
+            ),
             Some(span),
-        )),
+        )
+    })?;
+    let b = value_to_f64(&right).ok_or_else(|| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
+                "Operation requires numeric operand, found {}",
+                right.type_name().display_name()
+            ),
+            Some(span),
+        )
+    })?;
+    Ok((a, b))
+}
+
+pub(crate) fn value_to_i64(v: &Value) -> Option<i64> {
+    match v {
+        Value::Byte(n) => Some(*n as i64),
+        Value::Int16(n) => Some(*n as i64),
+        Value::Int32(n) => Some(*n as i64),
+        Value::Int64(n) => Some(*n),
+        Value::UInt32(n) => Some(*n as i64),
+        Value::UInt64(n) => Some(*n as i64),
+        Value::Single(n) => Some(*n as i64),
+        Value::Double(n) => Some(*n as i64),
+        Value::Currency(n) => Some(*n / 10000),
+        Value::Decimal(n) => Some(*n as i64),
+        Value::Boolean(b) => Some(if *b { -1 } else { 0 }),
+        Value::Date(n) => Some(*n as i64),
+        Value::Ptr(n) => Some(*n as i64),
+        Value::FuncPtr(n) => Some(*n as i64),
+        _ => None,
+    }
+}
+
+pub(crate) fn value_to_f64(v: &Value) -> Option<f64> {
+    match v {
+        Value::Byte(n) => Some(*n as f64),
+        Value::Int16(n) => Some(*n as f64),
+        Value::Int32(n) => Some(*n as f64),
+        Value::Int64(n) => Some(*n as f64),
+        Value::UInt32(n) => Some(*n as f64),
+        Value::UInt64(n) => Some(*n as f64),
+        Value::Single(n) => Some(*n as f64),
+        Value::Double(n) => Some(*n),
+        Value::Currency(n) => Some(*n as f64 / 10000.0),
+        Value::Decimal(n) => Some(*n as f64),
+        Value::Boolean(b) => Some(if *b { -1.0 } else { 0.0 }),
+        Value::Date(n) => Some(*n),
+        Value::Ptr(n) => Some(*n as f64),
+        Value::FuncPtr(n) => Some(*n as f64),
+        _ => None,
     }
 }
 
@@ -227,12 +294,17 @@ fn logical_or_bitwise(
 ) -> Result<Value, Diagnostic> {
     match (left, right) {
         (Value::Boolean(a), Value::Boolean(b)) => Ok(Value::Boolean(bool_op(a, b))),
-        (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(int_op(a, b))),
-        _ => Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::GENERIC,
-            "Logical operators require Boolean or Integer operands",
-            Some(span),
-        )),
+        (l, r) => {
+            if let (Some(a), Some(b)) = (value_to_i64(&l), value_to_i64(&r)) {
+                Ok(Value::Int64(int_op(a, b)))
+            } else {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "Logical operators require Boolean or Integer operands",
+                    Some(span),
+                ))
+            }
+        }
     }
 }
 
@@ -244,10 +316,6 @@ fn compare_values(
     predicate: impl FnOnce(std::cmp::Ordering) -> bool,
 ) -> Result<Value, Diagnostic> {
     let ordering = match (left, right) {
-        (Value::Integer(a), Value::Integer(b)) => a.cmp(&b),
-        (Value::Double(a), Value::Double(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
-        (Value::Integer(a), Value::Double(b)) => (a as f64).partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
-        (Value::Double(a), Value::Integer(b)) => a.partial_cmp(&(b as f64)).unwrap_or(std::cmp::Ordering::Equal),
         (Value::String(a), Value::String(b)) => {
             if compare == OptionCompare::Text {
                 a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
@@ -255,12 +323,16 @@ fn compare_values(
                 a.cmp(&b)
             }
         }
-        _ => {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "Comparison requires matching numeric or String operands",
-                Some(span),
-            ));
+        (l, r) => {
+            if let (Some(a), Some(b)) = (value_to_f64(&l), value_to_f64(&r)) {
+                a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Comparison requires matching numeric or String operands",
+                    Some(span),
+                ));
+            }
         }
     };
 
@@ -276,14 +348,16 @@ pub(crate) fn values_equal(left: &Value, right: &Value, compare: OptionCompare) 
                 a == b
             }
         }
-        (Value::Integer(a), Value::Integer(b)) => a == b,
-        (Value::Double(a), Value::Double(b)) => a == b,
-        (Value::Integer(a), Value::Double(b)) => (*a as f64) == *b,
-        (Value::Double(a), Value::Integer(b)) => *a == (*b as f64),
         (Value::Boolean(a), Value::Boolean(b)) => a == b,
         (Value::Empty, Value::Empty) => true,
         (Value::Null, Value::Null) => true,
-        _ => false,
+        (l, r) => {
+            if let (Some(a), Some(b)) = (value_to_f64(l), value_to_f64(r)) {
+                a == b
+            } else {
+                false
+            }
+        }
     }
 }
 
@@ -312,7 +386,7 @@ pub(crate) fn default_value(
         return Ok(Value::Nothing);
     }
     if enums.contains_key(&key(name)) {
-        return Ok(Value::Integer(0));
+        return Ok(Value::Int64(0));
     }
     let type_def = types.get(&key(name)).ok_or_else(|| {
         Diagnostic::new(
@@ -338,6 +412,7 @@ pub(crate) fn default_value(
         fields,
     })
 }
+
 pub(crate) fn coerce_assignment(
     ty: &TypeName,
     value: Value,
@@ -358,34 +433,144 @@ pub(crate) fn coerce_assignment(
     {
         return Ok(value);
     }
-    if matches!(ty, TypeName::User(_)) && matches!(value, Value::Integer(_)) {
+
+    if matches!(ty, TypeName::User(_)) && is_integer_type(&value) {
         return Ok(value);
     }
-    if ty.same_type(&TypeName::Variant) || ty.same_type(&value.type_name()) {
-        Ok(value)
-    } else if ty.same_type(&TypeName::Double) && value.type_name().same_type(&TypeName::Integer) {
-        let Value::Integer(v) = value else { unreachable!() };
-        Ok(Value::Double(v as f64))
-    } else if ty.same_type(&TypeName::Integer) && value.type_name().same_type(&TypeName::Double) {
-        let Value::Double(v) = value else { unreachable!() };
-        Ok(Value::Integer(v as i64))
-    } else {
-        Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-            format!(
-                "Cannot assign {} value to {} variable",
-                value.type_name().display_name(),
-                ty.display_name()
-            ),
-            Some(span),
-        )
-        .with_primary_label(format!(
-            "expected {}, found {}",
-            ty.display_name(),
-            value.type_name().display_name()
-        ))
-        .with_help("change the variable type or assign a value with the expected type"))
+
+    if ty.same_type(&TypeName::Variant) {
+        return Ok(value);
     }
+
+    if ty.same_type(&value.type_name()) {
+        return Ok(value);
+    }
+
+    match ty {
+        TypeName::Byte => {
+            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            if !(0..=255).contains(&v) {
+                return Err(overflow_err(span));
+            }
+            Ok(Value::Byte(v as u8))
+        }
+        TypeName::Integer => {
+            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            if !(i16::MIN as i64..=i16::MAX as i64).contains(&v) {
+                return Err(overflow_err(span));
+            }
+            Ok(Value::Int16(v as i16))
+        }
+        TypeName::Long => {
+            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            if !(i32::MIN as i64..=i32::MAX as i64).contains(&v) {
+                return Err(overflow_err(span));
+            }
+            Ok(Value::Int32(v as i32))
+        }
+        TypeName::Int64 => {
+            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            Ok(Value::Int64(v))
+        }
+        TypeName::UInt32 => {
+            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            if !(0..=u32::MAX as i64).contains(&v) {
+                return Err(overflow_err(span));
+            }
+            Ok(Value::UInt32(v as u32))
+        }
+        TypeName::UInt64 => {
+            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            if v < 0 {
+                return Err(overflow_err(span));
+            }
+            Ok(Value::UInt64(v as u64))
+        }
+        TypeName::Single => {
+            let v = value_to_f64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            Ok(Value::Single(v as f32))
+        }
+        TypeName::Double => {
+            let v = value_to_f64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            Ok(Value::Double(v))
+        }
+        TypeName::Currency => {
+            if is_really_float(&value) {
+                let v = value_to_f64(&value).unwrap();
+                Ok(Value::Currency((v * 10000.0) as i64))
+            } else {
+                let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+                Ok(Value::Currency(
+                    v.checked_mul(10000).ok_or_else(|| overflow_err(span))?,
+                ))
+            }
+        }
+        TypeName::Decimal => {
+            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            Ok(Value::Decimal(v as i128))
+        }
+        TypeName::Boolean => Ok(Value::Boolean(value.is_truthy())),
+        TypeName::Date => {
+            let v = value_to_f64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            Ok(Value::Date(v))
+        }
+        TypeName::String => Ok(Value::String(value.to_output_string())),
+        TypeName::Ptr => {
+            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            Ok(Value::Ptr(v as usize))
+        }
+        TypeName::FuncPtr => {
+            let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
+            Ok(Value::FuncPtr(v as usize))
+        }
+        _ => {
+            if ty.same_type(&value.type_name()) {
+                Ok(value)
+            } else {
+                Err(type_mismatch_err(ty, &value, span))
+            }
+        }
+    }
+}
+
+fn is_really_float(v: &Value) -> bool {
+    matches!(v, Value::Double(_) | Value::Single(_) | Value::Date(_))
+}
+
+fn is_integer_type(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Byte(_)
+            | Value::Int16(_)
+            | Value::Int32(_)
+            | Value::Int64(_)
+            | Value::UInt32(_)
+            | Value::UInt64(_)
+            | Value::Ptr(_)
+            | Value::FuncPtr(_)
+    )
+}
+
+fn type_mismatch_err(ty: &TypeName, value: &Value, span: Span) -> Diagnostic {
+    Diagnostic::new(
+        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+        format!(
+            "Cannot assign {} value to {} variable",
+            value.type_name().display_name(),
+            ty.display_name()
+        ),
+        Some(span),
+    )
+    .with_primary_label(format!(
+        "expected {}, found {}",
+        ty.display_name(),
+        value.type_name().display_name()
+    ))
+    .with_help("change the variable type or assign a value with the expected type")
+}
+
+fn overflow_err(span: Span) -> Diagnostic {
+    Diagnostic::new(crate::runtime::DiagnosticCode::RUNTIME, "Overflow", Some(span))
 }
 
 pub(crate) fn key(name: &str) -> String {

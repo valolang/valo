@@ -412,7 +412,12 @@ impl Frame {
         match &expr.kind {
             ExprKind::Integer(value) => Ok(*value),
             ExprKind::Variable(name) => match self.get(name, expr.span)? {
-                Value::Integer(value) => Ok(value),
+                Value::Byte(v) => Ok(v as i64),
+                Value::Int16(v) => Ok(v as i64),
+                Value::Int32(v) => Ok(v as i64),
+                Value::Int64(v) => Ok(v),
+                Value::UInt32(v) => Ok(v as i64),
+                Value::UInt64(v) => Ok(v as i64),
                 _ => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::ARRAY,
                     "Array index must be Integer",

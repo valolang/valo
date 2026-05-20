@@ -619,11 +619,41 @@ impl Parser {
             TokenKind::BooleanType => Ok(TypeName::Boolean),
             TokenKind::VariantType => Ok(TypeName::Variant),
             TokenKind::Identifier(mut name) => {
+                if name.eq_ignore_ascii_case("Byte") {
+                    return Ok(TypeName::Byte);
+                }
                 if name.eq_ignore_ascii_case("Long") {
-                    return Ok(TypeName::Integer);
+                    return Ok(TypeName::Long);
+                }
+                if name.eq_ignore_ascii_case("Int64") {
+                    return Ok(TypeName::Int64);
+                }
+                if name.eq_ignore_ascii_case("UInt32") {
+                    return Ok(TypeName::UInt32);
+                }
+                if name.eq_ignore_ascii_case("UInt64") {
+                    return Ok(TypeName::UInt64);
+                }
+                if name.eq_ignore_ascii_case("Single") {
+                    return Ok(TypeName::Single);
                 }
                 if name.eq_ignore_ascii_case("Double") {
                     return Ok(TypeName::Double);
+                }
+                if name.eq_ignore_ascii_case("Currency") {
+                    return Ok(TypeName::Currency);
+                }
+                if name.eq_ignore_ascii_case("Decimal") {
+                    return Ok(TypeName::Decimal);
+                }
+                if name.eq_ignore_ascii_case("Date") {
+                    return Ok(TypeName::Date);
+                }
+                if name.eq_ignore_ascii_case("Ptr") {
+                    return Ok(TypeName::Ptr);
+                }
+                if name.eq_ignore_ascii_case("FuncPtr") {
+                    return Ok(TypeName::FuncPtr);
                 }
                 if name.eq_ignore_ascii_case("Object") {
                     return Ok(TypeName::User("Object".to_string()));

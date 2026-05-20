@@ -11,6 +11,7 @@ pub enum TokenKind {
     Identifier(String),
     String(String),
     Integer(i64),
+    Float(String),
     Sub,
     Function,
     Import,

@@ -6,9 +6,20 @@ use crate::runtime::ArrayBound;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     String(String),
-    Integer(i64),
+    Byte(u8),
+    Int16(i16),
+    Int32(i32),
+    Int64(i64),
+    UInt32(u32),
+    UInt64(u64),
+    Single(f32),
     Double(f64),
+    Currency(i64), // Fixed-point: 4 decimal places
+    Decimal(i128),
     Boolean(bool),
+    Date(f64), // VBA serial date
+    Ptr(usize),
+    FuncPtr(usize),
     Array {
         element_type: TypeName,
         elements: Vec<Value>,
@@ -55,9 +66,20 @@ impl Value {
     pub fn type_name(&self) -> TypeName {
         match self {
             Value::String(_) => TypeName::String,
-            Value::Integer(_) => TypeName::Integer,
+            Value::Byte(_) => TypeName::Byte,
+            Value::Int16(_) => TypeName::Integer,
+            Value::Int32(_) => TypeName::Long,
+            Value::Int64(_) => TypeName::Int64,
+            Value::UInt32(_) => TypeName::UInt32,
+            Value::UInt64(_) => TypeName::UInt64,
+            Value::Single(_) => TypeName::Single,
             Value::Double(_) => TypeName::Double,
+            Value::Currency(_) => TypeName::Currency,
+            Value::Decimal(_) => TypeName::Decimal,
             Value::Boolean(_) => TypeName::Boolean,
+            Value::Date(_) => TypeName::Date,
+            Value::Ptr(_) => TypeName::Ptr,
+            Value::FuncPtr(_) => TypeName::FuncPtr,
             Value::Array { .. } => TypeName::Variant,
             Value::Record { type_name, .. } => TypeName::User(type_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
@@ -69,8 +91,19 @@ impl Value {
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Boolean(value) => *value,
-            Value::Integer(value) => *value != 0,
+            Value::Byte(value) => *value != 0,
+            Value::Int16(value) => *value != 0,
+            Value::Int32(value) => *value != 0,
+            Value::Int64(value) => *value != 0,
+            Value::UInt32(value) => *value != 0,
+            Value::UInt64(value) => *value != 0,
+            Value::Single(value) => *value != 0.0,
             Value::Double(value) => *value != 0.0,
+            Value::Currency(value) => *value != 0,
+            Value::Decimal(value) => *value != 0,
+            Value::Date(value) => *value != 0.0,
+            Value::Ptr(value) => *value != 0,
+            Value::FuncPtr(value) => *value != 0,
             Value::String(value) => !value.is_empty(),
             Value::Array {
                 elements,
@@ -87,8 +120,20 @@ impl Value {
     pub fn to_output_string(&self) -> String {
         match self {
             Value::String(value) => value.clone(),
-            Value::Integer(value) => value.to_string(),
+            Value::Byte(value) => value.to_string(),
+            Value::Int16(value) => value.to_string(),
+            Value::Int32(value) => value.to_string(),
+            Value::Int64(value) => value.to_string(),
+            Value::UInt32(value) => value.to_string(),
+            Value::UInt64(value) => value.to_string(),
+            Value::Single(value) => value.to_string(),
             Value::Double(value) => value.to_string(),
+            Value::Currency(value) => {
+                let major = value / 10000;
+                let minor = (value % 10000).abs();
+                format!("{}.{:04}", major, minor)
+            }
+            Value::Decimal(value) => value.to_string(),
             Value::Boolean(value) => {
                 if *value {
                     "True".to_string()
@@ -96,6 +141,9 @@ impl Value {
                     "False".to_string()
                 }
             }
+            Value::Date(value) => format!("<Date: {}>", value),
+            Value::Ptr(value) => format!("0x{:X}", value),
+            Value::FuncPtr(value) => format!("<FuncPtr: 0x{:X}>", value),
             Value::Array { .. } => "<Array>".to_string(),
             Value::Record { type_name, .. } => format!("<{}>", type_name),
             Value::Object(object) => format!("<{}>", object.borrow().class_name),

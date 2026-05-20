@@ -10,6 +10,7 @@ pub struct Expr {
 pub enum ExprKind {
     String(String),
     Integer(i64),
+    Double(f64),
     Boolean(bool),
     Nothing,
     Empty,

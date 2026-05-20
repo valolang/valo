@@ -110,7 +110,8 @@ pub(super) fn validate_expr(
 ) -> Result<TypeName, Diagnostic> {
     match &expr.kind {
         ExprKind::String(_) => Ok(TypeName::String),
-        ExprKind::Integer(_) => Ok(TypeName::Integer),
+        ExprKind::Integer(_) => Ok(TypeName::Int64),
+        ExprKind::Double(_) => Ok(TypeName::Double),
         ExprKind::Boolean(_) => Ok(TypeName::Boolean),
         ExprKind::Nothing | ExprKind::Empty | ExprKind::Null => Ok(TypeName::Variant),
         ExprKind::Missing => Ok(TypeName::Variant),
@@ -458,9 +459,19 @@ pub(super) fn validate_expr(
                 | BinaryOp::Divide
                 | BinaryOp::IntegerDivide
                 | BinaryOp::Modulo => {
-                    ensure_assignable(&TypeName::Integer, &left_type, left.span)?;
-                    ensure_assignable(&TypeName::Integer, &right_type, right.span)?;
-                    Ok(TypeName::Integer)
+                    if is_numeric_type(&left_type) && is_numeric_type(&right_type) {
+                        if left_type == TypeName::Double || right_type == TypeName::Double {
+                            Ok(TypeName::Double)
+                        } else if left_type == TypeName::Single || right_type == TypeName::Single {
+                            Ok(TypeName::Single)
+                        } else {
+                            Ok(TypeName::Int64)
+                        }
+                    } else {
+                        ensure_assignable(&TypeName::Int64, &left_type, left.span)?;
+                        ensure_assignable(&TypeName::Int64, &right_type, right.span)?;
+                        Ok(TypeName::Int64)
+                    }
                 }
                 BinaryOp::Concat => Ok(TypeName::String),
                 BinaryOp::LogicalAnd | BinaryOp::LogicalOr => {
@@ -508,15 +519,14 @@ pub(super) fn validate_expr(
                 | BinaryOp::Greater
                 | BinaryOp::LessEqual
                 | BinaryOp::GreaterEqual => {
-                    if left_type.same_type(&right_type)
-                        && (left_type.same_type(&TypeName::Integer)
-                            || left_type.same_type(&TypeName::String))
+                    if (is_numeric_type(&left_type) && is_numeric_type(&right_type))
+                        || (left_type.same_type(&TypeName::String) && right_type.same_type(&TypeName::String))
                     {
                         Ok(TypeName::Boolean)
                     } else {
                         Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                            "Comparison requires matching Integer or String operands",
+                            "Comparison requires matching numeric or String operands",
                             Some(expr.span),
                         ))
                     }
@@ -525,12 +535,13 @@ pub(super) fn validate_expr(
         }
         ExprKind::Unary { op, expr: inner } => match op {
             UnaryOp::Negate => {
-                ensure_assignable(
-                    &TypeName::Integer,
-                    &validate_expr(inner, symbols, types, signatures)?,
-                    inner.span,
-                )?;
-                Ok(TypeName::Integer)
+                let ty = validate_expr(inner, symbols, types, signatures)?;
+                if is_numeric_type(&ty) {
+                    Ok(ty)
+                } else {
+                    ensure_assignable(&TypeName::Int64, &ty, inner.span)?;
+                    Ok(TypeName::Int64)
+                }
             }
             UnaryOp::LogicalNot => {
                 ensure_assignable(
@@ -616,7 +627,7 @@ fn validate_builtin_function(
                 if !matches!(var_type, VarType::Optional(_)) {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                        "IsMissing requires an optional parameter name",
+                        "IsMissing is only valid for Optional parameters",
                         Some(arg.span),
                     ));
                 }
@@ -624,7 +635,7 @@ fn validate_builtin_function(
         } else {
              return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "IsMissing requires an optional parameter name",
+                "IsMissing is only valid for Optional parameters",
                 Some(arg.span),
             ));
         }
@@ -638,10 +649,60 @@ fn validate_builtin_function(
         validate_expr(&args[0], symbols, types, signatures)?;
         return Ok(Some(TypeName::Integer));
     }
-    if effective_name.eq_ignore_ascii_case("TypeName") || effective_name.eq_ignore_ascii_case("CStr") {
+    if effective_name.eq_ignore_ascii_case("TypeName") {
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures)?;
         return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("CStr") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("CByte") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Byte));
+    }
+    if effective_name.eq_ignore_ascii_case("CInt") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Integer));
+    }
+    if effective_name.eq_ignore_ascii_case("CLng") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Long));
+    }
+    if effective_name.eq_ignore_ascii_case("CLngLng") || effective_name.eq_ignore_ascii_case("CInt64") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Int64));
+    }
+    if effective_name.eq_ignore_ascii_case("CSng") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Single));
+    }
+    if effective_name.eq_ignore_ascii_case("CDbl") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Double));
+    }
+    if effective_name.eq_ignore_ascii_case("CDec") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Decimal));
+    }
+    if effective_name.eq_ignore_ascii_case("CCur") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Currency));
+    }
+    if effective_name.eq_ignore_ascii_case("CDate") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Date));
     }
     if effective_name.eq_ignore_ascii_case("Array") {
         for arg in args {
@@ -1301,7 +1362,22 @@ pub(super) fn ensure_known_type(
     span: crate::runtime::Span,
 ) -> Result<(), Diagnostic> {
     match ty {
-        TypeName::String | TypeName::Integer | TypeName::Double | TypeName::Boolean | TypeName::Variant => Ok(()),
+        TypeName::String
+        | TypeName::Byte
+        | TypeName::Integer
+        | TypeName::Long
+        | TypeName::Int64
+        | TypeName::UInt32
+        | TypeName::UInt64
+        | TypeName::Single
+        | TypeName::Double
+        | TypeName::Currency
+        | TypeName::Decimal
+        | TypeName::Boolean
+        | TypeName::Date
+        | TypeName::Variant
+        | TypeName::Ptr
+        | TypeName::FuncPtr => Ok(()),
         TypeName::User(name) => {
             if name.eq_ignore_ascii_case("Object") || types.contains(name) {
                 Ok(())
@@ -1514,6 +1590,23 @@ pub(super) fn validate_exit(
     }
 }
 
+pub(super) fn is_numeric_type(ty: &TypeName) -> bool {
+    matches!(
+        ty,
+        TypeName::Byte
+            | TypeName::Integer
+            | TypeName::Long
+            | TypeName::Int64
+            | TypeName::UInt32
+            | TypeName::UInt64
+            | TypeName::Single
+            | TypeName::Double
+            | TypeName::Currency
+            | TypeName::Decimal
+            | TypeName::Date
+    )
+}
+
 pub(super) fn ensure_assignable(
     target: &TypeName,
     source: &TypeName,
@@ -1522,8 +1615,9 @@ pub(super) fn ensure_assignable(
     if target.same_type(&TypeName::Variant)
         || source.same_type(&TypeName::Variant)
         || target.same_type(source)
-        || (target.same_type(&TypeName::Double) && source.same_type(&TypeName::Integer))
-        || (target.same_type(&TypeName::Integer) && source.same_type(&TypeName::Double))
+        || (is_numeric_type(target) && is_numeric_type(source))
+        || (matches!(target, TypeName::Ptr | TypeName::FuncPtr) && is_numeric_type(source))
+        || (is_numeric_type(target) && matches!(source, TypeName::Ptr | TypeName::FuncPtr))
         || matches!(target, TypeName::User(name) if name.rsplit('.').next().is_some_and(|name| name.eq_ignore_ascii_case("Object")))
             && matches!(source, TypeName::User(_))
     {

@@ -58,7 +58,11 @@ impl LoopContext {
 pub fn validate(program: &Program) -> Result<(), Diagnostic> {
     let types = collect_types(program)?;
     let signatures = collect_signatures(program, &types)?;
-    let module_symbols = collect_module_symbols(program, &types, &signatures)?;
+    let mut module_symbols = collect_module_symbols(program, &types, &signatures)?;
+    for import in &program.imports {
+        let qualifier = import.alias.clone().unwrap_or_else(|| import.module.clone());
+        module_symbols.insert(key(&qualifier), VarType::Scalar(TypeName::Variant));
+    }
     let Some(main) = program
         .procedures
         .iter()
@@ -96,16 +100,24 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
 pub fn validate_project(project: &crate::modules::Project) -> Result<(), Diagnostic> {
     for (index, module) in project.modules.iter().enumerate() {
         let require_main = index == project.entry;
-        validate_module(&module.program, require_main)?;
+        validate_module(&module.program, require_main, &module.imports)?;
         validate_import_aliases(module, project)?;
     }
     Ok(())
 }
 
-fn validate_module(program: &Program, require_main: bool) -> Result<(), Diagnostic> {
+fn validate_module(
+    program: &Program,
+    require_main: bool,
+    imports: &[crate::modules::ResolvedImport],
+) -> Result<(), Diagnostic> {
     let types = collect_types(program)?;
     let signatures = collect_signatures(program, &types)?;
-    let module_symbols = collect_module_symbols(program, &types, &signatures)?;
+    let mut module_symbols = collect_module_symbols(program, &types, &signatures)?;
+    for import in imports {
+        module_symbols.insert(key(&import.qualifier), VarType::Scalar(TypeName::Variant));
+    }
+
     let main = program
         .procedures
         .iter()

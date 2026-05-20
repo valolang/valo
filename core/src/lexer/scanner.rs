@@ -32,7 +32,7 @@ impl<'a> Lexer<'a> {
                 '\n' => tokens.push(self.single_char(TokenKind::Newline)),
                 '\'' => self.skip_comment(),
                 '"' => tokens.push(self.string()?),
-                '0'..='9' => tokens.push(self.integer()?),
+                '0'..='9' => tokens.push(self.number()?),
                 'A'..='Z' | 'a'..='z' | '_' => tokens.push(self.identifier()),
                 '[' => tokens.push(self.bracketed_identifier()?),
                 '.' => tokens.push(self.single_char(TokenKind::Dot)),
@@ -145,9 +145,9 @@ impl<'a> Lexer<'a> {
             "loop" => TokenKind::Loop,
             "until" => TokenKind::Until,
             "for" => TokenKind::For,
-            "goto" => TokenKind::GoTo,
             "each" => TokenKind::Each,
             "in" => TokenKind::In,
+            "goto" => TokenKind::GoTo,
             "to" => TokenKind::To,
             "step" => TokenKind::Step,
             "next" => TokenKind::Next,
@@ -210,31 +210,66 @@ impl<'a> Lexer<'a> {
         ))
     }
 
-    fn integer(&mut self) -> Result<Token, Diagnostic> {
+    fn number(&mut self) -> Result<Token, Diagnostic> {
         let start = self.pos();
         let mut text = String::new();
+        let mut is_float = false;
 
         while let Some(ch) = self.peek() {
             if ch.is_ascii_digit() {
                 text.push(ch);
                 self.advance();
+            } else if ch == '.' && !is_float {
+                if self.peek_next().is_some_and(|c| c.is_ascii_digit()) {
+                    is_float = true;
+                    text.push(ch);
+                    self.advance();
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
         }
 
-        let value = text.parse::<i64>().map_err(|_| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::GENERIC,
-                format!("Integer literal '{}' is out of range", text),
-                Some(Span::new(start, self.pos())),
-            )
-        })?;
+        if is_float {
+            Ok(Token {
+                kind: TokenKind::Float(text),
+                span: Span::new(start, self.pos()),
+            })
+        } else {
+            let value = text.parse::<i64>().map_err(|_| {
+                if text.parse::<u64>().is_ok() {
+                    return Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        format!("Integer literal '{}' is too large (use Int64 or Double)", text),
+                        Some(Span::new(start, self.pos())),
+                    );
+                }
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    format!("Integer literal '{}' is out of range", text),
+                    Some(Span::new(start, self.pos())),
+                )
+            });
 
-        Ok(Token {
-            kind: TokenKind::Integer(value),
-            span: Span::new(start, self.pos()),
-        })
+            match value {
+                Ok(v) => Ok(Token {
+                    kind: TokenKind::Integer(v),
+                    span: Span::new(start, self.pos()),
+                }),
+                Err(e) => {
+                    if text.parse::<f64>().is_ok() {
+                        Ok(Token {
+                            kind: TokenKind::Float(text),
+                            span: Span::new(start, self.pos()),
+                        })
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
+        }
     }
 
     fn string(&mut self) -> Result<Token, Diagnostic> {
@@ -335,6 +370,10 @@ impl<'a> Lexer<'a> {
 
     fn peek(&self) -> Option<char> {
         self.chars.get(self.index).copied()
+    }
+
+    fn peek_next(&self) -> Option<char> {
+        self.chars.get(self.index + 1).copied()
     }
 
     fn advance(&mut self) -> Option<char> {

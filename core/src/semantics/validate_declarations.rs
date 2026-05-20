@@ -818,6 +818,7 @@ pub(super) fn ensure_const_expr(
     match &expr.kind {
         ExprKind::String(_)
         | ExprKind::Integer(_)
+        | ExprKind::Double(_)
         | ExprKind::Boolean(_)
         | ExprKind::Empty
         | ExprKind::Null => Ok(()),

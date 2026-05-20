@@ -202,6 +202,10 @@ impl Parser {
         let kind = match token.kind {
             TokenKind::String(value) => ExprKind::String(value),
             TokenKind::Integer(value) => ExprKind::Integer(value),
+            TokenKind::Float(value) => {
+                let float = value.parse::<f64>().expect("lexer validated");
+                ExprKind::Double(float)
+            }
             TokenKind::True => ExprKind::Boolean(true),
             TokenKind::False => ExprKind::Boolean(false),
             TokenKind::Nothing => ExprKind::Nothing,

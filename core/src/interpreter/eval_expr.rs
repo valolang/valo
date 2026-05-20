@@ -12,7 +12,8 @@ impl Interpreter {
     ) -> Result<Value, Diagnostic> {
         match &expr.kind {
             ExprKind::String(value) => Ok(Value::String(value.clone())),
-            ExprKind::Integer(value) => Ok(Value::Integer(*value)),
+            ExprKind::Integer(value) => Ok(Value::Int64(*value)),
+            ExprKind::Double(value) => Ok(Value::Double(*value)),
             ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
             ExprKind::Nothing => Ok(Value::Nothing),
             ExprKind::Empty => Ok(Value::Empty),
@@ -54,14 +55,14 @@ impl Interpreter {
             }
             ExprKind::Variable(name) => {
                 if name.eq_ignore_ascii_case("Erl") {
-                    Ok(Value::Integer(self.erl))
+                    Ok(Value::Int64(self.erl))
                 } else if name.eq_ignore_ascii_case("VBA")
                     || name.eq_ignore_ascii_case("Console")
                     || name.eq_ignore_ascii_case("Err")
                 {
                     Ok(Value::Empty)
                 } else if let Some(value) = self.enum_members.get(&super::values::key(name)) {
-                    Ok(Value::Integer(*value))
+                    Ok(Value::Int64(*value))
                 } else {
                     match frame.get(name, expr.span) {
                         Ok(value) => Ok(value),
@@ -105,7 +106,7 @@ impl Interpreter {
                                 Some(expr.span),
                             )
                         })?;
-                    return Ok(Value::Integer(*value));
+                    return Ok(Value::Int64(*value));
                 }
                 if let ExprKind::MemberAccess {
                     object: module_object,
@@ -137,7 +138,7 @@ impl Interpreter {
                                         Some(expr.span),
                                     )
                                 })?;
-                        return Ok(Value::Integer(*value));
+                        return Ok(Value::Int64(*value));
                     }
                 }
                 if let ExprKind::Variable(module_name) = &object.kind
@@ -248,7 +249,9 @@ impl Interpreter {
             ExprKind::Unary { op, expr: inner } => {
                 let value = self.eval_expr(inner, frame)?;
                 match (op, value) {
-                    (UnaryOp::Negate, Value::Integer(value)) => Ok(Value::Integer(-value)),
+                    (UnaryOp::Negate, Value::Int64(value)) => Ok(Value::Int64(-value)),
+                    (UnaryOp::Negate, Value::Int32(value)) => Ok(Value::Int32(-value)),
+                    (UnaryOp::Negate, Value::Int16(value)) => Ok(Value::Int16(-value)),
                     (UnaryOp::Negate, _) => Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                         "Unary '-' requires an Integer expression",
@@ -312,7 +315,12 @@ impl Interpreter {
         message: &str,
     ) -> Result<i64, Diagnostic> {
         match self.eval_expr(expr, frame)? {
-            Value::Integer(value) => Ok(value),
+            Value::Byte(value) => Ok(value as i64),
+            Value::Int16(value) => Ok(value as i64),
+            Value::Int32(value) => Ok(value as i64),
+            Value::Int64(value) => Ok(value),
+            Value::UInt32(value) => Ok(value as i64),
+            Value::UInt64(value) => Ok(value as i64),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
                 message,

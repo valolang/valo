@@ -26,7 +26,7 @@ pub(crate) fn eval_err(
     _span: crate::runtime::Span,
 ) -> Result<Option<Value>, Diagnostic> {
     if field.eq_ignore_ascii_case("Number") {
-        return Ok(Some(Value::Integer(interpreter.err_number)));
+        return Ok(Some(Value::Int64(interpreter.err_number)));
     }
     if field.eq_ignore_ascii_case("Description") {
         return Ok(Some(Value::String(interpreter.err_description.clone())));
@@ -38,7 +38,7 @@ pub(crate) fn eval_err(
         return Ok(Some(Value::String(interpreter.err_help_file.clone())));
     }
     if field.eq_ignore_ascii_case("HelpContext") {
-        return Ok(Some(Value::Integer(interpreter.err_help_context)));
+        return Ok(Some(Value::Int64(interpreter.err_help_context)));
     }
 
     Ok(None)

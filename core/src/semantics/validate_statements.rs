@@ -852,6 +852,7 @@ fn expr_uses_with_target(expr: &Expr) -> bool {
         ExprKind::Unary { expr, .. } => expr_uses_with_target(expr),
         ExprKind::String(_)
         | ExprKind::Integer(_)
+        | ExprKind::Double(_)
         | ExprKind::Boolean(_)
         | ExprKind::Nothing
         | ExprKind::Empty

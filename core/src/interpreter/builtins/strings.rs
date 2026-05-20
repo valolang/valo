@@ -140,7 +140,7 @@ pub(crate) fn eval_strings(
             std::cmp::Ordering::Equal => 0,
             std::cmp::Ordering::Greater => 1,
         };
-        return Ok(Some(Value::Integer(result)));
+        return Ok(Some(Value::Int64(result)));
     }
 
     Ok(None)

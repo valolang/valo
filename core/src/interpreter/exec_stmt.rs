@@ -351,7 +351,7 @@ impl Interpreter {
                         break;
                     }
 
-                    let old = frame.assign(variable, Value::Integer(current), *span)?;
+                    let old = frame.assign(variable, Value::Int64(current), *span)?;
                     self.maybe_terminate(old, *span)?;
                     match self.exec_block(body, frame)? {
                         ControlFlow::Continue => {}
@@ -516,14 +516,14 @@ impl Interpreter {
     fn create_error_object(&self, diagnostic: &Diagnostic) -> Value {
         let mut fields = HashMap::new();
         if let Some(info) = &diagnostic.runtime_error {
-            fields.insert(key("Number"), Value::Integer(info.number));
+            fields.insert(key("Number"), Value::Int64(info.number));
             fields.insert(key("Message"), Value::String(info.description.clone()));
             fields.insert(key("Description"), Value::String(info.description.clone()));
             fields.insert(key("Source"), Value::String(info.source.clone()));
             fields.insert(key("HelpFile"), Value::String(info.help_file.clone()));
-            fields.insert(key("HelpContext"), Value::Integer(info.help_context));
+            fields.insert(key("HelpContext"), Value::Int64(info.help_context));
         } else {
-            fields.insert(key("Number"), Value::Integer(1));
+            fields.insert(key("Number"), Value::Int64(1));
             fields.insert(
                 key("Message"),
                 Value::String(diagnostic.message.to_string()),
@@ -534,7 +534,7 @@ impl Interpreter {
             );
             fields.insert(key("Source"), Value::String("Valo.Runtime".to_string()));
             fields.insert(key("HelpFile"), Value::String(String::new()));
-            fields.insert(key("HelpContext"), Value::Integer(0));
+            fields.insert(key("HelpContext"), Value::Int64(0));
         }
 
         Value::Object(Rc::new(RefCell::new(crate::runtime::ObjectValue {

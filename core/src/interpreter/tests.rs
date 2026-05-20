@@ -11,5 +11,6 @@ mod expressions;
 mod lifecycle;
 mod modernization;
 mod modules;
+mod types;
 mod variables;
 mod vba_compat;

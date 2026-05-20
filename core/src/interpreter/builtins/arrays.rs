@@ -47,7 +47,7 @@ pub(crate) fn eval_arrays(
         } else {
             super::super::arrays::ubound(&value, dimension, span)?
         };
-        return Ok(Some(Value::Integer(bound)));
+        return Ok(Some(Value::Int64(bound)));
     }
 
     Ok(None)
