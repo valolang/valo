@@ -8,7 +8,7 @@ pub mod runtime;
 pub mod semantics;
 
 pub use ast::*;
-pub use interpreter::{Interpreter, run};
+pub use interpreter::{Frame, Interpreter, run};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use modules::{Project, load_project};
 pub use parser::Parser;

@@ -1,94 +1,90 @@
 # Valo
 
-Valo is a modern, Basic-inspired programming language and runtime designed for high-integrity automation and professional scripting. It balances the approachability of VBA with modern language features, modularity, and a robust diagnostics system.
+<p align="center">
+  <img src="assets/valo-mascot.png" width="200" alt="Valo Logo">
+</p>
 
-## Key Features
+<p align="center">
+  <a href="https://github.com/uesleibros/valo/actions"><img src="https://img.shields.io/github/actions/workflow/status/uesleibros/valo/test.yml?branch=main" alt="Build Status"></a>
+  <a href="https://github.com/uesleibros/valo/blob/main/LICENSE"><img src="https://img.shields.io/github/license/uesleibros/valo" alt="License"></a>
+</p>
 
-- **Modern Basic Syntax**: A clean, readable syntax that feels familiar to Basic developers but includes modern constructs.
-- **Dual Mode Support**:
-    - `.valo`: Native mode with modern features like `Try/Catch/Finally`.
-    - `.bas` / `.cls`: Compatibility mode for traditional VBA source code.
-- **Robust Object Model**:
-    - Support for Classes, Events, and Properties.
-    - Deterministic lifecycle management with `Constructor` and `Terminate`.
-    - Default properties and intuitive indexer syntax.
-- **Advanced Error Handling**: Supports both traditional `On Error` and modern `Try/Catch/Finally` blocks.
-- **Powerful Array System**: Full support for multidimensional arrays, dynamic resizing with `ReDim Preserve`, and built-ins like `Array()`, `Split()`, `Join()`, and `Filter()`.
-- **Modular Architecture**: Comprehensive support for modules, imports, and qualified symbol access.
-- **Professional Diagnostics**: Rich, descriptive error messages with source code highlighting and helpful suggestions.
+Valo is a modern, Basic-inspired programming language and runtime designed for high-integrity automation and professional scripting. It provides a clean, robust environment that bridges the gap between classic VBA compatibility and modern, type-safe development.
 
-## Installation
+## 🚀 Key Features
 
-Valo is written in Rust. To build it, ensure you have the [Rust toolchain](https://rustup.rs/) installed.
+*   **Dual-Mode Runtime**: Seamlessly run modern `.valo` code or integrate legacy `.bas` / `.cls` VBA files.
+*   **Modern Syntax**: Full support for native features like `Try/Catch/Finally`, multidimensional arrays, and strong typing.
+*   **Advanced Type System**: From standard numeric types (`Byte`, `Int64`, `Decimal`) to modern system types like `Ptr` and `FuncPtr`.
+*   **Professional Diagnostics**: Rich, actionable error messages with source mapping.
+*   **Modular Architecture**: Designed for maintainability, with built-in modules, import systems, and a professional runtime interface.
+
+## 📦 Installation
+
+Valo requires Rust. Build it from source:
 
 ```bash
-git clone https://github.com/valo-lang/valo.git
+git clone https://github.com/uesleibros/valo.git
 cd valo
 cargo build --release
 ```
 
-## Usage
+## 💻 CLI Usage
 
-You can run Valo files using the CLI:
-
-```bash
-./target/release/valo run examples/hello.valo
-```
-
-To run a project with multiple modules:
+The Valo CLI provides a professional toolset for development and experimentation.
 
 ```bash
-./target/release/valo run examples/modules/main.valo
+# Run a file
+valo run examples/hello.valo
+
+# Start the interactive REPL
+valo repl
+
+# Validate a file for errors
+valo check examples/types.valo
 ```
 
-## Examples
+## 📖 Documentation
 
-### Modern Try/Catch (`.valo`)
+Explore the following to get started:
 
+- [Getting Started](docs/getting-started.md)
+- [Language Reference](docs/language/README.md)
+- [VBA Compatibility Guide](docs/language/vba-compat.md)
+
+## 🛠️ Showcase
+
+### Modern Native (`.valo`)
 ```vb
-Sub Main()
-    Try
-        Dim data = Array(1, 2, 3)
-        Console.WriteLine("Element 0: " & data(0))
-    Catch ex As Error
-        Console.WriteLine("Error: " & ex.Message)
-    Finally
-        Console.WriteLine("Cleanup performed")
-    End Try
-End Sub
+Try
+    Dim matrix(1 To 3, 1 To 2) As Integer
+    matrix(1, 1) = 42
+    Console.WriteLine("Matrix(1, 1): " & matrix(1, 1))
+Catch ex As Error
+    Debug.Print "Error: " & ex.Message
+End Try
 ```
 
 ### VBA Compatibility (`.bas`)
-
 ```vb
-Attribute VB_Name = "LegacyModule"
-
 Public Sub Main()
-    On Error GoTo ErrorHandler
+    On Error Resume Next
     Dim parts
     parts = Split("A,B,C", ",")
-    Debug.Print parts(1)
-    Exit Sub
-
-ErrorHandler:
-    MsgBox Err.Description
+    Debug.Print Join(parts, "-")
 End Sub
 ```
 
-## Documentation
+## 🛣️ Roadmap
 
-- [Language Reference](docs/language/README.md)
-- [Architecture Overview](docs/architecture/README.md)
-- [Roadmap](docs/architecture/roadmap.md)
+- [x] VBA Runtime Compatibility
+- [x] Multidimensional Arrays
+- [x] Modern Type System Expansion
+- [x] Interactive REPL
+- [ ] Collection / Dictionary Libraries
+- [ ] FFI Layer
+- [ ] FileSystem Standard Library
 
-## Quality and Integrity
-
-Valo is committed to high engineering standards:
-
-- **Comprehensive Testing**: Hundreds of unit and integration tests covering parser, semantics, and runtime.
-- **Linted Codebase**: Maintained as `clippy-clean` with zero warnings.
-- **Deterministic Runtime**: Reliable execution and resource management.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+---
+Valo is licensed under the [MIT License](LICENSE).
+github.com/uesleibros/valo

@@ -317,6 +317,98 @@ impl Interpreter {
         }
     }
 
+    pub fn run_repl_snippet(
+        &mut self,
+        program: &Program,
+        frame: &mut Frame,
+    ) -> Result<Vec<String>, Diagnostic> {
+        self.output.clear();
+        for type_decl in &program.types {
+            self.types
+                .insert(key(&type_decl.name), RuntimeType::from(type_decl));
+        }
+        for enum_decl in &program.enums {
+            let mut members = HashMap::new();
+            let mut previous = -1;
+            for member in &enum_decl.members {
+                let value = if let Some(expr) = &member.value {
+                    self.eval_enum_const_expr(expr, &members)?
+                } else {
+                    previous + 1
+                };
+                previous = value;
+                members.insert(key(&member.name), value);
+                self.enum_members.insert(key(&member.name), value);
+            }
+            self.enums.insert(
+                key(&enum_decl.name),
+                RuntimeEnum {
+                    name: enum_decl.name.clone(),
+                    members,
+                },
+            );
+        }
+        for class_decl in &program.classes {
+            self.classes
+                .insert(key(&class_decl.name), RuntimeClass::from(class_decl));
+        }
+        for procedure in &program.procedures {
+            if procedure.name.eq_ignore_ascii_case("main") {
+                continue; // Main is run directly
+            }
+            self.procedures
+                .insert(key(&procedure.name), procedure.clone());
+        }
+        for function in &program.functions {
+            self.functions.insert(key(&function.name), function.clone());
+        }
+
+        for var in &program.module_vars {
+            if !frame.has_variable(&var.name) {
+                frame.declare_module(
+                    &var.name,
+                    var.ty.clone(),
+                    var.array.clone(),
+                    self.option_base,
+                    false,
+                    None,
+                    var.span,
+                    &self.types,
+                    &self.enums,
+                )?;
+            }
+        }
+        for const_decl in &program.module_consts {
+            if !frame.has_variable(&const_decl.name) {
+                let value = self.eval_expr(&const_decl.value, frame)?;
+                let ty = const_decl.ty.clone().unwrap_or_else(|| value.type_name());
+                frame.declare_module(
+                    &const_decl.name,
+                    ty,
+                    None,
+                    self.option_base,
+                    true,
+                    Some(value),
+                    const_decl.span,
+                    &self.types,
+                    &self.enums,
+                )?;
+            }
+        }
+
+        let Some(main) = program
+            .procedures
+            .iter()
+            .find(|procedure| procedure.name.eq_ignore_ascii_case("main"))
+        else {
+            return Ok(self.output.clone());
+        };
+
+        // Execute statements from main block manually to keep frame persistent
+        self.exec_block(&main.body, frame)?;
+        Ok(self.output.clone())
+    }
+
     pub fn run_project(
         mut self,
         project: &crate::modules::Project,

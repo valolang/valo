@@ -10,7 +10,7 @@ use super::records::{RuntimeEnum, RuntimeType};
 use super::values::{coerce_assignment, default_value, key};
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct Frame {
+pub struct Frame {
     variables: HashMap<String, Variable>,
     module_key: Option<String>,
     with_stack: Vec<Value>,

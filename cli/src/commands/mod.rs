@@ -2,7 +2,7 @@ use std::{
     fs,
     io::{self, Write},
 };
-use valo_core::{Interpreter, Parser, run_file, validate};
+use valo_core::{Frame, Interpreter, Parser, run_file, validate};
 
 pub fn run(mut args: impl Iterator<Item = String>) -> Result<(), String> {
     let Some(path) = args.next() else {
@@ -43,6 +43,9 @@ pub fn repl() -> Result<(), String> {
     let mut stdout = io::stdout();
     let mut input = String::new();
 
+    let mut interpreter = Interpreter::new();
+    let mut global_frame = Frame::default();
+
     loop {
         print!("> ");
         stdout.flush().unwrap();
@@ -64,11 +67,10 @@ pub fn repl() -> Result<(), String> {
                 if let Err(err) = validate(&program) {
                     eprintln!("Validation error: {:?}", err);
                 } else {
-                    let interpreter = Interpreter::new();
-                    match interpreter.run(&program) {
+                    match interpreter.run_repl_snippet(&program, &mut global_frame) {
                         Ok(output) => {
-                            for line in output {
-                                println!("{}", line);
+                            for out_line in output {
+                                println!("{}", out_line);
                             }
                         }
                         Err(err) => eprintln!("Runtime error: {:?}", err),
