@@ -110,6 +110,12 @@ pub(super) fn validate_statements(
                 span,
             } => {
                 if let ExprKind::Variable(name) = &object.kind
+                    && name.eq_ignore_ascii_case("VBA")
+                {
+                    validate_sub_call(method, args, *span, symbols, types, signatures)?;
+                    continue;
+                }
+                if let ExprKind::Variable(name) = &object.kind
                     && name.eq_ignore_ascii_case("Err")
                 {
                     if method.eq_ignore_ascii_case("Clear") && args.is_empty() {
@@ -604,17 +610,34 @@ fn validate_sub_call(
     types: &TypeRegistry,
     signatures: &Signatures,
 ) -> Result<(), Diagnostic> {
-    let Some(sub) = signatures.subs.get(&key(name)) else {
-        if signatures.functions.contains_key(&key(name)) {
+    let effective_name = if let Some(stripped) = name.strip_prefix("VBA.") {
+        stripped
+    } else {
+        name
+    };
+
+    let builtin_subs = ["Randomize", "CallByName"];
+    if builtin_subs
+        .iter()
+        .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
+    {
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures)?;
+        }
+        return Ok(());
+    }
+
+    let Some(sub) = signatures.subs.get(&key(effective_name)) else {
+        if signatures.functions.contains_key(&key(effective_name)) {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
-                format!("Function '{}' cannot be called as a statement", name),
+                format!("Function '{}' cannot be called as a statement", effective_name),
                 Some(span),
             ));
         }
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-            format!("Sub '{}' is not defined", name),
+            format!("Sub '{}' is not defined", effective_name),
             Some(span),
         ));
     };

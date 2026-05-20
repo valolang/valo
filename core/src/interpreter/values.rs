@@ -15,10 +15,21 @@ pub(crate) fn eval_binary(
     span: Span,
 ) -> Result<Value, Diagnostic> {
     match op {
-        BinaryOp::Add => integer_binary(left, right, span, |a, b| a + b),
-        BinaryOp::Subtract => integer_binary(left, right, span, |a, b| a - b),
-        BinaryOp::Multiply => integer_binary(left, right, span, |a, b| a * b),
-        BinaryOp::Divide | BinaryOp::IntegerDivide => {
+        BinaryOp::Add => math_binary(left, right, span, |a, b| a + b, |a, b| a + b),
+        BinaryOp::Subtract => math_binary(left, right, span, |a, b| a - b, |a, b| a - b),
+        BinaryOp::Multiply => math_binary(left, right, span, |a, b| a * b, |a, b| a * b),
+        BinaryOp::Divide => {
+            let (a, b) = expect_numbers(left, right, span)?;
+            if b == 0.0 {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "Division by zero",
+                    Some(span),
+                ));
+            }
+            Ok(Value::Double(a / b))
+        }
+        BinaryOp::IntegerDivide => {
             let (a, b) = expect_integers(left, right, span)?;
             if b == 0 {
                 return Err(Diagnostic::new(
@@ -159,22 +170,49 @@ pub(crate) fn compare_case_values(
     }
 }
 
-fn integer_binary(
+fn math_binary(
     left: Value,
     right: Value,
     span: Span,
-    op: impl FnOnce(i64, i64) -> i64,
+    int_op: impl FnOnce(i64, i64) -> i64,
+    double_op: impl FnOnce(f64, f64) -> f64,
 ) -> Result<Value, Diagnostic> {
-    let (a, b) = expect_integers(left, right, span)?;
-    Ok(Value::Integer(op(a, b)))
+    match (left, right) {
+        (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(int_op(a, b))),
+        (Value::Double(a), Value::Double(b)) => Ok(Value::Double(double_op(a, b))),
+        (Value::Integer(a), Value::Double(b)) => Ok(Value::Double(double_op(a as f64, b))),
+        (Value::Double(a), Value::Integer(b)) => Ok(Value::Double(double_op(a, b as f64))),
+        _ => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "Arithmetic operators require numeric operands",
+            Some(span),
+        )),
+    }
 }
 
 fn expect_integers(left: Value, right: Value, span: Span) -> Result<(i64, i64), Diagnostic> {
     match (left, right) {
         (Value::Integer(a), Value::Integer(b)) => Ok((a, b)),
+        (Value::Double(a), Value::Double(b)) => Ok((a as i64, b as i64)),
+        (Value::Integer(a), Value::Double(b)) => Ok((a, b as i64)),
+        (Value::Double(a), Value::Integer(b)) => Ok((a as i64, b)),
         _ => Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::GENERIC,
-            "Arithmetic operators require Integer operands",
+            "Operation requires Integer operands",
+            Some(span),
+        )),
+    }
+}
+
+fn expect_numbers(left: Value, right: Value, span: Span) -> Result<(f64, f64), Diagnostic> {
+    match (left, right) {
+        (Value::Integer(a), Value::Integer(b)) => Ok((a as f64, b as f64)),
+        (Value::Double(a), Value::Double(b)) => Ok((a, b)),
+        (Value::Integer(a), Value::Double(b)) => Ok((a as f64, b)),
+        (Value::Double(a), Value::Integer(b)) => Ok((a, b as f64)),
+        _ => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "Operation requires numeric operands",
             Some(span),
         )),
     }
@@ -207,6 +245,9 @@ fn compare_values(
 ) -> Result<Value, Diagnostic> {
     let ordering = match (left, right) {
         (Value::Integer(a), Value::Integer(b)) => a.cmp(&b),
+        (Value::Double(a), Value::Double(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
+        (Value::Integer(a), Value::Double(b)) => (a as f64).partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
+        (Value::Double(a), Value::Integer(b)) => a.partial_cmp(&(b as f64)).unwrap_or(std::cmp::Ordering::Equal),
         (Value::String(a), Value::String(b)) => {
             if compare == OptionCompare::Text {
                 a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
@@ -217,7 +258,7 @@ fn compare_values(
         _ => {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "Comparison requires matching Integer or String operands",
+                "Comparison requires matching numeric or String operands",
                 Some(span),
             ));
         }
@@ -236,6 +277,9 @@ pub(crate) fn values_equal(left: &Value, right: &Value, compare: OptionCompare) 
             }
         }
         (Value::Integer(a), Value::Integer(b)) => a == b,
+        (Value::Double(a), Value::Double(b)) => a == b,
+        (Value::Integer(a), Value::Double(b)) => (*a as f64) == *b,
+        (Value::Double(a), Value::Integer(b)) => *a == (*b as f64),
         (Value::Boolean(a), Value::Boolean(b)) => a == b,
         (Value::Empty, Value::Empty) => true,
         (Value::Null, Value::Null) => true,
@@ -319,6 +363,12 @@ pub(crate) fn coerce_assignment(
     }
     if ty.same_type(&TypeName::Variant) || ty.same_type(&value.type_name()) {
         Ok(value)
+    } else if ty.same_type(&TypeName::Double) && value.type_name().same_type(&TypeName::Integer) {
+        let Value::Integer(v) = value else { unreachable!() };
+        Ok(Value::Double(v as f64))
+    } else if ty.same_type(&TypeName::Integer) && value.type_name().same_type(&TypeName::Double) {
+        let Value::Double(v) = value else { unreachable!() };
+        Ok(Value::Integer(v as i64))
     } else {
         Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,

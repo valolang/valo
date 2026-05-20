@@ -179,6 +179,18 @@ pub(super) fn validate_expr(
             Ok(TypeName::User(class_sig.name.clone()))
         }
         ExprKind::Variable(name) => {
+            if let Some(var_type) = symbols.get(&key(name)).cloned() {
+                match var_type {
+                    VarType::Scalar(ty) | VarType::Optional(ty) | VarType::Const(ty) => return Ok(ty),
+                    VarType::Array(_) => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            format!("Array variable '{}' cannot be used as a scalar", name),
+                            Some(expr.span),
+                        ));
+                    }
+                }
+            }
             if name.eq_ignore_ascii_case("Err") {
                 return Ok(TypeName::Variant);
             }
@@ -188,26 +200,28 @@ pub(super) fn validate_expr(
             if name.eq_ignore_ascii_case("Console") {
                 return Ok(TypeName::Variant);
             }
-            match symbols.get(&key(name)).cloned() {
-                Some(VarType::Scalar(ty))
-                | Some(VarType::Optional(ty))
-                | Some(VarType::Const(ty)) => Ok(ty),
-                Some(VarType::Array(_)) => Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::ARRAY,
-                    format!("Array variable '{}' cannot be used as a scalar", name),
+            if name.eq_ignore_ascii_case("VBA") {
+                return Ok(TypeName::Variant);
+            }
+            let builtins = [
+                "vbBinaryCompare", "vbTextCompare",
+                "vbEmpty", "vbNull", "vbInteger", "vbLong", "vbSingle", "vbDouble",
+                "vbCurrency", "vbDate", "vbString", "vbObject", "vbError", "vbBoolean",
+                "vbVariant", "vbDataObject", "vbDecimal", "vbByte", "vbLongLong",
+                "vbUserDefinedType", "vbArray",
+                "VbMethod", "VbGet", "VbLet", "VbSet"
+            ];
+            if builtins.iter().any(|b| name.eq_ignore_ascii_case(b)) {
+                return Ok(TypeName::Integer);
+            }
+            if enum_member_value_type(name, types).is_some() {
+                Ok(TypeName::Integer)
+            } else {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Variable '{}' is not declared", name),
                     Some(expr.span),
-                )),
-                None => {
-                    if enum_member_value_type(name, types).is_some() {
-                        Ok(TypeName::Integer)
-                    } else {
-                        Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                            format!("Variable '{}' is not declared", name),
-                            Some(expr.span),
-                        ))
-                    }
-                }
+                ))
             }
         }
         ExprKind::MemberAccess { object, field } => {
@@ -260,8 +274,23 @@ pub(super) fn validate_expr(
             args,
         } => {
             if let ExprKind::Variable(name) = &object.kind
+                && name.eq_ignore_ascii_case("VBA")
+            {
+                if let Some(ty) =
+                    validate_builtin_function(method, args, symbols, types, signatures, expr.span)?
+                {
+                    return Ok(ty);
+                }
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Module 'VBA' has no member '{}'", method),
+                    Some(expr.span),
+                ));
+            }
+            if let ExprKind::Variable(name) = &object.kind
                 && name.eq_ignore_ascii_case("Err")
             {
+
                 if method.eq_ignore_ascii_case("Clear") && args.is_empty() {
                     return Ok(TypeName::Variant);
                 }
@@ -556,42 +585,71 @@ fn validate_builtin_function(
     signatures: &Signatures,
     span: crate::runtime::Span,
 ) -> Result<Option<TypeName>, Diagnostic> {
-    if name.eq_ignore_ascii_case("IsArray") {
-        validate_arg_count(name, args, 1, span)?;
+    // Handle VBA namespace fallback
+    let effective_name = if let Some(stripped) = name.strip_prefix("VBA.") {
+        stripped
+    } else {
+        name
+    };
+
+    if effective_name.eq_ignore_ascii_case("IsArray") {
+        validate_arg_count(effective_name, args, 1, span)?;
         if validate_array_expr(&args[0], symbols, types, signatures).is_err() {
             validate_expr(&args[0], symbols, types, signatures)?;
         }
         return Ok(Some(TypeName::Boolean));
     }
-    let boolean_one_arg = ["IsObject", "IsNull", "IsError"];
+    let boolean_one_arg = ["IsObject", "IsNull", "IsError", "IsEmpty"];
     if boolean_one_arg
         .iter()
-        .any(|builtin| name.eq_ignore_ascii_case(builtin))
+        .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
     {
-        validate_arg_count(name, args, 1, span)?;
+        validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures)?;
         return Ok(Some(TypeName::Boolean));
     }
-    if name.eq_ignore_ascii_case("VarType")
-        || name.eq_ignore_ascii_case("Sgn")
-        || name.eq_ignore_ascii_case("Int")
+    if effective_name.eq_ignore_ascii_case("IsMissing") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        let arg = &args[0];
+        if let ExprKind::Variable(name) = &arg.kind {
+            if let Some(var_type) = symbols.get(&key(name)) {
+                if !matches!(var_type, VarType::Optional(_)) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        "IsMissing requires an optional parameter name",
+                        Some(arg.span),
+                    ));
+                }
+            }
+        } else {
+             return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "IsMissing requires an optional parameter name",
+                Some(arg.span),
+            ));
+        }
+        return Ok(Some(TypeName::Boolean));
+    }
+    if effective_name.eq_ignore_ascii_case("VarType")
+        || effective_name.eq_ignore_ascii_case("Sgn")
+        || effective_name.eq_ignore_ascii_case("Int")
     {
-        validate_arg_count(name, args, 1, span)?;
+        validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures)?;
         return Ok(Some(TypeName::Integer));
     }
-    if name.eq_ignore_ascii_case("TypeName") || name.eq_ignore_ascii_case("CStr") {
-        validate_arg_count(name, args, 1, span)?;
+    if effective_name.eq_ignore_ascii_case("TypeName") || effective_name.eq_ignore_ascii_case("CStr") {
+        validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures)?;
         return Ok(Some(TypeName::String));
     }
-    if name.eq_ignore_ascii_case("Array") {
+    if effective_name.eq_ignore_ascii_case("Array") {
         for arg in args {
             validate_expr(arg, symbols, types, signatures)?;
         }
         return Ok(Some(TypeName::Variant));
     }
-    if name.eq_ignore_ascii_case("Split") {
+    if effective_name.eq_ignore_ascii_case("Split") {
         if args.is_empty() || args.len() > 2 {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
@@ -605,7 +663,7 @@ fn validate_builtin_function(
         }
         return Ok(Some(TypeName::Variant));
     }
-    if name.eq_ignore_ascii_case("Join") {
+    if effective_name.eq_ignore_ascii_case("Join") {
         if args.is_empty() || args.len() > 2 {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
@@ -619,7 +677,7 @@ fn validate_builtin_function(
         }
         return Ok(Some(TypeName::String));
     }
-    if name.eq_ignore_ascii_case("Filter") {
+    if effective_name.eq_ignore_ascii_case("Filter") {
         if args.len() < 2 || args.len() > 4 {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
@@ -637,8 +695,8 @@ fn validate_builtin_function(
         }
         return Ok(Some(TypeName::Variant));
     }
-    if name.eq_ignore_ascii_case("IIf") {
-        validate_arg_count(name, args, 3, span)?;
+    if effective_name.eq_ignore_ascii_case("IIf") {
+        validate_arg_count(effective_name, args, 3, span)?;
         ensure_assignable(
             &TypeName::Boolean,
             &validate_expr(&args[0], symbols, types, signatures)?,
@@ -648,7 +706,7 @@ fn validate_builtin_function(
         validate_expr(&args[2], symbols, types, signatures)?;
         return Ok(Some(TypeName::Variant));
     }
-    if name.eq_ignore_ascii_case("StrComp") {
+    if effective_name.eq_ignore_ascii_case("StrComp") {
         if args.len() < 2 || args.len() > 3 {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
@@ -667,6 +725,46 @@ fn validate_builtin_function(
         }
         return Ok(Some(TypeName::Integer));
     }
+    if effective_name.eq_ignore_ascii_case("Randomize") {
+        if args.len() > 1 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Randomize expects at most 1 argument",
+                Some(span),
+            ));
+        }
+        if !args.is_empty() {
+            validate_expr(&args[0], symbols, types, signatures)?;
+        }
+        return Ok(Some(TypeName::Variant));
+    }
+    if effective_name.eq_ignore_ascii_case("Rnd") {
+        if args.len() > 1 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Rnd expects at most 1 argument",
+                Some(span),
+            ));
+        }
+        if !args.is_empty() {
+            validate_expr(&args[0], symbols, types, signatures)?;
+        }
+        return Ok(Some(TypeName::Double));
+    }
+    if effective_name.eq_ignore_ascii_case("CallByName") {
+        if args.len() < 3 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "CallByName expects at least 3 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures)?;
+        }
+        return Ok(Some(TypeName::Variant));
+    }
+
     Ok(None)
 }
 
@@ -1203,7 +1301,7 @@ pub(super) fn ensure_known_type(
     span: crate::runtime::Span,
 ) -> Result<(), Diagnostic> {
     match ty {
-        TypeName::String | TypeName::Integer | TypeName::Boolean | TypeName::Variant => Ok(()),
+        TypeName::String | TypeName::Integer | TypeName::Double | TypeName::Boolean | TypeName::Variant => Ok(()),
         TypeName::User(name) => {
             if name.eq_ignore_ascii_case("Object") || types.contains(name) {
                 Ok(())
@@ -1424,6 +1522,8 @@ pub(super) fn ensure_assignable(
     if target.same_type(&TypeName::Variant)
         || source.same_type(&TypeName::Variant)
         || target.same_type(source)
+        || (target.same_type(&TypeName::Double) && source.same_type(&TypeName::Integer))
+        || (target.same_type(&TypeName::Integer) && source.same_type(&TypeName::Double))
         || matches!(target, TypeName::User(name) if name.rsplit('.').next().is_some_and(|name| name.eq_ignore_ascii_case("Object")))
             && matches!(source, TypeName::User(_))
     {

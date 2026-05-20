@@ -1,8 +1,8 @@
+use crate::runtime::{Diagnostic, Value};
+use crate::Expr;
 use super::super::Frame;
 use super::super::Interpreter;
 use super::expect_arg_count;
-use crate::Expr;
-use crate::runtime::{Diagnostic, Value};
 
 pub(crate) fn eval_types(
     interpreter: &mut Interpreter,
@@ -28,6 +28,11 @@ pub(crate) fn eval_types(
         expect_arg_count(name, args, 1, span)?;
         let value = interpreter.eval_expr(&args[0], frame)?;
         return Ok(Some(Value::Boolean(matches!(value, Value::Null))));
+    }
+    if name.eq_ignore_ascii_case("IsEmpty") {
+        expect_arg_count(name, args, 1, span)?;
+        let value = interpreter.eval_expr(&args[0], frame)?;
+        return Ok(Some(Value::Boolean(matches!(value, Value::Empty))));
     }
     if name.eq_ignore_ascii_case("IsError") {
         expect_arg_count(name, args, 1, span)?;
@@ -58,6 +63,7 @@ fn vartype(value: &Value) -> i64 {
         Value::Empty => 0,
         Value::Null => 1,
         Value::Integer(_) => 2,
+        Value::Double(_) => 5,
         Value::String(_) => 8,
         Value::Object(_) | Value::Nothing => 9,
         Value::Boolean(_) => 11,
@@ -71,6 +77,7 @@ fn value_type_name(value: &Value) -> String {
         Value::Empty => "Empty".to_string(),
         Value::Null => "Null".to_string(),
         Value::Integer(_) => "Integer".to_string(),
+        Value::Double(_) => "Double".to_string(),
         Value::String(_) => "String".to_string(),
         Value::Object(object) => object.borrow().class_name.clone(),
         Value::Nothing => "Nothing".to_string(),

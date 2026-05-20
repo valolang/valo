@@ -175,6 +175,11 @@ impl Interpreter {
                 Ok(ControlFlow::Continue)
             }
             Stmt::SubCall { name, args, span } => {
+                if let Some(flow) =
+                    super::builtins::dispatch_stmt(self, "VBA", name, args, frame, *span)?
+                {
+                    return Ok(flow);
+                }
                 self.call_sub(name, args, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }

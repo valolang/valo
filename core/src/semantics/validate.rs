@@ -105,7 +105,7 @@ pub fn validate_project(project: &crate::modules::Project) -> Result<(), Diagnos
 fn validate_module(program: &Program, require_main: bool) -> Result<(), Diagnostic> {
     let types = collect_types(program)?;
     let signatures = collect_signatures(program, &types)?;
-    let _module_symbols = collect_module_symbols(program, &types, &signatures)?;
+    let module_symbols = collect_module_symbols(program, &types, &signatures)?;
     let main = program
         .procedures
         .iter()
@@ -126,9 +126,20 @@ fn validate_module(program: &Program, require_main: bool) -> Result<(), Diagnost
             Some(main.span),
         ));
     }
+
+    for procedure in &program.procedures {
+        validate_procedure(procedure, &types, &signatures, &module_symbols)?;
+    }
+
+    for function in &program.functions {
+        validate_function(function, &types, &signatures, &module_symbols)?;
+    }
+
+    for class_decl in &program.classes {
+        validate_class(class_decl, &types, &signatures, &module_symbols)?;
+    }
     // Project validation currently verifies declarations, import graph, and entry
-    // shape. Body-level cross-module checking is intentionally left to runtime
-    // resolution for the import MVP so the single-file validator remains intact.
+    // shape.
     Ok(())
 }
 

@@ -55,6 +55,11 @@ impl Interpreter {
             ExprKind::Variable(name) => {
                 if name.eq_ignore_ascii_case("Erl") {
                     Ok(Value::Integer(self.erl))
+                } else if name.eq_ignore_ascii_case("VBA")
+                    || name.eq_ignore_ascii_case("Console")
+                    || name.eq_ignore_ascii_case("Err")
+                {
+                    Ok(Value::Empty)
                 } else if let Some(value) = self.enum_members.get(&super::values::key(name)) {
                     Ok(Value::Integer(*value))
                 } else {
@@ -73,11 +78,19 @@ impl Interpreter {
                 }
             }
             ExprKind::MemberAccess { object, field } => {
-                if let ExprKind::Variable(name) = &object.kind
-                    && name.eq_ignore_ascii_case("Err")
-                    && let Some(val) = super::builtins::err::eval_err(self, field, expr.span)?
-                {
-                    return Ok(val);
+                if let ExprKind::Variable(name) = &object.kind {
+                    if name.eq_ignore_ascii_case("Err")
+                        && let Some(val) = super::builtins::err::eval_err(self, field, expr.span)?
+                    {
+                        return Ok(val);
+                    }
+                    if name.eq_ignore_ascii_case("VBA")
+                        || name.eq_ignore_ascii_case("Console")
+                    {
+                         // VBA doesn't have fields in our current builtin model, but we handle it here
+                         // to prevent it being treated as a potential module qualifier that might fail later.
+                         // Actually dispatch_function handles it for MemberCall.
+                    }
                 }
                 if let ExprKind::Variable(enum_name) = &object.kind
                     && let Some(enum_) = self.enums.get(&super::values::key(enum_name))

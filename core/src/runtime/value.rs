@@ -3,10 +3,11 @@ use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 use crate::TypeName;
 use crate::runtime::ArrayBound;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     String(String),
     Integer(i64),
+    Double(f64),
     Boolean(bool),
     Array {
         element_type: TypeName,
@@ -25,7 +26,7 @@ pub enum Value {
     Empty,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ObjectValue {
     pub class_name: String,
     pub fields: HashMap<String, Value>,
@@ -55,6 +56,7 @@ impl Value {
         match self {
             Value::String(_) => TypeName::String,
             Value::Integer(_) => TypeName::Integer,
+            Value::Double(_) => TypeName::Double,
             Value::Boolean(_) => TypeName::Boolean,
             Value::Array { .. } => TypeName::Variant,
             Value::Record { type_name, .. } => TypeName::User(type_name.clone()),
@@ -68,6 +70,7 @@ impl Value {
         match self {
             Value::Boolean(value) => *value,
             Value::Integer(value) => *value != 0,
+            Value::Double(value) => *value != 0.0,
             Value::String(value) => !value.is_empty(),
             Value::Array {
                 elements,
@@ -85,6 +88,7 @@ impl Value {
         match self {
             Value::String(value) => value.clone(),
             Value::Integer(value) => value.to_string(),
+            Value::Double(value) => value.to_string(),
             Value::Boolean(value) => {
                 if *value {
                     "True".to_string()

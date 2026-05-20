@@ -5,3 +5,5 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
+rand = "0.8"
+rand_pcg = "0.3"

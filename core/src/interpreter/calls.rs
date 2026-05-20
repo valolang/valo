@@ -525,6 +525,16 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
+        // Handle VBA namespace: VBA.Join etc.
+        // VBA evaluates to Empty in our current implementation of global objects.
+        if matches!(object, Value::Empty) {
+            if let Some(val) =
+                super::builtins::dispatch_function(self, method, args, caller_frame, span)?
+            {
+                return Ok(val);
+            }
+        }
+
         let instance = ensure_object(object.clone(), span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self

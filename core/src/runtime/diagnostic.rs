@@ -182,7 +182,7 @@ impl fmt::Display for Severity {
 /// V1000 name/declaration/member lookup, V1100 typing/assignment,
 /// V1200 arrays, V1300 control flow, and V9000 runtime execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DiagnosticCode(&'static str);
+pub struct DiagnosticCode(pub &'static str);
 
 impl DiagnosticCode {
     pub const GENERIC: Self = Self("V0001");

@@ -622,6 +622,9 @@ impl Parser {
                 if name.eq_ignore_ascii_case("Long") {
                     return Ok(TypeName::Integer);
                 }
+                if name.eq_ignore_ascii_case("Double") {
+                    return Ok(TypeName::Double);
+                }
                 if name.eq_ignore_ascii_case("Object") {
                     return Ok(TypeName::User("Object".to_string()));
                 }

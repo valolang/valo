@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use rand::SeedableRng;
+use rand_pcg::Pcg64;
 
 use crate::runtime::{Diagnostic, Value};
 use crate::{Function, Procedure, Program};
@@ -8,7 +10,7 @@ use super::records::RuntimeType;
 use super::values::key;
 use super::{ControlFlow, Frame, RuntimeClass, RuntimeEnum};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Interpreter {
     pub(crate) types: HashMap<String, RuntimeType>,
     pub(crate) enums: HashMap<String, RuntimeEnum>,
@@ -39,6 +41,44 @@ pub struct Interpreter {
     pub(crate) public_types: HashSet<String>,
     pub(crate) public_enums: HashSet<String>,
     pub(crate) public_values: HashMap<String, Vec<String>>,
+    pub(crate) rng: Pcg64,
+}
+
+impl Default for Interpreter {
+    fn default() -> Self {
+        Self {
+            types: HashMap::new(),
+            enums: HashMap::new(),
+            enum_members: HashMap::new(),
+            classes: HashMap::new(),
+            procedures: HashMap::new(),
+            functions: HashMap::new(),
+            output: Vec::new(),
+            option_base: 0,
+            option_compare: crate::OptionCompare::Binary,
+            call_stack: Vec::new(),
+            scope_stack: Vec::new(),
+            static_frames: HashMap::new(),
+            err_number: 0,
+            err_description: String::new(),
+            err_source: String::new(),
+            err_help_file: String::new(),
+            err_help_context: 0,
+            erl: 0,
+            module_frames: HashMap::new(),
+            module_imports: HashMap::new(),
+            function_modules: HashMap::new(),
+            sub_modules: HashMap::new(),
+            class_modules: HashMap::new(),
+            type_modules: HashMap::new(),
+            enum_modules: HashMap::new(),
+            public_classes: HashSet::new(),
+            public_types: HashSet::new(),
+            public_enums: HashSet::new(),
+            public_values: HashMap::new(),
+            rng: Pcg64::from_entropy(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -51,10 +91,48 @@ impl Interpreter {
     pub fn new() -> Self {
         let mut interpreter = Self {
             option_compare: crate::OptionCompare::Binary,
+            rng: Pcg64::from_entropy(),
             ..Self::default()
         };
         interpreter.add_builtin_classes();
+        interpreter.add_vba_constants();
         interpreter
+    }
+
+    fn add_vba_constants(&mut self) {
+        let constants = [
+            ("vbBinaryCompare", 0),
+            ("vbTextCompare", 1),
+            // VarType
+            ("vbEmpty", 0),
+            ("vbNull", 1),
+            ("vbInteger", 2),
+            ("vbLong", 3),
+            ("vbSingle", 4),
+            ("vbDouble", 5),
+            ("vbCurrency", 6),
+            ("vbDate", 7),
+            ("vbString", 8),
+            ("vbObject", 9),
+            ("vbError", 10),
+            ("vbBoolean", 11),
+            ("vbVariant", 12),
+            ("vbDataObject", 13),
+            ("vbDecimal", 14),
+            ("vbByte", 17),
+            ("vbLongLong", 20),
+            ("vbUserDefinedType", 36),
+            ("vbArray", 8192),
+            // CallByName
+            ("VbMethod", 1),
+            ("VbGet", 2),
+            ("VbLet", 4),
+            ("VbSet", 8),
+        ];
+
+        for (name, value) in constants {
+            self.enum_members.insert(key(name), value);
+        }
     }
 
     fn add_builtin_classes(&mut self) {
