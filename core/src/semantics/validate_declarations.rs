@@ -18,6 +18,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         visibility: Visibility::Public,
                         with_events: false,
                         ty: TypeName::Integer,
+                        array: None,
                     },
                 );
                 f.insert(
@@ -26,6 +27,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         visibility: Visibility::Public,
                         with_events: false,
                         ty: TypeName::String,
+                        array: None,
                     },
                 );
                 f.insert(
@@ -34,6 +36,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         visibility: Visibility::Public,
                         with_events: false,
                         ty: TypeName::String,
+                        array: None,
                     },
                 );
                 f.insert(
@@ -42,6 +45,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         visibility: Visibility::Public,
                         with_events: false,
                         ty: TypeName::String,
+                        array: None,
                     },
                 );
                 f.insert(
@@ -50,6 +54,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         visibility: Visibility::Public,
                         with_events: false,
                         ty: TypeName::String,
+                        array: None,
                     },
                 );
                 f.insert(
@@ -58,6 +63,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         visibility: Visibility::Public,
                         with_events: false,
                         ty: TypeName::Integer,
+                        array: None,
                     },
                 );
                 f
@@ -194,6 +200,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             visibility: field.visibility,
                             with_events: field.with_events,
                             ty: field.ty.clone(),
+                            array: field.array.clone(),
                         },
                     );
                 }

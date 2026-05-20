@@ -87,12 +87,14 @@ pub(super) fn validate_statements(
                 let target_type = validate_assignment_target(
                     target, &expr_type, symbols, types, signatures, &context,
                 )?;
-                ensure_class_type(
-                    &target_type,
-                    types,
-                    *span,
-                    "Set target must be a class type",
-                )?;
+                if !target_type.same_type(&TypeName::Variant) {
+                    ensure_class_type(
+                        &target_type,
+                        types,
+                        *span,
+                        "Set target must be a class type",
+                    )?;
+                }
                 ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
             }
             Stmt::ConsoleWriteLine { args, .. } => {
@@ -434,20 +436,13 @@ pub(super) fn validate_statements(
                 )?;
             }
             Stmt::ReDim {
-                name,
+                target,
                 dims,
                 preserve,
                 span,
                 ..
             } => {
-                let Some(var_type) = symbols.get(&key(name)).cloned() else {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                        format!("Variable '{}' is not declared", name),
-                        Some(*span),
-                    ));
-                };
-                if !matches!(var_type, VarType::Array(_)) {
+                if !redim_target_is_dynamic_array(target, symbols, types, signatures, &context)? {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
                         "ReDim target must be a dynamic array",
@@ -455,17 +450,15 @@ pub(super) fn validate_statements(
                     ));
                 }
                 for (lower, upper) in dims {
-                    ensure_assignable(
-                        &TypeName::Integer,
-                        &validate_expr(upper, symbols, types, signatures)?,
-                        upper.span,
-                    )?;
+                    let upper_type = class_field_expr_type(upper, symbols, types, &context)
+                        .map(Ok)
+                        .unwrap_or_else(|| validate_expr(upper, symbols, types, signatures))?;
+                    ensure_assignable(&TypeName::Integer, &upper_type, upper.span)?;
                     if let Some(lower) = lower {
-                        ensure_assignable(
-                            &TypeName::Integer,
-                            &validate_expr(lower, symbols, types, signatures)?,
-                            lower.span,
-                        )?;
+                        let lower_type = class_field_expr_type(lower, symbols, types, &context)
+                            .map(Ok)
+                            .unwrap_or_else(|| validate_expr(lower, symbols, types, signatures))?;
+                        ensure_assignable(&TypeName::Integer, &lower_type, lower.span)?;
                     }
                 }
                 if *preserve && dims.len() > 1 {
@@ -686,6 +679,58 @@ fn class_field_expr_type(
         .fields
         .get(&key(name))
         .map(|field| field.ty.clone())
+}
+
+fn redim_target_is_dynamic_array(
+    target: &ReDimTarget,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+    context: &Context<'_>,
+) -> Result<bool, Diagnostic> {
+    match target {
+        ReDimTarget::Variable { name, span } => {
+            if let Some(var_type) = symbols.get(&key(name)).cloned() {
+                return Ok(matches!(var_type, VarType::Array(_)));
+            }
+            let Some(class_name) = context.current_class() else {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Variable '{}' is not declared", name),
+                    Some(*span),
+                ));
+            };
+            let class_sig = types
+                .get_class(class_name)
+                .expect("current class validated");
+            let Some(field_sig) = class_sig.fields.get(&key(name)) else {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Variable '{}' is not declared", name),
+                    Some(*span),
+                ));
+            };
+            Ok(matches!(field_sig.array, Some(ArrayDecl::Dynamic))
+                || field_sig.ty.same_type(&TypeName::Variant))
+        }
+        ReDimTarget::Member {
+            object,
+            field,
+            span,
+        } => {
+            let object_type = validate_expr(object, symbols, types, signatures)?;
+            let member_type =
+                member_read_type(&object_type, field, types, *span, context.current_class())?;
+            if let TypeName::User(class_name) = &object_type
+                && let Some(class_sig) = types.get_class(class_name)
+                && let Some(field_sig) = class_sig.fields.get(&key(field))
+            {
+                return Ok(matches!(field_sig.array, Some(ArrayDecl::Dynamic))
+                    || field_sig.ty.same_type(&TypeName::Variant));
+            }
+            Ok(member_type.same_type(&TypeName::Variant))
+        }
+    }
 }
 
 fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {

@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use crate::runtime::{Diagnostic, TypeName};
 use crate::{
-    AssignTarget, BinaryOp, CaseCompareOp, CaseItem, ClassMember, DoLoopCondition, ExitTarget,
-    Expr, ExprKind, Function, OnErrorMode, Parameter, PassingMode, Procedure, Program,
-    PropertyKind, ResumeTarget, Stmt, UnaryOp, Visibility,
+    ArrayDecl, AssignTarget, BinaryOp, CaseCompareOp, CaseItem, ClassMember, DoLoopCondition,
+    ExitTarget, Expr, ExprKind, Function, OnErrorMode, Parameter, PassingMode, Procedure, Program,
+    PropertyKind, ReDimTarget, ResumeTarget, Stmt, UnaryOp, Visibility,
 };
 
 use crate::semantics::context::Context;

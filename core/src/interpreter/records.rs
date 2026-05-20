@@ -117,6 +117,7 @@ impl From<&TypeDecl> for RuntimeType {
                 .map(|field| RuntimeField {
                     name: field.name.clone(),
                     ty: field.ty.clone(),
+                    array: None,
                     with_events: false,
                 })
                 .collect(),
@@ -128,5 +129,6 @@ impl From<&TypeDecl> for RuntimeType {
 pub(crate) struct RuntimeField {
     pub(crate) name: String,
     pub(crate) ty: TypeName,
+    pub(crate) array: Option<crate::ArrayDecl>,
     pub(crate) with_events: bool,
 }

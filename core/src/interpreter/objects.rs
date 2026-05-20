@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::runtime::{Diagnostic, EventBinding, ObjectValue, Span, Value};
-use crate::{ClassMember, Expr, ExprKind, Function, Procedure, PropertyKind};
+use crate::runtime::{Diagnostic, EventBinding, ObjectValue, Span, TypeName, Value};
+use crate::{ArrayDecl, ClassMember, Expr, ExprKind, Function, Procedure, PropertyKind};
 
-use super::arrays::array_element_mut;
+use super::arrays::{array_element_mut, read_array_element, redim_array, write_array_element};
 use super::frame::Variable;
 use super::properties::{RuntimeProperty, RuntimePropertyAccessor};
 use super::records::{RuntimeField, read_field_member, write_member};
@@ -13,6 +13,41 @@ use super::values::{default_value, key};
 use super::{Frame, Interpreter};
 
 impl Interpreter {
+    fn default_field_value(
+        &self,
+        ty: &TypeName,
+        array: &Option<ArrayDecl>,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        if let Some(array) = array {
+            let mut elements = Vec::new();
+            let mut bounds = Vec::new();
+            let allocated = match array {
+                ArrayDecl::Fixed(fixed_bounds) => {
+                    let mut total_len: usize = 1;
+                    for bound in fixed_bounds {
+                        total_len *= (bound.upper - bound.lower + 1) as usize;
+                        bounds.push(*bound);
+                    }
+                    for _ in 0..total_len {
+                        elements.push(default_value(ty, &self.types, &self.enums, span)?);
+                    }
+                    true
+                }
+                ArrayDecl::Dynamic => false,
+            };
+
+            return Ok(Value::Array {
+                element_type: ty.clone(),
+                elements,
+                bounds,
+                allocated,
+            });
+        }
+
+        default_value(ty, &self.types, &self.enums, span)
+    }
+
     pub(crate) fn raise_event(
         &mut self,
         name: &str,
@@ -88,10 +123,8 @@ impl Interpreter {
         let mut fields = HashMap::new();
         for field in &class.fields {
             let field_ty = self.resolve_type_name(&field.ty, caller_frame, span)?;
-            fields.insert(
-                key(&field.name),
-                default_value(&field_ty, &self.types, &self.enums, span)?,
-            );
+            let value = self.default_field_value(&field_ty, &field.array, span)?;
+            fields.insert(key(&field.name), value);
         }
         let object = Value::Object(Rc::new(RefCell::new(ObjectValue {
             class_name: class.name.clone(),
@@ -186,6 +219,12 @@ impl Interpreter {
                 for arg in args {
                     indices.push(frame.simple_index_value(arg, span)?);
                 }
+                if !frame.has_variable(name) {
+                    let owner = frame.get("me", span)?;
+                    return self.assign_member_to_bare_class_field_array_element(
+                        owner, name, &indices, member, value, span,
+                    );
+                }
                 let variable = frame.variable(name, target.span)?;
                 let mut root = variable.cell.borrow_mut();
                 let element = array_element_mut(&mut root, &indices, span)?;
@@ -247,6 +286,146 @@ impl Interpreter {
     ) -> Result<(), Diagnostic> {
         let mut owner_value = owner;
         self.write_object_member(&mut owner_value, field, value, span)
+    }
+
+    pub(crate) fn read_bare_class_field_array_element(
+        &mut self,
+        owner: Value,
+        field: &str,
+        indices: &[i64],
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let field_value = read_field_member(&owner, field, span)?;
+        read_array_element(&field_value, indices, span)
+    }
+
+    pub(crate) fn assign_bare_class_field_array_element(
+        &mut self,
+        owner: Value,
+        field: &str,
+        indices: &[i64],
+        value: Value,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let Value::Object(object) = owner else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Class field assignment requires an object",
+                Some(span),
+            ));
+        };
+        let mut object = object.borrow_mut();
+        let Some(slot) = object.fields.get_mut(&key(field)) else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Class '{}' has no field '{}'", object.class_name, field),
+                Some(span),
+            ));
+        };
+        write_array_element(slot, indices, value, span)
+    }
+
+    pub(crate) fn assign_member_to_bare_class_field_array_element(
+        &mut self,
+        owner: Value,
+        field: &str,
+        indices: &[i64],
+        member: &str,
+        value: Value,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Value::Object(object) = owner else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Class field assignment requires an object",
+                Some(span),
+            ));
+        };
+        let mut object_ref = object.borrow_mut();
+        let class_name = object_ref.class_name.clone();
+        let Some(slot) = object_ref.fields.get_mut(&key(field)) else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Class '{}' has no field '{}'", class_name, field),
+                Some(span),
+            ));
+        };
+        let element = array_element_mut(slot, indices, span)?;
+        if object_has_field(element, member) || !matches!(element, Value::Object(_)) {
+            let old = write_member(element, member, value, span)?;
+            drop(object_ref);
+            self.maybe_terminate(old, span)?;
+            return Ok(());
+        }
+        let target = element.clone();
+        drop(object_ref);
+        self.call_property_set(target, member, value, span)
+    }
+
+    pub(crate) fn redim_target(
+        &mut self,
+        target: &crate::ReDimTarget,
+        new_bounds: Vec<crate::runtime::ArrayBound>,
+        preserve: bool,
+        frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match target {
+            crate::ReDimTarget::Variable { name, .. } => {
+                if frame.has_variable(name) {
+                    frame.redim_array(name, new_bounds, preserve, &self.types, &self.enums, span)
+                } else {
+                    let owner = frame.get("me", span)?;
+                    self.redim_value_member(owner, name, new_bounds, preserve, span)
+                }
+            }
+            crate::ReDimTarget::Member { object, field, .. } => {
+                let target_value = self.eval_expr(object, frame)?;
+                self.redim_value_member(target_value, field, new_bounds, preserve, span)
+            }
+        }
+    }
+
+    fn redim_value_member(
+        &mut self,
+        target: Value,
+        field: &str,
+        new_bounds: Vec<crate::runtime::ArrayBound>,
+        preserve: bool,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Value::Object(object) = target else {
+            if matches!(target, Value::Nothing) {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    "Object reference is Nothing",
+                    Some(span),
+                ));
+            }
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "ReDim member target requires an object",
+                Some(span),
+            ));
+        };
+        let mut object = object.borrow_mut();
+        let class_name = object.class_name.clone();
+        let Some(slot) = object.fields.get_mut(&key(field)) else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Class '{}' has no field '{}'", class_name, field),
+                Some(span),
+            ));
+        };
+        if matches!(slot, Value::Empty | Value::Null | Value::Missing) {
+            *slot = Value::Array {
+                element_type: TypeName::Variant,
+                elements: Vec::new(),
+                bounds: Vec::new(),
+                allocated: false,
+            };
+        }
+        redim_array(slot, new_bounds, preserve, &self.types, &self.enums, span)
     }
 
     fn write_object_member(
@@ -329,6 +508,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                 ClassMember::Field(field) => fields.push(RuntimeField {
                     name: field.name.clone(),
                     ty: field.ty.clone(),
+                    array: field.array.clone(),
                     with_events: field.with_events,
                 }),
                 ClassMember::Event(event) => {

@@ -38,6 +38,168 @@ End Sub
 }
 
 #[test]
+fn redim_bare_variant_class_field_resizes_and_persists() {
+    let output = run_source(
+        r#"
+Class Inventory
+    Private names As Variant
+
+    Public Constructor()
+        ReDim names(0 To 2)
+        names(0) = "bolt"
+        names(1) = "nut"
+        names(2) = "washer"
+    End Constructor
+
+    Public Function Item(ByVal index As Integer) As Variant
+        Item = names(index)
+    End Function
+End Class
+
+Sub Main()
+    Dim inventory As New Inventory
+    Console.WriteLine(inventory.Item(0))
+    Console.WriteLine(inventory.Item(2))
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["bolt", "washer"]);
+}
+
+#[test]
+fn redim_preserve_bare_class_field_keeps_contents() {
+    let output = run_source(
+        r#"
+Class Inventory
+    Private names As Variant
+
+    Public Constructor()
+        ReDim names(0 To 1)
+        names(0) = "first"
+        names(1) = "second"
+        ReDim Preserve names(0 To 3)
+        names(2) = "third"
+    End Constructor
+
+    Public Function Item(ByVal index As Integer) As Variant
+        Item = names(index)
+    End Function
+
+    Public Function Count() As Integer
+        Count = UBound(names) + 1
+    End Function
+End Class
+
+Sub Main()
+    Dim inventory As New Inventory
+    Console.WriteLine(inventory.Item(0))
+    Console.WriteLine(inventory.Item(1))
+    Console.WriteLine(inventory.Item(2))
+    Console.WriteLine(inventory.Count())
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["first", "second", "third", "4"]);
+}
+
+#[test]
+fn redim_me_field_supported_for_variant_class_field() {
+    let output = run_source(
+        r#"
+Class Inventory
+    Private names As Variant
+
+    Public Constructor()
+        ReDim Me.names(0 To 0)
+        names(0) = "direct"
+    End Constructor
+
+    Public Function First() As Variant
+        First = names(0)
+    End Function
+End Class
+
+Sub Main()
+    Dim inventory As New Inventory
+    Console.WriteLine(inventory.First())
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["direct"]);
+}
+
+#[test]
+fn dynamic_variant_class_field_matches_exported_cls_items_pattern() {
+    let output = run_source(
+        r#"
+Class Bag
+    Private pItems() As Variant
+    Private pCapacity As Long
+
+    Private Sub Class_Initialize()
+        pCapacity = 8
+        ReDim pItems(0 To pCapacity - 1)
+        pItems(0) = "seed"
+        ReDim Preserve pItems(0 To pCapacity)
+        pItems(8) = "extra"
+    End Sub
+
+    Public Function First() As Variant
+        First = pItems(0)
+    End Function
+
+    Public Function Last() As Variant
+        Last = pItems(8)
+    End Function
+End Class
+
+Sub Main()
+    Dim bag As New Bag
+    Console.WriteLine(bag.First())
+    Console.WriteLine(bag.Last())
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["seed", "extra"]);
+}
+
+#[test]
+fn set_assignment_to_variant_field_array_element_works() {
+    let output = run_source(
+        r#"
+Class Item
+    Public Name As String
+End Class
+
+Class Bag
+    Private pItems() As Variant
+
+    Private Sub Class_Initialize()
+        ReDim pItems(0 To 0)
+        Set pItems(0) = New Item()
+        pItems(0).Name = "stored"
+    End Sub
+
+    Public Function FirstName() As String
+        FirstName = pItems(0).Name
+    End Function
+End Class
+
+Sub Main()
+    Dim bag As New Bag
+    Console.WriteLine(bag.FirstName())
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["stored"]);
+}
+
+#[test]
 fn runtime_diagnostics_include_stack_context_when_available() {
     let source = r#"
 Sub Boom()

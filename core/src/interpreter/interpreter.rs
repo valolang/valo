@@ -144,31 +144,37 @@ impl Interpreter {
                     crate::interpreter::records::RuntimeField {
                         name: "Number".to_string(),
                         ty: crate::runtime::TypeName::Integer,
+                        array: None,
                         with_events: false,
                     },
                     crate::interpreter::records::RuntimeField {
                         name: "Message".to_string(),
                         ty: crate::runtime::TypeName::String,
+                        array: None,
                         with_events: false,
                     },
                     crate::interpreter::records::RuntimeField {
                         name: "Description".to_string(),
                         ty: crate::runtime::TypeName::String,
+                        array: None,
                         with_events: false,
                     },
                     crate::interpreter::records::RuntimeField {
                         name: "Source".to_string(),
                         ty: crate::runtime::TypeName::String,
+                        array: None,
                         with_events: false,
                     },
                     crate::interpreter::records::RuntimeField {
                         name: "HelpFile".to_string(),
                         ty: crate::runtime::TypeName::String,
+                        array: None,
                         with_events: false,
                     },
                     crate::interpreter::records::RuntimeField {
                         name: "HelpContext".to_string(),
                         ty: crate::runtime::TypeName::Integer,
+                        array: None,
                         with_events: false,
                     },
                 ],

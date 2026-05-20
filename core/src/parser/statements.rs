@@ -919,7 +919,39 @@ impl Parser {
             .expect_simple(TokenKind::ReDim, "Expected 'ReDim'")?
             .span;
         let preserve = self.match_simple(&TokenKind::Preserve);
-        let name = self.expect_identifier("Expected array name after 'ReDim'")?;
+        let target_start = self.peek().span;
+        let target = if self.match_simple(&TokenKind::Me) {
+            let object = Expr {
+                kind: ExprKind::Me,
+                span: target_start,
+            };
+            self.expect_simple(TokenKind::Dot, "Expected '.' after 'Me' in ReDim target")?;
+            let field = self.expect_identifier("Expected field name after 'Me.'")?;
+            ReDimTarget::Member {
+                object,
+                field,
+                span: Span::new(target_start.start, self.previous().span.end),
+            }
+        } else {
+            let name = self.expect_identifier("Expected array name after 'ReDim'")?;
+            if self.match_simple(&TokenKind::Dot) {
+                let object = Expr {
+                    kind: ExprKind::Variable(name),
+                    span: target_start,
+                };
+                let field = self.expect_identifier("Expected field name after '.'")?;
+                ReDimTarget::Member {
+                    object,
+                    field,
+                    span: Span::new(target_start.start, self.previous().span.end),
+                }
+            } else {
+                ReDimTarget::Variable {
+                    name,
+                    span: target_start,
+                }
+            }
+        };
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after array name")?;
         let mut dims = Vec::new();
         loop {
@@ -937,7 +969,7 @@ impl Parser {
         self.expect_simple(TokenKind::RightParen, "Expected ')' after array dimensions")?;
         let end = self.previous().span;
         Ok(Stmt::ReDim {
-            name,
+            target,
             dims,
             preserve,
             span: Span::new(start.start, end.end),

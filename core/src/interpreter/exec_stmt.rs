@@ -386,7 +386,7 @@ impl Interpreter {
                 Ok(ControlFlow::Continue)
             }
             Stmt::ReDim {
-                name,
+                target,
                 dims,
                 preserve,
                 span,
@@ -416,7 +416,7 @@ impl Interpreter {
                     }
                     new_bounds.push(crate::runtime::ArrayBound { lower, upper });
                 }
-                frame.redim_array(name, new_bounds, *preserve, &self.types, &self.enums, *span)?;
+                self.redim_target(target, new_bounds, *preserve, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::Erase { name, span } => {
@@ -571,7 +571,12 @@ impl Interpreter {
                         "Array index must be Integer",
                     )?);
                 }
-                let old = frame.assign_array_element(name, &dims, value, span)?;
+                let old = if frame.has_variable(name) {
+                    frame.assign_array_element(name, &dims, value, span)?
+                } else {
+                    let owner = frame.get("me", span)?;
+                    self.assign_bare_class_field_array_element(owner, name, &dims, value, span)?
+                };
                 self.maybe_terminate(old, span)
             }
             AssignTarget::Member { object, field, .. } => {

@@ -98,7 +98,7 @@ pub enum Stmt {
         span: Span,
     },
     ReDim {
-        name: String,
+        target: ReDimTarget,
         dims: Vec<(Option<Expr>, Expr)>,
         preserve: bool,
         span: Span,
@@ -188,6 +188,28 @@ pub enum AssignTarget {
         field: String,
         span: Span,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReDimTarget {
+    Variable {
+        name: String,
+        span: Span,
+    },
+    Member {
+        object: Expr,
+        field: String,
+        span: Span,
+    },
+}
+
+impl ReDimTarget {
+    pub fn name(&self) -> &str {
+        match self {
+            ReDimTarget::Variable { name, .. } => name,
+            ReDimTarget::Member { field, .. } => field,
+        }
+    }
 }
 
 impl AssignTarget {

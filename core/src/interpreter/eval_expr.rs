@@ -236,6 +236,20 @@ impl Interpreter {
                         }
                     }
                 }
+                if let Ok(me) = frame.get("me", expr.span)
+                    && let Ok(field_value) = self.read_member(&me, name, frame, expr.span)
+                    && matches!(field_value, Value::Array { .. })
+                {
+                    let mut dims = Vec::new();
+                    for arg in args {
+                        dims.push(self.eval_integer_expr(
+                            arg,
+                            frame,
+                            "Array index must be Integer",
+                        )?);
+                    }
+                    return self.read_bare_class_field_array_element(me, name, &dims, expr.span);
+                }
                 self.call_function(name, args, frame, expr.span)
             }
             ExprKind::MemberCall {

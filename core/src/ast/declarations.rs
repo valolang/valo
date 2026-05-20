@@ -112,6 +112,7 @@ pub struct ClassField {
     pub with_events: bool,
     pub name: String,
     pub ty: TypeName,
+    pub array: Option<super::ArrayDecl>,
     pub span: Span,
 }
 

@@ -53,7 +53,32 @@ pub(super) fn validate_assignment_target(
             indices,
             span,
         } => {
-            let Some(var_type) = symbols.get(&key(name)).cloned() else {
+            let var_type = if let Some(var_type) = symbols.get(&key(name)).cloned() {
+                var_type
+            } else if let Some(class_name) = context.current_class() {
+                let class_sig = types
+                    .get_class(class_name)
+                    .expect("current class validated");
+                if let Some(field_sig) = class_sig.fields.get(&key(name)) {
+                    if field_sig.array.is_some() {
+                        VarType::Array(field_sig.ty.clone())
+                    } else if field_sig.ty.same_type(&TypeName::Variant) {
+                        VarType::Scalar(TypeName::Variant)
+                    } else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            format!("Variable '{}' is not an array", name),
+                            Some(*span),
+                        ));
+                    }
+                } else {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Variable '{}' is not declared", name),
+                        Some(*span),
+                    ));
+                }
+            } else {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                     format!("Variable '{}' is not declared", name),
@@ -244,6 +269,19 @@ pub(super) fn validate_expr(
             ];
             if builtins.iter().any(|b| name.eq_ignore_ascii_case(b)) {
                 return Ok(TypeName::Integer);
+            }
+            if let Some(VarType::Scalar(TypeName::User(class_name))) = symbols.get("me").cloned()
+                && let Some(class_sig) = types.get_class(&class_name)
+                && let Some(field_sig) = class_sig.fields.get(&key(name))
+            {
+                if field_sig.array.is_some() {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        format!("Array variable '{}' cannot be used as a scalar", name),
+                        Some(expr.span),
+                    ));
+                }
+                return Ok(field_sig.ty.clone());
             }
             if enum_member_value_type(name, types).is_some() {
                 Ok(TypeName::Integer)
@@ -457,6 +495,27 @@ pub(super) fn validate_expr(
                     }
                 }
             }
+            if let Some(VarType::Scalar(TypeName::User(class_name))) = symbols.get("me").cloned()
+                && let Some(class_sig) = types.get_class(&class_name)
+                && let Some(field_sig) = class_sig.fields.get(&key(name))
+            {
+                if field_sig.array.is_some() {
+                    for arg in args {
+                        ensure_assignable(
+                            &TypeName::Integer,
+                            &validate_expr(arg, symbols, types, signatures)?,
+                            arg.span,
+                        )?;
+                    }
+                    return Ok(field_sig.ty.clone());
+                }
+                if field_sig.ty.same_type(&TypeName::Variant) {
+                    for arg in args {
+                        validate_expr(arg, symbols, types, signatures)?;
+                    }
+                    return Ok(TypeName::Variant);
+                }
+            }
 
             let Some(function) = signatures.functions.get(&key(name)) else {
                 if signatures.subs.contains_key(&key(name)) {
@@ -588,7 +647,7 @@ pub(super) fn validate_expr(
 pub(super) fn validate_array_expr(
     expr: &Expr,
     symbols: &HashMap<String, VarType>,
-    _types: &TypeRegistry,
+    types: &TypeRegistry,
     _signatures: &Signatures,
 ) -> Result<TypeName, Diagnostic> {
     match &expr.kind {
@@ -604,11 +663,25 @@ pub(super) fn validate_array_expr(
                     Some(expr.span),
                 ))
             }
-            None => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Variable '{}' is not declared", name),
-                Some(expr.span),
-            )),
+            None => {
+                if let Some(VarType::Scalar(TypeName::User(class_name))) =
+                    symbols.get("me").cloned()
+                    && let Some(class_sig) = types.get_class(&class_name)
+                    && let Some(field_sig) = class_sig.fields.get(&key(name))
+                {
+                    if field_sig.array.is_some() {
+                        return Ok(field_sig.ty.clone());
+                    }
+                    if field_sig.ty.same_type(&TypeName::Variant) {
+                        return Ok(TypeName::Variant);
+                    }
+                }
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Variable '{}' is not declared", name),
+                    Some(expr.span),
+                ))
+            }
         },
         _ => Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::PARSE,
@@ -1208,7 +1281,7 @@ fn member_access_class(object: &Expr, object_type: &TypeName) -> Option<String> 
     None
 }
 
-fn member_read_type(
+pub(super) fn member_read_type(
     object_type: &TypeName,
     member: &str,
     types: &TypeRegistry,

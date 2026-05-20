@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::ArrayDecl;
 use crate::Visibility;
 use crate::runtime::TypeName;
 
@@ -64,6 +65,7 @@ pub(super) struct ClassFieldSig {
     pub(super) visibility: Visibility,
     pub(super) with_events: bool,
     pub(super) ty: TypeName,
+    pub(super) array: Option<ArrayDecl>,
 }
 
 pub(super) type ClassMethodSig = crate::semantics::symbols::CallableSig;
