@@ -139,30 +139,60 @@ impl Parser {
                 }
                 TokenKind::Class => classes.push(self.parse_class_decl(Visibility::Public)?),
                 TokenKind::Sub => procedures.push(self.parse_procedure(Visibility::Public)?),
-                TokenKind::Function => functions.push(self.parse_function(Visibility::Public)?),
+                TokenKind::Function => functions.push(self.parse_function(Visibility::Public, false)?),
+                TokenKind::Iterator => {
+                    self.advance(); // consume Iterator
+                    if self.check_simple(&TokenKind::Function) {
+                        functions.push(self.parse_function(Visibility::Public, true)?);
+                    } else {
+                        return Err(self.error_here("Expected 'Function' after 'Iterator'"));
+                    }
+                }
                 TokenKind::Identifier(_) => {
                     module_vars.extend(self.parse_module_vars(Visibility::Private)?);
                 }
                 TokenKind::Public | TokenKind::Private => {
                     let visibility = self.parse_optional_visibility();
+                    let is_iterator = self.match_simple(&TokenKind::Iterator);
                     if self.check_simple(&TokenKind::Enum) {
+                        if is_iterator {
+                            return Err(self.error_here("Iterator is not supported on Enum"));
+                        }
                         enums.push(self.parse_enum_decl(visibility)?);
                     } else if self.check_simple(&TokenKind::Const) {
+                        if is_iterator {
+                            return Err(self.error_here("Iterator is not supported on Const"));
+                        }
                         module_consts.push(self.parse_module_const(visibility)?);
                     } else if self.check_simple(&TokenKind::Type)
                         || self.check_simple(&TokenKind::Structure)
                     {
+                        if is_iterator {
+                            return Err(self.error_here("Iterator is not supported on Type/Structure"));
+                        }
                         types.push(self.parse_type_decl(visibility)?);
                     } else if self.check_simple(&TokenKind::Class) {
+                        if is_iterator {
+                            return Err(self.error_here("Iterator is not supported on Class"));
+                        }
                         classes.push(self.parse_class_decl(visibility)?);
                     } else if self.check_simple(&TokenKind::Sub) {
+                        if is_iterator {
+                            return Err(self.error_here("Iterator is not supported on Sub"));
+                        }
                         procedures.push(self.parse_procedure(visibility)?);
                     } else if self.check_simple(&TokenKind::Function) {
-                        functions.push(self.parse_function(visibility)?);
+                        functions.push(self.parse_function(visibility, is_iterator)?);
                     } else if self.check_simple(&TokenKind::Dim) {
+                        if is_iterator {
+                            return Err(self.error_here("Iterator is not supported on Dim"));
+                        }
                         self.expect_simple(TokenKind::Dim, "Expected 'Dim'")?;
                         module_vars.extend(self.parse_module_vars(visibility)?);
                     } else if matches!(self.peek_kind(), TokenKind::Identifier(_)) {
+                        if is_iterator {
+                            return Err(self.error_here("Expected 'Function' after 'Iterator'"));
+                        }
                         module_vars.extend(self.parse_module_vars(visibility)?);
                     } else {
                         return Err(self.error_here(

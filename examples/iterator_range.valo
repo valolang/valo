@@ -1,0 +1,18 @@
+Class Generator
+    Public Iterator Function Range(ByVal count As Integer) As Variant
+        Dim i As Integer
+        For i = 1 To count
+            Yield i
+        Next i
+    End Function
+End Class
+
+Sub Main()
+    Dim gen As New Generator
+    Dim n As Variant
+
+    Console.WriteLine("Iterating Range(5):")
+    For Each n In gen.Range(5)
+        Console.WriteLine(n)
+    Next n
+End Sub

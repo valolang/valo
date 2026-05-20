@@ -1,13 +1,9 @@
 Class Words
-    Private values As Variant
-
-    Public Sub Constructor()
-        values = Array("Valo", "is", "modern")
-    End Sub
-
-    Public Iterator Items() As Variant
-        Return values
-    End Iterator
+    Public Iterator Function Items() As Variant
+        Yield "Valo"
+        Yield "is"
+        Yield "modern"
+    End Function
 End Class
 
 Sub Main()

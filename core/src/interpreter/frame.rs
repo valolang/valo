@@ -14,12 +14,27 @@ pub struct Frame {
     variables: HashMap<String, Variable>,
     module_key: Option<String>,
     with_stack: Vec<Value>,
+    yielded_values: Option<Vec<Value>>,
     resume_next: bool,
     error_handler: Option<String>,
     handled_error_ip: Option<usize>,
 }
 
 impl Frame {
+    pub(crate) fn set_yield_mode(&mut self) {
+        self.yielded_values = Some(Vec::new());
+    }
+
+    pub(crate) fn yield_value(&mut self, value: Value) {
+        if let Some(yielded) = &mut self.yielded_values {
+            yielded.push(value);
+        }
+    }
+
+    pub(crate) fn take_yielded_values(&mut self) -> Option<Vec<Value>> {
+        self.yielded_values.take()
+    }
+
     pub(crate) fn set_module_key(&mut self, module_key: String) {
         self.module_key = Some(module_key);
     }

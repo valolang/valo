@@ -165,6 +165,7 @@ impl<'a> Lexer<'a> {
             "try" => TokenKind::Try,
             "catch" => TokenKind::Catch,
             "finally" => TokenKind::Finally,
+            "yield" => TokenKind::Yield,
             "and" => TokenKind::And,
             "or" => TokenKind::Or,
             "not" => TokenKind::Not,

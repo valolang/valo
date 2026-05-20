@@ -103,6 +103,7 @@ Implemented today:
 - native `Structure` value types with methods, properties, and constructors
 - VBA-compatible fields-only `Type`
 - default properties and indexer-style access
+- native `Iterator Function` and `Yield`
 - `Try / Catch / Finally`
 - VBA `On Error`, `Err`, `Resume`, and `Erl`
 - advanced arrays, including multidimensional arrays
@@ -511,7 +512,6 @@ Not implemented yet:
 - inheritance and interfaces
 - generics
 - full Collection / Dictionary runtime
-- `_NewEnum` compatibility
 - async runtime
 
 Some compatibility areas are intentionally pragmatic today:

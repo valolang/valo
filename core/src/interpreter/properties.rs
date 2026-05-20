@@ -65,11 +65,39 @@ impl Interpreter {
         }
         self.scope_stack
             .push(format!("{}.{}", structure.name, accessor.name));
+        if accessor.is_iterator {
+            frame.set_yield_mode();
+        }
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
         match result? {
-            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-            ControlFlow::Continue => frame.get(&accessor.name, accessor.span),
+            ControlFlow::Return(value) => {
+                if accessor.is_iterator {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Return is not allowed inside Iterator; use Yield or Exit Function",
+                        Some(accessor.span),
+                    ));
+                }
+                coerce_assignment(&return_type, value, span)
+            }
+            ControlFlow::Continue => {
+                if accessor.is_iterator {
+                    let elements = frame.take_yielded_values().unwrap_or_default();
+                    let len = elements.len() as i64;
+                    Ok(Value::Array {
+                        element_type: return_type,
+                        elements,
+                        bounds: vec![crate::runtime::ArrayBound {
+                            lower: self.option_base,
+                            upper: self.option_base + len - 1,
+                        }],
+                        allocated: true,
+                    })
+                } else {
+                    frame.get(&accessor.name, accessor.span)
+                }
+            }
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Sub is only valid inside Sub",
@@ -239,11 +267,39 @@ impl Interpreter {
         }
         self.scope_stack
             .push(format!("{}.{}", class.name, accessor.name));
+        if accessor.is_iterator {
+            frame.set_yield_mode();
+        }
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
         let result = match result? {
-            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-            ControlFlow::Continue => frame.get(&accessor.name, accessor.span),
+            ControlFlow::Return(value) => {
+                if accessor.is_iterator {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Return is not allowed inside Iterator; use Yield or Exit Function",
+                        Some(accessor.span),
+                    ));
+                }
+                coerce_assignment(&return_type, value, span)
+            }
+            ControlFlow::Continue => {
+                if accessor.is_iterator {
+                    let elements = frame.take_yielded_values().unwrap_or_default();
+                    let len = elements.len() as i64;
+                    Ok(Value::Array {
+                        element_type: return_type,
+                        elements,
+                        bounds: vec![crate::runtime::ArrayBound {
+                            lower: self.option_base,
+                            upper: self.option_base + len - 1,
+                        }],
+                        allocated: true,
+                    })
+                } else {
+                    frame.get(&accessor.name, accessor.span)
+                }
+            }
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Sub is only valid inside Sub",
@@ -380,6 +436,7 @@ pub(crate) struct RuntimeProperty {
 pub(crate) struct RuntimePropertyAccessor {
     pub(crate) name: String,
     pub(crate) kind: PropertyKind,
+    pub(crate) is_iterator: bool,
     pub(crate) params: Vec<crate::Parameter>,
     pub(crate) return_type: Option<TypeName>,
     pub(crate) body: Vec<Stmt>,
@@ -391,6 +448,7 @@ impl From<&ClassProperty> for RuntimePropertyAccessor {
         Self {
             name: value.name.clone(),
             kind: value.kind,
+            is_iterator: value.is_iterator,
             params: value.params.clone(),
             return_type: value.return_type.clone(),
             body: value.body.clone(),

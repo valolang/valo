@@ -1,18 +1,14 @@
 use super::helpers::{run_source, source_error};
 
 #[test]
-fn for_each_object_native_iterator_returning_array() {
+fn for_each_object_native_iterator_function_yielding() {
     let source = r#"
         Class Words
-            Private values As Variant
-
-            Public Constructor()
-                values = Array("Valo", "is", "modern")
-            End Constructor
-
-            Public Iterator Items() As Variant
-                Return values
-            End Iterator
+            Public Iterator Function Items() As Variant
+                Yield "Valo"
+                Yield "is"
+                Yield "modern"
+            End Function
         End Class
 
         Sub Main()
@@ -27,12 +23,14 @@ fn for_each_object_native_iterator_returning_array() {
 }
 
 #[test]
-fn for_each_object_native_iterator_returning_variant_array() {
+fn for_each_object_native_iterator_property_yielding() {
     let source = r#"
         Class Numbers
-            Public Iterator Items() As Variant
-                Items = Array(1, 2, 3)
-            End Iterator
+            Public Iterator Property Get Items() As Variant
+                Yield 1
+                Yield 2
+                Yield 3
+            End Property
         End Class
 
         Sub Main()
@@ -50,36 +48,67 @@ fn for_each_object_native_iterator_returning_variant_array() {
 fn duplicate_native_iterator_is_rejected() {
     let source = r#"
         Class BadList
-            Public Iterator One() As Variant
-                Return Array(1)
-            End Iterator
+            Public Iterator Function One() As Variant
+                Yield 1
+            End Function
 
-            Public Iterator Two() As Variant
-                Return Array(2)
-            End Iterator
+            Public Iterator Function Two() As Variant
+                Yield 2
+            End Function
         End Class
     "#;
-    assert!(source_error(source).contains("multiple Iterator members"));
+    assert!(source_error(source).contains("multiple default Iterator members"));
 }
 
 #[test]
-fn iterator_returning_non_enumerable_is_rejected() {
+fn yield_outside_iterator_is_rejected() {
     let source = r#"
-        Class BadList
-            Public Iterator Items() As Variant
-                Return 42
-            End Iterator
-        End Class
-
         Sub Main()
-            Dim list As New BadList
-            Dim item As Variant
-            For Each item In list
-                Console.WriteLine(item)
-            Next item
+            Yield 1
         End Sub
     "#;
-    assert!(source_error(source).contains("did not return an enumerable value"));
+    assert!(source_error(source).contains("Yield is only allowed inside Iterator functions"));
+}
+
+#[test]
+fn iterator_function_without_yield_is_rejected() {
+    let source = r#"
+        Class Bad
+            Public Iterator Function Items() As Variant
+            End Function
+        End Class
+        Sub Main()
+        End Sub
+    "#;
+    assert!(source_error(source).contains("must contain at least one Yield statement"));
+}
+
+#[test]
+fn iterator_function_with_byref_param_is_rejected() {
+    let source = r#"
+        Class Bad
+            Public Iterator Function Items(ByRef x As Integer) As Variant
+                Yield x
+            End Function
+        End Class
+        Sub Main()
+        End Sub
+    "#;
+    assert!(source_error(source).contains("cannot have ByRef parameters"));
+}
+
+#[test]
+fn return_inside_iterator_is_rejected() {
+    let source = r#"
+        Class Bad
+            Public Iterator Function Items() As Variant
+                Return Array(1)
+            End Function
+        End Class
+        Sub Main()
+        End Sub
+    "#;
+    assert!(source_error(source).contains("Return is not allowed inside Iterator"));
 }
 
 #[test]
@@ -186,4 +215,27 @@ fn missing_iterator_or_new_enum_has_readable_diagnostic() {
     assert!(
         source_error(source).contains("define an Iterator or a VB_UserMemId = -4 _NewEnum member")
     );
+}
+
+#[test]
+fn iterator_function_with_parameters_called_explicitly() {
+    let source = r#"
+        Class Generator
+            Public Iterator Function Range(ByVal count As Integer) As Variant
+                Dim i As Integer
+                For i = 1 To count
+                    Yield i
+                Next i
+            End Function
+        End Class
+
+        Sub Main()
+            Dim gen As New Generator
+            Dim n As Variant
+            For Each n In gen.Range(3)
+                Console.WriteLine(n)
+            Next n
+        End Sub
+    "#;
+    assert_eq!(run_source(source), vec!["1", "2", "3"]);
 }

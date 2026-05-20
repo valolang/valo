@@ -3,7 +3,7 @@ use crate::{Expr, ExprKind, Function, PassingMode};
 
 use super::frame::Variable;
 use super::objects::ensure_object;
-use super::values::{coerce_assignment, default_value, key};
+use super::values::{coerce_assignment, key};
 use super::{ControlFlow, Frame, Interpreter};
 
 impl Interpreter {
@@ -114,13 +114,38 @@ impl Interpreter {
             }
             self.scope_stack
                 .push(format!("{}.{}", structure.name, function.name));
+            if function.is_iterator {
+                frame.set_yield_mode();
+            }
             let result = self.exec_block(&function.body, &mut frame);
             self.scope_stack.pop();
             return match result? {
-                ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-                ControlFlow::Continue => frame.get(&function.name, function.span),
-                ControlFlow::ExitFunction => {
-                    default_value(&return_type, &self.types, &self.enums, span)
+                ControlFlow::Return(value) => {
+                    if function.is_iterator {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Return is not allowed inside Iterator; use Yield or Exit Function",
+                            Some(function.span),
+                        ));
+                    }
+                    coerce_assignment(&return_type, value, span)
+                }
+                ControlFlow::Continue | ControlFlow::ExitFunction => {
+                    if function.is_iterator {
+                        let elements = frame.take_yielded_values().unwrap_or_default();
+                        let len = elements.len() as i64;
+                        Ok(Value::Array {
+                            element_type: function.return_type.clone(),
+                            elements,
+                            bounds: vec![crate::runtime::ArrayBound {
+                                lower: self.option_base,
+                                upper: self.option_base + len - 1,
+                            }],
+                            allocated: true,
+                        })
+                    } else {
+                        frame.get(&function.name, function.span)
+                    }
                 }
                 _ => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -190,11 +215,37 @@ impl Interpreter {
                 )?;
             }
 
+            if function.is_iterator {
+                frame.set_yield_mode();
+            }
+
             let result = match self.exec_block(&function.body, &mut frame)? {
-                ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-                ControlFlow::Continue => frame.get(&function.name, function.span),
-                ControlFlow::ExitFunction => {
-                    default_value(&return_type, &self.types, &self.enums, span)
+                ControlFlow::Return(value) => {
+                    if function.is_iterator {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Return is not allowed inside Iterator; use Yield or Exit Function",
+                            Some(function.span),
+                        ));
+                    }
+                    coerce_assignment(&return_type, value, span)
+                }
+                ControlFlow::Continue | ControlFlow::ExitFunction => {
+                    if function.is_iterator {
+                        let elements = frame.take_yielded_values().unwrap_or_default();
+                        let len = elements.len() as i64;
+                        Ok(Value::Array {
+                            element_type: function.return_type.clone(),
+                            elements,
+                            bounds: vec![crate::runtime::ArrayBound {
+                                lower: self.option_base,
+                                upper: self.option_base + len - 1,
+                            }],
+                            allocated: true,
+                        })
+                    } else {
+                        frame.get(&function.name, function.span)
+                    }
                 }
                 ControlFlow::ExitSub => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -332,14 +383,40 @@ impl Interpreter {
                 function.span,
                 &self.types,
                 &self.enums,
-            )?;
-        }
-        match self.exec_block(&function.body, &mut frame)? {
-            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-            ControlFlow::Continue => frame.get(&function.name, function.span),
-            ControlFlow::ExitFunction => {
-                default_value(&return_type, &self.types, &self.enums, span)
-            }
+                )?;
+                }
+                if function.is_iterator {
+                frame.set_yield_mode();
+                }
+                match self.exec_block(&function.body, &mut frame)? {
+                ControlFlow::Return(value) => {
+                if function.is_iterator {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Return is not allowed inside Iterator; use Yield or Exit Function",
+                        Some(function.span),
+                    ));
+                }
+                coerce_assignment(&return_type, value, span)
+                }
+                ControlFlow::Continue | ControlFlow::ExitFunction => {
+                if function.is_iterator {
+                    let elements = frame.take_yielded_values().unwrap_or_default();
+                    let len = elements.len() as i64;
+                    Ok(Value::Array {
+                        element_type: function.return_type.clone(),
+                        elements,
+                        bounds: vec![crate::runtime::ArrayBound {
+                            lower: self.option_base,
+                            upper: self.option_base + len - 1,
+                        }],
+                        allocated: true,
+                    })
+                } else {
+                    frame.get(&function.name, function.span)
+                }
+                }
+
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Sub is only valid inside Sub",
@@ -705,13 +782,38 @@ impl Interpreter {
             }
             self.scope_stack
                 .push(format!("{}.{}", class.name, function.name));
+            if function.is_iterator {
+                frame.set_yield_mode();
+            }
             let result = self.exec_block(&function.body, &mut frame);
             self.scope_stack.pop();
             return match result? {
-                ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-                ControlFlow::Continue => frame.get(&function.name, function.span),
-                ControlFlow::ExitFunction => {
-                    default_value(&return_type, &self.types, &self.enums, span)
+                ControlFlow::Return(value) => {
+                    if function.is_iterator {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Return is not allowed inside Iterator; use Yield or Exit Function",
+                            Some(function.span),
+                        ));
+                    }
+                    coerce_assignment(&return_type, value, span)
+                }
+                ControlFlow::Continue | ControlFlow::ExitFunction => {
+                    if function.is_iterator {
+                        let elements = frame.take_yielded_values().unwrap_or_default();
+                        let len = elements.len() as i64;
+                        Ok(Value::Array {
+                            element_type: function.return_type.clone(),
+                            elements,
+                            bounds: vec![crate::runtime::ArrayBound {
+                                lower: self.option_base,
+                                upper: self.option_base + len - 1,
+                            }],
+                            allocated: true,
+                        })
+                    } else {
+                        frame.get(&function.name, function.span)
+                    }
                 }
                 ControlFlow::ExitSub => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -815,13 +917,38 @@ impl Interpreter {
         }
         self.scope_stack
             .push(format!("{}.{}", class.name, function.name));
+        if function.is_iterator {
+            frame.set_yield_mode();
+        }
         let result = self.exec_block(&function.body, &mut frame);
         self.scope_stack.pop();
         let result = match result? {
-            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
-            ControlFlow::Continue => frame.get(&function.name, function.span),
-            ControlFlow::ExitFunction => {
-                default_value(&return_type, &self.types, &self.enums, span)
+            ControlFlow::Return(value) => {
+                if function.is_iterator {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Return is not allowed inside Iterator; use Yield or Exit Function",
+                        Some(function.span),
+                    ));
+                }
+                coerce_assignment(&return_type, value, span)
+            }
+            ControlFlow::Continue | ControlFlow::ExitFunction => {
+                if function.is_iterator {
+                    let elements = frame.take_yielded_values().unwrap_or_default();
+                    let len = elements.len() as i64;
+                    Ok(Value::Array {
+                        element_type: function.return_type.clone(),
+                        elements,
+                        bounds: vec![crate::runtime::ArrayBound {
+                            lower: self.option_base,
+                            upper: self.option_base + len - 1,
+                        }],
+                        allocated: true,
+                    })
+                } else {
+                    frame.get(&function.name, function.span)
+                }
             }
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,

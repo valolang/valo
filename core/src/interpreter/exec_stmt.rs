@@ -237,6 +237,11 @@ impl Interpreter {
                 let value = self.eval_expr(expr, frame)?;
                 Ok(ControlFlow::Return(value))
             }
+            Stmt::Yield { expr, .. } => {
+                let value = self.eval_expr(expr, frame)?;
+                frame.yield_value(value);
+                Ok(ControlFlow::Continue)
+            }
             Stmt::If {
                 condition,
                 then_body,
@@ -873,7 +878,8 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::With { span, .. }
         | Stmt::Exit { span, .. }
         | Stmt::TryCatch { span, .. }
-        | Stmt::DebugPrint { span, .. } => *span,
+        | Stmt::DebugPrint { span, .. }
+        | Stmt::Yield { span, .. } => *span,
     }
 }
 

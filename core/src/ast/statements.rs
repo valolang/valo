@@ -154,6 +154,10 @@ pub enum Stmt {
         args: Vec<Expr>,
         span: Span,
     },
+    Yield {
+        expr: Expr,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

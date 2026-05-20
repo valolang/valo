@@ -109,6 +109,70 @@ Class Timer
 End Class
 ```
 
+## Iterators
+
+Valo supports native iterators inspired by VB.NET. Iterators use the `Iterator` modifier on `Function` or `Property Get` and emit values using the `Yield` statement.
+
+### Iterator Functions
+
+```vb
+Class Range
+    Public Iterator Function Items(ByVal count As Integer) As Variant
+        Dim i As Integer
+        For i = 1 To count
+            Yield i
+        Next i
+    End Function
+End Class
+
+Sub Main()
+    Dim r As New Range
+    Dim n As Variant
+    For Each n In r.Items(5)
+        Console.WriteLine(n)
+    Next n
+End Sub
+```
+
+### Default Object Iteration
+If a class has exactly one parameterless `Public Iterator Function` or `Public Iterator Property Get`, it is used as the default enumerator for `For Each` over an instance of that class.
+
+```vb
+Class Words
+    Public Iterator Function Items() As Variant
+        Yield "Valo"
+        Yield "is"
+        Yield "modern"
+    End Function
+End Class
+
+Sub Main()
+    Dim words As New Words
+    Dim item As Variant
+    For Each item In words
+        Console.WriteLine(item)
+    Next item
+End Sub
+```
+
+Rules for Iterators:
+- Must contain at least one `Yield` statement.
+- Cannot have `ByRef` parameters.
+- `Return` is not allowed; use `Yield` or `Exit Function`.
+- In the current implementation, iterators materialize yielded values into an internal array; lazy generators are planned for the future.
+
+### VBA Compatibility
+Valo preserves compatibility with VBA-style `_NewEnum` members using `Attribute _NewEnum.VB_UserMemId = -4`.
+
+```vb
+Class LegacyList
+    Public Property Get _NewEnum() As Variant
+    Attribute _NewEnum.VB_UserMemId = -4
+        _NewEnum = someArray
+    End Property
+End Class
+```
+
 ## Visibility
 
 Valo supports `Public` and `Private` visibility for fields, methods, and properties.

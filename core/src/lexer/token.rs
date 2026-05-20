@@ -89,6 +89,7 @@ pub enum TokenKind {
     Try,
     Catch,
     Finally,
+    Yield,
     And,
     Or,
     Not,

@@ -162,6 +162,7 @@ pub struct ClassProperty {
     pub visibility: Visibility,
     pub is_default: bool,
     pub is_enumerator: bool,
+    pub is_iterator: bool,
     pub name: String,
     pub kind: PropertyKind,
     pub params: Vec<Parameter>,
@@ -196,6 +197,7 @@ pub struct Procedure {
 pub struct Function {
     pub visibility: Visibility,
     pub name: String,
+    pub is_iterator: bool,
     pub params: Vec<Parameter>,
     pub return_type: TypeName,
     pub body: Vec<Stmt>,

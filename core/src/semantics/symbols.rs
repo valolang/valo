@@ -59,6 +59,7 @@ pub(super) struct ParamSig {
 pub(super) struct CallableSig {
     pub(super) visibility: Visibility,
     pub(super) name: String,
+    pub(super) _is_iterator: bool,
     pub(super) params: Vec<ParamSig>,
     pub(super) return_type: Option<TypeName>,
 }

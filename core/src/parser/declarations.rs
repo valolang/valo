@@ -112,10 +112,14 @@ impl Parser {
         let visibility = self.parse_optional_visibility();
         let with_events = self.match_simple(&TokenKind::WithEvents);
         let is_default = self.match_simple(&TokenKind::Default);
+        let is_iterator = self.match_simple(&TokenKind::Iterator);
         match self.peek_kind() {
             TokenKind::Event => {
                 if is_default {
                     return Err(self.error_here("Default is only supported on Property"));
+                }
+                if is_iterator {
+                    return Err(self.error_here("Iterator is not supported on Event"));
                 }
                 if with_events {
                     return Err(self.error_here("WithEvents is only supported on fields"));
@@ -123,6 +127,9 @@ impl Parser {
                 self.parse_event(visibility).map(ClassMember::Event)
             }
             TokenKind::Sub => {
+                if is_iterator {
+                    return Err(self.error_here("Iterator is not supported on Sub"));
+                }
                 if matches!(
                     self.peek_next_kind(),
                     Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor")
@@ -155,6 +162,9 @@ impl Parser {
                 }
             }
             TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Constructor") => {
+                if is_iterator {
+                    return Err(self.error_here("Iterator is not supported on Constructor"));
+                }
                 Ok(ClassMember::Sub(ClassSub {
                     visibility,
                     procedure: self.parse_lifecycle_procedure(
@@ -166,6 +176,9 @@ impl Parser {
                 }))
             }
             TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Terminate") => {
+                if is_iterator {
+                    return Err(self.error_here("Iterator is not supported on Terminate"));
+                }
                 Ok(ClassMember::Sub(ClassSub {
                     visibility,
                     procedure: self.parse_lifecycle_procedure(
@@ -177,17 +190,20 @@ impl Parser {
                 }))
             }
             TokenKind::Function => Ok(ClassMember::Function(
-                self.parse_class_function(visibility)?,
+                self.parse_class_function(visibility, is_iterator)?,
             )),
-            TokenKind::Iterator => Ok(ClassMember::Iterator(ClassIterator {
-                visibility,
-                function: self.parse_iterator(visibility)?,
-            })),
             TokenKind::Property => Ok(ClassMember::Property(
-                self.parse_property(visibility, is_default)?,
+                self.parse_property(visibility, is_default, is_iterator)?,
             )),
+            _ if is_iterator => Ok(ClassMember::Iterator(ClassIterator {
+                visibility,
+                function: self.parse_iterator_rest(visibility)?,
+            })),
             _ if is_default => Err(self.error_here("Default is only supported on Property")),
             TokenKind::Identifier(_) | TokenKind::Dim => {
+                if is_iterator {
+                    return Err(self.error_here("Iterator is not supported on fields"));
+                }
                 if self.match_simple(&TokenKind::Dim) && with_events {
                     return Err(self.error_here("WithEvents is not supported with Dim fields"));
                 }
@@ -239,6 +255,7 @@ impl Parser {
         &mut self,
         visibility: Visibility,
         is_default: bool,
+        is_iterator: bool,
     ) -> Result<ClassProperty, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Property, "Expected 'Property'")?
@@ -294,6 +311,7 @@ impl Parser {
             visibility,
             is_default,
             is_enumerator,
+            is_iterator,
             name,
             kind,
             params,
@@ -582,10 +600,10 @@ impl Parser {
                 }
             }
             TokenKind::Function => Ok(ClassMember::Function(
-                self.parse_class_function(visibility)?,
+                self.parse_class_function(visibility, false)?,
             )),
             TokenKind::Property => Ok(ClassMember::Property(
-                self.parse_property(visibility, is_default)?,
+                self.parse_property(visibility, is_default, false)?,
             )),
             _ if is_default => Err(self.error_here("Default is only supported on Property")),
             _ => Err(self.error_here("Expected structure member")),
@@ -719,6 +737,7 @@ impl Parser {
     pub(super) fn parse_function(
         &mut self,
         visibility: Visibility,
+        is_iterator: bool,
     ) -> Result<Function, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Function, "Expected 'Function'")?
@@ -744,6 +763,7 @@ impl Parser {
         Ok(Function {
             visibility,
             name,
+            is_iterator,
             params,
             return_type,
             body,
@@ -754,6 +774,7 @@ impl Parser {
     fn parse_class_function(
         &mut self,
         visibility: Visibility,
+        is_iterator: bool,
     ) -> Result<ClassFunction, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Function, "Expected 'Function'")?
@@ -795,6 +816,7 @@ impl Parser {
             function: Function {
                 visibility,
                 name,
+                is_iterator,
                 params,
                 return_type,
                 body,
@@ -803,10 +825,8 @@ impl Parser {
         })
     }
 
-    fn parse_iterator(&mut self, visibility: Visibility) -> Result<Function, Diagnostic> {
-        let start = self
-            .expect_simple(TokenKind::Iterator, "Expected 'Iterator'")?
-            .span;
+    fn parse_iterator_rest(&mut self, visibility: Visibility) -> Result<Function, Diagnostic> {
+        let start = self.previous().span;
         let name = self.expect_identifier("Expected iterator name after 'Iterator'")?;
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after iterator name")?;
         let params = self.parse_parameters()?;
@@ -828,6 +848,7 @@ impl Parser {
         Ok(Function {
             visibility,
             name,
+            is_iterator: true,
             params,
             return_type,
             body,

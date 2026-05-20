@@ -65,6 +65,7 @@ impl Parser {
             TokenKind::Set => self.parse_set_assignment(),
             TokenKind::Console => self.parse_console_writeline(),
             TokenKind::Return => self.parse_return(),
+            TokenKind::Yield => self.parse_yield(),
             TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute") => {
                 let _ = self.parse_attribute_decl()?;
                 // Return a dummy statement that does nothing
@@ -711,6 +712,19 @@ impl Parser {
         let end = expr.span;
 
         Ok(Stmt::Return {
+            expr,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
+    fn parse_yield(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Yield, "Expected 'Yield'")?
+            .span;
+        let expr = self.parse_expression()?;
+        let end = expr.span;
+
+        Ok(Stmt::Yield {
             expr,
             span: Span::new(start.start, end.end),
         })

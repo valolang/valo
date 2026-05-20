@@ -43,6 +43,7 @@ pub(super) fn validate_class(
                     VarType::Scalar(method.function.return_type.clone()),
                 );
                 let mut saw_return = assigns_to_name(&method.function.body, &method.function.name);
+                let mut saw_yield = false;
                 validate_statements(
                     &method.function.body,
                     &mut symbols,
@@ -51,12 +52,37 @@ pub(super) fn validate_class(
                     Context::MethodFunction {
                         class_name: class_decl.name.clone(),
                         return_type: method.function.return_type.clone(),
+                        is_iterator: method.function.is_iterator,
                         saw_return: &mut saw_return,
+                        saw_yield: &mut saw_yield,
                     },
                     LoopContext::default(),
                     false,
                 )?;
-                if !saw_return {
+                if method.function.is_iterator {
+                    if !saw_yield {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            format!(
+                                "Iterator Function '{}' must contain at least one Yield statement",
+                                method.function.name
+                            ),
+                            Some(method.function.span),
+                        ));
+                    }
+                    for param in &method.function.params {
+                        if param.mode == PassingMode::ByRef {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                format!(
+                                    "Iterator Function '{}' cannot have ByRef parameters",
+                                    method.function.name
+                                ),
+                                Some(param.span),
+                            ));
+                        }
+                    }
+                } else if !saw_return {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                         format!("Function '{}' must return a value", method.function.name),
@@ -77,6 +103,7 @@ pub(super) fn validate_class(
                     VarType::Scalar(method.function.return_type.clone()),
                 );
                 let mut saw_return = assigns_to_name(&method.function.body, &method.function.name);
+                let mut saw_yield = false;
                 validate_statements(
                     &method.function.body,
                     &mut symbols,
@@ -85,15 +112,17 @@ pub(super) fn validate_class(
                     Context::MethodFunction {
                         class_name: class_decl.name.clone(),
                         return_type: method.function.return_type.clone(),
+                        is_iterator: true,
                         saw_return: &mut saw_return,
+                        saw_yield: &mut saw_yield,
                     },
                     LoopContext::default(),
                     false,
                 )?;
-                if !saw_return {
+                if !saw_yield && !saw_return {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                        format!("Iterator '{}' must return a value", method.function.name),
+                        format!("Iterator '{}' must return a value or yield values", method.function.name),
                         Some(method.function.span),
                     ));
                 }
@@ -114,6 +143,7 @@ pub(super) fn validate_class(
                             .expect("property get return type");
                         symbols.insert(key(&property.name), VarType::Scalar(return_type.clone()));
                         let mut saw_return = assigns_to_name(&property.body, &property.name);
+                        let mut saw_yield = false;
                         validate_statements(
                             &property.body,
                             &mut symbols,
@@ -122,12 +152,31 @@ pub(super) fn validate_class(
                             Context::PropertyGet {
                                 class_name: class_decl.name.clone(),
                                 return_type,
+                                is_iterator: property.is_iterator,
                                 saw_return: &mut saw_return,
+                                saw_yield: &mut saw_yield,
                             },
                             LoopContext::default(),
                             false,
                         )?;
-                        if !saw_return {
+                        if property.is_iterator {
+                            if !saw_yield {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                                    format!("Iterator Property '{}' must contain at least one Yield statement", property.name),
+                                    Some(property.span),
+                                ));
+                            }
+                            for param in &property.params {
+                                if param.mode == PassingMode::ByRef {
+                                    return Err(Diagnostic::new(
+                                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                        format!("Iterator Property '{}' cannot have ByRef parameters", property.name),
+                                        Some(param.span),
+                                    ));
+                                }
+                            }
+                        } else if !saw_return {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                                 format!("Property Get '{}' must return a value", property.name),
@@ -200,6 +249,7 @@ pub(super) fn validate_structure(
                     VarType::Scalar(method.function.return_type.clone()),
                 );
                 let mut saw_return = assigns_to_name(&method.function.body, &method.function.name);
+                let mut saw_yield = false;
                 validate_statements(
                     &method.function.body,
                     &mut symbols,
@@ -208,12 +258,37 @@ pub(super) fn validate_structure(
                     Context::MethodFunction {
                         class_name: type_decl.name.clone(),
                         return_type: method.function.return_type.clone(),
+                        is_iterator: method.function.is_iterator,
                         saw_return: &mut saw_return,
+                        saw_yield: &mut saw_yield,
                     },
                     LoopContext::default(),
                     false,
                 )?;
-                if !saw_return {
+                if method.function.is_iterator {
+                    if !saw_yield {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            format!(
+                                "Iterator Function '{}' must contain at least one Yield statement",
+                                method.function.name
+                            ),
+                            Some(method.function.span),
+                        ));
+                    }
+                    for param in &method.function.params {
+                        if param.mode == PassingMode::ByRef {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                format!(
+                                    "Iterator Function '{}' cannot have ByRef parameters",
+                                    method.function.name
+                                ),
+                                Some(param.span),
+                            ));
+                        }
+                    }
+                } else if !saw_return {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                         format!("Function '{}' must return a value", method.function.name),
@@ -237,6 +312,7 @@ pub(super) fn validate_structure(
                             .expect("property get return type");
                         symbols.insert(key(&property.name), VarType::Scalar(return_type.clone()));
                         let mut saw_return = assigns_to_name(&property.body, &property.name);
+                        let mut saw_yield = false;
                         validate_statements(
                             &property.body,
                             &mut symbols,
@@ -245,12 +321,31 @@ pub(super) fn validate_structure(
                             Context::PropertyGet {
                                 class_name: type_decl.name.clone(),
                                 return_type,
+                                is_iterator: property.is_iterator,
                                 saw_return: &mut saw_return,
+                                saw_yield: &mut saw_yield,
                             },
                             LoopContext::default(),
                             false,
                         )?;
-                        if !saw_return {
+                        if property.is_iterator {
+                            if !saw_yield {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                                    format!("Iterator Property '{}' must contain at least one Yield statement", property.name),
+                                    Some(property.span),
+                                ));
+                            }
+                            for param in &property.params {
+                                if param.mode == PassingMode::ByRef {
+                                    return Err(Diagnostic::new(
+                                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                        format!("Iterator Property '{}' cannot have ByRef parameters", property.name),
+                                        Some(param.span),
+                                    ));
+                                }
+                            }
+                        } else if !saw_return {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                                 format!("Property Get '{}' must return a value", property.name),

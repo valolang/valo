@@ -91,6 +91,7 @@ pub(super) struct ClassPropertySig {
 #[derive(Debug, Clone)]
 pub(super) struct PropertyAccessorSig {
     pub(super) visibility: Visibility,
+    pub(super) is_iterator: bool,
     pub(super) params: Vec<crate::semantics::symbols::ParamSig>,
     pub(super) return_type: Option<TypeName>,
 }

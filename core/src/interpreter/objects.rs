@@ -647,6 +647,9 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                     if method.is_enumerator {
                         enumerator_member = Some(method.function.name.clone());
                     }
+                    if method.function.is_iterator && method.function.params.is_empty() {
+                        iterator = Some(method.function.clone());
+                    }
                     functions.insert(key(&method.function.name), method.function.clone());
                 }
                 ClassMember::Iterator(method) => {
@@ -658,6 +661,17 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                     }
                     if property.is_enumerator {
                         enumerator_member = Some(property.name.clone());
+                    }
+                    if property.is_iterator && property.params.is_empty() && property.kind == PropertyKind::Get {
+                        iterator = Some(crate::Function {
+                            visibility: property.visibility,
+                            name: property.name.clone(),
+                            is_iterator: true,
+                            params: property.params.clone(),
+                            return_type: property.return_type.clone().expect("get returns"),
+                            body: property.body.clone(),
+                            span: property.span,
+                        });
                     }
                     let property_entry =
                         properties

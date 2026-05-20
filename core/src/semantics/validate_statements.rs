@@ -277,21 +277,63 @@ pub(super) fn validate_statements(
                 }
                 Context::Function {
                     return_type,
+                    is_iterator,
                     saw_return,
+                    ..
                 }
                 | Context::MethodFunction {
                     return_type,
+                    is_iterator,
                     saw_return,
                     ..
                 }
                 | Context::PropertyGet {
                     return_type,
+                    is_iterator,
                     saw_return,
                     ..
                 } => {
+                    if *is_iterator {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Return is not allowed inside Iterator; use Yield or Exit Function",
+                            Some(*span),
+                        ));
+                    }
                     let expr_type = validate_expr(expr, symbols, types, signatures)?;
                     ensure_assignable_expr(return_type, &expr_type, expr, types, *span)?;
                     **saw_return = true;
+                }
+            },
+            Stmt::Yield { expr, span } => match &mut context {
+                Context::Function {
+                    return_type,
+                    is_iterator,
+                    saw_yield,
+                    ..
+                }
+                | Context::MethodFunction {
+                    return_type,
+                    is_iterator,
+                    saw_yield,
+                    ..
+                }
+                | Context::PropertyGet {
+                    return_type,
+                    is_iterator,
+                    saw_yield,
+                    ..
+                } if *is_iterator => {
+                    let expr_type = validate_expr(expr, symbols, types, signatures)?;
+                    ensure_assignable_expr(return_type, &expr_type, expr, types, *span)?;
+                    **saw_yield = true;
+                }
+                _ => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Yield is only allowed inside Iterator functions",
+                        Some(*span),
+                    ));
                 }
             },
             Stmt::If {
@@ -897,7 +939,8 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::With { span, .. }
         | Stmt::Exit { span, .. }
         | Stmt::TryCatch { span, .. }
-        | Stmt::DebugPrint { span, .. } => *span,
+        | Stmt::DebugPrint { span, .. }
+        | Stmt::Yield { span, .. } => *span,
     }
 }
 
@@ -994,6 +1037,7 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             .iter()
             .any(|decl| decl.initializer.as_ref().is_some_and(expr_uses_with_target)),
         Stmt::Exit { .. } => false,
+        Stmt::Yield { expr, .. } => expr_uses_with_target(expr),
     }
 }
 

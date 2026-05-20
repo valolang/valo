@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime::Span;
 use crate::TypeKind;
 
 pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
@@ -192,6 +193,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.procedure.name.clone(),
+                            _is_iterator: false,
                             params: params_to_sigs(&method.procedure.params),
                             return_type: None,
                         },
@@ -225,6 +227,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.function.name.clone(),
+                            _is_iterator: method.function.is_iterator,
                             params: params_to_sigs(&method.function.params),
                             return_type: Some(method.function.return_type.clone()),
                         },
@@ -294,6 +297,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     }
                     *target = Some(PropertyAccessorSig {
                         visibility: property.visibility,
+                        is_iterator: property.is_iterator,
                         params: params_to_sigs(&property.params),
                         return_type: property.return_type.clone(),
                     });
@@ -378,6 +382,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         let mut enumerator_member: Option<String> = None;
         let mut constructor_span = None;
         let mut terminator_span = None;
+        let mut default_iterator_span: Option<Span> = None;
         for member in &class_decl.members {
             match member {
                 ClassMember::Field(field) => {
@@ -410,6 +415,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassEventSig {
                             visibility: event.visibility,
                             name: event.name.clone(),
+                            _is_iterator: false,
                             params: params_to_sigs(&event.params),
                             return_type: None,
                         },
@@ -469,6 +475,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.procedure.name.clone(),
+                            _is_iterator: false,
                             params: params_to_sigs(&method.procedure.params),
                             return_type: None,
                         },
@@ -489,6 +496,30 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         }
                         enumerator_member = Some(method.function.name.clone());
                     }
+                    if method.function.is_iterator && method.function.params.is_empty() {
+                        if iterator.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                                format!(
+                                    "Class '{}' has multiple default Iterator members",
+                                    class_decl.name
+                                ),
+                                Some(method.function.span),
+                            )
+                            .with_secondary_label(
+                                default_iterator_span.unwrap_or(method.function.span),
+                                "previous iterator defined here",
+                            ));
+                        }
+                        iterator = Some(ClassMethodSig {
+                            visibility: method.visibility,
+                            name: method.function.name.clone(),
+                            _is_iterator: true,
+                            params: vec![],
+                            return_type: Some(method.function.return_type.clone()),
+                        });
+                        default_iterator_span = Some(method.function.span);
+                    }
                     if subs.contains_key(&method_key)
                         || events.contains_key(&method_key)
                         || functions.contains_key(&method_key)
@@ -508,6 +539,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.function.name.clone(),
+                            _is_iterator: method.function.is_iterator,
                             params: params_to_sigs(&method.function.params),
                             return_type: Some(method.function.return_type.clone()),
                         },
@@ -518,8 +550,15 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     if iterator.is_some() {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
-                            format!("Class '{}' has multiple Iterator members", class_decl.name),
+                            format!(
+                                "Class '{}' has multiple default Iterator members",
+                                class_decl.name
+                            ),
                             Some(method.function.span),
+                        )
+                        .with_secondary_label(
+                            default_iterator_span.expect("iterator is some"),
+                            "previous iterator defined here",
                         ));
                     }
                     if subs.contains_key(&method_key)
@@ -540,9 +579,11 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     iterator = Some(ClassMethodSig {
                         visibility: method.visibility,
                         name: method.function.name.clone(),
+                        _is_iterator: true,
                         params: params_to_sigs(&method.function.params),
                         return_type: Some(method.function.return_type.clone()),
                     });
+                    default_iterator_span = Some(method.function.span);
                 }
                 ClassMember::Property(property) => {
                     let property_key = key(&property.name);
@@ -589,6 +630,30 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         }
                         default_member = Some(property.name.clone());
                     }
+                    if property.is_iterator && property.params.is_empty() && property.kind == PropertyKind::Get {
+                        if iterator.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                                format!(
+                                    "Class '{}' has multiple default Iterator members",
+                                    class_decl.name
+                                ),
+                                Some(property.span),
+                            )
+                            .with_secondary_label(
+                                default_iterator_span.expect("iterator is some"),
+                                "previous iterator defined here",
+                            ));
+                        }
+                        iterator = Some(ClassMethodSig {
+                            visibility: property.visibility,
+                            name: property.name.clone(),
+                            _is_iterator: true,
+                            params: vec![],
+                            return_type: Some(property.return_type.clone().expect("get returns")),
+                        });
+                        default_iterator_span = Some(property.span);
+                    }
                     if fields.contains_key(&property_key)
                         || events.contains_key(&property_key)
                         || subs.contains_key(&property_key)
@@ -629,6 +694,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     }
                     *target = Some(PropertyAccessorSig {
                         visibility: property.visibility,
+                        is_iterator: property.is_iterator,
                         params: params_to_sigs(&property.params),
                         return_type: property.return_type.clone(),
                     });
@@ -1048,6 +1114,7 @@ pub(super) fn collect_signatures(
             CallableSig {
                 visibility: Visibility::Public,
                 name: procedure.name.clone(),
+                _is_iterator: false,
                 params: params_to_sigs(&procedure.params),
                 return_type: None,
             },
@@ -1075,6 +1142,7 @@ pub(super) fn collect_signatures(
             CallableSig {
                 visibility: Visibility::Public,
                 name: function.name.clone(),
+                _is_iterator: function.is_iterator,
                 params: params_to_sigs(&function.params),
                 return_type: Some(function.return_type.clone()),
             },
@@ -1350,6 +1418,7 @@ pub(super) fn validate_function(
     );
 
     let mut saw_return = assigns_to_name(&function.body, &function.name);
+    let mut saw_yield = false;
     validate_statements(
         &function.body,
         &mut symbols,
@@ -1357,13 +1426,38 @@ pub(super) fn validate_function(
         signatures,
         Context::Function {
             return_type: function.return_type.clone(),
+            is_iterator: function.is_iterator,
             saw_return: &mut saw_return,
+            saw_yield: &mut saw_yield,
         },
         LoopContext::default(),
         false,
     )?;
 
-    if !saw_return {
+    if function.is_iterator {
+        if !saw_yield {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                format!(
+                    "Iterator Function '{}' must contain at least one Yield statement",
+                    function.name
+                ),
+                Some(function.span),
+            ));
+        }
+        for param in &function.params {
+            if param.mode == PassingMode::ByRef {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Iterator Function '{}' cannot have ByRef parameters",
+                        function.name
+                    ),
+                    Some(param.span),
+                ));
+            }
+        }
+    } else if !saw_return {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::GENERIC,
             format!("Function '{}' must return a value", function.name),
