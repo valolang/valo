@@ -44,12 +44,12 @@ fn redim_bare_variant_class_field_resizes_and_persists() {
 Class Inventory
     Private names As Variant
 
-    Public Constructor()
+    Public Sub New()
         ReDim names(0 To 2)
         names(0) = "bolt"
         names(1) = "nut"
         names(2) = "washer"
-    End Constructor
+    End Sub
 
     Public Function Item(ByVal index As Integer) As Variant
         Item = names(index)
@@ -74,13 +74,13 @@ fn redim_preserve_bare_class_field_keeps_contents() {
 Class Inventory
     Private names As Variant
 
-    Public Constructor()
+    Public Sub New()
         ReDim names(0 To 1)
         names(0) = "first"
         names(1) = "second"
         ReDim Preserve names(0 To 3)
         names(2) = "third"
-    End Constructor
+    End Sub
 
     Public Function Item(ByVal index As Integer) As Variant
         Item = names(index)
@@ -111,10 +111,10 @@ fn redim_me_field_supported_for_variant_class_field() {
 Class Inventory
     Private names As Variant
 
-    Public Constructor()
+    Public Sub New()
         ReDim Me.names(0 To 0)
         names(0) = "direct"
-    End Constructor
+    End Sub
 
     Public Function First() As Variant
         First = names(0)
@@ -425,7 +425,7 @@ fn creates_class_instance_and_calls_constructor() {
 Class User
     Public Name As String
 
-    Public Sub Initialize(ByVal name As String)
+    Public Sub New(ByVal name As String)
         Me.Name = name
     End Sub
 End Class
@@ -474,7 +474,7 @@ fn class_function_method_returns_value() {
 Class User
     Private Age As Integer
 
-    Public Sub Initialize(ByVal age As Integer)
+    Public Sub New(ByVal age As Integer)
         Me.Age = age
     End Sub
 
@@ -925,7 +925,7 @@ fn set_object_assignment_works() {
 Class User
     Public Name As String
 
-    Public Sub Initialize(ByVal name As String)
+    Public Sub New(ByVal name As String)
         Me.Name = name
     End Sub
 End Class
@@ -952,7 +952,7 @@ End Class
 Class Game
     Private mHall As Room
 
-    Public Sub Initialize()
+    Public Sub New()
         Set Me.mHall = New Room()
         Me.mHall.North = "library"
     End Sub
@@ -1441,7 +1441,7 @@ fn default_properties_are_used_for_output_concat_and_with_access() {
 Class Person
     Private mName As String
 
-    Public Sub Initialize(ByVal value As String)
+    Public Sub New(ByVal value As String)
         Me.mName = value
     End Sub
 
@@ -1499,7 +1499,7 @@ fn named_arguments_work_for_functions_subs_methods_and_constructors() {
 Class User
     Public Name As String
 
-    Public Sub Initialize(ByVal name As String)
+    Public Sub New(ByVal name As String)
         Me.Name = name
     End Sub
 
@@ -1835,7 +1835,7 @@ End Class
 Class Form
     Private WithEvents mButton As Button
 
-    Public Sub Initialize()
+    Public Sub New()
         mButton = New Button()
     End Sub
 

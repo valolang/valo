@@ -3,7 +3,7 @@ Class User
     Private Age As Integer
     Private Active As Boolean
 
-    Public Sub Initialize(ByVal name As String, ByVal age As Integer)
+    Public Sub New(ByVal name As String, ByVal age As Integer)
         Me.Name = name
         Me.Age = age
         Me.Active = True

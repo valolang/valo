@@ -1,4 +1,5 @@
 use super::*;
+use crate::UsingResource;
 use std::collections::HashSet;
 
 pub(super) fn validate_statements(
@@ -629,6 +630,76 @@ pub(super) fn validate_statements(
                     true,
                 )?;
             }
+            Stmt::Using {
+                resource,
+                body,
+                span,
+            } => match resource {
+                UsingResource::Declaration(decl) => {
+                    if decl.array.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "Using resource cannot be an array",
+                            Some(decl.span),
+                        ));
+                    }
+                    let ty = declared_variable_type(
+                        &decl.ty,
+                        &decl.initializer,
+                        symbols,
+                        types,
+                        signatures,
+                        decl.span,
+                    )?;
+                    ensure_known_type(&ty, types, decl.span)?;
+                    validate_as_new(
+                        decl.as_new,
+                        &ty,
+                        &decl.new_args,
+                        symbols,
+                        types,
+                        signatures,
+                        decl.span,
+                    )?;
+                    if let Some(initializer) = &decl.initializer {
+                        let source_type = validate_expr(initializer, symbols, types, signatures)?;
+                        ensure_assignable_expr(&ty, &source_type, initializer, types, decl.span)?;
+                    }
+                    validate_using_disposable(&ty, types, decl.span)?;
+                    let decl_key = key(&decl.name);
+                    if symbols.contains_key(&decl_key) {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!("Variable '{}' is already declared", decl.name),
+                            Some(decl.span),
+                        ));
+                    }
+                    let mut using_symbols = symbols.clone();
+                    using_symbols.insert(decl_key, VarType::Scalar(ty));
+                    validate_statements(
+                        body,
+                        &mut using_symbols,
+                        types,
+                        signatures,
+                        context.reborrow(),
+                        loop_context,
+                        in_with,
+                    )?;
+                }
+                UsingResource::Target(expr) => {
+                    let ty = validate_expr(expr, symbols, types, signatures)?;
+                    validate_using_disposable(&ty, types, *span)?;
+                    validate_statements(
+                        body,
+                        symbols,
+                        types,
+                        signatures,
+                        context.reborrow(),
+                        loop_context,
+                        in_with,
+                    )?;
+                }
+            },
             Stmt::Exit { target, span } => {
                 validate_exit(*target, *span, &context, loop_context)?;
             }
@@ -733,6 +804,72 @@ fn validate_as_new(
         span,
     };
     validate_expr(&expr, symbols, types, signatures).map(|_| ())
+}
+
+fn validate_using_disposable(
+    ty: &TypeName,
+    types: &TypeRegistry,
+    span: crate::runtime::Span,
+) -> Result<(), Diagnostic> {
+    if ty.same_type(&TypeName::Variant)
+        || matches!(ty, TypeName::User(name) if name.eq_ignore_ascii_case("Object"))
+    {
+        return Ok(());
+    }
+
+    let TypeName::User(class_name) = ty else {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Using target must be a class instance with a parameterless Dispose method",
+            Some(span),
+        ));
+    };
+
+    if types.get(class_name).is_some() {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Using target must be a class instance, not a Structure value",
+            Some(span),
+        ));
+    }
+
+    let Some(class_sig) = types.get_class(class_name) else {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+            format!("Class '{}' is not defined", class_name),
+            Some(span),
+        ));
+    };
+
+    let Some(dispose) = class_sig.subs.get("dispose") else {
+        if class_sig.functions.contains_key("dispose")
+            || class_sig.properties.contains_key("dispose")
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Dispose member used by Using must be a Sub method",
+                Some(span),
+            ));
+        }
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            format!(
+                "Using target class '{}' has no Dispose method",
+                class_sig.name
+            ),
+            Some(span),
+        ));
+    };
+
+    if !dispose.params.is_empty() {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Dispose method used by Using must be parameterless",
+            Some(span),
+        ));
+    }
+
+    Ok(())
 }
 
 fn validate_labels(statements: &[Stmt]) -> Result<(), Diagnostic> {
@@ -937,6 +1074,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::OnError { span, .. }
         | Stmt::Resume { span, .. }
         | Stmt::With { span, .. }
+        | Stmt::Using { span, .. }
         | Stmt::Exit { span, .. }
         | Stmt::TryCatch { span, .. }
         | Stmt::DebugPrint { span, .. }
@@ -1030,6 +1168,16 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             false
         }
         Stmt::With { target, .. } => expr_uses_with_target(target),
+        Stmt::Using { resource, body, .. } => {
+            let resource_uses_with = match resource {
+                UsingResource::Declaration(decl) => {
+                    decl.initializer.as_ref().is_some_and(expr_uses_with_target)
+                        || decl.new_args.iter().any(expr_uses_with_target)
+                }
+                UsingResource::Target(expr) => expr_uses_with_target(expr),
+            };
+            resource_uses_with || body.iter().any(stmt_uses_with_target)
+        }
         Stmt::Dim { initializer, .. } | Stmt::Static { initializer, .. } => {
             initializer.as_ref().is_some_and(expr_uses_with_target)
         }

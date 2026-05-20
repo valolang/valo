@@ -117,6 +117,11 @@ Wend
 Do While condition
     ' Logic
 Loop
+
+' Deterministic cleanup
+Using resource As New Resource()
+    resource.Use()
+End Using
 ```
 
 ## Procedures

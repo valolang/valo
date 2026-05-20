@@ -82,6 +82,31 @@ impl Parser {
         let mut attributes = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndClass]) {
+            if matches!(self.peek_kind(), TokenKind::End) {
+                if matches!(self.peek_next_kind(), Some(TokenKind::Iterator)) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "End Iterator was removed; use Iterator Function ... Yield ... End Function.",
+                        Some(self.peek().span),
+                    ));
+                }
+                if matches!(self.peek_next_kind(), Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor"))
+                {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "End Constructor was removed; use Public Sub New(...) ... End Sub.",
+                        Some(self.peek().span),
+                    ));
+                }
+                if matches!(self.peek_next_kind(), Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Terminate"))
+                {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "End Terminate was removed; use Public Sub Terminate() ... End Sub.",
+                        Some(self.peek().span),
+                    ));
+                }
+            }
             if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
             {
                 let attribute = self.parse_attribute_decl()?;
@@ -130,15 +155,12 @@ impl Parser {
                 if is_iterator {
                     return Err(self.error_here("Iterator is not supported on Sub"));
                 }
-                if matches!(
-                    self.peek_next_kind(),
-                    Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor")
-                ) {
+                if matches!(self.peek_next_kind(), Some(TokenKind::New)) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
                         procedure: self.parse_lifecycle_sub_procedure(
                             visibility,
-                            "Constructor",
+                            "New",
                             "Initialize",
                         )?,
                     }))
@@ -162,43 +184,32 @@ impl Parser {
                 }
             }
             TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Constructor") => {
-                if is_iterator {
-                    return Err(self.error_here("Iterator is not supported on Constructor"));
-                }
-                Ok(ClassMember::Sub(ClassSub {
-                    visibility,
-                    procedure: self.parse_lifecycle_procedure(
-                        visibility,
-                        "Constructor",
-                        "Initialize",
-                        BlockEnd::EndLifecycle,
-                    )?,
-                }))
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Constructor blocks were removed; use Public Sub New(...) ... End Sub.",
+                    Some(self.peek().span),
+                ))
             }
             TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Terminate") => {
-                if is_iterator {
-                    return Err(self.error_here("Iterator is not supported on Terminate"));
-                }
-                Ok(ClassMember::Sub(ClassSub {
-                    visibility,
-                    procedure: self.parse_lifecycle_procedure(
-                        visibility,
-                        "Terminate",
-                        "Terminate",
-                        BlockEnd::EndLifecycle,
-                    )?,
-                }))
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Terminate blocks were removed; use Public Sub Terminate() ... End Sub.",
+                    Some(self.peek().span),
+                ))
             }
             TokenKind::Function => Ok(ClassMember::Function(
                 self.parse_class_function(visibility, is_iterator)?,
             )),
-            TokenKind::Property => Ok(ClassMember::Property(
-                self.parse_property(visibility, is_default, is_iterator)?,
-            )),
-            _ if is_iterator => Ok(ClassMember::Iterator(ClassIterator {
+            TokenKind::Property => Ok(ClassMember::Property(self.parse_property(
                 visibility,
-                function: self.parse_iterator_rest(visibility)?,
-            })),
+                is_default,
+                is_iterator,
+            )?)),
+            _ if is_iterator => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                "Iterator must modify Function or Property Get; use Iterator Function ... Yield ... End Function.",
+                Some(self.previous().span),
+            )),
             _ if is_default => Err(self.error_here("Default is only supported on Property")),
             TokenKind::Identifier(_) | TokenKind::Dim => {
                 if is_iterator {
@@ -599,6 +610,20 @@ impl Parser {
                     }))
                 }
             }
+            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Constructor") => {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Constructor blocks were removed; use Public Sub New(...) ... End Sub.",
+                    Some(self.peek().span),
+                ))
+            }
+            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Terminate") => {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Terminate blocks were removed; use Public Sub Terminate() ... End Sub.",
+                    Some(self.peek().span),
+                ))
+            }
             TokenKind::Function => Ok(ClassMember::Function(
                 self.parse_class_function(visibility, false)?,
             )),
@@ -615,6 +640,13 @@ impl Parser {
         visibility: Visibility,
     ) -> Result<Procedure, Diagnostic> {
         let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
+        if self.match_simple(&TokenKind::New) {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                "Sub New is only allowed inside Class",
+                Some(self.previous().span),
+            ));
+        }
         let name = self.expect_identifier("Expected procedure name after 'Sub'")?;
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after procedure name")?;
         let params = self.parse_parameters()?;
@@ -640,43 +672,6 @@ impl Parser {
         })
     }
 
-    fn parse_lifecycle_procedure(
-        &mut self,
-        visibility: Visibility,
-        syntax_name: &str,
-        canonical_name: &str,
-        block_end: BlockEnd,
-    ) -> Result<Procedure, Diagnostic> {
-        let start = self.expect_identifier(&format!("Expected '{}'", syntax_name))?;
-        debug_assert!(start.eq_ignore_ascii_case(syntax_name));
-        let start_span = self.previous().span;
-        self.expect_simple(
-            TokenKind::LeftParen,
-            &format!("Expected '(' after {}", syntax_name),
-        )?;
-        let params = self.parse_parameters()?;
-        self.expect_simple(
-            TokenKind::RightParen,
-            &format!("Expected ')' after {} parameters", syntax_name),
-        )?;
-        self.expect_newline(&format!(
-            "Expected newline after {} declaration",
-            syntax_name
-        ))?;
-
-        let body = self.parse_block_until(&[block_end])?;
-        let end = self.consume_lifecycle_end(syntax_name)?;
-        self.consume_statement_end();
-
-        Ok(Procedure {
-            visibility,
-            name: canonical_name.to_string(),
-            params,
-            body,
-            span: Span::new(start_span.start, end.end),
-        })
-    }
-
     fn parse_lifecycle_sub_procedure(
         &mut self,
         visibility: Visibility,
@@ -684,8 +679,16 @@ impl Parser {
         canonical_name: &str,
     ) -> Result<Procedure, Diagnostic> {
         let start_span = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
-        let name = self.expect_identifier(&format!("Expected '{syntax_name}' after 'Sub'"))?;
-        if !name.eq_ignore_ascii_case(syntax_name) {
+        let matched_name = if syntax_name.eq_ignore_ascii_case("New") {
+            self.match_simple(&TokenKind::New)
+        } else if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case(syntax_name))
+        {
+            self.advance();
+            true
+        } else {
+            false
+        };
+        if !matched_name {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::PARSE,
                 format!("Expected '{syntax_name}' after 'Sub'"),
@@ -703,8 +706,14 @@ impl Parser {
         )?;
         self.expect_newline(&format!("Expected newline after {syntax_name} declaration"))?;
 
-        let body = self.parse_block_until(&[BlockEnd::EndLifecycle])?;
-        let end = self.consume_lifecycle_end(syntax_name)?;
+        let body = self.parse_block_until(&[BlockEnd::EndSub])?;
+        self.expect_simple(
+            TokenKind::End,
+            &format!("Expected 'End Sub' after Sub {syntax_name}"),
+        )?;
+        let end = self
+            .expect_simple(TokenKind::Sub, "Expected 'Sub' after 'End'")?
+            .span;
         self.consume_statement_end();
 
         Ok(Procedure {
@@ -714,24 +723,6 @@ impl Parser {
             body,
             span: Span::new(start_span.start, end.end),
         })
-    }
-
-    fn consume_lifecycle_end(&mut self, syntax_name: &str) -> Result<Span, Diagnostic> {
-        self.expect_simple(TokenKind::End, &format!("Expected 'End {syntax_name}'"))?;
-        if self.match_simple(&TokenKind::Sub) {
-            return Ok(self.previous().span);
-        }
-        let end_name =
-            self.expect_identifier(&format!("Expected 'Sub' or '{syntax_name}' after 'End'"))?;
-        if !end_name.eq_ignore_ascii_case(syntax_name) {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::PARSE,
-                format!("Expected 'Sub' or '{syntax_name}' after 'End'"),
-                Some(self.previous().span),
-            ));
-        }
-        let end = self.previous().span;
-        Ok(end)
     }
 
     pub(super) fn parse_function(
@@ -822,37 +813,6 @@ impl Parser {
                 body,
                 span: Span::new(start.start, end.end),
             },
-        })
-    }
-
-    fn parse_iterator_rest(&mut self, visibility: Visibility) -> Result<Function, Diagnostic> {
-        let start = self.previous().span;
-        let name = self.expect_identifier("Expected iterator name after 'Iterator'")?;
-        self.expect_simple(TokenKind::LeftParen, "Expected '(' after iterator name")?;
-        let params = self.parse_parameters()?;
-        self.expect_simple(
-            TokenKind::RightParen,
-            "Expected ')' after iterator parameters",
-        )?;
-        self.expect_simple(TokenKind::As, "Expected 'As' before iterator return type")?;
-        let return_type = self.parse_type_name()?;
-        self.expect_newline("Expected newline after iterator declaration")?;
-
-        let body = self.parse_block_until(&[BlockEnd::EndIterator])?;
-        self.expect_simple(TokenKind::End, "Expected 'End Iterator'")?;
-        let end = self
-            .expect_simple(TokenKind::Iterator, "Expected 'Iterator' after 'End'")?
-            .span;
-        self.consume_statement_end();
-
-        Ok(Function {
-            visibility,
-            name,
-            is_iterator: true,
-            params,
-            return_type,
-            body,
-            span: Span::new(start.start, end.end),
         })
     }
 

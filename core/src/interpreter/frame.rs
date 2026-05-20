@@ -313,6 +313,10 @@ impl Frame {
         })
     }
 
+    pub(crate) fn remove_variable(&mut self, name: &str) -> Option<Variable> {
+        self.variables.remove(&key(name))
+    }
+
     pub(crate) fn has_variable(&self, name: &str) -> bool {
         self.variables.contains_key(&key(name))
     }

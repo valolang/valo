@@ -72,6 +72,7 @@ pub enum TokenKind {
     While,
     Wend,
     With,
+    Using,
     Do,
     Loop,
     Until,

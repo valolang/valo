@@ -1,7 +1,7 @@
 Class Words
     Private values As Variant
 
-    Public Sub Constructor()
+    Public Sub New()
         values = Array("VBA", "_NewEnum", "works")
     End Sub
 

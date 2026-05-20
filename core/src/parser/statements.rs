@@ -7,6 +7,31 @@ impl Parser {
         self.skip_newlines();
 
         while !self.is_at_end() && !self.matches_block_end(ends) {
+            if matches!(self.peek_kind(), TokenKind::End) {
+                if matches!(self.peek_next_kind(), Some(TokenKind::Iterator)) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "End Iterator was removed; use Iterator Function ... Yield ... End Function.",
+                        Some(self.peek().span),
+                    ));
+                }
+                if matches!(self.peek_next_kind(), Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor"))
+                {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "End Constructor was removed; use Public Sub New(...) ... End Sub.",
+                        Some(self.peek().span),
+                    ));
+                }
+                if matches!(self.peek_next_kind(), Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Terminate"))
+                {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "End Terminate was removed; use Public Sub Terminate() ... End Sub.",
+                        Some(self.peek().span),
+                    ));
+                }
+            }
             if self.matches_any_block_boundary() {
                 break;
             }
@@ -50,6 +75,7 @@ impl Parser {
             TokenKind::Select => self.parse_select_case(),
             TokenKind::While => self.parse_while(),
             TokenKind::With => self.parse_with(),
+            TokenKind::Using => self.parse_using(),
             TokenKind::Do => self.parse_do_loop(),
             TokenKind::For => self.parse_for(),
             TokenKind::GoTo => self.parse_goto(),
@@ -804,6 +830,31 @@ impl Parser {
         })
     }
 
+    fn parse_using(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Using, "Expected 'Using'")?
+            .span;
+        let resource = if matches!(self.peek_kind(), TokenKind::Identifier(_))
+            && matches!(self.peek_next_kind(), Some(TokenKind::As))
+        {
+            UsingResource::Declaration(self.parse_variable_declarator("Using")?)
+        } else {
+            UsingResource::Target(self.parse_expression()?)
+        };
+        self.expect_newline("Expected newline after Using resource")?;
+        let body = self.parse_block_until(&[BlockEnd::EndUsing])?;
+        self.expect_simple(TokenKind::End, "Expected 'End Using'")?;
+        let end = self
+            .expect_simple(TokenKind::Using, "Expected 'Using' after 'End'")?
+            .span;
+
+        Ok(Stmt::Using {
+            resource,
+            body,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
     fn parse_select_case(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Select, "Expected 'Select'")?
@@ -1325,24 +1376,9 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Function))
             }
-            BlockEnd::EndIterator => {
-                matches!(self.peek_kind(), TokenKind::End)
-                    && matches!(self.peek_next_kind(), Some(TokenKind::Iterator))
-            }
             BlockEnd::EndProperty => {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Property))
-            }
-            BlockEnd::EndLifecycle => {
-                matches!(self.peek_kind(), TokenKind::End)
-                    && match self.peek_next_kind() {
-                        Some(TokenKind::Sub) => true,
-                        Some(TokenKind::Identifier(name)) => {
-                            name.eq_ignore_ascii_case("Constructor")
-                                || name.eq_ignore_ascii_case("Terminate")
-                        }
-                        _ => false,
-                    }
             }
             BlockEnd::EndSelect => {
                 matches!(self.peek_kind(), TokenKind::End)
@@ -1368,6 +1404,10 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::With))
             }
+            BlockEnd::EndUsing => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Using))
+            }
             BlockEnd::Catch => matches!(self.peek_kind(), TokenKind::Catch),
             BlockEnd::Finally => matches!(self.peek_kind(), TokenKind::Finally),
             BlockEnd::EndTry => {
@@ -1389,25 +1429,22 @@ impl Parser {
                 | TokenKind::Catch
                 | TokenKind::Finally
         ) || (matches!(self.peek_kind(), TokenKind::End)
-            && match self.peek_next_kind() {
+            && matches!(
+                self.peek_next_kind(),
                 Some(
                     TokenKind::If
-                    | TokenKind::Sub
-                    | TokenKind::Function
-                    | TokenKind::Property
-                    | TokenKind::Select
-                    | TokenKind::Type
-                    | TokenKind::Structure
-                    | TokenKind::Enum
-                    | TokenKind::Class
-                    | TokenKind::With
-                    | TokenKind::Try,
-                ) => true,
-                Some(TokenKind::Identifier(name)) => {
-                    name.eq_ignore_ascii_case("Constructor")
-                        || name.eq_ignore_ascii_case("Terminate")
-                }
-                _ => false,
-            })
+                        | TokenKind::Sub
+                        | TokenKind::Function
+                        | TokenKind::Property
+                        | TokenKind::Select
+                        | TokenKind::Type
+                        | TokenKind::Structure
+                        | TokenKind::Enum
+                        | TokenKind::Class
+                        | TokenKind::With
+                        | TokenKind::Using
+                        | TokenKind::Try
+                )
+            ))
     }
 }

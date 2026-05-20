@@ -140,6 +140,11 @@ pub enum Stmt {
         body: Vec<Stmt>,
         span: Span,
     },
+    Using {
+        resource: UsingResource,
+        body: Vec<Stmt>,
+        span: Span,
+    },
     Exit {
         target: ExitTarget,
         span: Span,
@@ -215,6 +220,12 @@ pub struct VariableDecl {
     pub new_args: Vec<Expr>,
     pub initializer: Option<Expr>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UsingResource {
+    Declaration(VariableDecl),
+    Target(Expr),
 }
 
 #[derive(Debug, Clone, PartialEq)]

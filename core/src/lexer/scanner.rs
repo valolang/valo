@@ -148,6 +148,7 @@ impl<'a> Lexer<'a> {
             "while" => TokenKind::While,
             "wend" => TokenKind::Wend,
             "with" => TokenKind::With,
+            "using" => TokenKind::Using,
             "do" => TokenKind::Do,
             "loop" => TokenKind::Loop,
             "until" => TokenKind::Until,

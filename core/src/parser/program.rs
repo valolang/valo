@@ -139,7 +139,9 @@ impl Parser {
                 }
                 TokenKind::Class => classes.push(self.parse_class_decl(Visibility::Public)?),
                 TokenKind::Sub => procedures.push(self.parse_procedure(Visibility::Public)?),
-                TokenKind::Function => functions.push(self.parse_function(Visibility::Public, false)?),
+                TokenKind::Function => {
+                    functions.push(self.parse_function(Visibility::Public, false)?)
+                }
                 TokenKind::Iterator => {
                     self.advance(); // consume Iterator
                     if self.check_simple(&TokenKind::Function) {
@@ -168,7 +170,9 @@ impl Parser {
                         || self.check_simple(&TokenKind::Structure)
                     {
                         if is_iterator {
-                            return Err(self.error_here("Iterator is not supported on Type/Structure"));
+                            return Err(
+                                self.error_here("Iterator is not supported on Type/Structure")
+                            );
                         }
                         types.push(self.parse_type_decl(visibility)?);
                     } else if self.check_simple(&TokenKind::Class) {

@@ -122,7 +122,10 @@ pub(super) fn validate_class(
                 if !saw_yield && !saw_return {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                        format!("Iterator '{}' must return a value or yield values", method.function.name),
+                        format!(
+                            "Iterator '{}' must return a value or yield values",
+                            method.function.name
+                        ),
                         Some(method.function.span),
                     ));
                 }
@@ -163,7 +166,10 @@ pub(super) fn validate_class(
                             if !saw_yield {
                                 return Err(Diagnostic::new(
                                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                                    format!("Iterator Property '{}' must contain at least one Yield statement", property.name),
+                                    format!(
+                                        "Iterator Property '{}' must contain at least one Yield statement",
+                                        property.name
+                                    ),
                                     Some(property.span),
                                 ));
                             }
@@ -171,7 +177,10 @@ pub(super) fn validate_class(
                                 if param.mode == PassingMode::ByRef {
                                     return Err(Diagnostic::new(
                                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                                        format!("Iterator Property '{}' cannot have ByRef parameters", property.name),
+                                        format!(
+                                            "Iterator Property '{}' cannot have ByRef parameters",
+                                            property.name
+                                        ),
                                         Some(param.span),
                                     ));
                                 }
@@ -332,7 +341,10 @@ pub(super) fn validate_structure(
                             if !saw_yield {
                                 return Err(Diagnostic::new(
                                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                                    format!("Iterator Property '{}' must contain at least one Yield statement", property.name),
+                                    format!(
+                                        "Iterator Property '{}' must contain at least one Yield statement",
+                                        property.name
+                                    ),
                                     Some(property.span),
                                 ));
                             }
@@ -340,7 +352,10 @@ pub(super) fn validate_structure(
                                 if param.mode == PassingMode::ByRef {
                                     return Err(Diagnostic::new(
                                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                                        format!("Iterator Property '{}' cannot have ByRef parameters", property.name),
+                                        format!(
+                                            "Iterator Property '{}' cannot have ByRef parameters",
+                                            property.name
+                                        ),
                                         Some(param.span),
                                     ));
                                 }

@@ -1,7 +1,7 @@
 Class Box
     Private value As Integer
 
-    Public Sub Constructor(ByVal initial As Integer)
+    Public Sub New(ByVal initial As Integer)
         value = initial
     End Sub
 

@@ -112,14 +112,44 @@ fn return_inside_iterator_is_rejected() {
 }
 
 #[test]
+fn old_iterator_block_is_rejected() {
+    let source = r#"
+        Class Bad
+            Public Iterator Items() As Variant
+                Return Array(1)
+            End Iterator
+        End Class
+
+        Sub Main()
+        End Sub
+    "#;
+    assert!(source_error(source).contains("Iterator must modify Function or Property Get"));
+}
+
+#[test]
+fn end_iterator_is_rejected() {
+    let source = r#"
+        Class Bad
+            Public Iterator Function Items() As Variant
+                Yield 1
+            End Iterator
+        End Class
+
+        Sub Main()
+        End Sub
+    "#;
+    assert!(source_error(source).contains("End Iterator was removed"));
+}
+
+#[test]
 fn for_each_object_new_enum_property_returning_array() {
     let source = r#"
         Class List
             Private items As Variant
 
-            Public Constructor()
+            Public Sub New()
                 items = Array("a", "b")
-            End Constructor
+            End Sub
 
             Public Property Get _NewEnum() As Variant
             Attribute _NewEnum.VB_UserMemId = -4

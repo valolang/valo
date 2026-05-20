@@ -32,7 +32,8 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 
 *   **[Classes](classes.valo):** Class definitions, properties, and methods.
 *   **[Properties](properties.valo):** Property Get/Let/Set accessors.
-*   **[Native Lifecycle](native_class_lifecycle.valo):** `Sub Constructor` and `Sub Terminate` support.
+*   **[Native Lifecycle](native_class_lifecycle.valo):** `Sub New` and `Sub Terminate` support.
+*   **[Using Dispose](using_dispose.valo):** Deterministic cleanup with `Using` and `Dispose`.
 *   **[Events](events.valo):** Declaring and raising events.
 *   **[Default Properties](default_properties.valo):** [Native](native_default_property.valo) and [Indexer Style](indexer_style.valo) default members.
 *   **[Nothing](nothing.valo):** Object reference management and `Is Nothing` checks.

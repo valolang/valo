@@ -662,7 +662,10 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                     if property.is_enumerator {
                         enumerator_member = Some(property.name.clone());
                     }
-                    if property.is_iterator && property.params.is_empty() && property.kind == PropertyKind::Get {
+                    if property.is_iterator
+                        && property.params.is_empty()
+                        && property.kind == PropertyKind::Get
+                    {
                         iterator = Some(crate::Function {
                             visibility: property.visibility,
                             name: property.name.clone(),

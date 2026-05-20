@@ -383,13 +383,13 @@ impl Interpreter {
                 function.span,
                 &self.types,
                 &self.enums,
-                )?;
-                }
-                if function.is_iterator {
-                frame.set_yield_mode();
-                }
-                match self.exec_block(&function.body, &mut frame)? {
-                ControlFlow::Return(value) => {
+            )?;
+        }
+        if function.is_iterator {
+            frame.set_yield_mode();
+        }
+        match self.exec_block(&function.body, &mut frame)? {
+            ControlFlow::Return(value) => {
                 if function.is_iterator {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -398,8 +398,8 @@ impl Interpreter {
                     ));
                 }
                 coerce_assignment(&return_type, value, span)
-                }
-                ControlFlow::Continue | ControlFlow::ExitFunction => {
+            }
+            ControlFlow::Continue | ControlFlow::ExitFunction => {
                 if function.is_iterator {
                     let elements = frame.take_yielded_values().unwrap_or_default();
                     let len = elements.len() as i64;
@@ -415,7 +415,7 @@ impl Interpreter {
                 } else {
                     frame.get(&function.name, function.span)
                 }
-                }
+            }
 
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,

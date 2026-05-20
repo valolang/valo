@@ -1,7 +1,7 @@
 Class Person
     Private mName As String
 
-    Public Sub Initialize(ByVal value As String)
+    Public Sub New(ByVal value As String)
         Me.mName = value
     End Sub
 

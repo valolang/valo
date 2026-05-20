@@ -9,7 +9,7 @@ End Class
 Class Form
     Private WithEvents mButton As Button
 
-    Public Sub Initialize()
+    Public Sub New()
         mButton = New Button()
     End Sub
 

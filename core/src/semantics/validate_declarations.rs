@@ -1,6 +1,6 @@
 use super::*;
-use crate::runtime::Span;
 use crate::TypeKind;
+use crate::runtime::Span;
 
 pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
     let mut types = HashMap::new();
@@ -428,7 +428,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
                                 format!(
-                                    "Class '{}' has duplicate constructor definitions; use only one of Constructor, Sub Constructor, Initialize, or Class_Initialize",
+                                    "Class '{}' has duplicate constructor definitions; use only one of Sub New or Class_Initialize",
                                     class_decl.name
                                 ),
                                 Some(method.procedure.span),
@@ -630,7 +630,10 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         }
                         default_member = Some(property.name.clone());
                     }
-                    if property.is_iterator && property.params.is_empty() && property.kind == PropertyKind::Get {
+                    if property.is_iterator
+                        && property.params.is_empty()
+                        && property.kind == PropertyKind::Get
+                    {
                         if iterator.is_some() {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,

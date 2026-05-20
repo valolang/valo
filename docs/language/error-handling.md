@@ -25,6 +25,18 @@ End Try
 - `Finally` blocks are guaranteed to execute even if the `Try` block returns or exits.
 - `Try/Catch` handles runtime errors only; semantic errors are caught before execution.
 
+## Using/Dispose Cleanup
+
+For deterministic resource cleanup, prefer `Using` with a parameterless `Dispose` method:
+
+```vb
+Using conn As New Connection("db")
+    conn.Query()
+End Using
+```
+
+`Using` behaves like an implicit `Finally`: `Dispose` runs when the body succeeds, returns, exits, or raises a runtime error. If the body raises an error and `Dispose` succeeds, the original error continues to propagate. If `Dispose` itself fails after a body failure, Valo preserves the body error and attaches the cleanup failure as related diagnostic context.
+
 ## The Error Object
 
 In a `Catch` block, the error object exposes several properties:

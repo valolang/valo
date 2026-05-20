@@ -43,7 +43,7 @@ fn native_constructor_runs() {
 Class Box
     Public value As Integer
 
-    Public Sub Constructor()
+    Public Sub New()
         value = 10
     End Sub
 End Class
@@ -63,7 +63,7 @@ fn native_constructor_accepts_parameters() {
 Class Box
     Public value As Integer
 
-    Public Sub Constructor(ByVal initial As Integer)
+    Public Sub New(ByVal initial As Integer)
         value = initial
     End Sub
 End Class
@@ -83,10 +83,10 @@ fn duplicate_constructor_aliases_are_rejected() {
     let error = source_error(
         r#"
 Class Box
-    Public Sub Constructor()
+    Public Sub New()
     End Sub
 
-    Public Sub Initialize()
+    Public Sub Class_Initialize()
     End Sub
 End Class
 
@@ -139,8 +139,9 @@ End Sub
 }
 
 #[test]
-fn legacy_end_constructor_still_works() {
-    let source = r#"
+fn constructor_block_is_rejected() {
+    let error = source_error(
+        r#"
 Class Box
     Public value As Integer
 
@@ -150,17 +151,49 @@ Class Box
 End Class
 
 Sub Main()
-    Dim box As New Box
-    Console.WriteLine(box.value)
 End Sub
-"#;
-    let output = run_source(source);
-    assert_eq!(output, vec!["10"]);
+"#,
+    );
+
+    assert!(error.contains("Constructor blocks were removed"));
 }
 
 #[test]
-fn legacy_end_terminate_still_works() {
-    let source = r#"
+fn end_constructor_is_rejected() {
+    let error = source_error(
+        r#"
+Class Box
+    Public Sub New()
+    End Constructor
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("End Constructor was removed"));
+}
+
+#[test]
+fn sub_new_outside_class_is_rejected() {
+    let error = source_error(
+        r#"
+Sub New()
+End Sub
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Sub New is only allowed inside Class"));
+}
+
+#[test]
+fn terminate_block_is_rejected() {
+    let error = source_error(
+        r#"
 Class Logger
     Public Terminate()
         Console.WriteLine("terminated")
@@ -168,12 +201,28 @@ Class Logger
 End Class
 
 Sub Main()
-    Dim l As New Logger
-    Set l = Nothing
 End Sub
-"#;
-    let output = run_source(source);
-    assert_eq!(output, vec!["terminated"]);
+"#,
+    );
+
+    assert!(error.contains("Terminate blocks were removed"));
+}
+
+#[test]
+fn end_terminate_is_rejected() {
+    let error = source_error(
+        r#"
+Class Logger
+    Public Sub Terminate()
+    End Terminate
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("End Terminate was removed"));
 }
 
 #[test]

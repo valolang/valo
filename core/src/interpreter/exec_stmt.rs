@@ -1,7 +1,7 @@
 use crate::runtime::{Diagnostic, RuntimeErrorInfo, Value};
 use crate::{
     AssignTarget, CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ResumeTarget,
-    Stmt,
+    Stmt, UsingResource,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -477,6 +477,11 @@ impl Interpreter {
                 frame.pop_with_target();
                 flow
             }
+            Stmt::Using {
+                resource,
+                body,
+                span,
+            } => self.exec_using(resource, body, frame, *span),
             Stmt::Exit { target, .. } => match target {
                 ExitTarget::Sub => Ok(ControlFlow::ExitSub),
                 ExitTarget::Function => Ok(ControlFlow::ExitFunction),
@@ -538,6 +543,98 @@ impl Interpreter {
                 Ok(ControlFlow::Continue)
             }
         }
+    }
+
+    fn exec_using(
+        &mut self,
+        resource: &UsingResource,
+        body: &[Stmt],
+        frame: &mut Frame,
+        span: crate::runtime::Span,
+    ) -> Result<ControlFlow, Diagnostic> {
+        let (resource_value, declared_name) = match resource {
+            UsingResource::Declaration(decl) => {
+                self.exec_variable_declaration(
+                    &decl.name,
+                    &decl.ty,
+                    &decl.array,
+                    decl.as_new,
+                    &decl.new_args,
+                    &decl.initializer,
+                    frame,
+                    decl.span,
+                )?;
+                (frame.get(&decl.name, decl.span)?, Some(decl.name.as_str()))
+            }
+            UsingResource::Target(expr) => (self.eval_expr(expr, frame)?, None),
+        };
+
+        let body_result = self.exec_block(body, frame);
+        let dispose_result = self.call_dispose(resource_value, frame, span);
+        let remove_result = if let Some(name) = declared_name {
+            if let Some(variable) = frame.remove_variable(name) {
+                let value = variable.cell.borrow().clone();
+                drop(variable);
+                self.maybe_terminate(value, span)
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        };
+
+        match (body_result, dispose_result, remove_result) {
+            (Err(body_error), Err(dispose_error), _) => Err(body_error.with_related(dispose_error)),
+            (Err(body_error), Ok(()), Err(terminate_error)) => {
+                Err(body_error.with_related(terminate_error))
+            }
+            (Err(body_error), Ok(()), Ok(())) => Err(body_error),
+            (Ok(_), Err(dispose_error), _) => Err(dispose_error),
+            (Ok(_), Ok(()), Err(terminate_error)) => Err(terminate_error),
+            (Ok(flow), Ok(()), Ok(())) => Ok(flow),
+        }
+    }
+
+    fn call_dispose(
+        &mut self,
+        value: Value,
+        frame: &mut Frame,
+        span: crate::runtime::Span,
+    ) -> Result<(), Diagnostic> {
+        match &value {
+            Value::Object(instance) => {
+                let class_name = instance.borrow().class_name.clone();
+                let class = self.classes.get(&key(&class_name)).ok_or_else(|| {
+                    Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        format!("Using target class '{}' is not disposable", class_name),
+                        Some(span),
+                    )
+                })?;
+                let Some(dispose) = class.subs.get("dispose") else {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        format!("Using target class '{}' has no Dispose method", class.name),
+                        Some(span),
+                    ));
+                };
+                if !dispose.params.is_empty() {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        "Dispose method used by Using must be parameterless",
+                        Some(span),
+                    ));
+                }
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Using target must be a class instance with a parameterless Dispose method",
+                    Some(span),
+                ));
+            }
+        }
+        self.call_method_sub_values(value, "Dispose", &[], frame, span)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -876,6 +973,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::OnError { span, .. }
         | Stmt::Resume { span, .. }
         | Stmt::With { span, .. }
+        | Stmt::Using { span, .. }
         | Stmt::Exit { span, .. }
         | Stmt::TryCatch { span, .. }
         | Stmt::DebugPrint { span, .. }

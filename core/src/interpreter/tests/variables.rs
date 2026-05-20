@@ -608,9 +608,9 @@ fn as_new_accepts_constructor_arguments() {
 Class User
     Name As String
 
-    Constructor(ByVal name As String)
+    Public Sub New(ByVal name As String)
         Me.Name = name
-    End Constructor
+    End Sub
 End Class
 
 Sub Main()

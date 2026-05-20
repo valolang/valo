@@ -7,14 +7,14 @@ Valo is built with first-class support for VBA (Visual Basic for Applications) w
 Valo distinguishes between modern native code and legacy compatibility code primarily through file extensions and specific syntax choices.
 
 ### Source Modes
-*   **`.valo` Files:** Modern native syntax. Prefers `Sub Constructor`/`Sub Terminate`, `Structure`, `Default` keyword, and structured imports.
+*   **`.valo` Files:** Modern native syntax. Prefers class `Sub New`/`Sub Terminate`, `Structure`, `Default` keyword, and structured imports.
 *   **`.bas` / `.cls` Files:** VBA compatibility mode. Supports `Attribute VB_*` metadata, `Class_Initialize`, `Class_Terminate`, and `Type`.
 
 ### Feature Comparison
 
 | Feature | Native Valo (`.valo`) | VBA Compatibility (`.bas`/`.cls`) |
 |---------|----------------------|-----------------------------------|
-| Constructor | `Public Sub Constructor()` | `Private Sub Class_Initialize()` |
+| Constructor | `Public Sub New()` | `Private Sub Class_Initialize()` |
 | Destructor | `Public Sub Terminate()` | `Private Sub Class_Terminate()` |
 | Default Member | `Public Default Property Get Item()` | `Attribute Item.VB_UserMemId = 0` |
 | Value Records | `Public Structure Point` | `Public Type Point` |

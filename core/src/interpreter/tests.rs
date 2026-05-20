@@ -13,5 +13,6 @@ mod lifecycle;
 mod modernization;
 mod modules;
 mod types;
+mod using_dispose;
 mod variables;
 mod vba_compat;

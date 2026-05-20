@@ -98,7 +98,8 @@ Implemented today:
 - exported VBA `.cls` compatibility
 - modules and imports
 - classes, properties, events, and object lifecycle
-- native `Sub Constructor` / `Sub Terminate`
+- native `Sub New` / `Sub Terminate`
+- deterministic cleanup with `Sub Dispose` and `Using`
 - VBA `Class_Initialize` / `Class_Terminate`
 - native `Structure` value types with methods, properties, and constructors
 - VBA-compatible fields-only `Type`
@@ -131,7 +132,7 @@ Native `.valo` files use clean, modern Basic-style syntax:
 Class Counter
     Private value As Integer
 
-    Public Sub Constructor()
+    Public Sub New()
         value = 0
     End Sub
 

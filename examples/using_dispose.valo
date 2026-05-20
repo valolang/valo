@@ -1,0 +1,30 @@
+Class Resource
+    Private name As String
+
+    Public Sub New(ByVal resourceName As String)
+        name = resourceName
+        Console.WriteLine("open " & name)
+    End Sub
+
+    Public Sub Dispose()
+        Console.WriteLine("dispose " & name)
+    End Sub
+
+    Public Sub Terminate()
+        Debug.Print "terminate", name
+    End Sub
+End Class
+
+Sub Main()
+    Using res As New Resource("demo")
+        Console.WriteLine("inside using")
+    End Using
+
+    Try
+        Using broken As New Resource("error")
+            Err.Raise 1001, "UsingDemo", "failure"
+        End Using
+    Catch ex As Error
+        Console.WriteLine("caught: " & ex.Message)
+    End Try
+End Sub

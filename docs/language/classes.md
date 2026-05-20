@@ -20,16 +20,16 @@ Public Class User
 End Class
 ```
 
-## Lifecycle
+## Lifecycle And Cleanup
 
 Valo supports both modern and legacy lifecycle methods.
 
-### Native Lifecycle
-The preferred way to handle object initialization and cleanup is using Sub-like lifecycle members: `Sub Constructor` and `Sub Terminate`.
+### Construction
+The native constructor form is `Sub New`.
 
 ```vb
 Class Connection
-    Public Sub Constructor(ByVal host As String)
+    Public Sub New(ByVal host As String)
         ' Setup logic
     End Sub
 
@@ -39,7 +39,29 @@ Class Connection
 End Class
 ```
 
-Older `Constructor ... End Constructor` and `Terminate ... End Terminate` blocks are accepted for compatibility, but new native Valo code should use `End Sub`.
+Older native `Constructor ... End Constructor` and `Terminate ... End Terminate` blocks have been removed. Use `Sub New ... End Sub` and `Sub Terminate ... End Sub`.
+
+### Deterministic Cleanup
+Use `Sub Dispose` for explicit resource cleanup. A `Using` block calls `Dispose` automatically when the block exits, including exits caused by `Return`, `Exit Sub`, or a runtime error.
+
+```vb
+Class Resource
+    Public Sub Dispose()
+        Console.WriteLine("disposed")
+    End Sub
+End Class
+
+Sub Main()
+    Using res As New Resource()
+        Console.WriteLine("inside")
+    End Using
+End Sub
+```
+
+`Dispose` must be parameterless when used by `Using`. Manual calls such as `res.Dispose()` are normal method calls.
+
+### Lifecycle Hooks
+`Sub Terminate` remains a lifecycle hook that runs when an object is released by the runtime. Prefer `Dispose` and `Using` for resources, especially code that will later interact with FFI or external handles.
 
 ### VBA Compatibility Aliases
 For compatibility with existing VBA code, Valo also recognizes `Class_Initialize` and `Class_Terminate`.

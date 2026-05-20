@@ -1,7 +1,7 @@
 Class Box
     Private value As Integer
 
-    Public Sub Initialize()
+    Public Sub New()
         Me.value = 10
     End Sub
 

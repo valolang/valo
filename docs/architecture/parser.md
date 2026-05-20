@@ -6,7 +6,7 @@ The Valo parser is a hand-written recursive descent parser designed to handle th
 
 1.  **High Fidelity:** Accurately represent the structure of Basic code, including legacy quirks like line-oriented statements and case-insensitivity.
 2.  **Explicit Diagnostics:** Provide clear, localized error messages when parsing fails, using a custom `Diagnostic` system.
-3.  **Modern Extensions:** Support modern features like `Sub Constructor`, `Structure`, `Default Property`, and structured imports alongside traditional Basic syntax.
+3.  **Modern Extensions:** Support modern features like class `Sub New`, `Structure`, `Default Property`, and structured imports alongside traditional Basic syntax.
 
 ## Parsing Pipeline
 
