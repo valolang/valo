@@ -1,6 +1,6 @@
-use std::{env, fs, process};
+use std::{env, process};
 
-use valo_core::run_file;
+mod commands;
 
 fn main() {
     if let Err(error) = real_main() {
@@ -16,30 +16,32 @@ fn real_main() -> Result<(), String> {
     };
 
     match command.as_str() {
-        "run" => {
-            let Some(path) = args.next() else {
-                return Err(usage());
-            };
-
-            if args.next().is_some() {
-                return Err(usage());
-            }
-
-            let output = run_file(&path).map_err(|err| {
-                let source = fs::read_to_string(&path).unwrap_or_default();
-                err.render(&path, &source)
-            })?;
-
-            for line in output {
-                println!("{line}");
-            }
-
+        "run" => commands::run(env::args().skip(2)),
+        "repl" => commands::repl(),
+        "check" => commands::check(env::args().skip(2)),
+        "version" => {
+            println!("Valo 0.1.0");
             Ok(())
         }
-        _ => Err(usage()),
+        "--help" | "-h" | "help" => {
+            println!("{}", usage());
+            Ok(())
+        }
+        _ => Err(format!("Unknown command: {}", command)),
     }
 }
 
 fn usage() -> String {
-    "usage: valo run <file>".to_string()
+    r#"Valo 0.1.0 - A modern, Basic-inspired language.
+
+Usage: valo <command> [args]
+
+Commands:
+    run <file>      Run a Valo file (.valo, .bas, .cls)
+    repl            Start an interactive REPL
+    check <file>    Validate a Valo file without running
+    version         Print version information
+    help            Print this help message
+"#
+    .to_string()
 }
