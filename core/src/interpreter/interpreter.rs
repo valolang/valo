@@ -49,10 +49,58 @@ pub(crate) struct RuntimeImport {
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self {
+        let mut interpreter = Self {
             option_compare: crate::OptionCompare::Binary,
             ..Self::default()
-        }
+        };
+        interpreter.add_builtin_classes();
+        interpreter
+    }
+
+    fn add_builtin_classes(&mut self) {
+        self.classes.insert(
+            key("Error"),
+            RuntimeClass {
+                name: "Error".to_string(),
+                fields: vec![
+                    crate::interpreter::records::RuntimeField {
+                        name: "Number".to_string(),
+                        ty: crate::runtime::TypeName::Integer,
+                        with_events: false,
+                    },
+                    crate::interpreter::records::RuntimeField {
+                        name: "Message".to_string(),
+                        ty: crate::runtime::TypeName::String,
+                        with_events: false,
+                    },
+                    crate::interpreter::records::RuntimeField {
+                        name: "Description".to_string(),
+                        ty: crate::runtime::TypeName::String,
+                        with_events: false,
+                    },
+                    crate::interpreter::records::RuntimeField {
+                        name: "Source".to_string(),
+                        ty: crate::runtime::TypeName::String,
+                        with_events: false,
+                    },
+                    crate::interpreter::records::RuntimeField {
+                        name: "HelpFile".to_string(),
+                        ty: crate::runtime::TypeName::String,
+                        with_events: false,
+                    },
+                    crate::interpreter::records::RuntimeField {
+                        name: "HelpContext".to_string(),
+                        ty: crate::runtime::TypeName::Integer,
+                        with_events: false,
+                    },
+                ],
+                events: HashMap::new(),
+                subs: HashMap::new(),
+                functions: HashMap::new(),
+                properties: HashMap::new(),
+                default_member: None,
+            },
+        );
     }
 
     pub fn run(mut self, program: &Program) -> Result<Vec<String>, Diagnostic> {

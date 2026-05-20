@@ -156,6 +156,9 @@ pub(super) enum BlockEnd {
     Loop,
     Next,
     Wend,
+    Catch,
+    Finally,
+    EndTry,
 }
 
 #[cfg(test)]

@@ -496,6 +496,56 @@ pub(super) fn validate_statements(
             Stmt::Exit { target, span } => {
                 validate_exit(*target, *span, &context, loop_context)?;
             }
+            Stmt::TryCatch {
+                try_body,
+                catch_block,
+                finally_body,
+                ..
+            } => {
+                validate_statements(
+                    try_body,
+                    symbols,
+                    types,
+                    signatures,
+                    context.reborrow(),
+                    loop_context,
+                    in_with,
+                )?;
+                if let Some(catch) = catch_block {
+                    let mut catch_symbols = symbols.clone();
+                    if let Some(var_name) = &catch.variable {
+                        catch_symbols.insert(
+                            key(var_name),
+                            VarType::Scalar(TypeName::User("Error".to_string())),
+                        );
+                    }
+                    validate_statements(
+                        &catch.body,
+                        &mut catch_symbols,
+                        types,
+                        signatures,
+                        context.reborrow(),
+                        loop_context,
+                        in_with,
+                    )?;
+                }
+                if let Some(finally_body) = finally_body {
+                    validate_statements(
+                        finally_body,
+                        symbols,
+                        types,
+                        signatures,
+                        context.reborrow(),
+                        loop_context,
+                        in_with,
+                    )?;
+                }
+            }
+            Stmt::DebugPrint { args, .. } => {
+                for arg in args {
+                    validate_expr(arg, symbols, types, signatures)?;
+                }
+            }
         }
     }
 
@@ -630,7 +680,9 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::OnError { span, .. }
         | Stmt::Resume { span, .. }
         | Stmt::With { span, .. }
-        | Stmt::Exit { span, .. } => *span,
+        | Stmt::Exit { span, .. }
+        | Stmt::TryCatch { span, .. }
+        | Stmt::DebugPrint { span, .. } => *span,
     }
 }
 
@@ -642,9 +694,9 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
         Stmt::Assign { target, expr, .. } | Stmt::SetAssign { target, expr, .. } => {
             assign_target_uses_with_target(target) || expr_uses_with_target(expr)
         }
-        Stmt::ConsoleWriteLine { args, .. } | Stmt::SubCall { args, .. } => {
-            args.iter().any(expr_uses_with_target)
-        }
+        Stmt::ConsoleWriteLine { args, .. }
+        | Stmt::SubCall { args, .. }
+        | Stmt::DebugPrint { args, .. } => args.iter().any(expr_uses_with_target),
         Stmt::MemberSubCall { object, args, .. } => {
             expr_uses_with_target(object) || args.iter().any(expr_uses_with_target)
         }
@@ -705,6 +757,20 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
         } => {
             lower_bound.as_ref().is_some_and(expr_uses_with_target)
                 || expr_uses_with_target(upper_bound)
+        }
+        Stmt::TryCatch {
+            try_body,
+            catch_block,
+            finally_body,
+            ..
+        } => {
+            try_body.iter().any(stmt_uses_with_target)
+                || catch_block
+                    .as_ref()
+                    .is_some_and(|c| c.body.iter().any(stmt_uses_with_target))
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|f| f.iter().any(stmt_uses_with_target))
         }
         Stmt::Erase { .. } => false,
         Stmt::Label { .. } | Stmt::GoTo { .. } | Stmt::OnError { .. } | Stmt::Resume { .. } => {

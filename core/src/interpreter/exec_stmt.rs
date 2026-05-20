@@ -3,9 +3,11 @@ use crate::{
     AssignTarget, CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ResumeTarget,
     Stmt,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use super::values::{compare_case_values, values_equal};
+use super::values::{compare_case_values, key, values_equal};
 use super::{ControlFlow, Frame, Interpreter};
 
 impl Interpreter {
@@ -473,7 +475,92 @@ impl Interpreter {
                 ExitTarget::While => Ok(ControlFlow::ExitWhile),
                 ExitTarget::Do => Ok(ControlFlow::ExitDo),
             },
+            Stmt::TryCatch {
+                try_body,
+                catch_block,
+                finally_body,
+                ..
+            } => {
+                let mut result = self.exec_block(try_body, frame);
+
+                if let Err(error) = &result
+                    && let Some(catch) = catch_block
+                {
+                    if let Some(var_name) = &catch.variable {
+                        let error_obj = self.create_error_object(error);
+                        frame.declare(
+                            var_name,
+                            crate::runtime::TypeName::User("Error".to_string()),
+                            None,
+                            self.option_base,
+                            catch.span,
+                            &self.types,
+                            &self.enums,
+                        )?;
+                        frame.assign(var_name, error_obj, catch.span)?;
+                    }
+                    result = self.exec_block(&catch.body, frame);
+                }
+
+                if let Some(finally_body) = finally_body {
+                    let finally_result = self.exec_block(finally_body, frame);
+                    if let Err(error) = finally_result {
+                        return Err(error);
+                    }
+                    if let Ok(flow) = finally_result
+                        && !matches!(flow, ControlFlow::Continue)
+                    {
+                        return Ok(flow);
+                    }
+                }
+
+                result
+            }
+            Stmt::DebugPrint { args, .. } => {
+                let mut parts = Vec::new();
+                for arg in args {
+                    let value = self.eval_expr(arg, frame)?;
+                    parts.push(
+                        self.resolve_default_value(value, frame, arg.span)?
+                            .to_output_string(),
+                    );
+                }
+                self.output.push(parts.join("\t"));
+                Ok(ControlFlow::Continue)
+            }
         }
+    }
+
+    fn create_error_object(&self, diagnostic: &Diagnostic) -> Value {
+        let mut fields = HashMap::new();
+        if let Some(info) = &diagnostic.runtime_error {
+            fields.insert(key("Number"), Value::Integer(info.number));
+            fields.insert(key("Message"), Value::String(info.description.clone()));
+            fields.insert(key("Description"), Value::String(info.description.clone()));
+            fields.insert(key("Source"), Value::String(info.source.clone()));
+            fields.insert(key("HelpFile"), Value::String(info.help_file.clone()));
+            fields.insert(key("HelpContext"), Value::Integer(info.help_context));
+        } else {
+            fields.insert(key("Number"), Value::Integer(1));
+            fields.insert(
+                key("Message"),
+                Value::String(diagnostic.message.to_string()),
+            );
+            fields.insert(
+                key("Description"),
+                Value::String(diagnostic.message.to_string()),
+            );
+            fields.insert(key("Source"), Value::String("Valo.Runtime".to_string()));
+            fields.insert(key("HelpFile"), Value::String(String::new()));
+            fields.insert(key("HelpContext"), Value::Integer(0));
+        }
+
+        Value::Object(Rc::new(RefCell::new(crate::runtime::ObjectValue {
+            class_name: "Error".to_string(),
+            fields,
+            event_bindings: Vec::new(),
+            terminated: false,
+        })))
     }
 
     fn assign_target(
@@ -632,7 +719,9 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::OnError { span, .. }
         | Stmt::Resume { span, .. }
         | Stmt::With { span, .. }
-        | Stmt::Exit { span, .. } => *span,
+        | Stmt::Exit { span, .. }
+        | Stmt::TryCatch { span, .. }
+        | Stmt::DebugPrint { span, .. } => *span,
     }
 }
 

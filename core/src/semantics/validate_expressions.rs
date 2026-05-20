@@ -177,9 +177,9 @@ pub(super) fn validate_expr(
                 return Ok(TypeName::Variant);
             }
             match symbols.get(&key(name)).cloned() {
-                Some(VarType::Scalar(ty)) | Some(VarType::Optional(ty)) | Some(VarType::Const(ty)) => {
-                    Ok(ty)
-                }
+                Some(VarType::Scalar(ty))
+                | Some(VarType::Optional(ty))
+                | Some(VarType::Const(ty)) => Ok(ty),
                 Some(VarType::Array(_)) => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::ARRAY,
                     format!("Array variable '{}' cannot be used as a scalar", name),
@@ -349,23 +349,28 @@ pub(super) fn validate_expr(
                     VarType::Scalar(TypeName::User(class_name))
                     | VarType::Optional(TypeName::User(class_name))
                     | VarType::Const(TypeName::User(class_name)) => {
-                    if let Some(default_prop_name) = types.get_class(&class_name)
-                        .and_then(|c| c.default_property.as_ref()) {
-                        return validate_method_call(
-                            &TypeName::User(class_name.clone()),
-                            default_prop_name,
-                            args,
-                            true,
-                            expr.span,
-                            symbols,
-                            types,
-                            signatures,
-                            None,
-                        );
-                    }
+                        if let Some(default_prop_name) = types
+                            .get_class(&class_name)
+                            .and_then(|c| c.default_property.as_ref())
+                        {
+                            return validate_method_call(
+                                &TypeName::User(class_name.clone()),
+                                default_prop_name,
+                                args,
+                                true,
+                                expr.span,
+                                symbols,
+                                types,
+                                signatures,
+                                None,
+                            );
+                        }
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
-                            format!("Variable '{}' is not an array or a class with a default property", name),
+                            format!(
+                                "Variable '{}' is not an array or a class with a default property",
+                                name
+                            ),
                             Some(expr.span),
                         ));
                     }
@@ -820,7 +825,11 @@ pub(super) fn validate_method_call(
             )?;
             return Ok(method_sig.return_type.clone().expect("function return"));
         }
-        if let Some(get) = class_sig.properties.get(&key(method)).and_then(|p| p.get.as_ref()) {
+        if let Some(get) = class_sig
+            .properties
+            .get(&key(method))
+            .and_then(|p| p.get.as_ref())
+        {
             ensure_visible(get.visibility, &class_sig.name, method, current_class, span)?;
             let return_type = get.return_type.clone().expect("property return type");
 
@@ -834,13 +843,7 @@ pub(super) fn validate_method_call(
                     return_type: Some(return_type.clone()),
                 };
                 if validate_arguments(
-                    "Property",
-                    &dummy_sig,
-                    args,
-                    symbols,
-                    types,
-                    signatures,
-                    span,
+                    "Property", &dummy_sig, args, symbols, types, signatures, span,
                 )
                 .is_ok()
                 {
@@ -850,7 +853,8 @@ pub(super) fn validate_method_call(
 
             // Case 2: The property returns an object that has a default property
             let default_call = match &return_type {
-                TypeName::User(inner_class_name) => types.get_class(inner_class_name)
+                TypeName::User(inner_class_name) => types
+                    .get_class(inner_class_name)
                     .and_then(|c| c.default_property.as_ref())
                     .map(|name| (return_type.clone(), name.clone())),
                 _ => None,
@@ -886,7 +890,10 @@ pub(super) fn validate_method_call(
         }
         Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!("Class '{}' has no method or property '{}'", class_sig.name, method),
+            format!(
+                "Class '{}' has no method or property '{}'",
+                class_sig.name, method
+            ),
             Some(span),
         ))
     } else {
@@ -905,7 +912,7 @@ pub(super) fn validate_method_call(
         // This is complex because MemberCall is usually for reads.
         // But some VBA code might use MemberCall as a statement for something that returns an object and then calls a default sub?
         // Actually MemberSubCall is used for subs.
-        
+
         if class_sig.functions.contains_key(&key(method)) {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -1155,22 +1162,16 @@ pub(super) fn ensure_assignable_expr(
         return Ok(());
     }
 
-    if let TypeName::User(class_name) = &source {
-        if let Some(class_sig) = types.get_class(class_name) {
-            if let Some(default_prop_name) = &class_sig.default_property {
-                if let Some(prop_sig) = class_sig.properties.get(&key(default_prop_name)) {
-                    if let Some(get) = &prop_sig.get {
-                        if get.params.is_empty() {
-                            if let Some(prop_type) = &get.return_type {
-                                if ensure_assignable(target, prop_type, span).is_ok() {
-                                    return Ok(());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if let TypeName::User(class_name) = &source
+        && let Some(class_sig) = types.get_class(class_name)
+        && let Some(default_prop_name) = &class_sig.default_property
+        && let Some(prop_sig) = class_sig.properties.get(&key(default_prop_name))
+        && let Some(get) = &prop_sig.get
+        && get.params.is_empty()
+        && let Some(prop_type) = &get.return_type
+        && ensure_assignable(target, prop_type, span).is_ok()
+    {
+        return Ok(());
     }
 
     ensure_assignable(target, source, span)

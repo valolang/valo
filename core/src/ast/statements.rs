@@ -133,6 +133,23 @@ pub enum Stmt {
         target: ExitTarget,
         span: Span,
     },
+    TryCatch {
+        try_body: Vec<Stmt>,
+        catch_block: Option<CatchBlock>,
+        finally_body: Option<Vec<Stmt>>,
+        span: Span,
+    },
+    DebugPrint {
+        args: Vec<Expr>,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatchBlock {
+    pub variable: Option<String>,
+    pub body: Vec<Stmt>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

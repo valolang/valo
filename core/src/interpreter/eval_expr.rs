@@ -240,8 +240,11 @@ impl Interpreter {
                         }
                         Value::Object(ref object) => {
                             let class_name = object.borrow().class_name.clone();
-                            if let Some(default_member) = self.classes.get(&super::values::key(&class_name))
-                                .and_then(|c| c.default_member.clone()) {
+                            if let Some(default_member) = self
+                                .classes
+                                .get(&super::values::key(&class_name))
+                                .and_then(|c| c.default_member.clone())
+                            {
                                 return self.call_method_function(
                                     value.clone(),
                                     &default_member,

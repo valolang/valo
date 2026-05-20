@@ -9,6 +9,6 @@ mod enums;
 mod errors;
 mod expressions;
 mod lifecycle;
+mod modernization;
 mod modules;
 mod variables;
-mod modernization;

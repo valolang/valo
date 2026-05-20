@@ -1,0 +1,50 @@
+' Modern Valo Try/Catch/Finally example
+
+Sub Main()
+    Try
+        Console.WriteLine("--- Try/Catch/Finally Demo ---")
+        
+        ' 1. Normal execution
+        Try
+            Console.WriteLine("Performing safe operation...")
+        Catch ex As Error
+            Console.WriteLine("This should not run")
+        Finally
+            Console.WriteLine("Cleanup 1")
+        End Try
+        
+        ' 2. Error handling with variable
+        Try
+            Console.WriteLine("Performing dangerous operation...")
+            Err.Raise 100, "DemoSource", "Something went wrong"
+        Catch ex As Error
+            Console.WriteLine("Caught error " & ex.Number & ": " & ex.Description)
+            Console.WriteLine("Source: " & ex.Source)
+        Finally
+            Console.WriteLine("Cleanup 2")
+        End Try
+        
+        ' 3. Error propagation and Finally
+        Try
+            Console.WriteLine("Testing propagation...")
+            TestPropagation()
+        Catch
+            Console.WriteLine("Caught propagated error in Main")
+        End Try
+
+        ' 4. Debug.Print compatibility
+        Debug.Print "Debug message", 42, True
+        Debug.Print("Parenthesized debug message")
+
+    Catch ex As Error
+        Console.WriteLine("Global catch: " & ex.Message)
+    End Try
+End Sub
+
+Sub TestPropagation()
+    Try
+        Err.Raise 500
+    Finally
+        Console.WriteLine("Deterministic finally in TestPropagation")
+    End Try
+End Sub

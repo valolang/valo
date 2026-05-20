@@ -53,6 +53,7 @@ impl Parser {
             TokenKind::Do => self.parse_do_loop(),
             TokenKind::For => self.parse_for(),
             TokenKind::GoTo => self.parse_goto(),
+            TokenKind::Try => self.parse_try_catch(),
             TokenKind::On => self.parse_on_error(),
             TokenKind::Resume => self.parse_resume(),
             TokenKind::Exit => self.parse_exit(),
@@ -450,6 +451,34 @@ impl Parser {
     fn parse_member_assignment(&mut self) -> Result<Stmt, Diagnostic> {
         let target = self.parse_primary()?;
         let target_span = target.span;
+
+        if let ExprKind::MemberAccess { object, field } = &target.kind
+            && let ExprKind::Variable(name) = &object.kind
+            && name.eq_ignore_ascii_case("Debug")
+            && field.eq_ignore_ascii_case("Print")
+        {
+            let args = self.parse_bare_call_arguments()?;
+            let end = args.last().map(|arg| arg.span).unwrap_or(target_span);
+            return Ok(Stmt::DebugPrint {
+                args,
+                span: Span::new(target_span.start, end.end),
+            });
+        }
+        if let ExprKind::MemberCall {
+            object,
+            method,
+            args,
+        } = &target.kind
+            && let ExprKind::Variable(name) = &object.kind
+            && name.eq_ignore_ascii_case("Debug")
+            && method.eq_ignore_ascii_case("Print")
+        {
+            return Ok(Stmt::DebugPrint {
+                args: args.clone(),
+                span: target_span,
+            });
+        }
+
         let (object, field, args) = match target.kind {
             ExprKind::MemberAccess { object, field } => (object, field, None),
             ExprKind::MemberCall {
@@ -1039,6 +1068,75 @@ impl Parser {
         })
     }
 
+    fn parse_try_catch(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::Try, "Expected 'Try'")?.span;
+        self.expect_newline("Expected newline after 'Try'")?;
+
+        let try_body =
+            self.parse_block_until(&[BlockEnd::Catch, BlockEnd::Finally, BlockEnd::EndTry])?;
+
+        let catch_block = if self.match_simple(&TokenKind::Catch) {
+            let catch_start = self.previous().span;
+            let variable = if matches!(self.peek_kind(), TokenKind::Identifier(_)) {
+                let name = self.expect_identifier("Expected catch variable name")?;
+                self.expect_simple(TokenKind::As, "Expected 'As' after catch variable")?;
+                let ty_token = self.advance();
+                match ty_token.kind {
+                    TokenKind::Error => {}
+                    TokenKind::Identifier(ref ty_name) if ty_name.eq_ignore_ascii_case("Error") => {
+                    }
+                    _ => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                            "Catch variable must be of type 'Error'",
+                            Some(ty_token.span),
+                        ));
+                    }
+                }
+                Some(name)
+            } else {
+                None
+            };
+            self.expect_newline("Expected newline after 'Catch'")?;
+            let body = self.parse_block_until(&[BlockEnd::Finally, BlockEnd::EndTry])?;
+            let catch_end = self.previous().span;
+            Some(CatchBlock {
+                variable,
+                body,
+                span: Span::new(catch_start.start, catch_end.end),
+            })
+        } else {
+            None
+        };
+
+        let finally_body = if self.match_simple(&TokenKind::Finally) {
+            self.expect_newline("Expected newline after 'Finally'")?;
+            Some(self.parse_block_until(&[BlockEnd::EndTry])?)
+        } else {
+            None
+        };
+
+        if catch_block.is_none() && finally_body.is_none() {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                "Try statement must have at least one Catch or Finally block",
+                Some(start),
+            ));
+        }
+
+        self.expect_simple(TokenKind::End, "Expected 'End Try'")?;
+        let end = self
+            .expect_simple(TokenKind::Try, "Expected 'Try' after 'End'")?
+            .span;
+
+        Ok(Stmt::TryCatch {
+            try_body,
+            catch_block,
+            finally_body,
+            span: Span::new(start.start, end.end),
+        })
+    }
+
     fn parse_exit(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect_simple(TokenKind::Exit, "Expected 'Exit'")?.span;
         let token = self.advance();
@@ -1120,6 +1218,12 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::With))
             }
+            BlockEnd::Catch => matches!(self.peek_kind(), TokenKind::Catch),
+            BlockEnd::Finally => matches!(self.peek_kind(), TokenKind::Finally),
+            BlockEnd::EndTry => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Try))
+            }
         })
     }
 
@@ -1132,6 +1236,8 @@ impl Parser {
                 | TokenKind::Next
                 | TokenKind::Loop
                 | TokenKind::Case
+                | TokenKind::Catch
+                | TokenKind::Finally
         ) || (matches!(self.peek_kind(), TokenKind::End)
             && match self.peek_next_kind() {
                 Some(
@@ -1143,7 +1249,8 @@ impl Parser {
                     | TokenKind::Type
                     | TokenKind::Enum
                     | TokenKind::Class
-                    | TokenKind::With,
+                    | TokenKind::With
+                    | TokenKind::Try,
                 ) => true,
                 Some(TokenKind::Identifier(name)) => {
                     name.eq_ignore_ascii_case("Constructor")

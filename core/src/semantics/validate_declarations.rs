@@ -2,6 +2,73 @@ use super::*;
 
 pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
     let mut types = HashMap::new();
+    let mut enums = HashMap::new();
+    let mut classes = HashMap::new();
+
+    // Add built-in Error class
+    classes.insert(
+        key("Error"),
+        ClassSig {
+            name: "Error".to_string(),
+            fields: {
+                let mut f = HashMap::new();
+                f.insert(
+                    key("Number"),
+                    ClassFieldSig {
+                        visibility: Visibility::Public,
+                        with_events: false,
+                        ty: TypeName::Integer,
+                    },
+                );
+                f.insert(
+                    key("Message"),
+                    ClassFieldSig {
+                        visibility: Visibility::Public,
+                        with_events: false,
+                        ty: TypeName::String,
+                    },
+                );
+                f.insert(
+                    key("Description"),
+                    ClassFieldSig {
+                        visibility: Visibility::Public,
+                        with_events: false,
+                        ty: TypeName::String,
+                    },
+                );
+                f.insert(
+                    key("Source"),
+                    ClassFieldSig {
+                        visibility: Visibility::Public,
+                        with_events: false,
+                        ty: TypeName::String,
+                    },
+                );
+                f.insert(
+                    key("HelpFile"),
+                    ClassFieldSig {
+                        visibility: Visibility::Public,
+                        with_events: false,
+                        ty: TypeName::String,
+                    },
+                );
+                f.insert(
+                    key("HelpContext"),
+                    ClassFieldSig {
+                        visibility: Visibility::Public,
+                        with_events: false,
+                        ty: TypeName::Integer,
+                    },
+                );
+                f
+            },
+            events: HashMap::new(),
+            subs: HashMap::new(),
+            functions: HashMap::new(),
+            properties: HashMap::new(),
+            default_property: None,
+        },
+    );
 
     for type_decl in &program.types {
         let type_key = key(&type_decl.name);
@@ -43,7 +110,6 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         );
     }
 
-    let mut enums = HashMap::new();
     for enum_decl in &program.enums {
         let enum_key = key(&enum_decl.name);
         if types.contains_key(&enum_key) || enums.contains_key(&enum_key) {
@@ -84,7 +150,6 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         );
     }
 
-    let mut classes = HashMap::new();
     for class_decl in &program.classes {
         let class_key = key(&class_decl.name);
         if types.contains_key(&class_key)

@@ -587,7 +587,9 @@ impl Interpreter {
 
         if class.properties.contains_key(&key(method)) {
             // Try Case 1: The property itself takes these arguments
-            if let Ok(value) = self.call_property_get(object.clone(), method, args, caller_frame, span) {
+            if let Ok(value) =
+                self.call_property_get(object.clone(), method, args, caller_frame, span)
+            {
                 return Ok(value);
             }
 
@@ -595,8 +597,11 @@ impl Interpreter {
             let value = self.call_property_get(object, method, &[], caller_frame, span)?;
             if let Value::Object(ref inner_object) = value {
                 let inner_class_name = inner_object.borrow().class_name.clone();
-                if let Some(default_prop_name) = self.classes.get(&key(&inner_class_name))
-                    .and_then(|c| c.default_member.clone()) {
+                if let Some(default_prop_name) = self
+                    .classes
+                    .get(&key(&inner_class_name))
+                    .and_then(|c| c.default_member.clone())
+                {
                     return self.call_method_function(
                         value,
                         &default_prop_name,
@@ -610,7 +615,10 @@ impl Interpreter {
 
         Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!("Class '{}' has no method or property '{}'", class.name, method),
+            format!(
+                "Class '{}' has no method or property '{}'",
+                class.name, method
+            ),
             Some(span),
         ))
     }
