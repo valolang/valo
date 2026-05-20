@@ -1319,19 +1319,16 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Property))
             }
-            BlockEnd::EndConstructor => {
+            BlockEnd::EndLifecycle => {
                 matches!(self.peek_kind(), TokenKind::End)
-                    && matches!(
-                        self.peek_next_kind(),
-                        Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor")
-                    )
-            }
-            BlockEnd::EndTerminate => {
-                matches!(self.peek_kind(), TokenKind::End)
-                    && matches!(
-                        self.peek_next_kind(),
-                        Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Terminate")
-                    )
+                    && match self.peek_next_kind() {
+                        Some(TokenKind::Sub) => true,
+                        Some(TokenKind::Identifier(name)) => {
+                            name.eq_ignore_ascii_case("Constructor")
+                                || name.eq_ignore_ascii_case("Terminate")
+                        }
+                        _ => false,
+                    }
             }
             BlockEnd::EndSelect => {
                 matches!(self.peek_kind(), TokenKind::End)
@@ -1340,6 +1337,10 @@ impl Parser {
             BlockEnd::EndType => {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Type))
+            }
+            BlockEnd::EndStructure => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Structure))
             }
             BlockEnd::EndClass => {
                 matches!(self.peek_kind(), TokenKind::End)
@@ -1382,6 +1383,7 @@ impl Parser {
                     | TokenKind::Property
                     | TokenKind::Select
                     | TokenKind::Type
+                    | TokenKind::Structure
                     | TokenKind::Enum
                     | TokenKind::Class
                     | TokenKind::With

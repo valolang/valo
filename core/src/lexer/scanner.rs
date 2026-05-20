@@ -102,6 +102,7 @@ impl<'a> Lexer<'a> {
             "version" => TokenKind::Version,
             "begin" => TokenKind::Begin,
             "type" => TokenKind::Type,
+            "structure" => TokenKind::Structure,
             "enum" => TokenKind::Enum,
             "class" => TokenKind::Class,
             "event" => TokenKind::Event,
@@ -192,8 +193,8 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 if text.is_empty() {
                     return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::GENERIC,
-                        "Bracketed identifier cannot be empty",
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        "Square-bracket array type syntax is not supported; use 'Dim name() As Type'",
                         Some(Span::new(start, self.pos())),
                     ));
                 }

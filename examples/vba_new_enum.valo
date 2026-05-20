@@ -1,9 +1,9 @@
 Class Words
     Private values As Variant
 
-    Public Constructor()
+    Public Sub Constructor()
         values = Array("VBA", "_NewEnum", "works")
-    End Constructor
+    End Sub
 
     Public Property Get _NewEnum() As Variant
     Attribute _NewEnum.VB_UserMemId = -4

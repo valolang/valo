@@ -16,7 +16,7 @@ The interpreter consists of several modules handling different aspects of execut
 
 ## Memory Management
 
-Valo uses reference counting (via Rust's `Rc` and `RefCell`) to manage object lifetimes. This provides predictable cleanup and supports the `Terminate` / `Class_Terminate` events when an object's reference count drops to zero.
+Valo uses reference counting (via Rust's `Rc` and `RefCell`) to manage object lifetimes. This provides predictable cleanup and supports `Sub Terminate` / `Class_Terminate` events when an object's reference count drops to zero.
 
 ## Semantic Validation (`core/src/semantics/`)
 

@@ -97,6 +97,32 @@ End Sub
 }
 
 #[test]
+fn structure_parameter_passing_works() {
+    let output = run_source(
+        r#"
+Structure User
+    Name As String
+    Active As Boolean
+End Structure
+
+Sub Activate(ByRef user As User)
+    user.Active = True
+End Sub
+
+Sub Main()
+    Dim user As User
+    user.Name = "Valo"
+    Activate(user)
+    Console.WriteLine(user.Name)
+    Console.WriteLine(user.Active)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["Valo", "True"]);
+}
+
+#[test]
 fn type_record_assignment_remains_value_copy() {
     let output = run_source(
         r#"

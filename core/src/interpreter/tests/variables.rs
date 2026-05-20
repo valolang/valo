@@ -75,6 +75,52 @@ End Sub
 }
 
 #[test]
+fn declares_structure_dims_variable_and_reads_default_fields() {
+    let output = run_source(
+        r#"
+Structure Point
+    X As Integer
+    Y As Integer
+End Structure
+
+Sub Main()
+    Dim p As Point
+    Console.WriteLine(p.X)
+    Console.WriteLine(p.Y)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["0", "0"]);
+}
+
+#[test]
+fn structure_field_assignment_read_and_value_copy_work() {
+    let output = run_source(
+        r#"
+Structure Point
+    X As Integer
+    Y As Integer
+End Structure
+
+Sub Main()
+    Dim a As Point
+    Dim b As Point
+    a.X = 10
+    a.Y = 20
+    b = a
+    b.X = 99
+    Console.WriteLine(a.X)
+    Console.WriteLine(a.Y)
+    Console.WriteLine(b.X)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["10", "20", "99"]);
+}
+
+#[test]
 fn static_local_variables_persist_between_calls() {
     let output = run_source(
         r#"

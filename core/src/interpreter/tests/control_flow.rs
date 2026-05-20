@@ -628,6 +628,34 @@ End Sub
 }
 
 #[test]
+fn returns_structure_from_function() {
+    let output = run_source(
+        r#"
+Structure Point
+    X As Integer
+    Y As Integer
+End Structure
+
+Function MakePoint(ByVal x As Integer, ByVal y As Integer) As Point
+    Dim p As Point
+    p.X = x
+    p.Y = y
+    Return p
+End Function
+
+Sub Main()
+    Dim p As Point
+    p = MakePoint(3, 4)
+    Console.WriteLine(p.X)
+    Console.WriteLine(p.Y)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["3", "4"]);
+}
+
+#[test]
 fn elseif_uses_first_matching_branch() {
     let output = run_source(
         r#"

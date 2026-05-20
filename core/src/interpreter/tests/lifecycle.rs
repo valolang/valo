@@ -43,9 +43,9 @@ fn native_constructor_runs() {
 Class Box
     Public value As Integer
 
-    Public Constructor()
+    Public Sub Constructor()
         value = 10
-    End Constructor
+    End Sub
 End Class
 
 Sub Main()
@@ -63,9 +63,9 @@ fn native_constructor_accepts_parameters() {
 Class Box
     Public value As Integer
 
-    Public Constructor(ByVal initial As Integer)
+    Public Sub Constructor(ByVal initial As Integer)
         value = initial
-    End Constructor
+    End Sub
 End Class
 
 Sub Main()
@@ -83,8 +83,8 @@ fn duplicate_constructor_aliases_are_rejected() {
     let error = source_error(
         r#"
 Class Box
-    Public Constructor()
-    End Constructor
+    Public Sub Constructor()
+    End Sub
 
     Public Sub Initialize()
     End Sub
@@ -102,9 +102,9 @@ End Sub
 fn native_terminate_runs_on_nothing() {
     let source = r#"
 Class Logger
-    Public Terminate()
+    Public Sub Terminate()
         Console.WriteLine("terminated")
-    End Terminate
+    End Sub
 End Class
 
 Sub Main()
@@ -123,8 +123,8 @@ fn duplicate_terminator_aliases_are_rejected() {
     let error = source_error(
         r#"
 Class Logger
-    Public Terminate()
-    End Terminate
+    Public Sub Terminate()
+    End Sub
 
     Public Sub Class_Terminate()
     End Sub
@@ -136,6 +136,86 @@ End Sub
     );
 
     assert!(error.contains("duplicate terminator definitions"));
+}
+
+#[test]
+fn legacy_end_constructor_still_works() {
+    let source = r#"
+Class Box
+    Public value As Integer
+
+    Public Constructor()
+        value = 10
+    End Constructor
+End Class
+
+Sub Main()
+    Dim box As New Box
+    Console.WriteLine(box.value)
+End Sub
+"#;
+    let output = run_source(source);
+    assert_eq!(output, vec!["10"]);
+}
+
+#[test]
+fn legacy_end_terminate_still_works() {
+    let source = r#"
+Class Logger
+    Public Terminate()
+        Console.WriteLine("terminated")
+    End Terminate
+End Class
+
+Sub Main()
+    Dim l As New Logger
+    Set l = Nothing
+End Sub
+"#;
+    let output = run_source(source);
+    assert_eq!(output, vec!["terminated"]);
+}
+
+#[test]
+fn parameterized_terminate_is_rejected() {
+    let error = source_error(
+        r#"
+Class Logger
+    Public Sub Terminate(ByVal code As Integer)
+    End Sub
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Terminate methods cannot declare parameters"));
+}
+
+#[test]
+fn class_initialize_and_class_terminate_compatibility_still_work() {
+    let source = r#"
+Class Logger
+    Public value As Integer
+
+    Private Sub Class_Initialize()
+        value = 7
+    End Sub
+
+    Private Sub Class_Terminate()
+        Console.WriteLine("terminated " & value)
+    End Sub
+End Class
+
+Sub Main()
+    Dim l As New Logger
+    Console.WriteLine(l.value)
+    Set l = Nothing
+End Sub
+"#;
+    let output = run_source(source);
+    assert_eq!(output, vec!["7", "terminated 7"]);
 }
 
 #[test]

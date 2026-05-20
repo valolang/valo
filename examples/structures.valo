@@ -1,0 +1,26 @@
+Public Structure Point
+    Public X As Integer
+    Public Y As Integer
+End Structure
+
+Function Offset(ByVal p As Point, ByVal dx As Integer, ByVal dy As Integer) As Point
+    Dim result As Point
+    result = p
+    result.X = result.X + dx
+    result.Y = result.Y + dy
+    Return result
+End Function
+
+Sub Main()
+    Dim p As Point
+    Dim moved As Point
+
+    p.X = 10
+    p.Y = 20
+    moved = Offset(p, 5, 7)
+
+    Console.WriteLine(p.X)
+    Console.WriteLine(p.Y)
+    Console.WriteLine(moved.X)
+    Console.WriteLine(moved.Y)
+End Sub

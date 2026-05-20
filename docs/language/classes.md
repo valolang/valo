@@ -25,19 +25,21 @@ End Class
 Valo supports both modern and legacy lifecycle methods.
 
 ### Native Lifecycle
-The preferred way to handle object initialization and cleanup is using `Constructor` and `Terminate`.
+The preferred way to handle object initialization and cleanup is using Sub-like lifecycle members: `Sub Constructor` and `Sub Terminate`.
 
 ```vb
 Class Connection
-    Public Constructor(ByVal host As String)
+    Public Sub Constructor(ByVal host As String)
         ' Setup logic
-    End Constructor
+    End Sub
 
-    Public Terminate()
+    Public Sub Terminate()
         ' Cleanup logic
-    End Terminate
+    End Sub
 End Class
 ```
+
+Older `Constructor ... End Constructor` and `Terminate ... End Terminate` blocks are accepted for compatibility, but new native Valo code should use `End Sub`.
 
 ### VBA Compatibility Aliases
 For compatibility with existing VBA code, Valo also recognizes `Class_Initialize` and `Class_Terminate`.

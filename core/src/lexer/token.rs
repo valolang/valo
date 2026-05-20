@@ -26,6 +26,7 @@ pub enum TokenKind {
     Version,
     Begin,
     Type,
+    Structure,
     Enum,
     Class,
     Event,

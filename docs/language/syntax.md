@@ -23,12 +23,32 @@ Dim name As String ' Inline comment
 
 Valo is statically typed with an optional `Variant` type for flexibility.
 
-*   `Integer`: 64-bit signed integer.
+*   `Byte`: 8-bit unsigned integer.
+*   `Integer`: 16-bit signed integer.
+*   `Long`: 32-bit signed integer.
+*   `Int64`: 64-bit signed integer.
 *   `Double`: 64-bit floating point number.
 *   `String`: UTF-8 encoded string.
 *   `Boolean`: `True` or `False`.
 *   `Variant`: A flexible type that can hold any value.
-*   User-defined `Type` and `Enum`.
+*   User-defined `Structure`, VBA-compatible `Type`, and `Enum`.
+
+Native Valo code should use `Structure` for simple value records:
+
+```vb
+Public Structure Point
+    Public X As Integer
+    Public Y As Integer
+End Structure
+```
+
+Byte arrays use Basic-style array declarations:
+
+```vb
+Dim data() As Byte
+ReDim data(0 To 3)
+data(0) = CByte(255)
+```
 
 ## Variables and Constants
 

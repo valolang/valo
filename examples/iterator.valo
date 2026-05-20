@@ -1,9 +1,9 @@
 Class Words
     Private values As Variant
 
-    Public Constructor()
+    Public Sub Constructor()
         values = Array("Valo", "is", "modern")
-    End Constructor
+    End Sub
 
     Public Iterator Items() As Variant
         Return values

@@ -1,17 +1,17 @@
 Class Box
     Private value As Integer
 
-    Public Constructor(ByVal initial As Integer)
+    Public Sub Constructor(ByVal initial As Integer)
         value = initial
-    End Constructor
+    End Sub
 
     Public Default Property Get Item() As Integer
         Return value
     End Property
 
-    Public Terminate()
+    Public Sub Terminate()
         Console.WriteLine("terminated")
-    End Terminate
+    End Sub
 End Class
 
 Sub Main()

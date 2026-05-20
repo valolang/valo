@@ -94,7 +94,9 @@ impl Parser {
                 TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute") => {
                     attributes.push(self.parse_attribute_decl()?);
                 }
-                TokenKind::Type => types.push(self.parse_type_decl(Visibility::Public)?),
+                TokenKind::Type | TokenKind::Structure => {
+                    types.push(self.parse_type_decl(Visibility::Public)?)
+                }
                 TokenKind::Enum => enums.push(self.parse_enum_decl(Visibility::Public)?),
                 _ if is_class_module => {
                     let mut class_members = Vec::new();
@@ -147,7 +149,9 @@ impl Parser {
                         enums.push(self.parse_enum_decl(visibility)?);
                     } else if self.check_simple(&TokenKind::Const) {
                         module_consts.push(self.parse_module_const(visibility)?);
-                    } else if self.check_simple(&TokenKind::Type) {
+                    } else if self.check_simple(&TokenKind::Type)
+                        || self.check_simple(&TokenKind::Structure)
+                    {
                         types.push(self.parse_type_decl(visibility)?);
                     } else if self.check_simple(&TokenKind::Class) {
                         classes.push(self.parse_class_decl(visibility)?);

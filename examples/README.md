@@ -7,7 +7,8 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 *   **[Hello World](hello.valo):** The classic starting point.
 *   **[Variables](variables.valo):** Variable declarations and assignments.
 *   **[Constants](consts.valo):** Global and module-level constants.
-*   **[Data Types](types.valo):** Native types and User-Defined Types (UDT).
+*   **[Data Types](types.valo):** Native types and VBA-compatible User-Defined Types (UDT).
+*   **[Structures](structures.valo):** Native `Structure` value types.
 *   **[Enums](enums.valo):** Enumeration types and their usage.
 *   **[Arrays](arrays.valo):** Fixed and dynamic arrays.
 *   **[ReDim](redim.valo):** Dynamic memory management for arrays.
@@ -31,7 +32,7 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 
 *   **[Classes](classes.valo):** Class definitions, properties, and methods.
 *   **[Properties](properties.valo):** Property Get/Let/Set accessors.
-*   **[Native Lifecycle](native_class_lifecycle.valo):** `Constructor` and `Terminate` support.
+*   **[Native Lifecycle](native_class_lifecycle.valo):** `Sub Constructor` and `Sub Terminate` support.
 *   **[Events](events.valo):** Declaring and raising events.
 *   **[Default Properties](default_properties.valo):** [Native](native_default_property.valo) and [Indexer Style](indexer_style.valo) default members.
 *   **[Nothing](nothing.valo):** Object reference management and `Is Nothing` checks.

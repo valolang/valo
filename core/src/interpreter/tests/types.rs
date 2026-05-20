@@ -95,6 +95,17 @@ fn test_byte_array() {
 }
 
 #[test]
+fn byte_square_bracket_array_syntax_is_rejected() {
+    let source = "
+        Sub Main()
+            Dim data As Byte[]
+        End Sub
+    ";
+    let error = Parser::parse_source(source).unwrap_err().to_string();
+    assert!(error.contains("Square-bracket array type syntax is not supported"));
+}
+
+#[test]
 fn test_unsigned_types() {
     let source = "
         Sub Main()

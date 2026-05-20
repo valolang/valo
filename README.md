@@ -98,8 +98,9 @@ Implemented today:
 - exported VBA `.cls` compatibility
 - modules and imports
 - classes, properties, events, and object lifecycle
-- native `Constructor` / `Terminate`
+- native `Sub Constructor` / `Sub Terminate`
 - VBA `Class_Initialize` / `Class_Terminate`
+- native `Structure` value types and VBA-compatible `Type`
 - default properties and indexer-style access
 - `Try / Catch / Finally`
 - VBA `On Error`, `Err`, `Resume`, and `Erl`
@@ -128,9 +129,9 @@ Native `.valo` files use clean, modern Basic-style syntax:
 Class Counter
     Private value As Integer
 
-    Public Constructor()
+    Public Sub Constructor()
         value = 0
-    End Constructor
+    End Sub
 
     Public Sub Increment()
         value = value + 1
@@ -140,10 +141,21 @@ Class Counter
         Return value
     End Property
 
-    Public Terminate()
+    Public Sub Terminate()
         Debug.Print "counter disposed"
-    End Terminate
+    End Sub
 End Class
+
+Public Structure Point
+    Public X As Integer
+    Public Y As Integer
+End Structure
+
+Sub WriteBytes()
+    Dim data() As Byte
+    ReDim data(0 To 15)
+    data(0) = CByte(255)
+End Sub
 
 Sub Main()
     Dim counter As New Counter
@@ -455,6 +467,7 @@ Valo supports a growing set of VBA-compatible features:
 - `Attribute VB_UserMemId = 0`
 - `Class_Initialize`
 - `Class_Terminate`
+- `Type / End Type`
 - `On Error`
 - `Err`
 - `Resume`
@@ -468,6 +481,7 @@ Valo supports a growing set of VBA-compatible features:
 - `VarType`, `TypeName`, `IsObject`, `IsArray`, `IsEmpty`, `IsNull`
 
 Compatibility is pragmatic and growing. Valo is not a COM runtime and does not currently implement Office automation, IDispatch, or full COM interop.
+`Declare`/`PtrSafe` and native FFI remain future work.
 
 ## Current limitations
 

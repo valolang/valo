@@ -225,7 +225,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
                                 format!(
-                                    "Class '{}' has duplicate constructor definitions; use only one of Constructor, Initialize, or Class_Initialize",
+                                    "Class '{}' has duplicate constructor definitions; use only one of Constructor, Sub Constructor, Initialize, or Class_Initialize",
                                     class_decl.name
                                 ),
                                 Some(method.procedure.span),
@@ -234,11 +234,18 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         constructor_span = Some(method.procedure.span);
                     }
                     if is_terminator_name(&method_key) {
+                        if !method.procedure.params.is_empty() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                "Terminate methods cannot declare parameters",
+                                Some(method.procedure.span),
+                            ));
+                        }
                         if terminator_span.is_some() {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
                                 format!(
-                                    "Class '{}' has duplicate terminator definitions; use only one of Terminate or Class_Terminate",
+                                    "Class '{}' has duplicate terminator definitions; use only one of Terminate, Sub Terminate, or Class_Terminate",
                                     class_decl.name
                                 ),
                                 Some(method.procedure.span),

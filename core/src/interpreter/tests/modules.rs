@@ -285,6 +285,69 @@ End Type
 }
 
 #[test]
+fn qualified_imported_structure_records_work() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Models
+
+Sub Main()
+    Dim p As Models.Point
+    p.X = 5
+    p.Y = 6
+    Console.WriteLine(p.X)
+    Console.WriteLine(p.Y)
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Models.valo",
+        r#"
+Public Structure Point
+    X As Integer
+    Y As Integer
+End Structure
+"#,
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["5".to_string(), "6".to_string()]
+    );
+}
+
+#[test]
+fn private_imported_structure_is_rejected() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Models
+
+Sub Main()
+    Dim p As Models.Point
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Models.valo",
+        r#"
+Private Structure Point
+    X As Integer
+End Structure
+"#,
+    );
+
+    let error = run_file(dir.join("main.valo")).unwrap_err().to_string();
+    assert!(error.contains("Imported type 'Models.Point' is Private"));
+}
+
+#[test]
 fn qualified_imported_enum_type_and_member_work() {
     let dir = temp_project();
     write(

@@ -7,16 +7,18 @@ Valo is built with first-class support for VBA (Visual Basic for Applications) w
 Valo distinguishes between modern native code and legacy compatibility code primarily through file extensions and specific syntax choices.
 
 ### Source Modes
-*   **`.valo` Files:** Modern native syntax. Prefers `Constructor`/`Terminate`, `Default` keyword, and structured imports.
-*   **`.bas` / `.cls` Files:** VBA compatibility mode. Supports `Attribute VB_*` metadata, `Class_Initialize`, and `Class_Terminate`.
+*   **`.valo` Files:** Modern native syntax. Prefers `Sub Constructor`/`Sub Terminate`, `Structure`, `Default` keyword, and structured imports.
+*   **`.bas` / `.cls` Files:** VBA compatibility mode. Supports `Attribute VB_*` metadata, `Class_Initialize`, `Class_Terminate`, and `Type`.
 
 ### Feature Comparison
 
 | Feature | Native Valo (`.valo`) | VBA Compatibility (`.bas`/`.cls`) |
 |---------|----------------------|-----------------------------------|
-| Constructor | `Public Constructor()` | `Private Sub Class_Initialize()` |
-| Destructor | `Public Terminate()` | `Private Sub Class_Terminate()` |
+| Constructor | `Public Sub Constructor()` | `Private Sub Class_Initialize()` |
+| Destructor | `Public Sub Terminate()` | `Private Sub Class_Terminate()` |
 | Default Member | `Public Default Property Get Item()` | `Attribute Item.VB_UserMemId = 0` |
+| Value Records | `Public Structure Point` | `Public Type Point` |
+| Byte Arrays | `Dim data() As Byte` | `Dim data() As Byte` |
 | Debug Output | `Console.WriteLine` | `Debug.Print` |
 | Error Handling | `Try/Catch/Finally` | `On Error GoTo` |
 | Array Bounds | `1 To N` (optional) | `1 To N` (optional) |
@@ -26,6 +28,7 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 - `Err` Object: Full support for `Err.Raise`, `Err.Number`, and `Err.Description` in all modes.
 - `Array Built-ins`: `Split`, `Join`, `Filter`, `LBound`, and `UBound` behave according to standard VBA semantics.
 - `Multidimensional Arrays`: Fully supported with `ReDim Preserve` compatibility (last-dimension only resizing).
+- `Declare`/`PtrSafe`: Reserved for future FFI work; not implemented yet.
 
 ## Intentional Differences
 

@@ -122,10 +122,38 @@ impl Parser {
                 }
                 self.parse_event(visibility).map(ClassMember::Event)
             }
-            TokenKind::Sub => Ok(ClassMember::Sub(ClassSub {
-                visibility,
-                procedure: self.parse_procedure(visibility)?,
-            })),
+            TokenKind::Sub => {
+                if matches!(
+                    self.peek_next_kind(),
+                    Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor")
+                ) {
+                    Ok(ClassMember::Sub(ClassSub {
+                        visibility,
+                        procedure: self.parse_lifecycle_sub_procedure(
+                            visibility,
+                            "Constructor",
+                            "Initialize",
+                        )?,
+                    }))
+                } else if matches!(
+                    self.peek_next_kind(),
+                    Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Terminate")
+                ) {
+                    Ok(ClassMember::Sub(ClassSub {
+                        visibility,
+                        procedure: self.parse_lifecycle_sub_procedure(
+                            visibility,
+                            "Terminate",
+                            "Terminate",
+                        )?,
+                    }))
+                } else {
+                    Ok(ClassMember::Sub(ClassSub {
+                        visibility,
+                        procedure: self.parse_procedure(visibility)?,
+                    }))
+                }
+            }
             TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Constructor") => {
                 Ok(ClassMember::Sub(ClassSub {
                     visibility,
@@ -133,7 +161,7 @@ impl Parser {
                         visibility,
                         "Constructor",
                         "Initialize",
-                        BlockEnd::EndConstructor,
+                        BlockEnd::EndLifecycle,
                     )?,
                 }))
             }
@@ -144,7 +172,7 @@ impl Parser {
                         visibility,
                         "Terminate",
                         "Terminate",
-                        BlockEnd::EndTerminate,
+                        BlockEnd::EndLifecycle,
                     )?,
                 }))
             }
@@ -377,14 +405,24 @@ impl Parser {
         &mut self,
         visibility: Visibility,
     ) -> Result<TypeDecl, Diagnostic> {
-        let start = self.expect_simple(TokenKind::Type, "Expected 'Type'")?.span;
-        let name = self.expect_identifier("Expected type name after 'Type'")?;
-        self.expect_newline("Expected newline after Type declaration")?;
+        let (start, keyword, end_block) = if self.match_simple(&TokenKind::Type) {
+            (self.previous().span, "Type", BlockEnd::EndType)
+        } else {
+            (
+                self.expect_simple(TokenKind::Structure, "Expected 'Type' or 'Structure'")?
+                    .span,
+                "Structure",
+                BlockEnd::EndStructure,
+            )
+        };
+        let name = self.expect_identifier(&format!("Expected type name after '{keyword}'"))?;
+        self.expect_newline(&format!("Expected newline after {keyword} declaration"))?;
 
         let mut fields = Vec::new();
         self.skip_newlines();
-        while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndType]) {
+        while !self.is_at_end() && !self.matches_block_end(&[end_block]) {
             let field_start = self.peek().span;
+            self.parse_optional_visibility();
             let field_name = self.expect_identifier("Expected field name")?;
             self.expect_simple(TokenKind::As, "Expected 'As' in field declaration")?;
             let ty = self.parse_type_name()?;
@@ -398,10 +436,14 @@ impl Parser {
             self.skip_newlines();
         }
 
-        self.expect_simple(TokenKind::End, "Expected 'End Type'")?;
-        let end = self
-            .expect_simple(TokenKind::Type, "Expected 'Type' after 'End'")?
-            .span;
+        self.expect_simple(TokenKind::End, &format!("Expected 'End {keyword}'"))?;
+        let end = if keyword == "Type" {
+            self.expect_simple(TokenKind::Type, "Expected 'Type' after 'End'")?
+                .span
+        } else {
+            self.expect_simple(TokenKind::Structure, "Expected 'Structure' after 'End'")?
+                .span
+        };
         self.consume_statement_end();
 
         Ok(TypeDecl {
@@ -467,17 +509,7 @@ impl Parser {
         ))?;
 
         let body = self.parse_block_until(&[block_end])?;
-        self.expect_simple(TokenKind::End, &format!("Expected 'End {}'", syntax_name))?;
-        let end_name =
-            self.expect_identifier(&format!("Expected '{}' after 'End'", syntax_name))?;
-        if !end_name.eq_ignore_ascii_case(syntax_name) {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::PARSE,
-                format!("Expected '{}' after 'End'", syntax_name),
-                Some(self.previous().span),
-            ));
-        }
-        let end = self.previous().span;
+        let end = self.consume_lifecycle_end(syntax_name)?;
         self.consume_statement_end();
 
         Ok(Procedure {
@@ -487,6 +519,63 @@ impl Parser {
             body,
             span: Span::new(start_span.start, end.end),
         })
+    }
+
+    fn parse_lifecycle_sub_procedure(
+        &mut self,
+        visibility: Visibility,
+        syntax_name: &str,
+        canonical_name: &str,
+    ) -> Result<Procedure, Diagnostic> {
+        let start_span = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
+        let name = self.expect_identifier(&format!("Expected '{syntax_name}' after 'Sub'"))?;
+        if !name.eq_ignore_ascii_case(syntax_name) {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                format!("Expected '{syntax_name}' after 'Sub'"),
+                Some(self.previous().span),
+            ));
+        }
+        self.expect_simple(
+            TokenKind::LeftParen,
+            &format!("Expected '(' after {syntax_name}"),
+        )?;
+        let params = self.parse_parameters()?;
+        self.expect_simple(
+            TokenKind::RightParen,
+            &format!("Expected ')' after {syntax_name} parameters"),
+        )?;
+        self.expect_newline(&format!("Expected newline after {syntax_name} declaration"))?;
+
+        let body = self.parse_block_until(&[BlockEnd::EndLifecycle])?;
+        let end = self.consume_lifecycle_end(syntax_name)?;
+        self.consume_statement_end();
+
+        Ok(Procedure {
+            visibility,
+            name: canonical_name.to_string(),
+            params,
+            body,
+            span: Span::new(start_span.start, end.end),
+        })
+    }
+
+    fn consume_lifecycle_end(&mut self, syntax_name: &str) -> Result<Span, Diagnostic> {
+        self.expect_simple(TokenKind::End, &format!("Expected 'End {syntax_name}'"))?;
+        if self.match_simple(&TokenKind::Sub) {
+            return Ok(self.previous().span);
+        }
+        let end_name =
+            self.expect_identifier(&format!("Expected 'Sub' or '{syntax_name}' after 'End'"))?;
+        if !end_name.eq_ignore_ascii_case(syntax_name) {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                format!("Expected 'Sub' or '{syntax_name}' after 'End'"),
+                Some(self.previous().span),
+            ));
+        }
+        let end = self.previous().span;
+        Ok(end)
     }
 
     pub(super) fn parse_function(
@@ -677,65 +766,62 @@ impl Parser {
 
     pub(super) fn parse_type_name(&mut self) -> Result<TypeName, Diagnostic> {
         let token = self.advance();
-        match token.kind {
+        let ty = match token.kind {
             TokenKind::StringType => Ok(TypeName::String),
             TokenKind::IntegerType => Ok(TypeName::Integer),
             TokenKind::BooleanType => Ok(TypeName::Boolean),
             TokenKind::VariantType => Ok(TypeName::Variant),
             TokenKind::Identifier(mut name) => {
                 if name.eq_ignore_ascii_case("Byte") {
-                    return Ok(TypeName::Byte);
+                    Ok(TypeName::Byte)
+                } else if name.eq_ignore_ascii_case("Long") {
+                    Ok(TypeName::Long)
+                } else if name.eq_ignore_ascii_case("Int64") {
+                    Ok(TypeName::Int64)
+                } else if name.eq_ignore_ascii_case("UInt32") {
+                    Ok(TypeName::UInt32)
+                } else if name.eq_ignore_ascii_case("UInt64") {
+                    Ok(TypeName::UInt64)
+                } else if name.eq_ignore_ascii_case("Single") {
+                    Ok(TypeName::Single)
+                } else if name.eq_ignore_ascii_case("Double") {
+                    Ok(TypeName::Double)
+                } else if name.eq_ignore_ascii_case("Currency") {
+                    Ok(TypeName::Currency)
+                } else if name.eq_ignore_ascii_case("Decimal") {
+                    Ok(TypeName::Decimal)
+                } else if name.eq_ignore_ascii_case("Date") {
+                    Ok(TypeName::Date)
+                } else if name.eq_ignore_ascii_case("Ptr") {
+                    Ok(TypeName::Ptr)
+                } else if name.eq_ignore_ascii_case("FuncPtr") {
+                    Ok(TypeName::FuncPtr)
+                } else if name.eq_ignore_ascii_case("Object") {
+                    Ok(TypeName::User("Object".to_string()))
+                } else {
+                    if self.match_simple(&TokenKind::Dot) {
+                        let member =
+                            self.expect_identifier("Expected type name after module qualifier")?;
+                        name.push('.');
+                        name.push_str(&member);
+                    }
+                    Ok(TypeName::User(name))
                 }
-                if name.eq_ignore_ascii_case("Long") {
-                    return Ok(TypeName::Long);
-                }
-                if name.eq_ignore_ascii_case("Int64") {
-                    return Ok(TypeName::Int64);
-                }
-                if name.eq_ignore_ascii_case("UInt32") {
-                    return Ok(TypeName::UInt32);
-                }
-                if name.eq_ignore_ascii_case("UInt64") {
-                    return Ok(TypeName::UInt64);
-                }
-                if name.eq_ignore_ascii_case("Single") {
-                    return Ok(TypeName::Single);
-                }
-                if name.eq_ignore_ascii_case("Double") {
-                    return Ok(TypeName::Double);
-                }
-                if name.eq_ignore_ascii_case("Currency") {
-                    return Ok(TypeName::Currency);
-                }
-                if name.eq_ignore_ascii_case("Decimal") {
-                    return Ok(TypeName::Decimal);
-                }
-                if name.eq_ignore_ascii_case("Date") {
-                    return Ok(TypeName::Date);
-                }
-                if name.eq_ignore_ascii_case("Ptr") {
-                    return Ok(TypeName::Ptr);
-                }
-                if name.eq_ignore_ascii_case("FuncPtr") {
-                    return Ok(TypeName::FuncPtr);
-                }
-                if name.eq_ignore_ascii_case("Object") {
-                    return Ok(TypeName::User("Object".to_string()));
-                }
-                if self.match_simple(&TokenKind::Dot) {
-                    let member =
-                        self.expect_identifier("Expected type name after module qualifier")?;
-                    name.push('.');
-                    name.push_str(&member);
-                }
-                Ok(TypeName::User(name))
             }
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::PARSE,
                 "Expected type name",
                 Some(token.span),
             )),
+        }?;
+        if self.check_simple(&TokenKind::LeftBracket) {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::ARRAY,
+                "Square-bracket array type syntax is not supported; use 'Dim name() As Type'",
+                Some(self.peek().span),
+            ));
         }
+        Ok(ty)
     }
     pub(super) fn apply_class_attribute(
         &self,
