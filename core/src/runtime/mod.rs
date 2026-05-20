@@ -4,10 +4,15 @@
 //! including the value system, type definitions, and diagnostics.
 //! It is designed to be independent of the execution backend.
 
+mod coerce;
+pub mod compare;
 mod diagnostic;
+pub mod numeric;
+pub mod ops;
 mod type_name;
 mod value;
 
+pub use coerce::coerce_assignment;
 pub use diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticLabel, LabelStyle, RuntimeErrorInfo, Severity, SourcePos,
     Span,

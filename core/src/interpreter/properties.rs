@@ -1,9 +1,9 @@
-use crate::runtime::{Diagnostic, Span, TypeName, Value};
+use crate::runtime::{Diagnostic, Span, TypeName, Value, coerce_assignment};
 use crate::{ClassProperty, Expr, PropertyKind, Stmt};
 
 use super::frame::Variable;
 use super::objects::ensure_object;
-use super::values::{coerce_assignment, key};
+use super::values::key;
 use super::{ControlFlow, Frame, Interpreter};
 
 impl Interpreter {

@@ -1,7 +1,7 @@
-use crate::runtime::{ArrayBound, Diagnostic, Span, Value};
+use crate::runtime::{ArrayBound, Diagnostic, Span, Value, coerce_assignment};
 
 use super::records::{RuntimeEnum, RuntimeType};
-use super::values::{coerce_assignment, default_value, key};
+use super::values::{default_value, key};
 use super::{Frame, Interpreter};
 use std::collections::HashMap;
 

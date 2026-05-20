@@ -1,4 +1,5 @@
 use super::super::Interpreter;
+use crate::runtime::numeric::value_to_i64;
 use crate::runtime::{Diagnostic, Value};
 
 pub(crate) fn eval_strings(
@@ -75,7 +76,7 @@ pub(crate) fn eval_strings(
             true
         };
         let compare = if args.len() == 4 {
-            super::super::values::value_to_i64(&args[3]).ok_or_else(|| {
+            value_to_i64(&args[3]).ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                     "Compare mode must be Integer",
@@ -134,7 +135,7 @@ pub(crate) fn eval_strings(
         let left = args[0].to_output_string();
         let right = args[1].to_output_string();
         let text_compare = if args.len() == 3 {
-            super::super::values::value_to_i64(&args[2]).ok_or_else(|| {
+            value_to_i64(&args[2]).ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                     "Compare mode must be Integer",

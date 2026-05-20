@@ -1,4 +1,5 @@
 use super::super::Interpreter;
+use crate::runtime::numeric::{value_to_f64, value_to_i64};
 use crate::runtime::{Diagnostic, Value};
 use rand::Rng;
 use rand::SeedableRng;
@@ -12,7 +13,7 @@ pub(crate) fn eval_math(
 ) -> Result<Option<Value>, Diagnostic> {
     if name.eq_ignore_ascii_case("Sgn") {
         expect_value_count(name, args, 1, span)?;
-        let num = super::super::values::value_to_f64(&args[0]).ok_or_else(|| {
+        let num = value_to_f64(&args[0]).ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "Sgn requires a numeric argument",
@@ -29,7 +30,7 @@ pub(crate) fn eval_math(
     }
     if name.eq_ignore_ascii_case("Int") {
         expect_value_count(name, args, 1, span)?;
-        let num = super::super::values::value_to_f64(&args[0]).ok_or_else(|| {
+        let num = value_to_f64(&args[0]).ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "Int requires a numeric argument",
@@ -49,7 +50,7 @@ pub(crate) fn eval_math(
         let seed = if args.is_empty() {
             rand::thread_rng().r#gen::<u64>()
         } else {
-            super::super::values::value_to_i64(&args[0]).ok_or_else(|| {
+            value_to_i64(&args[0]).ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                     "Randomize seed must be Integer",

@@ -123,13 +123,38 @@ pub(crate) fn dispatch_function(
 }
 
 fn is_builtin_function(name: &str) -> bool {
-    match name.to_ascii_lowercase().as_str() {
-        "sgn" | "int" | "randomize" | "rnd" | "split" | "join" | "filter" | "cstr" | "strcomp"
-        | "isobject" | "isarray" | "isnull" | "isempty" | "iserror" | "vartype" | "typename"
-        | "cbyte" | "cint" | "clng" | "clnglng" | "cint64" | "csng" | "cdbl" | "cdec" | "ccur"
-        | "cdate" | "array" | "lbound" | "ubound" | "ismissing" => true,
-        _ => false,
-    }
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "sgn" | "int"
+            | "randomize"
+            | "rnd"
+            | "split"
+            | "join"
+            | "filter"
+            | "cstr"
+            | "strcomp"
+            | "isobject"
+            | "isarray"
+            | "isnull"
+            | "isempty"
+            | "iserror"
+            | "vartype"
+            | "typename"
+            | "cbyte"
+            | "cint"
+            | "clng"
+            | "clnglng"
+            | "cint64"
+            | "csng"
+            | "cdbl"
+            | "cdec"
+            | "ccur"
+            | "cdate"
+            | "array"
+            | "lbound"
+            | "ubound"
+            | "ismissing"
+    )
 }
 
 fn dispatch_callbyname(

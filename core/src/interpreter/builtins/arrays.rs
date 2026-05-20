@@ -1,3 +1,4 @@
+use crate::runtime::numeric::value_to_i64;
 use crate::runtime::{Diagnostic, Value};
 
 pub(crate) fn eval_arrays(
@@ -27,7 +28,7 @@ pub(crate) fn eval_arrays(
             ));
         }
         let dimension = if args.len() == 2 {
-            super::super::values::value_to_i64(&args[1]).ok_or_else(|| {
+            value_to_i64(&args[1]).ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                     "Array dimension must be Integer",

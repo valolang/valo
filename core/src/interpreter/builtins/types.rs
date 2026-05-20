@@ -1,4 +1,4 @@
-use crate::runtime::{Diagnostic, TypeName, Value};
+use crate::runtime::{Diagnostic, TypeName, Value, coerce_assignment};
 
 pub(crate) fn eval_types(
     name: &str,
@@ -38,7 +38,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("CByte") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(super::super::values::coerce_assignment(
+        return Ok(Some(coerce_assignment(
             &TypeName::Byte,
             args[0].clone(),
             span,
@@ -46,7 +46,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("CInt") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(super::super::values::coerce_assignment(
+        return Ok(Some(coerce_assignment(
             &TypeName::Integer,
             args[0].clone(),
             span,
@@ -54,7 +54,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("CLng") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(super::super::values::coerce_assignment(
+        return Ok(Some(coerce_assignment(
             &TypeName::Long,
             args[0].clone(),
             span,
@@ -62,7 +62,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("CLngLng") || name.eq_ignore_ascii_case("CInt64") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(super::super::values::coerce_assignment(
+        return Ok(Some(coerce_assignment(
             &TypeName::Int64,
             args[0].clone(),
             span,
@@ -70,7 +70,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("CSng") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(super::super::values::coerce_assignment(
+        return Ok(Some(coerce_assignment(
             &TypeName::Single,
             args[0].clone(),
             span,
@@ -78,7 +78,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("CDbl") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(super::super::values::coerce_assignment(
+        return Ok(Some(coerce_assignment(
             &TypeName::Double,
             args[0].clone(),
             span,
@@ -86,7 +86,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("CDec") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(super::super::values::coerce_assignment(
+        return Ok(Some(coerce_assignment(
             &TypeName::Decimal,
             args[0].clone(),
             span,
@@ -94,7 +94,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("CCur") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(super::super::values::coerce_assignment(
+        return Ok(Some(coerce_assignment(
             &TypeName::Currency,
             args[0].clone(),
             span,
@@ -102,7 +102,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("CDate") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(super::super::values::coerce_assignment(
+        return Ok(Some(coerce_assignment(
             &TypeName::Date,
             args[0].clone(),
             span,

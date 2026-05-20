@@ -1,14 +1,17 @@
 use crate::runtime::{Diagnostic, RuntimeErrorInfo, Value};
 use crate::{
-    AssignTarget, CaseCompareOp, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ResumeTarget,
-    Stmt, UsingResource,
+    AssignTarget, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ResumeTarget, Stmt,
+    UsingResource,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::values::{compare_case_values, key, values_equal};
+use super::values::key;
 use super::{ControlFlow, Frame, Interpreter};
+use crate::runtime::compare::{
+    RuntimeCompareOp, RuntimeOptionCompare, compare_case_values, values_equal,
+};
 
 impl Interpreter {
     pub(crate) fn exec_block(
@@ -852,34 +855,54 @@ impl Interpreter {
         match item {
             CaseItem::Value(value) => {
                 let value = self.eval_expr(value, frame)?;
-                Ok(values_equal(subject, &value, self.option_compare))
+                let runtime_compare = match self.option_compare {
+                    crate::OptionCompare::Binary => RuntimeOptionCompare::Binary,
+                    crate::OptionCompare::Text => RuntimeOptionCompare::Text,
+                };
+                Ok(values_equal(subject, &value, runtime_compare))
             }
             CaseItem::Range { start, end } => {
                 let start_value = self.eval_expr(start, frame)?;
                 let end_value = self.eval_expr(end, frame)?;
+                let runtime_compare = match self.option_compare {
+                    crate::OptionCompare::Binary => RuntimeOptionCompare::Binary,
+                    crate::OptionCompare::Text => RuntimeOptionCompare::Text,
+                };
                 let lower = compare_case_values(
                     subject.clone(),
-                    CaseCompareOp::GreaterEqual,
+                    RuntimeCompareOp::GreaterEqual,
                     start_value,
-                    self.option_compare,
+                    runtime_compare,
                     start.span,
                 )?;
                 let upper = compare_case_values(
                     subject.clone(),
-                    CaseCompareOp::LessEqual,
+                    RuntimeCompareOp::LessEqual,
                     end_value,
-                    self.option_compare,
+                    runtime_compare,
                     end.span,
                 )?;
                 Ok(lower.is_truthy() && upper.is_truthy())
             }
             CaseItem::Compare { op, expr } => {
                 let value = self.eval_expr(expr, frame)?;
+                let runtime_op = match op {
+                    crate::CaseCompareOp::Equal => RuntimeCompareOp::Equal,
+                    crate::CaseCompareOp::NotEqual => RuntimeCompareOp::NotEqual,
+                    crate::CaseCompareOp::Less => RuntimeCompareOp::Less,
+                    crate::CaseCompareOp::Greater => RuntimeCompareOp::Greater,
+                    crate::CaseCompareOp::LessEqual => RuntimeCompareOp::LessEqual,
+                    crate::CaseCompareOp::GreaterEqual => RuntimeCompareOp::GreaterEqual,
+                };
+                let runtime_compare = match self.option_compare {
+                    crate::OptionCompare::Binary => RuntimeOptionCompare::Binary,
+                    crate::OptionCompare::Text => RuntimeOptionCompare::Text,
+                };
                 Ok(compare_case_values(
                     subject.clone(),
-                    *op,
+                    runtime_op,
                     value,
-                    self.option_compare,
+                    runtime_compare,
                     expr.span,
                 )?
                 .is_truthy())

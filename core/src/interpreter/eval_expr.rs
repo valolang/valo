@@ -1,8 +1,9 @@
 use crate::runtime::{Diagnostic, Value};
 use crate::{Expr, ExprKind, UnaryOp};
 
-use super::values::eval_binary;
 use super::{Frame, Interpreter};
+use crate::runtime::compare::RuntimeOptionCompare;
+use crate::runtime::ops::{RuntimeBinaryOp, eval_binary};
 
 impl Interpreter {
     pub(crate) fn eval_expr(
@@ -331,7 +332,30 @@ impl Interpreter {
                     ));
                 }
                 let right = self.resolve_default_value(right_value, frame, expr.span)?;
-                eval_binary(left, *op, right, self.option_compare, expr.span)
+                let runtime_op = match op {
+                    crate::BinaryOp::Add => RuntimeBinaryOp::Add,
+                    crate::BinaryOp::Subtract => RuntimeBinaryOp::Subtract,
+                    crate::BinaryOp::Multiply => RuntimeBinaryOp::Multiply,
+                    crate::BinaryOp::Divide => RuntimeBinaryOp::Divide,
+                    crate::BinaryOp::IntegerDivide => RuntimeBinaryOp::IntegerDivide,
+                    crate::BinaryOp::Modulo => RuntimeBinaryOp::Modulo,
+                    crate::BinaryOp::Concat => RuntimeBinaryOp::Concat,
+                    crate::BinaryOp::LogicalAnd => RuntimeBinaryOp::LogicalAnd,
+                    crate::BinaryOp::LogicalOr => RuntimeBinaryOp::LogicalOr,
+                    crate::BinaryOp::Equal => RuntimeBinaryOp::Equal,
+                    crate::BinaryOp::NotEqual => RuntimeBinaryOp::NotEqual,
+                    crate::BinaryOp::Less => RuntimeBinaryOp::Less,
+                    crate::BinaryOp::Greater => RuntimeBinaryOp::Greater,
+                    crate::BinaryOp::LessEqual => RuntimeBinaryOp::LessEqual,
+                    crate::BinaryOp::GreaterEqual => RuntimeBinaryOp::GreaterEqual,
+                    crate::BinaryOp::Is => RuntimeBinaryOp::Is,
+                    crate::BinaryOp::Like => RuntimeBinaryOp::Like,
+                };
+                let runtime_compare = match self.option_compare {
+                    crate::OptionCompare::Binary => RuntimeOptionCompare::Binary,
+                    crate::OptionCompare::Text => RuntimeOptionCompare::Text,
+                };
+                eval_binary(left, runtime_op, right, runtime_compare, expr.span)
             }
         }
     }

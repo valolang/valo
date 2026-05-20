@@ -1,8 +1,8 @@
-use crate::runtime::{Diagnostic, Span, TypeName, Value};
+use crate::runtime::{Diagnostic, Span, TypeName, Value, coerce_assignment};
 use crate::{ClassMember, TypeDecl, TypeKind};
 
 use super::properties::{RuntimeProperty, RuntimePropertyAccessor};
-use super::values::{coerce_assignment, key};
+use super::values::key;
 
 pub(crate) fn read_field_member(
     value: &Value,

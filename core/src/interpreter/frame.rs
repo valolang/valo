@@ -3,11 +3,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::ArrayDecl;
-use crate::runtime::{ArrayBound, Diagnostic, ObjectValue, Span, TypeName, Value};
+use crate::runtime::{
+    ArrayBound, Diagnostic, ObjectValue, Span, TypeName, Value, coerce_assignment,
+};
 
 use super::arrays::{read_array_element, redim_array, write_array_element};
 use super::records::{RuntimeEnum, RuntimeType};
-use super::values::{coerce_assignment, default_value, key};
+use super::values::{default_value, key};
 
 #[derive(Debug, Default, Clone)]
 pub struct Frame {
