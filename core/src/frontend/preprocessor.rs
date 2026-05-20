@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::OptionCompare;
+use crate::frontend::ast::OptionCompare;
 use crate::runtime::{Diagnostic, SourcePos, Span};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

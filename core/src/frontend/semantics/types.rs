@@ -4,7 +4,7 @@ use crate::ArrayDecl;
 use crate::Visibility;
 use crate::runtime::TypeName;
 
-use crate::semantics::symbols::key;
+use crate::frontend::semantics::symbols::key;
 
 #[derive(Debug, Clone)]
 pub(super) struct FieldSig {

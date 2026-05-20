@@ -2,7 +2,7 @@
 
 The Backend is responsible for executing the validated code. Valo is designed to support multiple execution strategies.
 
-## Tree-walking Interpreter (`core/src/interpreter/`)
+## Tree-walking Interpreter (`core/src/backend/interpreter/`)
 
 The current default backend is an AST-based tree-walking interpreter.
 

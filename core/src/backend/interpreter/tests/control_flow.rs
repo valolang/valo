@@ -1,5 +1,5 @@
-use crate::interpreter::tests::helpers::*;
-use crate::parser::Parser;
+use crate::backend::interpreter::tests::helpers::*;
+use crate::frontend::parser::Parser;
 
 #[test]
 fn runs_control_flow() {

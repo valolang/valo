@@ -1,6 +1,6 @@
-use crate::interpreter::run;
-use crate::parser::Parser;
-use crate::semantics::validate;
+use crate::backend::interpreter::run;
+use crate::frontend::parser::Parser;
+use crate::frontend::semantics::validate;
 
 #[test]
 fn test_try_catch_success() {

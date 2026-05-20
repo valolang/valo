@@ -1,4 +1,4 @@
-use crate::interpreter::tests::helpers::*;
+use crate::backend::interpreter::tests::helpers::*;
 
 #[test]
 fn evaluates_and_behavior() {

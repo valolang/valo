@@ -1,4 +1,4 @@
-use crate::interpreter::tests::helpers::*;
+use crate::backend::interpreter::tests::helpers::*;
 
 #[test]
 fn exported_class_attributes_default_member_as_new_and_class_initialize_work() {

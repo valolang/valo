@@ -6,30 +6,26 @@
 //! 2. **Runtime**: Core value system, type names, and diagnostics.
 //! 3. **Backend**: The execution engine (currently a tree-walking interpreter).
 
-pub mod ast;
-pub mod interpreter;
-pub mod lexer;
-pub mod modules;
-pub mod parser;
-pub mod preprocessor;
+pub mod backend;
+pub mod frontend;
 pub mod runtime;
-pub mod semantics;
 
-pub use ast::*;
-pub use interpreter::{Frame, Interpreter, run};
-pub use lexer::{Lexer, Token, TokenKind};
-pub use modules::{Project, load_project};
-pub use parser::Parser;
-pub use runtime::{Diagnostic, ObjectValue, SourcePos, Span, TypeName, Value};
-pub use semantics::validate;
+// Re-exports for compatibility and ease of use
+pub use backend::interpreter::{self, run, Frame, Interpreter};
+pub use frontend::ast::*;
+pub use frontend::lexer::{self, Lexer, Token, TokenKind};
+pub use frontend::modules::{self, load_project, Project};
+pub use frontend::parser::{self, parse_source, Parser};
+pub use frontend::preprocessor;
+pub use frontend::semantics::{self, validate, validate_project};
+pub use runtime::*;
 
-pub fn parse_source(source: &str) -> Result<Program, Diagnostic> {
-    Parser::parse_source(source)
-}
+// Top-level convenience functions
+pub use runtime::Diagnostic;
 
 pub fn run_source(source: &str) -> Result<Vec<String>, Diagnostic> {
     let program = parse_source(source)?;
-    validate(&program)?;
+    semantics::validate(&program)?;
     run(&program)
 }
 

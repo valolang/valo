@@ -1,5 +1,5 @@
 use super::helpers::{run_source, source_error};
-use crate::parser::Parser;
+use crate::frontend::parser::Parser;
 
 #[test]
 fn exported_class_envelope_ignored() {

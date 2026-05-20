@@ -12,8 +12,16 @@ The `Value` enum represents every possible data type in Valo:
 *   **Objects:** `Object` (Reference-counted class instances).
 *   **Special:** `Nothing`, `Empty`, `Null`, `Missing`.
 
-## Object Model (`core/src/interpreter/objects.rs`)
-*Note: Some logic currently resides in the interpreter but is conceptually part of the runtime.*
+## Centralized Operations (`core/src/runtime/ops.rs`, `compare.rs`, `numeric.rs`, `coerce.rs`)
+
+Core language behaviors are implemented in the runtime layer to ensure consistency across backends:
+*   **`ops.rs`**: Binary operations and mapping.
+*   **`compare.rs`**: Equality, comparisons, and `Like` operator.
+*   **`numeric.rs`**: Numeric promotion and conversion.
+*   **`coerce.rs`**: Assignment coercion and type validation.
+
+## Object Model (`core/src/backend/interpreter/objects.rs`)
+*Note: Some logic currently resides in the interpreter backend but is conceptually part of the runtime.*
 
 *   **Reference Counting:** Valo uses `Rc<RefCell<ObjectValue>>` for automatic memory management.
 *   **Lifecycle:** Supports `Sub New` (constructor) and `Sub Terminate` (finalizer) / `Class_Terminate` (VBA).

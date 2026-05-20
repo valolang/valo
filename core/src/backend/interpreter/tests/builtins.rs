@@ -1,4 +1,4 @@
-use crate::interpreter::tests::helpers::*;
+use crate::backend::interpreter::tests::helpers::*;
 
 #[test]
 fn vba_compatibility_builtins_and_literals_work() {

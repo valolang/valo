@@ -7,10 +7,14 @@ mod expressions;
 mod program;
 mod statements;
 
-use crate::ast::*;
-use crate::lexer::{Lexer, Token, TokenKind};
-use crate::preprocessor::preprocess;
+use crate::frontend::ast::*;
+use crate::frontend::lexer::{Lexer, Token, TokenKind};
+use crate::frontend::preprocessor::preprocess;
 use crate::runtime::Diagnostic;
+
+pub fn parse_source(source: &str) -> Result<Program, Diagnostic> {
+    Parser::parse_source(source)
+}
 
 pub struct Parser {
     pub(super) tokens: Vec<Token>,

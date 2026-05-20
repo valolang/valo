@@ -7,9 +7,9 @@ use crate::{
     PropertyKind, ReDimTarget, ResumeTarget, Stmt, UnaryOp, Visibility,
 };
 
-use crate::semantics::context::Context;
-use crate::semantics::symbols::{CallableSig, ParamSig, Signatures, VarType, key};
-use crate::semantics::types::{
+use crate::frontend::semantics::context::Context;
+use crate::frontend::semantics::symbols::{CallableSig, ParamSig, Signatures, VarType, key};
+use crate::frontend::semantics::types::{
     ClassEventSig, ClassFieldSig, ClassMethodSig, ClassPropertySig, ClassSig, EnumSig, FieldSig,
     PropertyAccessorSig, TypeRegistry, TypeSig,
 };

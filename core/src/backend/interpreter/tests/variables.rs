@@ -1,4 +1,4 @@
-use crate::interpreter::tests::helpers::*;
+use crate::backend::interpreter::tests::helpers::*;
 
 #[test]
 fn runs_variables_and_console_writeline() {

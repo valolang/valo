@@ -1,4 +1,4 @@
-use crate::interpreter::tests::helpers::*;
+use crate::backend::interpreter::tests::helpers::*;
 
 #[test]
 fn enum_auto_increment_after_explicit_value() {

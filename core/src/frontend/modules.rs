@@ -6,9 +6,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::ast::{ImportDecl, Program};
+use crate::frontend::ast::{ImportDecl, Program};
+use crate::frontend::parser::parse_source;
 use crate::runtime::{Diagnostic, DiagnosticCode, Span};
-use crate::{Visibility, parse_source};
+use crate::Visibility;
 
 #[derive(Debug, Clone)]
 pub struct Project {
