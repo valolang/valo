@@ -1,4 +1,5 @@
 mod arrays;
+pub(crate) mod builtins;
 mod calls;
 mod control_flow;
 mod eval_expr;

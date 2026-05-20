@@ -2,9 +2,40 @@
 
 Valo implements the classic Basic error handling model while integrating it with modern runtime diagnostics.
 
-## On Error Statement
+## Try/Catch/Finally
 
-Valo supports the standard `On Error` constructs for managing runtime failures.
+For modern `.valo` code, Valo supports a structured `Try/Catch/Finally` mechanism. This is the recommended approach for new development.
+
+```vb
+Try
+    ' Code that might fail
+    DangerousOperation()
+Catch ex As Error
+    ' Handle the error
+    Console.WriteLine("Error " & ex.Number & ": " & ex.Message)
+Finally
+    ' Cleanup code (always runs)
+    CloseResources()
+End Try
+```
+
+### Rules
+- `Try` must be followed by either `Catch`, `Finally`, or both.
+- `Catch` variables are optional and must be of type `Error`.
+- `Finally` blocks are guaranteed to execute even if the `Try` block returns or exits.
+- `Try/Catch` handles runtime errors only; semantic errors are caught before execution.
+
+## The Error Object
+
+In a `Catch` block, the error object exposes several properties:
+- `Number`: Error number.
+- `Message`: Error message.
+- `Description`: Full description (compatibility alias for Message).
+- `Source`: Error source module/class.
+- `HelpFile`: Path to help file.
+- `HelpContext`: Help context ID.
+
+## On Error Statement (VBA Compatibility)
 
 ### On Error GoTo <label>
 Redirects control to a specific label when an error occurs.

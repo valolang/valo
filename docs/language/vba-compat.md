@@ -17,8 +17,15 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 | Constructor | `Public Constructor()` | `Private Sub Class_Initialize()` |
 | Destructor | `Public Terminate()` | `Private Sub Class_Terminate()` |
 | Default Member | `Public Default Property Get Item()` | `Attribute Item.VB_UserMemId = 0` |
-| Imports | `Import Math` | Automatically shared in project |
-| Metadata | Not required | `Attribute VB_Name = "..."` |
+| Debug Output | `Console.WriteLine` | `Debug.Print` |
+| Error Handling | `Try/Catch/Finally` | `On Error GoTo` |
+| Array Bounds | `1 To N` (optional) | `1 To N` (optional) |
+
+### Built-in Compatibility
+- `Debug.Print`: Available in all file modes, outputs to the standard console. Supports multiple comma-separated arguments.
+- `Err` Object: Full support for `Err.Raise`, `Err.Number`, and `Err.Description` in all modes.
+- `Array Built-ins`: `Split`, `Join`, `Filter`, `LBound`, and `UBound` behave according to standard VBA semantics.
+- `Multidimensional Arrays`: Fully supported with `ReDim Preserve` compatibility (last-dimension only resizing).
 
 ## Intentional Differences
 

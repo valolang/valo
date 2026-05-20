@@ -113,6 +113,31 @@ Procedures that return a value.
 
 ```vb
 Function Add(ByVal a As Integer, ByVal b As Integer) As Integer
-    Return a + b
+    Return a + b ' Modern native return
+    ' Add = a + b ' VBA-style return is also supported
 End Function
 ```
+
+## Arrays
+
+Valo supports multidimensional arrays with custom bounds.
+
+### Declarations
+```vb
+Dim matrix(1 To 3, 0 To 5) As Integer
+Dim dynamic() As String
+```
+
+### Resizing
+```vb
+ReDim dynamic(0 To 10)
+ReDim Preserve dynamic(0 To 20) ' Preserves existing values
+```
+
+### Array Built-ins
+- `Array(1, 2, 3)`: Create a Variant array.
+- `Split("a,b,c", ",")`: Split a string into an array.
+- `Join(arr, "-")`: Join an array into a string.
+- `Filter(arr, "match")`: Filter an array based on a string.
+- `LBound(arr, [dim])`: Get the lower bound.
+- `UBound(arr, [dim])`: Get the upper bound.

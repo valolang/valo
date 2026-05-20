@@ -103,6 +103,31 @@ impl Interpreter {
         );
     }
 
+    pub(crate) fn clear_err(&mut self) {
+        self.err_number = 0;
+        self.err_description = String::new();
+        self.err_source = String::new();
+        self.err_help_file = String::new();
+        self.err_help_context = 0;
+    }
+
+    pub(crate) fn set_err(&mut self, error: &Diagnostic, erl: i64) {
+        if let Some(info) = &error.runtime_error {
+            self.err_number = info.number;
+            self.err_description = info.description.clone();
+            self.err_source = info.source.clone();
+            self.err_help_file = info.help_file.clone();
+            self.err_help_context = info.help_context;
+        } else {
+            self.err_number = 1;
+            self.err_description = error.message.to_string();
+            self.err_source = "Valo.Runtime".to_string();
+            self.err_help_file = String::new();
+            self.err_help_context = 0;
+        }
+        self.erl = erl;
+    }
+
     pub fn run(mut self, program: &Program) -> Result<Vec<String>, Diagnostic> {
         self.option_base = program.option_base;
         self.option_compare = program.option_compare;
@@ -464,32 +489,6 @@ impl Interpreter {
         } else {
             diagnostic.with_note(format!("while executing {}", self.call_stack.join(" -> ")))
         }
-    }
-
-    pub(crate) fn set_err(&mut self, diagnostic: &Diagnostic, erl: i64) {
-        if let Some(info) = &diagnostic.runtime_error {
-            self.err_number = info.number;
-            self.err_description = info.description.clone();
-            self.err_source = info.source.clone();
-            self.err_help_file = info.help_file.clone();
-            self.err_help_context = info.help_context;
-        } else {
-            self.err_number = 1;
-            self.err_description = diagnostic.message.to_string();
-            self.err_source = "Valo.Runtime".to_string();
-            self.err_help_file.clear();
-            self.err_help_context = 0;
-        }
-        self.erl = erl;
-    }
-
-    pub(crate) fn clear_err(&mut self) {
-        self.err_number = 0;
-        self.err_description.clear();
-        self.err_source.clear();
-        self.err_help_file.clear();
-        self.err_help_context = 0;
-        self.erl = 0;
     }
 
     pub(crate) fn resolve_type_name(

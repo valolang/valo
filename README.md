@@ -1,142 +1,94 @@
 # Valo
 
-[![Status](https://img.shields.io/badge/status-active-brightgreen)]()
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Build Status](https://github.com/uesleibros/valo/actions/workflows/rust.yml/badge.svg)](https://github.com/uesleibros/valo/actions)
-
-<img align="right" src="assets/valo-mascot.png" width="140px" alt="Valo mascot">
-
-**Valo** is a modern, high-performance Basic-inspired language and runtime built in Rust, featuring first-class VBA compatibility.
-
-It bridges the gap between the productive, familiar world of Basic and the performance and safety requirements of modern software development. Valo provides a standalone, portable runtime that can execute modern `.valo` source files or existing VBA `.bas` and `.cls` projects with advanced semantic validation and professional tooling.
-
-## Why Valo?
-
-VBA has been one of the most productive programming models for decades, yet it remains tethered to host applications and legacy environments. Valo modernizes this paradigm:
-
--   **Standalone Runtime:** Decouples Basic from Microsoft Office and Windows, running anywhere Rust does.
--   **Modern Language Features:** Adds structured imports, native constructors/destructors, first-class properties, and robust error handling.
--   **Strict Semantic Validation:** Catches type mismatches and logical errors before execution, reducing runtime bugs.
--   **Professional Tooling:** Features world-class diagnostics inspired by Rust and Zig, designed for developer efficiency.
-
-## Native Valo vs. VBA Compatibility
-
-Valo offers a dual-path strategy for development:
-
-| Feature | **Modern Native (`.valo`)** | **VBA Compatibility (`.bas`/`.cls`)** |
-| :--- | :--- | :--- |
-| **Lifecycle** | `Constructor()` / `Terminate()` | `Class_Initialize` / `Class_Terminate` |
-| **Defaults** | `Public Default Property Get Item()` | `Attribute Item.VB_UserMemId = 0` |
-| **Metadata** | Not needed | Full `Attribute VB_*` support |
-| **Imports** | Explicit `Import Math` | Automatically shared namespace |
+Valo is a modern, Basic-inspired programming language and runtime designed for high-integrity automation and professional scripting. It balances the approachability of VBA with modern language features, modularity, and a robust diagnostics system.
 
 ## Key Features
 
--   **Modular System:** Structured module resolution and dependency management via `Import`.
--   **Object-Oriented:** Comprehensive class support with `Public`/`Private` visibility, events, and properties.
--   **Indexer Ergonomics:** Native support for default properties allowing `collection(index)` style access.
--   **Memory Management:** Automatic reference counting for predictable object lifetimes.
--   **Error Handling:** Full `On Error GoTo` and `Resume` support, integrated with `Err` object.
--   **Metaprogramming:** Built-in `#If` / `#Const` preprocessor for conditional compilation.
--   **Diagnostic Engine:** Descriptive, colorized error messages with searchable codes and help hints.
+- **Modern Basic Syntax**: A clean, readable syntax that feels familiar to Basic developers but includes modern constructs.
+- **Dual Mode Support**:
+    - `.valo`: Native mode with modern features like `Try/Catch/Finally`.
+    - `.bas` / `.cls`: Compatibility mode for traditional VBA source code.
+- **Robust Object Model**:
+    - Support for Classes, Events, and Properties.
+    - Deterministic lifecycle management with `Constructor` and `Terminate`.
+    - Default properties and intuitive indexer syntax.
+- **Advanced Error Handling**: Supports both traditional `On Error` and modern `Try/Catch/Finally` blocks.
+- **Powerful Array System**: Full support for multidimensional arrays, dynamic resizing with `ReDim Preserve`, and built-ins like `Array()`, `Split()`, `Join()`, and `Filter()`.
+- **Modular Architecture**: Comprehensive support for modules, imports, and qualified symbol access.
+- **Professional Diagnostics**: Rich, descriptive error messages with source code highlighting and helpful suggestions.
 
-## Showcase
+## Installation
 
-### Modern Native Syntax (`.valo`)
-```vb
-Public Class Rectangle
-    Private m_width As Double
-    Private m_height As Double
-
-    Public Constructor(ByVal w As Double, ByVal h As Double)
-        Me.m_width = w
-        Me.m_height = h
-    End Constructor
-
-    Public Default Property Get Area() As Double
-        Return Me.m_width * Me.m_height
-    End Property
-End Class
-
-Sub Main()
-    Dim r As New Rectangle(5, 10)
-    Console.WriteLine("Area: " & r) ' Calls default property
-End Sub
-```
-
-### VBA Compatibility (`.cls`)
-```vb
-VERSION 1.0 CLASS
-BEGIN
-  MultiUse = -1  'True
-END
-Attribute VB_Name = "LegacyItem"
-Attribute VB_GlobalNameSpace = False
-Attribute VB_Creatable = False
-Attribute VB_PredeclaredId = False
-Attribute VB_Exposed = False
-
-Private Sub Class_Initialize()
-    ' Runs on construction
-End Sub
-
-Public Property Get Value() As String
-Attribute Value.VB_UserMemId = 0
-    Value = "Compatibility Works"
-End Property
-```
-
-### Professional Diagnostics
-```txt
-error[V1100]: Cannot assign String value to Integer variable
-  --> script.valo:3:3
-   |
-3 |   x = "string"
-   |   ^^^^^^^^^^^^ expected Integer, found String
-   |
-help: change the variable type or assign a value with the expected type
-```
-
-## Getting Started
-
-### Installation
-Valo is built using the Rust toolchain.
+Valo is written in Rust. To build it, ensure you have the [Rust toolchain](https://rustup.rs/) installed.
 
 ```bash
-# Clone the repository
-git clone https://github.com/uesleibros/valo.git
+git clone https://github.com/valo-lang/valo.git
 cd valo
-
-# Build in release mode
 cargo build --release
-
-# Run an example
-./target/release/valo run examples/native_default_property.valo
 ```
 
-## Project Documentation
+## Usage
 
-Detailed documentation is available in the `docs/` directory:
+You can run Valo files using the CLI:
 
--   **[Language Reference](docs/language/README.md):** Syntax, Classes, Modules, and Error Handling.
--   **[Architecture Guide](docs/architecture/README.md):** Deep dives into the Parser, Runtime, and Diagnostics system.
--   **[VBA Compatibility Guide](docs/language/vba-compat.md):** Understanding the bridge layer and migration path.
+```bash
+./target/release/valo run examples/hello.valo
+```
 
-## Project Status
+To run a project with multiple modules:
 
-Valo is under active development. Current focus is on stabilizing the core runtime and expanding the standard library.
+```bash
+./target/release/valo run examples/modules/main.valo
+```
 
-### Roadmap
-- [ ] Transition to Bytecode VM for performance
-- [ ] Expanded Standard Library (JSON, File I/O)
-- [ ] Language Server Protocol (LSP) for IDE integration
-- [ ] Automated Formatter and Linter
-- [ ] FFI Support for native interop
+## Examples
 
-## Contributing
+### Modern Try/Catch (`.valo`)
 
-We welcome contributions of all kinds! Please see our [Contributing Guide](CONTRIBUTING.md) to get started.
+```vb
+Sub Main()
+    Try
+        Dim data = Array(1, 2, 3)
+        Console.WriteLine("Element 0: " & data(0))
+    Catch ex As Error
+        Console.WriteLine("Error: " & ex.Message)
+    Finally
+        Console.WriteLine("Cleanup performed")
+    End Try
+End Sub
+```
+
+### VBA Compatibility (`.bas`)
+
+```vb
+Attribute VB_Name = "LegacyModule"
+
+Public Sub Main()
+    On Error GoTo ErrorHandler
+    Dim parts
+    parts = Split("A,B,C", ",")
+    Debug.Print parts(1)
+    Exit Sub
+
+ErrorHandler:
+    MsgBox Err.Description
+End Sub
+```
+
+## Documentation
+
+- [Language Reference](docs/language/README.md)
+- [Architecture Overview](docs/architecture/README.md)
+- [Roadmap](docs/architecture/roadmap.md)
+
+## Quality and Integrity
+
+Valo is committed to high engineering standards:
+
+- **Comprehensive Testing**: Hundreds of unit and integration tests covering parser, semantics, and runtime.
+- **Linted Codebase**: Maintained as `clippy-clean` with zero warnings.
+- **Deterministic Runtime**: Reliable execution and resource management.
 
 ## License
 
-Valo is released under the [MIT License](LICENSE).
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

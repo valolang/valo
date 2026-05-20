@@ -162,22 +162,16 @@ impl Interpreter {
                 Ok(ControlFlow::Continue)
             }
             Stmt::ConsoleWriteLine { args, .. } => {
-                let mut parts = Vec::new();
-                for arg in args {
-                    let value = self.eval_expr(arg, frame)?;
-                    if matches!(value, Value::Missing) {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::GENERIC,
-                            "Missing optional argument cannot be used as a value",
-                            Some(arg.span),
-                        ));
-                    }
-                    parts.push(
-                        self.resolve_default_value(value, frame, arg.span)?
-                            .to_output_string(),
-                    );
+                if let Some(flow) = super::builtins::dispatch_stmt(
+                    self,
+                    "Console",
+                    "WriteLine",
+                    args,
+                    frame,
+                    stmt_span(stmt),
+                )? {
+                    return Ok(flow);
                 }
-                self.output.push(parts.join(" "));
                 Ok(ControlFlow::Continue)
             }
             Stmt::SubCall { name, args, span } => {
@@ -191,33 +185,10 @@ impl Interpreter {
                 span,
             } => {
                 if let crate::ExprKind::Variable(name) = &object.kind
-                    && name.eq_ignore_ascii_case("Console")
-                    && method.eq_ignore_ascii_case("WriteLine")
+                    && let Some(flow) =
+                        super::builtins::dispatch_stmt(self, name, method, args, frame, *span)?
                 {
-                    let mut parts = Vec::new();
-                    for arg in args {
-                        let value = self.eval_expr(arg, frame)?;
-                        parts.push(
-                            self.resolve_default_value(value, frame, arg.span)?
-                                .to_output_string(),
-                        );
-                    }
-                    self.output.push(parts.join(" "));
-                    return Ok(ControlFlow::Continue);
-                }
-                if let crate::ExprKind::Variable(name) = &object.kind
-                    && name.eq_ignore_ascii_case("Err")
-                    && method.eq_ignore_ascii_case("Clear")
-                    && args.is_empty()
-                {
-                    self.clear_err();
-                    return Ok(ControlFlow::Continue);
-                }
-                if let crate::ExprKind::Variable(name) = &object.kind
-                    && name.eq_ignore_ascii_case("Err")
-                    && method.eq_ignore_ascii_case("Raise")
-                {
-                    return Err(self.err_raise(args, frame, *span)?);
+                    return Ok(flow);
                 }
                 if let crate::ExprKind::Variable(module_name) = &object.kind
                     && self
@@ -648,7 +619,7 @@ impl Interpreter {
         }
     }
 
-    fn err_raise(
+    pub(crate) fn err_raise(
         &mut self,
         args: &[crate::Expr],
         frame: &mut Frame,
