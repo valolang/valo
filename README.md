@@ -1,17 +1,16 @@
-# Valo
-
 <p align="center">
-  <img src="assets/valo-mascot.png" width="200" alt="Valo Logo">
+  <img src="assets/valo-mascot.png" width="120" alt="Valo Logo">
 </p>
 
 <p align="center">
+  <h1 align="center">Valo</h1>
   <a href="https://github.com/uesleibros/valo/actions"><img src="https://img.shields.io/github/actions/workflow/status/uesleibros/valo/test.yml?branch=main" alt="Build Status"></a>
   <a href="https://github.com/uesleibros/valo/blob/main/LICENSE"><img src="https://img.shields.io/github/license/uesleibros/valo" alt="License"></a>
 </p>
 
 Valo is a modern, Basic-inspired programming language and runtime designed for high-integrity automation and professional scripting. It provides a clean, robust environment that bridges the gap between classic VBA compatibility and modern, type-safe development.
 
-## 🚀 Key Features
+## Key Features
 
 *   **Dual-Mode Runtime**: Seamlessly run modern `.valo` code or integrate legacy `.bas` / `.cls` VBA files.
 *   **Modern Syntax**: Full support for native features like `Try/Catch/Finally`, multidimensional arrays, and strong typing.
@@ -19,7 +18,7 @@ Valo is a modern, Basic-inspired programming language and runtime designed for h
 *   **Professional Diagnostics**: Rich, actionable error messages with source mapping.
 *   **Modular Architecture**: Designed for maintainability, with built-in modules, import systems, and a professional runtime interface.
 
-## 📦 Installation
+## Installation
 
 Valo requires Rust. Build it from source:
 
@@ -29,7 +28,7 @@ cd valo
 cargo build --release
 ```
 
-## 💻 CLI Usage
+## CLI Usage
 
 The Valo CLI provides a professional toolset for development and experimentation.
 
@@ -44,7 +43,7 @@ valo repl
 valo check examples/types.valo
 ```
 
-## 📖 Documentation
+## Documentation
 
 Explore the following to get started:
 
@@ -52,7 +51,7 @@ Explore the following to get started:
 - [Language Reference](docs/language/README.md)
 - [VBA Compatibility Guide](docs/language/vba-compat.md)
 
-## 🛠️ Showcase
+## Showcase
 
 ### Modern Native (`.valo`)
 ```vb
@@ -75,7 +74,7 @@ Public Sub Main()
 End Sub
 ```
 
-## 🛣️ Roadmap
+## Roadmap
 
 - [x] VBA Runtime Compatibility
 - [x] Multidimensional Arrays
@@ -85,6 +84,6 @@ End Sub
 - [ ] FFI Layer
 - [ ] FileSystem Standard Library
 
----
+## License
+
 Valo is licensed under the [MIT License](LICENSE).
-github.com/uesleibros/valo
