@@ -1,125 +1,92 @@
 # Valo
 
-[![Status](https://img.shields.io/badge/status-experimental-orange)]()
+[![Status](https://img.shields.io/badge/status-active-brightgreen)]()
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/uesleibros/valo?style=flat)](https://github.com/uesleibros/valo/stargazers)
-[![GitHub Issues](https://img.shields.io/github/issues/uesleibros/valo)](https://github.com/uesleibros/valo/issues)
-[![GitHub Last Commit](https://img.shields.io/github/last-commit/uesleibros/valo)](https://github.com/uesleibros/valo/commits/main)
+[![Build Status](https://github.com/uesleibros/valo/actions/workflows/rust.yml/badge.svg)](https://github.com/uesleibros/valo/actions)
 
 <img align="right" src="assets/valo-mascot.png" width="140px" alt="Valo mascot">
 
-**Valo** is a modern, high-performance VBA-inspired language and runtime written in Rust. It brings the familiar, productive programming model of Basic to a portable, standalone environment with advanced type safety, structured control flow, and professional developer tooling.
+**Valo** is a modern, high-performance Basic-inspired language and runtime built in Rust, featuring first-class VBA compatibility.
 
-Valo is designed for developers who appreciate the simplicity of Basic but demand the reliability and performance of modern runtimes.
+It bridges the gap between the productive, familiar world of Basic and the performance and safety requirements of modern software development. Valo provides a standalone, portable runtime that can execute modern `.valo` source files or existing VBA `.bas` and `.cls` projects with advanced semantic validation and professional tooling.
 
-> [!WARNING]
-> Valo is currently experimental. While already surprisingly capable, syntax and internal architecture are subject to refinement as we work towards a stable 1.0.
+## Why Valo?
 
-## Philosophy
+VBA has been one of the most productive programming models for decades, yet it remains tethered to host applications and legacy environments. Valo modernizes this paradigm:
 
-VBA has powered business automation for decades, yet it remains trapped within host applications and legacy environments. Valo liberates this productive paradigm:
+-   **Standalone Runtime:** Decouples Basic from Microsoft Office and Windows, running anywhere Rust does.
+-   **Modern Language Features:** Adds structured imports, native constructors/destructors, first-class properties, and robust error handling.
+-   **Strict Semantic Validation:** Catches type mismatches and logical errors before execution, reducing runtime bugs.
+-   **Professional Tooling:** Features world-class diagnostics inspired by Rust and Zig, designed for developer efficiency.
 
-- **Portable Core:** A standalone runtime that runs anywhere Rust does.
-- **Modern Tooling:** High-quality diagnostics, semantic validation, and a focus on developer experience.
-- **Familiar but Better:** Keeps the practical parts of VBA while removing legacy friction and adding modern features like first-class properties, structured error handling, and conditional compilation.
-- **Performance:** Built with Rust for safety and speed, evolving towards a high-performance bytecode VM.
+## Native Valo vs. VBA Compatibility
+
+Valo offers a dual-path strategy for development:
+
+| Feature | **Modern Native (`.valo`)** | **VBA Compatibility (`.bas`/`.cls`)** |
+| :--- | :--- | :--- |
+| **Lifecycle** | `Constructor()` / `Terminate()` | `Class_Initialize` / `Class_Terminate` |
+| **Defaults** | `Public Default Property Get Item()` | `Attribute Item.VB_UserMemId = 0` |
+| **Metadata** | Not needed | Full `Attribute VB_*` support |
+| **Imports** | Explicit `Import Math` | Automatically shared namespace |
 
 ## Key Features
 
-- **Object-Oriented:** Classes with `Public`/`Private` visibility, constructors (`Initialize`), and first-class `Property Get/Let/Set`.
-- **Dynamic Memory:** Robust support for dynamic arrays with `ReDim` and `ReDim Preserve`.
-- **Advanced Control Flow:** `For Each` iteration, `With` blocks for ergonomic member access, and `Select Case` with ranges and comparisons.
-- **Modern Basic:** `Enum` support, module-level variables/constants, and `Option Base`/`Option Compare` for flexible behavior.
-- **Reliable Error Handling:** `On Error GoTo` and `Resume` support, integrated with modern runtime diagnostics.
-- **Metaprogramming:** Built-in `#Const` and `#If` conditional compilation for cross-platform or feature-gated code.
-- **Professional Diagnostics:** Rich, descriptive error messages inspired by Rust and Zig.
+-   **Modular System:** Structured module resolution and dependency management via `Import`.
+-   **Object-Oriented:** Comprehensive class support with `Public`/`Private` visibility, events, and properties.
+-   **Indexer Ergonomics:** Native support for default properties allowing `collection(index)` style access.
+-   **Memory Management:** Automatic reference counting for predictable object lifetimes.
+-   **Error Handling:** Full `On Error GoTo` and `Resume` support, integrated with `Err` object.
+-   **Metaprogramming:** Built-in `#If` / `#Const` preprocessor for conditional compilation.
+-   **Diagnostic Engine:** Descriptive, colorized error messages with searchable codes and help hints.
 
 ## Showcase
 
-### Classes & Properties
-Valo features a modern class system that feels familiar to VBA developers but operates with strict semantic validation.
-
+### Modern Native Syntax (`.valo`)
 ```vb
-Class User
-    Private mName As String
-    Public Age As Integer
+Public Class Rectangle
+    Private m_width As Double
+    Private m_height As Double
 
-    Public Property Get Name() As String
-        Return Me.mName
+    Public Constructor(ByVal w As Double, ByVal h As Double)
+        Me.m_width = w
+        Me.m_height = h
+    End Constructor
+
+    Public Default Property Get Area() As Double
+        Return Me.m_width * Me.m_height
     End Property
-
-    Public Property Let Name(ByVal value As String)
-        Me.mName = value
-    End Property
-
-    Public Sub Birthday()
-        Me.Age = Me.Age + 1
-    End Sub
 End Class
 
 Sub Main()
-    Dim u As User
-    Set u = New User()
-    With u
-        .Name = "Valo"
-        .Age = 1
-        Call .Birthday()
-        Console.WriteLine(.Name & " is " & .Age)
-    End With
+    Dim r As New Rectangle(5, 10)
+    Console.WriteLine("Area: " & r) ' Calls default property
 End Sub
 ```
 
-### Dynamic Arrays
-Manage memory efficiently with dynamic arrays and preservation.
-
+### VBA Compatibility (`.cls`)
 ```vb
-Sub Main()
-    Dim values() As Integer
-    ReDim values(2)
-    
-    values(0) = 10: values(1) = 20: values(2) = 30
+VERSION 1.0 CLASS
+BEGIN
+  MultiUse = -1  'True
+END
+Attribute VB_Name = "LegacyItem"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = False
+Attribute VB_Exposed = False
 
-    ' Resize while keeping existing data
-    ReDim Preserve values(4)
-    values(3) = 40: values(4) = 50
-
-    For Each v In values
-        Console.WriteLine(v)
-    Next v
+Private Sub Class_Initialize()
+    ' Runs on construction
 End Sub
+
+Public Property Get Value() As String
+Attribute Value.VB_UserMemId = 0
+    Value = "Compatibility Works"
+End Property
 ```
 
-### Conditional Compilation
-Use `#If` to tailor your code for different environments or configurations.
-
-```vb
-#Const Target = "WEB"
-
-Sub Main()
-#If Target = "WEB" Then
-    Console.WriteLine("Running in Browser")
-#Else
-    Console.WriteLine("Running Native")
-#End If
-End Sub
-```
-
-### Error Handling & Diagnostics
-Valo provides a robust error handling model combined with world-class error reporting.
-
-```vb
-Sub Main()
-    On Error GoTo Handler
-    Dim x As Integer: x = 1 / 0 ' Triggers error
-    Exit Sub
-
-Handler:
-    Console.WriteLine("Error: " & Err.Description)
-    Resume Next
-End Sub
-```
-
-**Diagnostic Example:**
+### Professional Diagnostics
 ```txt
 error[V1100]: Cannot assign String value to Integer variable
   --> script.valo:3:3
@@ -133,71 +100,42 @@ help: change the variable type or assign a value with the expected type
 ## Getting Started
 
 ### Installation
-Valo is currently built from source using the Rust toolchain.
+Valo is built using the Rust toolchain.
 
 ```bash
 # Clone the repository
 git clone https://github.com/uesleibros/valo.git
 cd valo
 
-# Build the project
+# Build in release mode
 cargo build --release
 
 # Run an example
-./target/release/valo run examples/hello.valo
+./target/release/valo run examples/native_default_property.valo
 ```
 
-### Quick Start
-Create a file named `main.valo`:
+## Project Documentation
 
-```vb
-Sub Main()
-    Console.WriteLine("Hello, Valo")
-End Sub
-```
+Detailed documentation is available in the `docs/` directory:
 
-Run it with:
-```bash
-valo run main.valo
-```
+-   **[Language Reference](docs/language/README.md):** Syntax, Classes, Modules, and Error Handling.
+-   **[Architecture Guide](docs/architecture/README.md):** Deep dives into the Parser, Runtime, and Diagnostics system.
+-   **[VBA Compatibility Guide](docs/language/vba-compat.md):** Understanding the bridge layer and migration path.
 
-## VBA Compatibility
+## Project Status
 
-Valo is **VBA-inspired**, not a bug-for-bug compatible clone. Our goal is to preserve the high productivity and familiar syntax of the Basic programming model while building a modern foundation:
+Valo is under active development. Current focus is on stabilizing the core runtime and expanding the standard library.
 
-- **Strict Validation:** Valo performs semantic analysis before execution, catching type mismatches and scope errors that VBA might only find at runtime.
-- **Standalone:** No dependency on Excel, Access, or Windows-only APIs.
-- **Modern Semantics:** Cleanup of legacy Basic quirks while keeping the "spirit" of the language intact.
-
-## Architecture
-
-Valo is built as a pipeline of specialized stages to ensure correctness and performance:
-
-1. **Lexer:** Scans source into tokens.
-2. **Parser:** Builds an Abstract Syntax Tree (AST), supporting complex Basic constructs.
-3. **Preprocessor:** Handles conditional compilation directives (`#If`, `#Const`).
-4. **Semantic Validation:** Performs rigorous type checking and symbol resolution before execution.
-5. **Interpreter:** A high-fidelity tree-walking interpreter (evolving toward a Bytecode VM).
-
-## Development
-
-Valo is backed by an extensive integration test suite that verifies every example in the repository.
-
-```bash
-cargo test
-```
-
-## Roadmap
-
-- [ ] Bytecode Compiler & Virtual Machine
-- [ ] Standard Library (File I/O, Networking, JSON)
-- [ ] Language Server Protocol (LSP) support
-- [ ] Formatter and Linter
-- [ ] FFI / `Declare` support for native interop
+### Roadmap
+- [ ] Transition to Bytecode VM for performance
+- [ ] Expanded Standard Library (JSON, File I/O)
+- [ ] Language Server Protocol (LSP) for IDE integration
+- [ ] Automated Formatter and Linter
+- [ ] FFI Support for native interop
 
 ## Contributing
 
-We welcome contributions! Whether it's reporting bugs, suggesting features, or submitting pull requests, your help is appreciated. Please see our [Contributing Guide](CONTRIBUTING.md) for more details.
+We welcome contributions of all kinds! Please see our [Contributing Guide](CONTRIBUTING.md) to get started.
 
 ## License
 
