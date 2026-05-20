@@ -123,7 +123,7 @@ fn old_iterator_block_is_rejected() {
         Sub Main()
         End Sub
     "#;
-    assert!(source_error(source).contains("Iterator must modify Function or Property Get"));
+    assert!(source_error(source).contains("Expected Function or Property after Iterator"));
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn end_iterator_is_rejected() {
         Sub Main()
         End Sub
     "#;
-    assert!(source_error(source).contains("End Iterator was removed"));
+    assert!(source_error(source).contains("Expected statement"));
 }
 
 #[test]

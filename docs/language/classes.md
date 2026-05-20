@@ -39,8 +39,6 @@ Class Connection
 End Class
 ```
 
-Older native `Constructor ... End Constructor` and `Terminate ... End Terminate` blocks have been removed. Use `Sub New ... End Sub` and `Sub Terminate ... End Sub`.
-
 ### Deterministic Cleanup
 Use `Sub Dispose` for explicit resource cleanup. A `Using` block calls `Dispose` automatically when the block exits, including exits caused by `Return`, `Exit Sub`, or a runtime error.
 

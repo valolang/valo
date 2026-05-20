@@ -7,31 +7,6 @@ impl Parser {
         self.skip_newlines();
 
         while !self.is_at_end() && !self.matches_block_end(ends) {
-            if matches!(self.peek_kind(), TokenKind::End) {
-                if matches!(self.peek_next_kind(), Some(TokenKind::Iterator)) {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::PARSE,
-                        "End Iterator was removed; use Iterator Function ... Yield ... End Function.",
-                        Some(self.peek().span),
-                    ));
-                }
-                if matches!(self.peek_next_kind(), Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor"))
-                {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::PARSE,
-                        "End Constructor was removed; use Public Sub New(...) ... End Sub.",
-                        Some(self.peek().span),
-                    ));
-                }
-                if matches!(self.peek_next_kind(), Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Terminate"))
-                {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::PARSE,
-                        "End Terminate was removed; use Public Sub Terminate() ... End Sub.",
-                        Some(self.peek().span),
-                    ));
-                }
-            }
             if self.matches_any_block_boundary() {
                 break;
             }

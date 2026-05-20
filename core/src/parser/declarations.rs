@@ -82,31 +82,6 @@ impl Parser {
         let mut attributes = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndClass]) {
-            if matches!(self.peek_kind(), TokenKind::End) {
-                if matches!(self.peek_next_kind(), Some(TokenKind::Iterator)) {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::PARSE,
-                        "End Iterator was removed; use Iterator Function ... Yield ... End Function.",
-                        Some(self.peek().span),
-                    ));
-                }
-                if matches!(self.peek_next_kind(), Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor"))
-                {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::PARSE,
-                        "End Constructor was removed; use Public Sub New(...) ... End Sub.",
-                        Some(self.peek().span),
-                    ));
-                }
-                if matches!(self.peek_next_kind(), Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Terminate"))
-                {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::PARSE,
-                        "End Terminate was removed; use Public Sub Terminate() ... End Sub.",
-                        Some(self.peek().span),
-                    ));
-                }
-            }
             if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
             {
                 let attribute = self.parse_attribute_decl()?;
@@ -183,20 +158,6 @@ impl Parser {
                     }))
                 }
             }
-            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Constructor") => {
-                Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PARSE,
-                    "Constructor blocks were removed; use Public Sub New(...) ... End Sub.",
-                    Some(self.peek().span),
-                ))
-            }
-            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Terminate") => {
-                Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PARSE,
-                    "Terminate blocks were removed; use Public Sub Terminate() ... End Sub.",
-                    Some(self.peek().span),
-                ))
-            }
             TokenKind::Function => Ok(ClassMember::Function(
                 self.parse_class_function(visibility, is_iterator)?,
             )),
@@ -205,11 +166,9 @@ impl Parser {
                 is_default,
                 is_iterator,
             )?)),
-            _ if is_iterator => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::PARSE,
-                "Iterator must modify Function or Property Get; use Iterator Function ... Yield ... End Function.",
-                Some(self.previous().span),
-            )),
+            _ if is_iterator => {
+                Err(self.error_here("Expected Function or Property after Iterator"))
+            }
             _ if is_default => Err(self.error_here("Default is only supported on Property")),
             TokenKind::Identifier(_) | TokenKind::Dim => {
                 if is_iterator {
@@ -609,20 +568,6 @@ impl Parser {
                         procedure: self.parse_procedure(visibility)?,
                     }))
                 }
-            }
-            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Constructor") => {
-                Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PARSE,
-                    "Constructor blocks were removed; use Public Sub New(...) ... End Sub.",
-                    Some(self.peek().span),
-                ))
-            }
-            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Terminate") => {
-                Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PARSE,
-                    "Terminate blocks were removed; use Public Sub Terminate() ... End Sub.",
-                    Some(self.peek().span),
-                ))
             }
             TokenKind::Function => Ok(ClassMember::Function(
                 self.parse_class_function(visibility, false)?,

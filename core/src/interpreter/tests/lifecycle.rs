@@ -155,7 +155,7 @@ End Sub
 "#,
     );
 
-    assert!(error.contains("Constructor blocks were removed"));
+    assert!(error.contains("Expected class member"));
 }
 
 #[test]
@@ -172,7 +172,7 @@ End Sub
 "#,
     );
 
-    assert!(error.contains("End Constructor was removed"));
+    assert!(error.contains("Expected statement"));
 }
 
 #[test]
@@ -205,7 +205,7 @@ End Sub
 "#,
     );
 
-    assert!(error.contains("Terminate blocks were removed"));
+    assert!(error.contains("Expected class member"));
 }
 
 #[test]
@@ -222,7 +222,7 @@ End Sub
 "#,
     );
 
-    assert!(error.contains("End Terminate was removed"));
+    assert!(error.contains("Expected statement"));
 }
 
 #[test]
