@@ -429,8 +429,8 @@ pub(super) fn validate_statements(
             }
             Stmt::ReDim {
                 name,
-                lower_bound,
-                upper_bound,
+                dims,
+                preserve,
                 span,
                 ..
             } => {
@@ -448,17 +448,24 @@ pub(super) fn validate_statements(
                         Some(*span),
                     ));
                 }
-                ensure_assignable(
-                    &TypeName::Integer,
-                    &validate_expr(upper_bound, symbols, types, signatures)?,
-                    upper_bound.span,
-                )?;
-                if let Some(lower_bound) = lower_bound {
+                for (lower, upper) in dims {
                     ensure_assignable(
                         &TypeName::Integer,
-                        &validate_expr(lower_bound, symbols, types, signatures)?,
-                        lower_bound.span,
+                        &validate_expr(upper, symbols, types, signatures)?,
+                        upper.span,
                     )?;
+                    if let Some(lower) = lower {
+                        ensure_assignable(
+                            &TypeName::Integer,
+                            &validate_expr(lower, symbols, types, signatures)?,
+                            lower.span,
+                        )?;
+                    }
+                }
+                if *preserve && dims.len() > 1 {
+                    // We'll handle deeper Preserve checks at runtime or here?
+                    // VBA: Only the last dimension can be resized if Preserve is used.
+                    // But we might not know the original dimension count yet if it's dynamic.
                 }
             }
             Stmt::Erase { name, span } => {
@@ -750,14 +757,9 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
         Stmt::ForEach { iterable, body, .. } => {
             expr_uses_with_target(iterable) || body.iter().any(stmt_uses_with_target)
         }
-        Stmt::ReDim {
-            lower_bound,
-            upper_bound,
-            ..
-        } => {
-            lower_bound.as_ref().is_some_and(expr_uses_with_target)
-                || expr_uses_with_target(upper_bound)
-        }
+        Stmt::ReDim { dims, .. } => dims.iter().any(|(l, u)| {
+            l.as_ref().is_some_and(expr_uses_with_target) || expr_uses_with_target(u)
+        }),
         Stmt::TryCatch {
             try_body,
             catch_block,
@@ -784,7 +786,7 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
 fn assign_target_uses_with_target(target: &AssignTarget) -> bool {
     match target {
         AssignTarget::Variable { .. } => false,
-        AssignTarget::ArrayElement { index, .. } => expr_uses_with_target(index),
+        AssignTarget::ArrayElement { indices, .. } => indices.iter().any(expr_uses_with_target),
         AssignTarget::Member { object, .. } => expr_uses_with_target(object),
     }
 }

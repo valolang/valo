@@ -715,12 +715,16 @@ impl Interpreter {
                     &self.types,
                     &self.enums,
                 )?;
+                let len = elements.len();
                 let _ = callee_frame.assign(
                     &param.name,
                     Value::Array {
                         element_type: param.ty.clone(),
                         elements,
-                        lower_bound: self.option_base,
+                        bounds: vec![crate::runtime::ArrayBound {
+                            lower: self.option_base,
+                            upper: self.option_base + len as i64 - 1,
+                        }],
                         allocated: true,
                     },
                     param.span,

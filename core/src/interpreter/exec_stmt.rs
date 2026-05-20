@@ -411,30 +411,36 @@ impl Interpreter {
             }
             Stmt::ReDim {
                 name,
-                lower_bound,
-                upper_bound,
+                dims,
                 preserve,
                 span,
             } => {
-                let lower_bound = if let Some(lower_bound) = lower_bound {
-                    self.eval_integer_expr(lower_bound, frame, "ReDim lower bound must be Integer")?
-                } else {
-                    self.option_base
-                };
-                let upper_bound = self.eval_integer_expr(
-                    upper_bound,
-                    frame,
-                    "ReDim upper bound must be Integer",
-                )?;
-                frame.redim_array(
-                    name,
-                    upper_bound,
-                    lower_bound,
-                    *preserve,
-                    &self.types,
-                    &self.enums,
-                    *span,
-                )?;
+                let mut new_bounds = Vec::new();
+                for (lower_expr, upper_expr) in dims {
+                    let lower = if let Some(lower_expr) = lower_expr {
+                        self.eval_integer_expr(
+                            lower_expr,
+                            frame,
+                            "ReDim lower bound must be Integer",
+                        )?
+                    } else {
+                        self.option_base
+                    };
+                    let upper = self.eval_integer_expr(
+                        upper_expr,
+                        frame,
+                        "ReDim upper bound must be Integer",
+                    )?;
+                    if upper < lower {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "Array upper bound must be greater than or equal to lower bound",
+                            Some(*span),
+                        ));
+                    }
+                    new_bounds.push(crate::runtime::ArrayBound { lower, upper });
+                }
+                frame.redim_array(name, new_bounds, *preserve, &self.types, &self.enums, *span)?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::Erase { name, span } => {
@@ -580,9 +586,16 @@ impl Interpreter {
                     self.assign_bare_class_field(owner, name, value, span)
                 }
             }
-            AssignTarget::ArrayElement { name, index, .. } => {
-                let index = self.eval_integer_expr(index, frame, "Array index must be Integer")?;
-                let old = frame.assign_array_element(name, index, value, span)?;
+            AssignTarget::ArrayElement { name, indices, .. } => {
+                let mut dims = Vec::new();
+                for index_expr in indices {
+                    dims.push(self.eval_integer_expr(
+                        index_expr,
+                        frame,
+                        "Array index must be Integer",
+                    )?);
+                }
+                let old = frame.assign_array_element(name, &dims, value, span)?;
                 self.maybe_terminate(old, span)
             }
             AssignTarget::Member { object, field, .. } => {

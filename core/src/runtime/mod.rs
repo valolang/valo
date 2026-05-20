@@ -8,3 +8,9 @@ pub use diagnostic::{
 };
 pub use type_name::TypeName;
 pub use value::{EventBinding, ObjectValue, Value};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArrayBound {
+    pub lower: i64,
+    pub upper: i64,
+}

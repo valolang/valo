@@ -322,46 +322,56 @@ impl Parser {
             if self.match_simple(&TokenKind::RightParen) {
                 Some(ArrayDecl::Dynamic)
             } else {
-                let lower_or_size_token = self.advance();
-                let TokenKind::Integer(lower_or_size) = lower_or_size_token.kind else {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::ARRAY,
-                        "Array size must be an Integer literal",
-                        Some(lower_or_size_token.span),
-                    ));
-                };
-                let array = if self.match_simple(&TokenKind::To) {
-                    let upper_token = self.advance();
-                    let TokenKind::Integer(upper) = upper_token.kind else {
+                let mut bounds = Vec::new();
+                loop {
+                    let lower_or_size_token = self.advance();
+                    let TokenKind::Integer(lower_or_size) = lower_or_size_token.kind else {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
-                            "Array upper bound must be an Integer literal",
-                            Some(upper_token.span),
+                            "Array size must be an Integer literal",
+                            Some(lower_or_size_token.span),
                         ));
                     };
-                    ArrayDecl::FixedRange {
-                        lower: lower_or_size,
-                        upper,
-                    }
-                } else {
-                    if lower_or_size < 0 {
+                    let bound = if self.match_simple(&TokenKind::To) {
+                        let upper_token = self.advance();
+                        let TokenKind::Integer(upper) = upper_token.kind else {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                "Array upper bound must be an Integer literal",
+                                Some(upper_token.span),
+                            ));
+                        };
+                        crate::runtime::ArrayBound {
+                            lower: lower_or_size,
+                            upper,
+                        }
+                    } else {
+                        if lower_or_size < 0 {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                "Array size must be non-negative",
+                                Some(lower_or_size_token.span),
+                            ));
+                        }
+                        crate::runtime::ArrayBound {
+                            lower: 0,
+                            upper: lower_or_size,
+                        }
+                    };
+                    if bound.upper < bound.lower {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
-                            "Array size must be non-negative",
+                            "Array upper bound must be greater than or equal to lower bound",
                             Some(lower_or_size_token.span),
                         ));
                     }
-                    ArrayDecl::Fixed(lower_or_size)
-                };
-                if matches!(array, ArrayDecl::FixedRange { lower, upper } if upper < lower) {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::ARRAY,
-                        "Array upper bound must be greater than or equal to lower bound",
-                        Some(lower_or_size_token.span),
-                    ));
+                    bounds.push(bound);
+                    if !self.match_simple(&TokenKind::Comma) {
+                        break;
+                    }
                 }
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
-                Some(array)
+                Some(ArrayDecl::Fixed(bounds))
             }
         } else {
             None

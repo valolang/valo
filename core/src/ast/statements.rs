@@ -99,8 +99,7 @@ pub enum Stmt {
     },
     ReDim {
         name: String,
-        lower_bound: Option<Expr>,
-        upper_bound: Expr,
+        dims: Vec<(Option<Expr>, Expr)>,
         preserve: bool,
         span: Span,
     },
@@ -169,8 +168,7 @@ pub enum ResumeTarget {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayDecl {
-    Fixed(i64),
-    FixedRange { lower: i64, upper: i64 },
+    Fixed(Vec<crate::runtime::ArrayBound>),
     Dynamic,
 }
 
@@ -182,7 +180,7 @@ pub enum AssignTarget {
     },
     ArrayElement {
         name: String,
-        index: Expr,
+        indices: Vec<Expr>,
         span: Span,
     },
     Member {

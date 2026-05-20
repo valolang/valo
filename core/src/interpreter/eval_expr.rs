@@ -198,25 +198,17 @@ impl Interpreter {
                             Some(expr.span),
                         ));
                     }
-                    if args.len() == 2 {
-                        let dimension = self.eval_integer_expr(
-                            &args[1],
-                            frame,
-                            "Array dimension must be Integer",
-                        )?;
-                        if dimension != 1 {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::ARRAY,
-                                "Only one-dimensional arrays are supported",
-                                Some(args[1].span),
-                            ));
-                        }
-                    }
+                    let dimension = if args.len() == 2 {
+                        self.eval_integer_expr(&args[1], frame, "Array dimension must be Integer")?
+                            as usize
+                    } else {
+                        1
+                    };
                     let value = self.eval_expr(&args[0], frame)?;
                     let bound = if name.eq_ignore_ascii_case("LBound") {
-                        super::arrays::lbound(&value, expr.span)?
+                        super::arrays::lbound(&value, dimension, expr.span)?
                     } else {
-                        super::arrays::ubound(&value, expr.span)?
+                        super::arrays::ubound(&value, dimension, expr.span)?
                     };
                     return Ok(Value::Integer(bound));
                 }
@@ -224,19 +216,15 @@ impl Interpreter {
                     let value = frame.get(name, expr.span)?;
                     match value {
                         Value::Array { .. } => {
-                            if args.len() != 1 {
-                                return Err(Diagnostic::new(
-                                    crate::runtime::DiagnosticCode::ARRAY,
-                                    "Array access requires exactly one index",
-                                    Some(expr.span),
-                                ));
+                            let mut dims = Vec::new();
+                            for arg in args {
+                                dims.push(self.eval_integer_expr(
+                                    arg,
+                                    frame,
+                                    "Array index must be Integer",
+                                )?);
                             }
-                            let index = self.eval_integer_expr(
-                                &args[0],
-                                frame,
-                                "Array index must be Integer",
-                            )?;
-                            return frame.get_array_element(name, index, expr.span);
+                            return frame.get_array_element(name, &dims, expr.span);
                         }
                         Value::Object(ref object) => {
                             let class_name = object.borrow().class_name.clone();
@@ -450,6 +438,118 @@ impl Interpreter {
             self.expect_builtin_arg_count(name, args, 1, span)?;
             let value = self.eval_integer_expr(&args[0], frame, "Int argument must be Integer")?;
             return Ok(Some(Value::Integer(value)));
+        }
+        if name.eq_ignore_ascii_case("Array") {
+            let mut elements = Vec::new();
+            for arg in args {
+                elements.push(self.eval_expr(arg, frame)?);
+            }
+            let len = elements.len() as i64;
+            return Ok(Some(Value::Array {
+                element_type: crate::runtime::TypeName::Variant,
+                elements,
+                bounds: vec![crate::runtime::ArrayBound {
+                    lower: 0,
+                    upper: len - 1,
+                }],
+                allocated: true,
+            }));
+        }
+        if name.eq_ignore_ascii_case("Split") {
+            if args.is_empty() || args.len() > 2 {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "Split expects 1 to 2 arguments",
+                    Some(span),
+                ));
+            }
+            let text = self.eval_expr(&args[0], frame)?.to_output_string();
+            let delimiter = if args.len() == 2 {
+                self.eval_expr(&args[1], frame)?.to_output_string()
+            } else {
+                " ".to_string()
+            };
+            let elements: Vec<Value> = if delimiter.is_empty() {
+                vec![Value::String(text)]
+            } else {
+                text.split(&delimiter)
+                    .map(|s| Value::String(s.to_string()))
+                    .collect()
+            };
+            let len = elements.len() as i64;
+            return Ok(Some(Value::Array {
+                element_type: crate::runtime::TypeName::String,
+                elements,
+                bounds: vec![crate::runtime::ArrayBound {
+                    lower: 0,
+                    upper: len - 1,
+                }],
+                allocated: true,
+            }));
+        }
+        if name.eq_ignore_ascii_case("Join") {
+            if args.is_empty() || args.len() > 2 {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "Join expects 1 to 2 arguments",
+                    Some(span),
+                ));
+            }
+            let array_value = self.eval_expr(&args[0], frame)?;
+            let delimiter = if args.len() == 2 {
+                self.eval_expr(&args[1], frame)?.to_output_string()
+            } else {
+                " ".to_string()
+            };
+            let elements = super::arrays::array_values(&array_value, args[0].span)?;
+            let strings: Vec<String> = elements.iter().map(|v| v.to_output_string()).collect();
+            return Ok(Some(Value::String(strings.join(&delimiter))));
+        }
+        if name.eq_ignore_ascii_case("Filter") {
+            if args.len() < 2 || args.len() > 4 {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "Filter expects 2 to 4 arguments",
+                    Some(span),
+                ));
+            }
+            let array_value = self.eval_expr(&args[0], frame)?;
+            let match_text = self.eval_expr(&args[1], frame)?.to_output_string();
+            let include = if args.len() >= 3 {
+                self.eval_expr(&args[2], frame)?.is_truthy()
+            } else {
+                true
+            };
+            let compare = if args.len() == 4 {
+                self.eval_integer_expr(&args[3], frame, "Compare mode must be Integer")? == 1
+            } else {
+                self.option_compare == crate::OptionCompare::Text
+            };
+
+            let elements = super::arrays::array_values(&array_value, args[0].span)?;
+            let mut filtered = Vec::new();
+            for val in elements {
+                let s = val.to_output_string();
+                let contains = if compare {
+                    s.to_ascii_lowercase()
+                        .contains(&match_text.to_ascii_lowercase())
+                } else {
+                    s.contains(&match_text)
+                };
+                if contains == include {
+                    filtered.push(val);
+                }
+            }
+            let len = filtered.len() as i64;
+            return Ok(Some(Value::Array {
+                element_type: crate::runtime::TypeName::Variant,
+                elements: filtered,
+                bounds: vec![crate::runtime::ArrayBound {
+                    lower: 0,
+                    upper: len - 1,
+                }],
+                allocated: true,
+            }));
         }
         Ok(None)
     }

@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::runtime::{Diagnostic, ObjectValue, Span, TypeName, Value};
-use crate::{ArrayDecl, Expr, ExprKind};
+use crate::ArrayDecl;
+use crate::runtime::{ArrayBound, Diagnostic, ObjectValue, Span, TypeName, Value};
 
 use super::arrays::{read_array_element, redim_array, write_array_element};
 use super::records::{RuntimeEnum, RuntimeType};
@@ -34,7 +34,7 @@ impl Frame {
         name: &str,
         ty: TypeName,
         array: Option<ArrayDecl>,
-        option_base: i64,
+        _option_base: i64,
         span: Span,
         types: &HashMap<String, RuntimeType>,
         enums: &HashMap<String, RuntimeEnum>,
@@ -51,43 +51,26 @@ impl Frame {
         let dynamic_array = matches!(array, Some(ArrayDecl::Dynamic));
         let value = if let Some(array) = array {
             let mut elements = Vec::new();
+            let mut bounds = Vec::new();
             let allocated = match array {
-                ArrayDecl::Fixed(upper_bound) => {
-                    if upper_bound < option_base {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::OPTION,
-                            "Array upper bound must be greater than or equal to Option Base",
-                            Some(span),
-                        ));
+                ArrayDecl::Fixed(fixed_bounds) => {
+                    let mut total_len: usize = 1;
+                    for bound in fixed_bounds {
+                        total_len *= (bound.upper - bound.lower + 1) as usize;
+                        bounds.push(bound);
                     }
-                    for _ in option_base..=upper_bound {
-                        elements.push(default_value(&ty, types, enums, span)?);
-                    }
-                    true
-                }
-                ArrayDecl::FixedRange { lower, upper } => {
-                    if upper < lower {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::ARRAY,
-                            "Array upper bound must be greater than or equal to lower bound",
-                            Some(span),
-                        ));
-                    }
-                    for _ in lower..=upper {
+                    for _ in 0..total_len {
                         elements.push(default_value(&ty, types, enums, span)?);
                     }
                     true
                 }
                 ArrayDecl::Dynamic => false,
             };
-            let lower_bound = match array {
-                ArrayDecl::FixedRange { lower, .. } => lower,
-                _ => option_base,
-            };
+
             Value::Array {
                 element_type: ty.clone(),
                 elements,
-                lower_bound,
+                bounds,
                 allocated,
             }
         } else {
@@ -322,32 +305,31 @@ impl Frame {
     pub(crate) fn get_array_element(
         &self,
         name: &str,
-        index: i64,
+        indices: &[i64],
         span: Span,
     ) -> Result<Value, Diagnostic> {
         let variable = self.variable(name, span)?;
         let array = variable.cell.borrow();
-        read_array_element(&array, index, span)
+        read_array_element(&array, indices, span)
     }
 
     pub(crate) fn assign_array_element(
         &mut self,
         name: &str,
-        index: i64,
+        indices: &[i64],
         value: Value,
         span: Span,
     ) -> Result<Value, Diagnostic> {
         let variable = self.variable(name, span)?;
         let mut array = variable.cell.borrow_mut();
-        write_array_element(&mut array, index, value, span)
+        write_array_element(&mut array, indices, value, span)
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn redim_array(
         &mut self,
         name: &str,
-        upper_bound: i64,
-        option_base: i64,
+        new_bounds: Vec<ArrayBound>,
         preserve: bool,
         types: &HashMap<String, RuntimeType>,
         enums: &HashMap<String, RuntimeEnum>,
@@ -363,15 +345,7 @@ impl Frame {
             .with_primary_label("ReDim target is not a dynamic array"));
         }
         let mut array = variable.cell.borrow_mut();
-        redim_array(
-            &mut array,
-            upper_bound,
-            option_base,
-            preserve,
-            types,
-            enums,
-            span,
-        )
+        redim_array(&mut array, new_bounds, preserve, types, enums, span)
     }
 
     pub(crate) fn erase_array(
@@ -387,6 +361,7 @@ impl Frame {
             element_type,
             elements,
             allocated,
+            bounds,
             ..
         } = &mut *array
         else {
@@ -398,6 +373,7 @@ impl Frame {
         };
         if variable.dynamic_array {
             elements.clear();
+            bounds.clear();
             *allocated = false;
         } else {
             for element in elements.iter_mut() {
@@ -405,25 +381,6 @@ impl Frame {
             }
         }
         Ok(())
-    }
-
-    pub(crate) fn simple_index_value(&self, expr: &Expr, span: Span) -> Result<i64, Diagnostic> {
-        match &expr.kind {
-            ExprKind::Integer(value) => Ok(*value),
-            ExprKind::Variable(name) => match self.get(name, expr.span)? {
-                Value::Integer(value) => Ok(value),
-                _ => Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::ARRAY,
-                    "Array index must be Integer",
-                    Some(span),
-                )),
-            },
-            _ => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::ARRAY,
-                "Array member assignment index must be an Integer literal or variable",
-                Some(span),
-            )),
-        }
     }
 
     pub(crate) fn push_with_target(&mut self, value: Value) {
@@ -444,6 +401,30 @@ impl Frame {
             .with_primary_label("no active With target")
             .with_help("use dotted member access only inside a With block")
         })
+    }
+
+    pub(crate) fn simple_index_value(
+        &self,
+        expr: &crate::Expr,
+        span: Span,
+    ) -> Result<i64, Diagnostic> {
+        use crate::ExprKind;
+        match &expr.kind {
+            ExprKind::Integer(value) => Ok(*value),
+            ExprKind::Variable(name) => match self.get(name, expr.span)? {
+                Value::Integer(value) => Ok(value),
+                _ => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    "Array index must be Integer",
+                    Some(span),
+                )),
+            },
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::ARRAY,
+                "Array member assignment index must be an Integer literal or variable",
+                Some(span),
+            )),
+        }
     }
 
     pub(crate) fn into_variables(self) -> HashMap<String, Variable> {

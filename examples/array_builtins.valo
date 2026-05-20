@@ -1,0 +1,46 @@
+' Valo Array Builtins Example
+
+Sub Main()
+    Console.WriteLine("--- Array Builtins Demo ---")
+
+    ' 1. Array(...)
+    Dim values As Variant
+    values = Array(10, "Valo", True, 42)
+    Console.WriteLine("Array element 1: " & values(1))
+
+    ' 2. Split / Join
+    Dim csv As String
+    csv = "red,green,blue"
+    
+    Dim parts As Variant
+    parts = Split(csv, ",")
+    
+    Console.WriteLine("Colors:")
+    Dim c As Variant
+    For Each c In parts
+        Console.WriteLine("- " & c)
+    Next
+    
+    Dim joined As String
+    joined = Join(parts, " | ")
+    Console.WriteLine("Joined: " & joined)
+
+    ' 3. Filter
+    Dim fruits As Variant
+    fruits = Array("apple", "banana", "cherry", "date", "elderberry")
+    
+    Dim with_a As Variant
+    with_a = Filter(fruits, "a") ' apple, banana, date
+    
+    Console.WriteLine("Fruits with 'a':")
+    Dim f As Variant
+    For Each f In with_a
+        Console.WriteLine("- " & f)
+    Next
+
+    ' 4. LBound / UBound
+    Dim matrix(1 To 5, 0 To 10) As Integer
+    Console.WriteLine("Matrix bounds:")
+    Console.WriteLine("Dim 1: " & LBound(matrix, 1) & " To " & UBound(matrix, 1))
+    Console.WriteLine("Dim 2: " & LBound(matrix, 2) & " To " & UBound(matrix, 2))
+End Sub

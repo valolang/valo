@@ -48,7 +48,11 @@ pub(super) fn validate_assignment_target(
             };
             Ok(target_type)
         }
-        AssignTarget::ArrayElement { name, index, span } => {
+        AssignTarget::ArrayElement {
+            name,
+            indices,
+            span,
+        } => {
             let Some(var_type) = symbols.get(&key(name)).cloned() else {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -56,18 +60,26 @@ pub(super) fn validate_assignment_target(
                     Some(*span),
                 ));
             };
-            let VarType::Array(element_type) = var_type else {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::ARRAY,
-                    format!("Variable '{}' is not an array", name),
-                    Some(*span),
-                ));
+            let element_type = match var_type {
+                VarType::Array(ty) => ty,
+                VarType::Scalar(TypeName::Variant)
+                | VarType::Optional(TypeName::Variant)
+                | VarType::Const(TypeName::Variant) => TypeName::Variant,
+                _ => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::ARRAY,
+                        format!("Variable '{}' is not an array", name),
+                        Some(*span),
+                    ));
+                }
             };
-            ensure_assignable(
-                &TypeName::Integer,
-                &validate_expr(index, symbols, types, signatures)?,
-                index.span,
-            )?;
+            for index in indices {
+                ensure_assignable(
+                    &TypeName::Integer,
+                    &validate_expr(index, symbols, types, signatures)?,
+                    index.span,
+                )?;
+            }
             Ok(element_type)
         }
         AssignTarget::Member {
@@ -332,18 +344,13 @@ pub(super) fn validate_expr(
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
                 match var_type {
                     VarType::Array(element_type) => {
-                        if args.len() != 1 {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::ARRAY,
-                                "Array access requires exactly one index",
-                                Some(expr.span),
-                            ));
+                        for arg in args {
+                            ensure_assignable(
+                                &TypeName::Integer,
+                                &validate_expr(arg, symbols, types, signatures)?,
+                                arg.span,
+                            )?;
                         }
-                        ensure_assignable(
-                            &TypeName::Integer,
-                            &validate_expr(&args[0], symbols, types, signatures)?,
-                            args[0].span,
-                        )?;
                         return Ok(element_type);
                     }
                     VarType::Scalar(TypeName::User(class_name))
@@ -373,6 +380,14 @@ pub(super) fn validate_expr(
                             ),
                             Some(expr.span),
                         ));
+                    }
+                    VarType::Scalar(TypeName::Variant)
+                    | VarType::Optional(TypeName::Variant)
+                    | VarType::Const(TypeName::Variant) => {
+                        for arg in args {
+                            validate_expr(arg, symbols, types, signatures)?;
+                        }
+                        return Ok(TypeName::Variant);
                     }
                     _ => {
                         return Err(Diagnostic::new(
@@ -509,6 +524,9 @@ pub(super) fn validate_array_expr(
     match &expr.kind {
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
             Some(VarType::Array(element_type)) => Ok(element_type),
+            Some(VarType::Scalar(TypeName::Variant))
+            | Some(VarType::Optional(TypeName::Variant))
+            | Some(VarType::Const(TypeName::Variant)) => Ok(TypeName::Variant),
             Some(VarType::Scalar(_)) | Some(VarType::Optional(_)) | Some(VarType::Const(_)) => {
                 Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::ARRAY,
@@ -566,6 +584,58 @@ fn validate_builtin_function(
         validate_arg_count(name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures)?;
         return Ok(Some(TypeName::String));
+    }
+    if name.eq_ignore_ascii_case("Array") {
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures)?;
+        }
+        return Ok(Some(TypeName::Variant));
+    }
+    if name.eq_ignore_ascii_case("Split") {
+        if args.is_empty() || args.len() > 2 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Split expects 1 to 2 arguments",
+                Some(span),
+            ));
+        }
+        validate_expr(&args[0], symbols, types, signatures)?;
+        if args.len() == 2 {
+            validate_expr(&args[1], symbols, types, signatures)?;
+        }
+        return Ok(Some(TypeName::Variant));
+    }
+    if name.eq_ignore_ascii_case("Join") {
+        if args.is_empty() || args.len() > 2 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Join expects 1 to 2 arguments",
+                Some(span),
+            ));
+        }
+        validate_array_expr(&args[0], symbols, types, signatures)?;
+        if args.len() == 2 {
+            validate_expr(&args[1], symbols, types, signatures)?;
+        }
+        return Ok(Some(TypeName::String));
+    }
+    if name.eq_ignore_ascii_case("Filter") {
+        if args.len() < 2 || args.len() > 4 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Filter expects 2 to 4 arguments",
+                Some(span),
+            ));
+        }
+        validate_array_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[1], symbols, types, signatures)?;
+        if args.len() >= 3 {
+            validate_expr(&args[2], symbols, types, signatures)?;
+        }
+        if args.len() == 4 {
+            validate_expr(&args[3], symbols, types, signatures)?;
+        }
+        return Ok(Some(TypeName::Variant));
     }
     if name.eq_ignore_ascii_case("IIf") {
         validate_arg_count(name, args, 3, span)?;

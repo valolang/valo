@@ -1,6 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use crate::TypeName;
+use crate::runtime::ArrayBound;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
@@ -10,7 +11,7 @@ pub enum Value {
     Array {
         element_type: TypeName,
         elements: Vec<Value>,
-        lower_bound: i64,
+        bounds: Vec<ArrayBound>,
         allocated: bool,
     },
     Record {

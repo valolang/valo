@@ -182,17 +182,13 @@ impl Interpreter {
                 self.assign_member_to_variable(variable, member, value, span)
             }
             ExprKind::Call { name, args } => {
-                if args.len() != 1 {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::ARRAY,
-                        "Array access requires exactly one index",
-                        Some(target.span),
-                    ));
+                let mut indices = Vec::new();
+                for arg in args {
+                    indices.push(frame.simple_index_value(arg, span)?);
                 }
-                let index = frame.simple_index_value(&args[0], span)?;
                 let variable = frame.variable(name, target.span)?;
                 let mut root = variable.cell.borrow_mut();
-                let element = array_element_mut(&mut root, index, span)?;
+                let element = array_element_mut(&mut root, &indices, span)?;
                 if object_has_field(element, member) || !matches!(element, Value::Object(_)) {
                     let old = write_member(element, member, value, span)?;
                     self.maybe_terminate(old, span)?;

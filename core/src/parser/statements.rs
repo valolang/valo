@@ -124,46 +124,56 @@ impl Parser {
             if self.match_simple(&TokenKind::RightParen) {
                 Some(ArrayDecl::Dynamic)
             } else {
-                let lower_or_size_token = self.advance();
-                let TokenKind::Integer(lower_or_size) = lower_or_size_token.kind else {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::ARRAY,
-                        "Array size must be an Integer literal",
-                        Some(lower_or_size_token.span),
-                    ));
-                };
-                let array = if self.match_simple(&TokenKind::To) {
-                    let upper_token = self.advance();
-                    let TokenKind::Integer(upper) = upper_token.kind else {
+                let mut bounds = Vec::new();
+                loop {
+                    let lower_or_size_token = self.advance();
+                    let TokenKind::Integer(lower_or_size) = lower_or_size_token.kind else {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
-                            "Array upper bound must be an Integer literal",
-                            Some(upper_token.span),
+                            "Array size must be an Integer literal",
+                            Some(lower_or_size_token.span),
                         ));
                     };
-                    ArrayDecl::FixedRange {
-                        lower: lower_or_size,
-                        upper,
-                    }
-                } else {
-                    if lower_or_size < 0 {
+                    let bound = if self.match_simple(&TokenKind::To) {
+                        let upper_token = self.advance();
+                        let TokenKind::Integer(upper) = upper_token.kind else {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                "Array upper bound must be an Integer literal",
+                                Some(upper_token.span),
+                            ));
+                        };
+                        crate::runtime::ArrayBound {
+                            lower: lower_or_size,
+                            upper,
+                        }
+                    } else {
+                        if lower_or_size < 0 {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                "Array size must be non-negative",
+                                Some(lower_or_size_token.span),
+                            ));
+                        }
+                        crate::runtime::ArrayBound {
+                            lower: 0,
+                            upper: lower_or_size,
+                        }
+                    };
+                    if bound.upper < bound.lower {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
-                            "Array size must be non-negative",
+                            "Array upper bound must be greater than or equal to lower bound",
                             Some(lower_or_size_token.span),
                         ));
                     }
-                    ArrayDecl::Fixed(lower_or_size)
-                };
-                if matches!(array, ArrayDecl::FixedRange { lower, upper } if upper < lower) {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::ARRAY,
-                        "Array upper bound must be greater than or equal to lower bound",
-                        Some(lower_or_size_token.span),
-                    ));
+                    bounds.push(bound);
+                    if !self.match_simple(&TokenKind::Comma) {
+                        break;
+                    }
                 }
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after array size")?;
-                Some(array)
+                Some(ArrayDecl::Fixed(bounds))
             }
         } else {
             None
@@ -391,21 +401,12 @@ impl Parser {
         let target_end = self.previous().span;
 
         if self.match_simple(&TokenKind::Equal) {
-            if args.len() != 1 {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::ARRAY,
-                    "Array assignment requires exactly one index",
-                    Some(start),
-                ));
-            }
-            let mut args = args.into_iter();
-            let index = args.next().expect("len checked");
             let expr = self.parse_expression()?;
             let end = expr.span;
             return Ok(Stmt::Assign {
                 target: AssignTarget::ArrayElement {
                     name,
-                    index,
+                    indices: args,
                     span: Span::new(start.start, target_end.end),
                 },
                 expr,
@@ -539,21 +540,11 @@ impl Parser {
         let span = expr.span;
         match expr.kind {
             ExprKind::Variable(name) => Ok(AssignTarget::Variable { name, span }),
-            ExprKind::Call { name, args } => {
-                if args.len() != 1 {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::ARRAY,
-                        "Array assignment requires exactly one index",
-                        Some(span),
-                    ));
-                }
-                let mut args = args.into_iter();
-                Ok(AssignTarget::ArrayElement {
-                    name,
-                    index: args.next().expect("len checked"),
-                    span,
-                })
-            }
+            ExprKind::Call { name, args } => Ok(AssignTarget::ArrayElement {
+                name,
+                indices: args,
+                span,
+            }),
             ExprKind::MemberAccess { object, field } => Ok(AssignTarget::Member {
                 object: *object,
                 field,
@@ -930,23 +921,24 @@ impl Parser {
         let preserve = self.match_simple(&TokenKind::Preserve);
         let name = self.expect_identifier("Expected array name after 'ReDim'")?;
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after array name")?;
-        let upper_bound = self.parse_expression()?;
-        let lower_bound = if self.match_simple(&TokenKind::To) {
-            Some(upper_bound.clone())
-        } else {
-            None
-        };
-        let upper_bound = if lower_bound.is_some() {
-            self.parse_expression()?
-        } else {
-            upper_bound
-        };
-        self.expect_simple(TokenKind::RightParen, "Expected ')' after upper bound")?;
+        let mut dims = Vec::new();
+        loop {
+            let upper_or_lower = self.parse_expression()?;
+            if self.match_simple(&TokenKind::To) {
+                let upper = self.parse_expression()?;
+                dims.push((Some(upper_or_lower), upper));
+            } else {
+                dims.push((None, upper_or_lower));
+            }
+            if !self.match_simple(&TokenKind::Comma) {
+                break;
+            }
+        }
+        self.expect_simple(TokenKind::RightParen, "Expected ')' after array dimensions")?;
         let end = self.previous().span;
         Ok(Stmt::ReDim {
             name,
-            lower_bound,
-            upper_bound,
+            dims,
             preserve,
             span: Span::new(start.start, end.end),
         })

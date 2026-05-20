@@ -1,0 +1,46 @@
+' Valo Multidimensional Arrays Example
+
+Sub Main()
+    Console.WriteLine("--- Multidimensional Arrays ---")
+
+    ' 1. Declaration and Initialization
+    Dim matrix() As Integer
+    ReDim matrix(1 To 3, 1 To 2)
+    
+    matrix(1, 1) = 11
+    matrix(1, 2) = 12
+    matrix(2, 1) = 21
+    matrix(2, 2) = 22
+    matrix(3, 1) = 31
+    matrix(3, 2) = 32
+
+    ' 2. Access
+    Console.WriteLine("matrix(2, 1) = " & matrix(2, 1)) ' 21
+
+    ' 3. Traversal (For Each)
+    ' Order is column-major: (1,1), (2,1), (3,1), (1,2), (2,2), (3,2)
+    Console.WriteLine("All elements:")
+    Dim x As Variant
+    For Each x In matrix
+        Console.WriteLine(x)
+    Next
+
+    ' 4. ReDim Preserve
+    ' Only the last dimension can be changed with Preserve
+    Console.WriteLine("Resizing last dimension...")
+    ReDim Preserve matrix(1 To 3, 1 To 3)
+    matrix(1, 3) = 13
+    matrix(2, 3) = 23
+    matrix(3, 3) = 33
+
+    Console.WriteLine("matrix(1, 3) = " & matrix(1, 3)) ' 13
+    Console.WriteLine("matrix(3, 2) = " & matrix(3, 2)) ' 32 (preserved)
+
+    ' 5. Dynamic Multidimensional Arrays
+    Dim dynamic_matrix() As String
+    ReDim dynamic_matrix(0 To 1, 0 To 1, 0 To 1) ' 3D array
+    dynamic_matrix(0, 0, 0) = "origin"
+    dynamic_matrix(1, 1, 1) = "end"
+    
+    Console.WriteLine("3D access: " & dynamic_matrix(1, 1, 1))
+End Sub
