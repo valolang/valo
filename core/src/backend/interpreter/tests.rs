@@ -8,6 +8,7 @@ mod control_flow;
 mod enums;
 mod errors;
 mod expressions;
+mod ffi;
 mod iterators;
 mod lifecycle;
 mod modernization;

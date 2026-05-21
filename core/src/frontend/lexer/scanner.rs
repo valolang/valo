@@ -270,27 +270,22 @@ impl<'a> Lexer<'a> {
                 text.push(ch);
                 self.advance();
             } else if (ch == 'E' || ch == 'e') && !has_exponent {
-                let mut valid = false;
-                if let Some(next) = self.peek_next() {
-                    if next.is_ascii_digit() {
-                        valid = true;
-                    } else if next == '+' || next == '-' {
-                        if self.peek_at(2).is_some_and(|c| c.is_ascii_digit()) {
-                            valid = true;
-                        }
-                    }
-                }
+                let valid = self.peek_next().is_some_and(|next| {
+                    next.is_ascii_digit()
+                        || ((next == '+' || next == '-')
+                            && self.peek_at(2).is_some_and(|c| c.is_ascii_digit()))
+                });
 
                 if valid {
                     has_exponent = true;
                     is_float = true;
                     text.push(ch);
                     self.advance();
-                    if let Some(next) = self.peek() {
-                        if next == '+' || next == '-' {
-                            text.push(next);
-                            self.advance();
-                        }
+                    if let Some(next) = self.peek()
+                        && (next == '+' || next == '-')
+                    {
+                        text.push(next);
+                        self.advance();
                     }
                 } else {
                     break;

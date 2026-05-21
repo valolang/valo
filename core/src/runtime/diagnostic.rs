@@ -401,7 +401,7 @@ impl fmt::Display for Severity {
 /// Diagnostic code scheme:
 /// V0000 generic diagnostics, V0100 syntax/options/preprocessor,
 /// V1000 name/declaration/member lookup, V1100 typing/assignment,
-/// V1200 arrays, V1300 control flow, and V9000 runtime execution.
+/// V1200 arrays, V1300 control flow, V3000 native FFI, and V9000 runtime execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DiagnosticCode(pub &'static str);
 
@@ -426,6 +426,10 @@ impl DiagnosticCode {
     pub const CASE_COLLISION: Self = Self("V1604");
     pub const UNKNOWN_QUALIFIED_SYMBOL: Self = Self("V1605");
     pub const INVALID_QUALIFIED_ACCESS: Self = Self("V1606");
+    pub const FFI_LIBRARY_NOT_FOUND: Self = Self("V3001");
+    pub const FFI_SYMBOL_NOT_FOUND: Self = Self("V3002");
+    pub const FFI_UNSUPPORTED_MARSHALING: Self = Self("V3003");
+    pub const FFI_CALL: Self = Self("V3004");
     pub const RUNTIME: Self = Self("V9000");
 }
 

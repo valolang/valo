@@ -112,6 +112,16 @@ impl Parser {
         }
     }
 
+    pub(super) fn match_identifier(&mut self, expected: &str) -> bool {
+        if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case(expected))
+        {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
     pub(super) fn check_simple(&self, kind: &TokenKind) -> bool {
         std::mem::discriminant(self.peek_kind()) == std::mem::discriminant(kind)
     }

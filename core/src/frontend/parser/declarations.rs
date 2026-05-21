@@ -423,6 +423,13 @@ impl Parser {
         } else {
             None
         };
+        let calling_convention = if self.match_identifier("CDecl") {
+            CallingConvention::CDecl
+        } else if self.match_identifier("StdCall") {
+            CallingConvention::StdCall
+        } else {
+            CallingConvention::Default
+        };
         self.expect_simple(TokenKind::LeftParen, "Expected '(' in Declare")?;
         let params = self.parse_parameters()?;
         self.expect_simple(
@@ -440,6 +447,7 @@ impl Parser {
         Ok(DeclareDecl {
             visibility,
             ptr_safe,
+            calling_convention,
             kind,
             name,
             lib,

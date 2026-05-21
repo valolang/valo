@@ -189,6 +189,9 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
+        if let Some(value) = self.call_declared_function(name, args, caller_frame, span)? {
+            return Ok(value);
+        }
         let module_key = self.resolve_function_module(name, caller_frame, span)?;
         let lookup = qualified_key(module_key.as_deref(), name);
         let function = self.functions.get(&lookup).cloned().ok_or_else(|| {
@@ -294,6 +297,9 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        if self.call_declared_sub(name, args, caller_frame, span)? {
+            return Ok(());
+        }
         let module_key = self.resolve_sub_module(name, caller_frame, span)?;
         let lookup = qualified_key(module_key.as_deref(), name);
         let procedure = self.procedures.get(&lookup).cloned().ok_or_else(|| {
@@ -362,6 +368,14 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, Diagnostic> {
         let module_key = self.resolve_module_qualifier(qualifier, caller_frame, span)?;
+        if let Some(declare) = self
+            .declares
+            .get(&qualified_key(Some(&module_key), name))
+            .cloned()
+            && matches!(declare.kind, crate::DeclareKind::Function)
+        {
+            return self.call_native(&declare, args, caller_frame, span);
+        }
         let function = self
             .functions
             .get(&qualified_key(Some(&module_key), name))
@@ -460,6 +474,15 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), Diagnostic> {
         let module_key = self.resolve_module_qualifier(qualifier, caller_frame, span)?;
+        if let Some(declare) = self
+            .declares
+            .get(&qualified_key(Some(&module_key), name))
+            .cloned()
+            && matches!(declare.kind, crate::DeclareKind::Sub)
+        {
+            let _ = self.call_native(&declare, args, caller_frame, span)?;
+            return Ok(());
+        }
         let procedure = self
             .procedures
             .get(&qualified_key(Some(&module_key), name))
@@ -1209,4 +1232,8 @@ fn qualified_key(module_key: Option<&str>, name: &str) -> String {
         Some(module_key) => format!("{}::{}", module_key, key(name)),
         None => key(name),
     }
+}
+
+pub(crate) fn qualified_key_for_ffi(module_key: Option<&str>, name: &str) -> String {
+    qualified_key(module_key, name)
 }

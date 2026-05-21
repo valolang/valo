@@ -64,6 +64,7 @@ pub struct ConstDecl {
 pub struct DeclareDecl {
     pub visibility: Visibility,
     pub ptr_safe: bool,
+    pub calling_convention: CallingConvention,
     pub kind: DeclareKind,
     pub name: String,
     pub lib: String,
@@ -77,6 +78,13 @@ pub struct DeclareDecl {
 pub enum DeclareKind {
     Function,
     Sub,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallingConvention {
+    Default,
+    CDecl,
+    StdCall,
 }
 
 #[derive(Debug, Clone, PartialEq)]

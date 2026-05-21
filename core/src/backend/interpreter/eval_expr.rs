@@ -92,7 +92,9 @@ impl Interpreter {
                             {
                                 return Ok(value);
                             }
-                            if self.functions.contains_key(&super::values::key(name)) {
+                            if self.functions.contains_key(&super::values::key(name))
+                                || self.has_declared_function(name)
+                            {
                                 return self.call_function(name, &[], frame, expr.span);
                             }
 

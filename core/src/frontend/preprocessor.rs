@@ -83,9 +83,9 @@ pub fn preprocess(source: &str) -> Result<String, Diagnostic> {
 fn join_line_continuations(source: &str) -> String {
     let mut output = String::new();
     let mut in_string = false;
-    let mut lines = source.lines().peekable();
+    let lines = source.lines().peekable();
 
-    while let Some(line) = lines.next() {
+    for line in lines {
         let mut code = String::new();
         let mut line_in_string = in_string;
         for ch in line.chars() {

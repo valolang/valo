@@ -31,7 +31,7 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 - `New ClassName`: Parentheses are optional for zero-argument construction, matching VBA (`Set v = New Vec2`).
 - `Const`: Module, local, and class-scope constants are supported, including multi-Const declarations such as `Public Const PI = 3.14, E = 2.71`.
 - `^`: Exponent expressions are supported and evaluate through numeric promotion.
-- `Declare`/`PtrSafe`: The frontend parses `Declare Function`/`Declare Sub` metadata, including `Lib`, `Alias`, `PtrSafe`, `LongPtr`, `LongLong`, and `As Any`. Runtime FFI invocation is intentionally future work.
+- `Declare`/`PtrSafe`: `Declare Function` and `Declare Sub` are callable at runtime through the native FFI layer. `Lib`, `Alias`, `PtrSafe`, `LongPtr`, `LongLong`, `As Any`, ByVal/ByRef parameters, and the `CDecl` extension are supported with clean diagnostics for unsupported marshaling.
 - Source encodings: `.bas` and `.cls` imports accept UTF-8, UTF-8 BOM, UTF-16 LE/BE BOM, and Windows-1252/ANSI fallback, with normalized line endings for diagnostics.
 
 `Structure` is the native Valo value type and supports methods, properties, constructors, and copy semantics. `Type` remains the VBA-compatible fields-only record syntax.
@@ -45,6 +45,7 @@ While Valo strives for high compatibility, it is not a "bug-for-bug" clone. Some
 2.  **Explicit Scoping:** In modern `.valo` files, cross-module access requires explicit `Import` statements, whereas VBA modules share a global namespace.
 3.  **No COM Dependency:** Valo does not depend on the Component Object Model (COM). It uses a native object model designed for performance and portability.
 4.  **Modern Keywords:** Keywords like `Return` are preferred for returning values from functions and properties, although name-based assignment is still supported for compatibility.
+5.  **Native Boundary Diagnostics:** VBA may crash or corrupt state on an invalid external declaration. Valo reports loader, symbol, ABI, pointer-safety, and marshaling failures as diagnostics where it can detect them.
 
 ## Compatibility Goals
 

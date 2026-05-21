@@ -9,6 +9,7 @@ mod calls;
 mod control_flow;
 mod eval_expr;
 mod exec_stmt;
+mod ffi;
 mod frame;
 #[allow(clippy::module_inception)]
 mod interpreter;

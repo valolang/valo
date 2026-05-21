@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::runtime::{Diagnostic, TypeName, Value};
-use crate::{Function, Procedure, Program};
+use crate::{DeclareDecl, Function, Procedure, Program};
 
 use super::records::RuntimeType;
 use super::values::key;
@@ -18,6 +18,8 @@ pub struct Interpreter {
     pub(crate) classes: HashMap<String, RuntimeClass>,
     pub(crate) procedures: HashMap<String, Procedure>,
     pub(crate) functions: HashMap<String, Function>,
+    pub(crate) declares: HashMap<String, DeclareDecl>,
+    pub(crate) native_libraries: super::ffi::NativeLibraries,
     pub(crate) output: Vec<String>,
     pub(crate) option_base: i64,
     pub(crate) option_compare: crate::OptionCompare,
@@ -53,6 +55,8 @@ impl Default for Interpreter {
             classes: HashMap::new(),
             procedures: HashMap::new(),
             functions: HashMap::new(),
+            declares: HashMap::new(),
+            native_libraries: super::ffi::NativeLibraries::default(),
             output: Vec::new(),
             option_base: 0,
             option_compare: crate::OptionCompare::Binary,
@@ -260,6 +264,7 @@ impl Interpreter {
         for function in &program.functions {
             self.functions.insert(key(&function.name), function.clone());
         }
+        self.register_declares(&program.declares, None);
 
         let mut frame = Frame::default();
         for var in &program.module_vars {
@@ -388,6 +393,7 @@ impl Interpreter {
         for function in &program.functions {
             self.functions.insert(key(&function.name), function.clone());
         }
+        self.register_declares(&program.declares, None);
 
         for var in &program.module_vars {
             if !frame.has_variable(&var.name) {
@@ -628,6 +634,7 @@ impl Interpreter {
                         .push(module_key.clone());
                 }
             }
+            self.register_declares(&module.program.declares, Some(&module_key));
         }
         for module in &project.modules {
             let module_key = super::values::key(&module.name);

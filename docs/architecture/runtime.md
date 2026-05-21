@@ -39,6 +39,21 @@ Core language behaviors are implemented in the runtime layer to ensure consisten
 
 Future FFI resources (file handles, database connections) will primarily utilize the `Using/Dispose` pattern for reliability.
 
+## Native FFI Runtime
+
+The interpreter registers `Declare Function` and `Declare Sub` declarations as callable signatures during semantic validation and runtime initialization. Calls are dispatched before normal Valo procedure lookup.
+
+Native support lives in `core/src/backend/interpreter/ffi.rs` and provides:
+
+*   Platform library resolution and caching.
+*   Symbol lookup through `LoadLibrary`/`GetProcAddress` on Windows and `dlopen`/`dlsym` on Unix platforms.
+*   Mixed-signature invocation through `libffi`.
+*   Pointer-aware `PtrSafe` and `LongPtr` validation.
+*   Scalar, string, ByRef, simple array, and blittable structure marshaling where safe.
+*   Diagnostics `V3001` through `V3004` for library, symbol, marshaling, and ABI/call failures.
+
+Libraries are closed when the interpreter shuts down. Unsupported native shapes are rejected with diagnostics rather than exposing internal panics.
+
 ## Builtins
 
 Builtins are standard library functions that are baked into the runtime environment. They are categorized into domains:

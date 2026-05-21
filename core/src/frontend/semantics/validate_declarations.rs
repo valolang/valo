@@ -1142,6 +1142,41 @@ pub(super) fn collect_signatures(
         }
     }
 
+    for declare in &program.declares {
+        validate_parameter_list(&declare.params, types)?;
+        if let Some(return_type) = &declare.return_type {
+            ensure_known_type(return_type, types, declare.span)?;
+        }
+
+        let name_key = key(&declare.name);
+        if let Some(existing) = names.insert(name_key.clone(), "Declare") {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!(
+                    "Name '{}' conflicts with existing {}",
+                    declare.name, existing
+                ),
+                Some(declare.span),
+            ));
+        }
+
+        let signature = CallableSig {
+            visibility: declare.visibility,
+            name: declare.name.clone(),
+            _is_iterator: false,
+            params: params_to_sigs(&declare.params),
+            return_type: declare.return_type.clone(),
+        };
+        match declare.kind {
+            crate::DeclareKind::Function => {
+                functions.insert(name_key, signature);
+            }
+            crate::DeclareKind::Sub => {
+                subs.insert(name_key, signature);
+            }
+        }
+    }
+
     for procedure in &program.procedures {
         validate_parameter_list(&procedure.params, types)?;
 

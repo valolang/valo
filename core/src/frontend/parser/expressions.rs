@@ -521,10 +521,8 @@ fn parse_vba_hex(text: &str) -> i64 {
         if val > 0x7FFF {
             return val - 0x10000;
         }
-    } else if has_long_suffix || s.len() <= 8 {
-        if val > 0x7FFFFFFF {
-            return val - 0x100000000;
-        }
+    } else if (has_long_suffix || s.len() <= 8) && val > 0x7FFFFFFF {
+        return val - 0x100000000;
     }
 
     val
@@ -543,10 +541,8 @@ fn parse_vba_octal(text: &str) -> i64 {
         if val > 0x7FFF {
             return val - 0x10000;
         }
-    } else if has_long_suffix || val <= 0xFFFFFFFF {
-        if val > 0x7FFFFFFF {
-            return val - 0x100000000;
-        }
+    } else if (has_long_suffix || val <= 0xFFFFFFFF) && val > 0x7FFFFFFF {
+        return val - 0x100000000;
     }
 
     val
