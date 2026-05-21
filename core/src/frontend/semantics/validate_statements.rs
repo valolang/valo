@@ -954,21 +954,25 @@ fn validate_sub_call(
     }
 
     let Some(sub) = signatures.subs.get(&key(effective_name)) else {
-        if signatures.functions.contains_key(&key(effective_name)) {
+        if let Some(func) = signatures.functions.get(&key(effective_name)) {
+            if !func.is_declare {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    format!(
+                        "Function '{}' cannot be called as a statement",
+                        effective_name
+                    ),
+                    Some(span),
+                ));
+            }
+        } else {
             return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::GENERIC,
-                format!(
-                    "Function '{}' cannot be called as a statement",
-                    effective_name
-                ),
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Sub '{}' is not defined", effective_name),
                 Some(span),
             ));
         }
-        return Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-            format!("Sub '{}' is not defined", effective_name),
-            Some(span),
-        ));
+        return Ok(());
     };
 
     validate_arguments("Sub", sub, args, symbols, types, signatures, span)

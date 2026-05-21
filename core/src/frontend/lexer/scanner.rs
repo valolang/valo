@@ -40,7 +40,23 @@ impl<'a> Lexer<'a> {
                 '\'' => self.skip_comment(),
                 '"' => tokens.push(self.string()?),
                 '0'..='9' => tokens.push(self.number()?),
-                'A'..='Z' | 'a'..='z' | '_' => tokens.push(self.identifier()),
+                'A'..='Z' | 'a'..='z' => tokens.push(self.identifier()),
+                '_' => {
+                    if let Some('\n') = self.peek_next() {
+                        self.advance();
+                        self.advance();
+                    } else if let Some('\r') = self.peek_next() {
+                        if let Some('\n') = self.peek_at(2) {
+                            self.advance();
+                            self.advance();
+                            self.advance();
+                        } else {
+                            tokens.push(self.identifier());
+                        }
+                    } else {
+                        tokens.push(self.identifier());
+                    }
+                }
                 '[' => tokens.push(self.bracketed_identifier()?),
                 '.' => {
                     if self.peek_next().is_some_and(|c| c.is_ascii_digit()) {

@@ -162,6 +162,22 @@ impl Parser {
     pub(super) fn peek_next_kind(&self) -> Option<&TokenKind> {
         self.tokens.get(self.current + 1).map(|token| &token.kind)
     }
+
+    pub(super) fn expect_parameter_name(&mut self, message: &str) -> Result<String, Diagnostic> {
+        let token = self.advance();
+        match token.kind {
+            TokenKind::Identifier(name) => Ok(name),
+            TokenKind::Text => Ok("text".to_string()),
+            TokenKind::Compare => Ok("compare".to_string()),
+            TokenKind::Binary => Ok("binary".to_string()),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                message,
+                Some(token.span),
+            )
+            .with_primary_label(message)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -190,3 +206,6 @@ pub(super) enum BlockEnd {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod multiline_test;

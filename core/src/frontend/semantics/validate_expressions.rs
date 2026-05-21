@@ -1310,6 +1310,7 @@ pub(super) fn validate_method_call(
                     visibility: get.visibility,
                     name: method.to_string(),
                     _is_iterator: get.is_iterator,
+                    is_declare: false,
                     params: get.params.clone(),
                     return_type: Some(return_type.clone()),
                 };
@@ -1463,6 +1464,7 @@ fn validate_structure_method_call(
                 visibility: get.visibility,
                 name: method.to_string(),
                 _is_iterator: get.is_iterator,
+                is_declare: false,
                 params: get.params.clone(),
                 return_type: Some(return_type.clone()),
             };

@@ -879,7 +879,7 @@ impl Parser {
                     prefix_start.unwrap_or_else(|| self.peek().span),
                 )
             };
-            let name = self.expect_identifier("Expected parameter name")?;
+            let name = self.expect_parameter_name("Expected parameter name")?;
             let mut array = false;
             if self.match_simple(&TokenKind::LeftParen) {
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after parameter array")?;
