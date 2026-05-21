@@ -10,9 +10,9 @@ pub(super) enum VarType {
     Array(TypeName),
     Const(TypeName),
     FunctionReturn(TypeName),
-    }
+}
 
-    impl VarType {
+impl VarType {
     pub(super) fn same_var_type(&self, other: &VarType) -> bool {
         match (self, other) {
             (VarType::Scalar(left), VarType::Scalar(right))
@@ -44,7 +44,10 @@ pub(super) enum VarType {
 
     pub(super) fn scalar_type(&self) -> Option<TypeName> {
         match self {
-            VarType::Scalar(ty) | VarType::Optional(ty) | VarType::Const(ty) | VarType::FunctionReturn(ty) => Some(ty.clone()),
+            VarType::Scalar(ty)
+            | VarType::Optional(ty)
+            | VarType::Const(ty)
+            | VarType::FunctionReturn(ty) => Some(ty.clone()),
             VarType::Array(_) => None,
         }
     }

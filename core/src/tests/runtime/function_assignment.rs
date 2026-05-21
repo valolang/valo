@@ -6,7 +6,7 @@ use crate::runtime::FileId;
 #[test]
 fn test_runtime_function_assignment() {
     let source = r#"
-        Function Soma(a As Long, b As Long) As Long
+        Function Soma(ByVal a As Long, ByVal b As Long) As Long
             Soma = a + b
         End Function
 

@@ -411,8 +411,11 @@ impl Parser {
             "Expected ')' after property parameters",
         )?;
         let return_type = if kind == PropertyKind::Get {
-            self.expect_simple(TokenKind::As, "Expected 'As' before property return type")?;
-            Some(self.parse_type_name()?)
+            if self.match_simple(&TokenKind::As) {
+                Some(self.parse_type_name()?)
+            } else {
+                Some(crate::runtime::TypeName::Variant)
+            }
         } else {
             None
         };
@@ -984,8 +987,11 @@ impl Parser {
             TokenKind::RightParen,
             "Expected ')' after function parameters",
         )?;
-        self.expect_simple(TokenKind::As, "Expected 'As' before function return type")?;
-        let return_type = self.parse_type_name()?;
+        let return_type = if self.match_simple(&TokenKind::As) {
+            self.parse_type_name()?
+        } else {
+            TypeName::Variant
+        };
         self.expect_newline("Expected newline after function declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndFunction])?;
@@ -1022,8 +1028,11 @@ impl Parser {
             TokenKind::RightParen,
             "Expected ')' after function parameters",
         )?;
-        self.expect_simple(TokenKind::As, "Expected 'As' before function return type")?;
-        let return_type = self.parse_type_name()?;
+        let return_type = if self.match_simple(&TokenKind::As) {
+            self.parse_type_name()?
+        } else {
+            TypeName::Variant
+        };
         let implements = self.parse_optional_implements_clause()?;
         self.expect_newline("Expected newline after function declaration")?;
 
@@ -1104,8 +1113,11 @@ impl Parser {
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after parameter array")?;
                 array = true;
             }
-            self.expect_simple(TokenKind::As, "Expected 'As' in parameter declaration")?;
-            let ty = self.parse_type_name()?;
+            let ty = if self.match_simple(&TokenKind::As) {
+                self.parse_type_name()?
+            } else {
+                TypeName::Variant
+            };
             let optional_default = if is_optional && self.match_simple(&TokenKind::Equal) {
                 Some(self.parse_expression()?)
             } else {

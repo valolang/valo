@@ -223,20 +223,24 @@ impl Parser {
         } else {
             None
         };
-        if let (Some(type_char), Some(as_ty)) = (&type_char, &as_ty)
-            && !type_char.same_type(as_ty)
-        {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                format!(
-                    "Type-declaration character implies {}, but As clause declares {}",
-                    type_char.display_name(),
-                    as_ty.display_name()
-                ),
-                Some(start),
-            ));
-        }
-        let ty = as_ty.or(type_char);
+        let ty = if let Some(as_ty) = as_ty {
+            if let Some(type_char) = &type_char
+                && !type_char.same_type(&as_ty)
+            {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Type-declaration character implies {}, but As clause declares {}",
+                        type_char.display_name(),
+                        as_ty.display_name()
+                    ),
+                    Some(start),
+                ));
+            }
+            Some(as_ty)
+        } else {
+            type_char.or(Some(crate::runtime::TypeName::Variant))
+        };
         let initializer = if self.match_simple(&TokenKind::Equal) {
             if as_new {
                 return Err(Diagnostic::new(
