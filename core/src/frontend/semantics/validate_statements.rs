@@ -965,6 +965,7 @@ fn validate_sub_call(
                     Some(span),
                 ));
             }
+            validate_arguments("Function", func, args, symbols, types, signatures, span)?;
         } else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,

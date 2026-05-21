@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::helpers::run_file_diagnostic;
 use crate::run_file;
+use crate::runtime::ffi_platform::platform_libc;
 
 fn temp_project() -> PathBuf {
     let stamp = SystemTime::now()
@@ -192,6 +193,112 @@ End Sub
 
     let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
+}
+
+#[test]
+fn imported_public_declare_is_callable_unqualified_and_qualified() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Native
+
+Sub Main()
+    Console.WriteLine(Native.MyLen("Valo"))
+    Console.WriteLine(MyLen("Runtime"))
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Native.valo",
+        &format!(
+            r#"
+Public Declare PtrSafe Function MyLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
+"#,
+            platform_libc()
+        ),
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["4".to_string(), "7".to_string()]
+    );
+}
+
+#[test]
+fn imported_private_declare_is_rejected() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import Native
+
+Sub Main()
+    Console.WriteLine(Native.HiddenLen("Valo"))
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Native.valo",
+        &format!(
+            r#"
+Private Declare PtrSafe Function HiddenLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
+"#,
+            platform_libc()
+        ),
+    );
+
+    let error = run_file_diagnostic(dir.join("main.valo"));
+    assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
+}
+
+#[test]
+fn declares_load_from_bas_and_cls_modules() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Import NativeBas
+Import NativeCls
+
+Sub Main()
+    Console.WriteLine(NativeBas.BasLen("Valo"))
+    Console.WriteLine(NativeCls.ClsLen("Class"))
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "NativeBas.bas",
+        &format!(
+            r#"
+Attribute VB_Name = "NativeBas"
+Public Declare PtrSafe Function BasLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
+"#,
+            platform_libc()
+        ),
+    );
+    write(
+        &dir,
+        "NativeCls.cls",
+        &format!(
+            r#"
+Attribute VB_Name = "NativeCls"
+Public Declare PtrSafe Function ClsLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
+"#,
+            platform_libc()
+        ),
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["4".to_string(), "5".to_string()]
+    );
 }
 
 #[test]

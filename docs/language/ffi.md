@@ -3,10 +3,23 @@
 Valo supports VBA-style native external calls through `Declare Function` and `Declare Sub`.
 
 ```vb
-Private Declare PtrSafe Function lstrlen Lib "libc.so.6" Alias "strlen" CDecl (
+Private Declare PtrSafe Function lstrlen Lib "libc" Alias "strlen" CDecl (
     ByVal value As String
 ) As Long
 ```
+
+Declares are real callable symbols. A `Private Declare` is visible to code in the same module; a `Public Declare` is also available to importing modules according to normal module visibility rules. Declares can live in `.valo`, `.bas`, or `.cls` modules.
+
+`Declare Function` can be used as an expression when the return value matters, or as a statement when the native return value is intentionally ignored:
+
+```vb
+Debug.Print lstrlen("Valo")
+lstrlen("Valo")
+Call lstrlen("Valo")
+lstrlen "Valo"
+```
+
+`Declare Sub` follows the normal sub-call forms. `Alias` affects only native symbol lookup: the Valo callable name remains the declared name, while the loader resolves the alias target in the native library.
 
 ## Library Loading
 
@@ -20,7 +33,7 @@ Valo automatically maps common library names to platform-specific system librari
 
 Standard platform extensions are added automatically:
 - Windows accepts names such as `kernel32`, `kernel32.dll`, `user32`, and `ws2_32`.
-- Linux and Android accept exact `.so` names such as `libc.so.6` or `libc.so`.
+- Linux and Android accept exact `.so` names such as `libc.so.6`, `libm.so.6`, `libc.so`, or `libm.so`.
 - macOS accepts `.dylib` names and basic framework-style fallbacks.
 
 Loaded libraries and resolved symbols are cached for the interpreter lifetime. Loader failures are reported as `V3001`; missing symbols are reported as `V3002`.
@@ -40,6 +53,8 @@ Supported scalar marshaling:
 - `Variant` numeric/string coercion where the target parameter type is known
 
 ByRef parameters pass mutable native pointers for supported scalar types and write the value back after the call. `LongPtr` maps to a pointer-sized runtime value: 32-bit on 32-bit targets and 64-bit on 64-bit targets. Pointer conversions that cannot be represented on the current target are rejected as marshaling diagnostics.
+
+ByVal strings are converted to temporary NUL-terminated byte strings and kept alive until the native call returns. Interior NUL bytes are rejected because C string APIs would otherwise observe a truncated value.
 
 Simple blittable arrays and structures are packed for native calls where practical, and ByRef structures and arrays are synchronized (write-back) into Valo runtime memory after native calls. Structure fields use native-size alignment and final padding, which is required by ARM64 ABIs on macOS and Android. Unsupported forms, including object references, mutable string buffers, fixed arrays inside structures, and non-blittable fields, produce `V3003`.
 

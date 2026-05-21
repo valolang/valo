@@ -853,11 +853,16 @@ impl Parser {
 
     pub(super) fn parse_parameters(&mut self) -> Result<Vec<Parameter>, Diagnostic> {
         let mut params = Vec::new();
+        self.skip_newlines();
         if self.check_simple(&TokenKind::RightParen) {
             return Ok(params);
         }
 
         loop {
+            self.skip_newlines();
+            if self.check_simple(&TokenKind::RightParen) {
+                break;
+            }
             let is_param_array = self.match_simple(&TokenKind::ParamArray);
             let is_optional = if is_param_array {
                 false
@@ -914,9 +919,11 @@ impl Parser {
                 span: Span::new(self.file_id, start.start, end.end),
             });
 
+            self.skip_newlines();
             if !self.match_simple(&TokenKind::Comma) {
                 break;
             }
+            self.skip_newlines();
         }
 
         Ok(params)

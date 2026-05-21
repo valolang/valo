@@ -18,6 +18,74 @@ End Sub
 }
 
 #[test]
+fn declare_function_is_callable_as_statement_with_parentheses() {
+    let source = format!(
+        r#"
+Private Declare PtrSafe Function strlen Lib "{}" CDecl (ByVal value As String) As Long
+
+Sub Main()
+    strlen("Valo")
+    Console.WriteLine("ok")
+End Sub
+"#,
+        platform_libc()
+    );
+
+    assert_eq!(run_source(&source), vec!["ok"]);
+}
+
+#[test]
+fn declare_function_is_callable_with_call_keyword() {
+    let source = format!(
+        r#"
+Public Declare PtrSafe Function strlen Lib "{}" CDecl (ByVal value As String) As Long
+
+Sub Main()
+    Call strlen("Valo")
+    Console.WriteLine("ok")
+End Sub
+"#,
+        platform_libc()
+    );
+
+    assert_eq!(run_source(&source), vec!["ok"]);
+}
+
+#[test]
+fn declare_function_is_callable_as_bare_statement() {
+    let source = format!(
+        r#"
+Private Declare PtrSafe Function strlen Lib "{}" CDecl (ByVal value As String) As Long
+
+Sub Main()
+    strlen "Valo"
+    Console.WriteLine("ok")
+End Sub
+"#,
+        platform_libc()
+    );
+
+    assert_eq!(run_source(&source), vec!["ok"]);
+}
+
+#[test]
+fn declare_function_statement_call_validates_arguments() {
+    let diagnostic = source_diagnostic(&format!(
+        r#"
+Private Declare PtrSafe Function strlen Lib "{}" CDecl (ByVal value As String) As Long
+
+Sub Main()
+    strlen()
+End Sub
+"#,
+        platform_libc()
+    ));
+
+    assert_eq!(diagnostic.code.0, "V0001");
+    assert!(diagnostic.message.contains("Function 'strlen' expects"));
+}
+
+#[test]
 #[cfg(unix)]
 fn declare_sub_calls_libc_srand() {
     let source = format!(
@@ -50,6 +118,22 @@ End Sub
     );
 
     assert_eq!(run_source(&source), vec!["1"]);
+}
+
+#[test]
+fn declare_alias_uses_local_name_for_semantics_and_native_symbol_for_lookup() {
+    let source = format!(
+        r#"
+Private Declare PtrSafe Function MyLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
+
+Sub Main()
+    Console.WriteLine(MyLen("Valo"))
+End Sub
+"#,
+        platform_libc()
+    );
+
+    assert_eq!(run_source(&source), vec!["4"]);
 }
 
 #[test]

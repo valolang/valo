@@ -374,6 +374,15 @@ impl Interpreter {
             .cloned()
             && matches!(declare.kind, crate::DeclareKind::Function)
         {
+            if caller_frame.module_key() != Some(module_key.as_str())
+                && !crate::modules::is_public(declare.visibility)
+            {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                    format!("Function '{}.{}' is Private", qualifier, name),
+                    Some(span),
+                ));
+            }
             return self.call_native(&declare, args, caller_frame, span);
         }
         let function = self
@@ -480,6 +489,33 @@ impl Interpreter {
             .cloned()
             && matches!(declare.kind, crate::DeclareKind::Sub)
         {
+            if caller_frame.module_key() != Some(module_key.as_str())
+                && !crate::modules::is_public(declare.visibility)
+            {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                    format!("Sub '{}.{}' is Private", qualifier, name),
+                    Some(span),
+                ));
+            }
+            let _ = self.call_native(&declare, args, caller_frame, span)?;
+            return Ok(());
+        }
+        if let Some(declare) = self
+            .declares
+            .get(&qualified_key(Some(&module_key), name))
+            .cloned()
+            && matches!(declare.kind, crate::DeclareKind::Function)
+        {
+            if caller_frame.module_key() != Some(module_key.as_str())
+                && !crate::modules::is_public(declare.visibility)
+            {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                    format!("Function '{}.{}' is Private", qualifier, name),
+                    Some(span),
+                ));
+            }
             let _ = self.call_native(&declare, args, caller_frame, span)?;
             return Ok(());
         }

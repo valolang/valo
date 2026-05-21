@@ -31,7 +31,7 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 - `New ClassName`: Parentheses are optional for zero-argument construction, matching VBA (`Set v = New Vec2`).
 - `Const`: Module, local, and class-scope constants are supported, including multi-Const declarations such as `Public Const PI = 3.14, E = 2.71`.
 - `^`: Exponent expressions are supported and evaluate through numeric promotion.
-- `Declare`/`PtrSafe`: `Declare Function` and `Declare Sub` are callable at runtime through the native FFI layer. `Lib`, `Alias`, `PtrSafe`, `LongPtr`, `LongLong`, `As Any`, ByVal/ByRef parameters, and the `CDecl` extension are supported with clean diagnostics for unsupported marshaling.
+- `Declare`/`PtrSafe`: `Declare Function` and `Declare Sub` are callable at runtime through the native FFI layer. Private declares are visible inside their module, public declares can be imported, and declare functions support expression calls, bare statement calls, and `Call`. `Lib`, `Alias`, `PtrSafe`, `LongPtr`, `LongLong`, `As Any`, ByVal/ByRef parameters, `StdCall`, and the `CDecl` extension are supported with clean diagnostics for unsupported marshaling.
 - Memory and Pointers: `VarPtr`, `StrPtr`, and `ObjPtr` are supported as builtins. `AddressOf` generates libffi closure trampolines, enabling robust, native callbacks.
 - Source encodings: `.bas` and `.cls` imports accept UTF-8, UTF-8 BOM, UTF-16 LE/BE BOM, and Windows-1252/ANSI fallback, with normalized line endings for diagnostics.
 

@@ -163,16 +163,22 @@ impl Interpreter {
                 None => key(&declare.name),
             };
             self.declares.insert(name, declare.clone());
+            let exports_unqualified =
+                module_key.is_none() || crate::modules::is_public(declare.visibility);
             if matches!(declare.kind, DeclareKind::Function) {
-                self.function_modules
-                    .entry(key(&declare.name))
-                    .or_default()
-                    .push(module_key.unwrap_or_default().to_string());
+                if exports_unqualified {
+                    self.function_modules
+                        .entry(key(&declare.name))
+                        .or_default()
+                        .push(module_key.unwrap_or_default().to_string());
+                }
             } else {
-                self.sub_modules
-                    .entry(key(&declare.name))
-                    .or_default()
-                    .push(module_key.unwrap_or_default().to_string());
+                if exports_unqualified {
+                    self.sub_modules
+                        .entry(key(&declare.name))
+                        .or_default()
+                        .push(module_key.unwrap_or_default().to_string());
+                }
             }
         }
     }
@@ -203,9 +209,16 @@ impl Interpreter {
         frame: &mut Frame,
         span: Span,
     ) -> Result<bool, Diagnostic> {
-        let Some(declare) = self.resolve_declare(name, frame, span, DeclareKind::Sub)? else {
-            return Ok(false);
-        };
+        let declare =
+            if let Some(declare) = self.resolve_declare(name, frame, span, DeclareKind::Sub)? {
+                declare
+            } else if let Some(declare) =
+                self.resolve_declare(name, frame, span, DeclareKind::Function)?
+            {
+                declare
+            } else {
+                return Ok(false);
+            };
         let _ = self.call_native(&declare, args, frame, span)?;
         Ok(true)
     }
@@ -1487,9 +1500,14 @@ fn platform_names(lib: &str) -> Vec<String> {
     {
         match lib {
             #[cfg(target_os = "android")]
-            "libc" | "libm" => {
+            "libc" => {
                 names.push("libc.so".to_string());
                 names.push("libm.so".to_string());
+            }
+            #[cfg(target_os = "android")]
+            "libm" => {
+                names.push("libm.so".to_string());
+                names.push("libc.so".to_string());
             }
             #[cfg(not(target_os = "android"))]
             "libc" => names.push("libc.so.6".to_string()),

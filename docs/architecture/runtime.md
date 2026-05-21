@@ -41,7 +41,7 @@ Future FFI resources (file handles, database connections) will primarily utilize
 
 ## Native FFI Runtime
 
-The interpreter registers `Declare Function` and `Declare Sub` declarations as callable signatures during semantic validation and runtime initialization. Calls are dispatched before normal Valo procedure lookup.
+The interpreter registers `Declare Function` and `Declare Sub` declarations as callable signatures during semantic validation and runtime initialization. Declares use the same callable lookup surface as normal functions and subs while retaining FFI metadata for native dispatch. Calls are dispatched before normal Valo procedure lookup; a `Declare Function` can also be invoked through the sub-call path when VBA statement syntax intentionally discards the return value.
 
 Native support lives in `core/src/backend/interpreter/ffi.rs` and `core/src/runtime/ffi_platform.rs`, providing:
 
@@ -57,6 +57,8 @@ Native support lives in `core/src/backend/interpreter/ffi.rs` and `core/src/runt
 *   Diagnostics `V3001` through `V3004` for library, symbol, marshaling, and ABI/call failures.
 
 Libraries are closed when the interpreter shuts down. Unsupported native shapes are rejected with diagnostics rather than exposing internal panics.
+
+For project modules, runtime registration stores all declares under their module-qualified key so private declares remain callable from the same module. Only public declares are exported into unqualified imported lookup. Qualified access to an imported private declare reports a private-access diagnostic, matching the normal module callable rules. `Alias` is kept on the declare metadata and is applied only when resolving the native symbol.
 
 The callback model keeps libffi closure memory, executable code pointers, CIF metadata, and callback signature data alive in the interpreter until shutdown. The active interpreter is installed through a thread-local guard while native calls are in progress, so callback re-entry restores the previous interpreter state even if a native call reports an error. Callback panics and Valo callback errors are contained at the trampoline boundary and translated into diagnostics/default return values; they are not allowed to unwind into native code.
 
