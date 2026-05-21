@@ -10,7 +10,12 @@ pub struct Expr {
 pub enum ExprKind {
     String(String),
     Integer(i64),
+    Long(i32),
+    LongLong(i64),
+    Single(f32),
     Double(f64),
+    Currency(i64),
+    Decimal(i128),
     Boolean(bool),
     Nothing,
     Empty,
@@ -92,6 +97,7 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
+    Positive,
     Negate,
     LogicalNot,
 }

@@ -56,6 +56,108 @@ End Sub
 }
 
 #[test]
+fn unary_numeric_literals_support_vba_suffixes_and_scientific_notation() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Console.WriteLine(-10#)
+    Console.WriteLine(-10!)
+    Console.WriteLine(-10&)
+    Console.WriteLine(-10^)
+    Console.WriteLine(-10@)
+    Console.WriteLine(-1.5)
+    Console.WriteLine(-.5)
+    Console.WriteLine(-1E+3)
+    Console.WriteLine(-2.5E-4)
+    Console.WriteLine(+10#)
+    Console.WriteLine(+1.5)
+    Console.WriteLine(+.5)
+End Sub
+"#,
+    );
+
+    assert_eq!(
+        output,
+        vec![
+            "-10", "-10", "-10", "-10", "-10.0000", "-1.5", "-0.5", "-1000", "-0.00025", "10",
+            "1.5", "0.5"
+        ]
+    );
+}
+
+#[test]
+fn unary_numeric_operators_work_on_expressions_and_calls() {
+    let output = run_source(
+        r#"
+Function Rand() As Double
+    Rand = 1.25
+End Function
+
+Sub Main()
+    Dim x As Double
+    Dim y As Double
+    x = 2.5
+    y = 1.5
+    Console.WriteLine(-(x + y))
+    Console.WriteLine(-Rand())
+    Console.WriteLine(--1)
+    Console.WriteLine(+-1)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["-4", "-1.25", "1", "-1"]);
+}
+
+#[test]
+fn unary_numeric_precedence_matches_vba_power_behavior() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Console.WriteLine(-2 ^ 2)
+    Console.WriteLine((-2) ^ 2)
+    Console.WriteLine(2 ^ -2)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["-4", "4", "0.25"]);
+}
+
+#[test]
+fn unary_numeric_constants_and_radix_literals_fold() {
+    let output = run_source(
+        r#"
+Const NEG As Long = -(5 + 2)
+Const HEX As Long = -&H1
+Const OCT As Long = -&O10
+
+Sub Main()
+    Console.WriteLine(NEG)
+    Console.WriteLine(HEX)
+    Console.WriteLine(OCT)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["-7", "-1", "-8"]);
+}
+
+#[test]
+fn unary_minus_rejects_non_numeric_values() {
+    let diagnostic = source_diagnostic(
+        r#"
+Sub Main()
+    Console.WriteLine(-"hello")
+End Sub
+"#,
+    );
+
+    assert_eq!(diagnostic.code.0, "V1100");
+    assert!(diagnostic.message.contains("requires a numeric expression"));
+}
+
+#[test]
 fn logical_operator_precedence() {
     let output = run_source(
         r#"

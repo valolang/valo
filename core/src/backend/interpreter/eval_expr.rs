@@ -1,3 +1,4 @@
+use crate::runtime::numeric::{unary_negate, unary_positive};
 use crate::runtime::{Diagnostic, Value};
 use crate::{Expr, ExprKind, UnaryOp};
 
@@ -23,7 +24,12 @@ impl Interpreter {
                     Ok(Value::Int64(val))
                 }
             }
+            ExprKind::Long(value) => Ok(Value::Int32(*value)),
+            ExprKind::LongLong(value) => Ok(Value::Int64(*value)),
+            ExprKind::Single(value) => Ok(Value::Single(*value)),
             ExprKind::Double(value) => Ok(Value::Double(*value)),
+            ExprKind::Currency(value) => Ok(Value::Currency(*value)),
+            ExprKind::Decimal(value) => Ok(Value::Decimal(*value)),
             ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
             ExprKind::Nothing => Ok(Value::Nothing),
             ExprKind::Empty => Ok(Value::Empty),
@@ -312,14 +318,8 @@ impl Interpreter {
             ExprKind::Unary { op, expr: inner } => {
                 let value = self.eval_expr(inner, frame)?;
                 match (op, value) {
-                    (UnaryOp::Negate, Value::Int64(value)) => Ok(Value::Int64(-value)),
-                    (UnaryOp::Negate, Value::Int32(value)) => Ok(Value::Int32(-value)),
-                    (UnaryOp::Negate, Value::Int16(value)) => Ok(Value::Int16(-value)),
-                    (UnaryOp::Negate, _) => Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                        "Unary '-' requires an Integer expression",
-                        Some(expr.span),
-                    )),
+                    (UnaryOp::Positive, value) => unary_positive(value, expr.span),
+                    (UnaryOp::Negate, value) => unary_negate(value, expr.span),
                     (UnaryOp::LogicalNot, Value::Boolean(value)) => Ok(Value::Boolean(!value)),
                     (UnaryOp::LogicalNot, _) => Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,

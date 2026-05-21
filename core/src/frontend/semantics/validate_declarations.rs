@@ -1285,6 +1285,8 @@ fn validate_parameter_list(params: &[Parameter], types: &TypeRegistry) -> Result
 fn eval_enum_const_expr(expr: &Expr, members: &HashMap<String, i64>) -> Result<i64, Diagnostic> {
     match &expr.kind {
         ExprKind::Integer(value) => Ok(*value),
+        ExprKind::Long(value) => Ok(*value as i64),
+        ExprKind::LongLong(value) => Ok(*value),
         ExprKind::Variable(name) => members.get(&key(name)).copied().ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -1296,6 +1298,10 @@ fn eval_enum_const_expr(expr: &Expr, members: &HashMap<String, i64>) -> Result<i
             op: UnaryOp::Negate,
             expr,
         } => Ok(-eval_enum_const_expr(expr, members)?),
+        ExprKind::Unary {
+            op: UnaryOp::Positive,
+            expr,
+        } => eval_enum_const_expr(expr, members),
         ExprKind::Binary { left, op, right } => {
             let left = eval_enum_const_expr(left, members)?;
             let right = eval_enum_const_expr(right, members)?;
@@ -1409,7 +1415,12 @@ pub(super) fn ensure_const_expr(
     match &expr.kind {
         ExprKind::String(_)
         | ExprKind::Integer(_)
+        | ExprKind::Long(_)
+        | ExprKind::LongLong(_)
+        | ExprKind::Single(_)
         | ExprKind::Double(_)
+        | ExprKind::Currency(_)
+        | ExprKind::Decimal(_)
         | ExprKind::Boolean(_)
         | ExprKind::Empty
         | ExprKind::Null => Ok(()),

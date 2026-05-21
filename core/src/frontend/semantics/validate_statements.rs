@@ -1318,7 +1318,12 @@ fn expr_uses_with_target(expr: &Expr) -> bool {
         ExprKind::AddressOf(inner) => expr_uses_with_target(inner),
         ExprKind::String(_)
         | ExprKind::Integer(_)
+        | ExprKind::Long(_)
+        | ExprKind::LongLong(_)
+        | ExprKind::Single(_)
         | ExprKind::Double(_)
+        | ExprKind::Currency(_)
+        | ExprKind::Decimal(_)
         | ExprKind::Boolean(_)
         | ExprKind::Nothing
         | ExprKind::Empty

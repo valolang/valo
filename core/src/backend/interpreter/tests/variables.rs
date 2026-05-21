@@ -237,6 +237,26 @@ End Sub
 }
 
 #[test]
+fn unary_minus_assigns_to_structure_fields() {
+    let output = run_source(
+        r#"
+Structure Point
+    Public X As Double
+End Structure
+
+Sub Main()
+    Dim point As Point
+    point.X = 1.5
+    point.X = -point.X
+    Console.WriteLine(point.X)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["-1.5"]);
+}
+
+#[test]
 fn structure_default_property_indexer_works() {
     let output = run_source(
         r#"

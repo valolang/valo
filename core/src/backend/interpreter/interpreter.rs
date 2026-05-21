@@ -857,6 +857,8 @@ impl Interpreter {
         use crate::{BinaryOp, ExprKind, UnaryOp};
         match &expr.kind {
             ExprKind::Integer(value) => Ok(*value),
+            ExprKind::Long(value) => Ok(*value as i64),
+            ExprKind::LongLong(value) => Ok(*value),
             ExprKind::Variable(name) => members.get(&key(name)).copied().ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -868,6 +870,10 @@ impl Interpreter {
                 op: UnaryOp::Negate,
                 expr,
             } => Ok(-self.eval_enum_const_expr(expr, members)?),
+            ExprKind::Unary {
+                op: UnaryOp::Positive,
+                expr,
+            } => self.eval_enum_const_expr(expr, members),
             ExprKind::AddressOf(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "AddressOf is not allowed in constant expressions",

@@ -202,7 +202,7 @@ impl Parser {
     }
 
     fn parse_factor(&mut self) -> Result<Expr, Diagnostic> {
-        let mut expr = self.parse_power()?;
+        let mut expr = self.parse_unary()?;
 
         loop {
             let op = if self.match_simple(&TokenKind::Star) {
@@ -237,9 +237,9 @@ impl Parser {
     }
 
     fn parse_power(&mut self) -> Result<Expr, Diagnostic> {
-        let expr = self.parse_unary()?;
+        let expr = self.parse_primary()?;
         if self.match_simple(&TokenKind::Caret) {
-            let right = self.parse_power()?;
+            let right = self.parse_unary()?;
             let span = Span::new(self.file_id, expr.span.start, right.span.end);
             return Ok(Expr {
                 kind: ExprKind::Binary {
@@ -254,6 +254,19 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> Result<Expr, Diagnostic> {
+        if self.match_simple(&TokenKind::Plus) {
+            let start = self.previous().span;
+            let expr = self.parse_unary()?;
+            let span = Span::new(self.file_id, start.start, expr.span.end);
+            return Ok(Expr {
+                kind: ExprKind::Unary {
+                    op: UnaryOp::Positive,
+                    expr: Box::new(expr),
+                },
+                span,
+            });
+        }
+
         if self.match_simple(&TokenKind::Minus) {
             let start = self.previous().span;
             let expr = self.parse_unary()?;
@@ -277,7 +290,7 @@ impl Parser {
             });
         }
 
-        self.parse_primary()
+        self.parse_power()
     }
 
     pub(super) fn parse_primary(&mut self) -> Result<Expr, Diagnostic> {
@@ -568,15 +581,15 @@ fn parse_vba_float(text: &str) -> ExprKind {
         }
         Some('&') => {
             s.pop();
-            ExprKind::Integer(s.parse::<i32>().map_or(0, |v| v as i64))
+            ExprKind::Long(s.parse::<i32>().unwrap_or(0))
         }
         Some('^') => {
             s.pop();
-            ExprKind::Integer(s.parse::<i64>().unwrap_or(0))
+            ExprKind::LongLong(s.parse::<i64>().unwrap_or(0))
         }
         Some('!') => {
             s.pop();
-            ExprKind::Double(s.parse::<f32>().map_or(0.0, |v| v as f64))
+            ExprKind::Single(s.parse::<f32>().unwrap_or(0.0))
         }
         Some('#') => {
             s.pop();
@@ -584,7 +597,7 @@ fn parse_vba_float(text: &str) -> ExprKind {
         }
         Some('@') => {
             s.pop();
-            ExprKind::Double(s.parse::<f64>().unwrap_or(0.0))
+            ExprKind::Currency((s.parse::<f64>().unwrap_or(0.0) * 10000.0) as i64)
         }
         _ => ExprKind::Double(s.parse::<f64>().unwrap_or(0.0)),
     }

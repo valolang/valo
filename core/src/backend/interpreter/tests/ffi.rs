@@ -121,6 +121,23 @@ End Sub
 }
 
 #[test]
+fn declare_function_accepts_unary_numeric_argument() {
+    let source = format!(
+        r#"
+Private Declare PtrSafe Function NativeCos Lib "{}" Alias "{}" CDecl (ByVal value As Double) As Double
+
+Sub Main()
+    Console.WriteLine(NativeCos(-1#) < 1#)
+End Sub
+"#,
+        platform_libm(),
+        platform_test_math_symbol()
+    );
+
+    assert_eq!(run_source(&source), vec!["True"]);
+}
+
+#[test]
 fn declare_alias_uses_local_name_for_semantics_and_native_symbol_for_lookup() {
     let source = format!(
         r#"

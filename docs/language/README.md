@@ -3,6 +3,7 @@
 Documentation for the Valo language features.
 
 *   **[Syntax Overview](syntax.md):** Basic types, variables, and control flow.
+*   **[Expressions](expressions.md):** Operators, precedence, and numeric expression behavior.
 *   **[Types](types.md):** Native structures, compatibility types, and byte arrays.
 *   **[Classes and Objects](classes.md):** Lifecycle, properties, events, and visibility.
 *   **[Modules and Imports](modules.md):** Project organization and dependency management.

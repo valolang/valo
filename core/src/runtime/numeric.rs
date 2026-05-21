@@ -1,5 +1,62 @@
 use crate::runtime::{Diagnostic, Span, Value};
 
+pub fn unary_positive(value: Value, span: Span) -> Result<Value, Diagnostic> {
+    if is_numeric_value(&value) {
+        Ok(value)
+    } else {
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
+                "Unary '+' requires a numeric expression, found {}",
+                value.type_name().display_name()
+            ),
+            Some(span),
+        ))
+    }
+}
+
+pub fn unary_negate(value: Value, span: Span) -> Result<Value, Diagnostic> {
+    match value {
+        Value::Byte(value) => Ok(Value::Int16(-(value as i16))),
+        Value::Int16(value) => Ok(Value::Int16(value.wrapping_neg())),
+        Value::Int32(value) => Ok(Value::Int32(value.wrapping_neg())),
+        Value::Int64(value) => Ok(Value::Int64(value.wrapping_neg())),
+        Value::UInt32(value) => Ok(Value::Int64(-(value as i64))),
+        Value::UInt64(value) if value <= i64::MAX as u64 => Ok(Value::Int64(-(value as i64))),
+        Value::UInt64(value) => Ok(Value::Int64((value as i64).wrapping_neg())),
+        Value::Single(value) => Ok(Value::Single(-value)),
+        Value::Double(value) => Ok(Value::Double(-value)),
+        Value::Currency(value) => Ok(Value::Currency(value.wrapping_neg())),
+        Value::Decimal(value) => Ok(Value::Decimal(value.wrapping_neg())),
+        Value::Date(value) => Ok(Value::Date(-value)),
+        value => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
+                "Unary '-' requires a numeric expression, found {}",
+                value.type_name().display_name()
+            ),
+            Some(span),
+        )),
+    }
+}
+
+pub fn is_numeric_value(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Byte(_)
+            | Value::Int16(_)
+            | Value::Int32(_)
+            | Value::Int64(_)
+            | Value::UInt32(_)
+            | Value::UInt64(_)
+            | Value::Single(_)
+            | Value::Double(_)
+            | Value::Currency(_)
+            | Value::Decimal(_)
+            | Value::Date(_)
+    )
+}
+
 pub fn math_binary(
     left: Value,
     right: Value,

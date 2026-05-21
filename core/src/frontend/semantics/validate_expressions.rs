@@ -174,7 +174,12 @@ pub(super) fn validate_expr(
                 Ok(TypeName::Int64)
             }
         }
+        ExprKind::Long(_) => Ok(TypeName::Long),
+        ExprKind::LongLong(_) => Ok(TypeName::Int64),
+        ExprKind::Single(_) => Ok(TypeName::Single),
         ExprKind::Double(_) => Ok(TypeName::Double),
+        ExprKind::Currency(_) => Ok(TypeName::Currency),
+        ExprKind::Decimal(_) => Ok(TypeName::Decimal),
         ExprKind::Boolean(_) => Ok(TypeName::Boolean),
         ExprKind::Nothing | ExprKind::Empty | ExprKind::Null => Ok(TypeName::Variant),
         ExprKind::Missing => Ok(TypeName::Variant),
@@ -741,13 +746,23 @@ pub(super) fn validate_expr(
             }
         }
         ExprKind::Unary { op, expr: inner } => match op {
-            UnaryOp::Negate => {
+            UnaryOp::Positive | UnaryOp::Negate => {
                 let ty = validate_expr(inner, symbols, types, signatures)?;
                 if is_numeric_type(&ty) {
                     Ok(ty)
                 } else {
-                    ensure_assignable(&TypeName::Int64, &ty, inner.span)?;
-                    Ok(TypeName::Int64)
+                    Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!(
+                            "Unary '{}' requires a numeric expression",
+                            if matches!(op, UnaryOp::Negate) {
+                                "-"
+                            } else {
+                                "+"
+                            }
+                        ),
+                        Some(inner.span),
+                    ))
                 }
             }
             UnaryOp::LogicalNot => {

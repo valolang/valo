@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::runtime::numeric::{unary_negate, unary_positive};
 use crate::runtime::{Diagnostic, Span, TypeName, Value, coerce_assignment};
 use crate::{BinaryOp, Expr, ExprKind, UnaryOp};
 
@@ -60,22 +61,27 @@ fn eval_const_default(
     match &expr.kind {
         ExprKind::String(value) => Ok(Value::String(value.clone())),
         ExprKind::Integer(value) => Ok(Value::Int64(*value)),
+        ExprKind::Long(value) => Ok(Value::Int32(*value)),
+        ExprKind::LongLong(value) => Ok(Value::Int64(*value)),
+        ExprKind::Single(value) => Ok(Value::Single(*value)),
         ExprKind::Double(value) => Ok(Value::Double(*value)),
+        ExprKind::Currency(value) => Ok(Value::Currency(*value)),
+        ExprKind::Decimal(value) => Ok(Value::Decimal(*value)),
         ExprKind::Boolean(value) => Ok(Value::Boolean(*value)),
         ExprKind::Empty => Ok(Value::Empty),
         ExprKind::Null => Ok(Value::Null),
-        ExprKind::Unary {
-            op: UnaryOp::Negate,
-            expr,
-        } => match eval_const_default(expr, enums, span)? {
-            Value::Int64(value) => Ok(Value::Int64(-value)),
-            Value::Double(value) => Ok(Value::Double(-value)),
-            _ => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "Structure field initializer must be numeric",
-                Some(expr.span),
-            )),
-        },
+        ExprKind::Unary { op, expr } => {
+            let value = eval_const_default(expr, enums, span)?;
+            match op {
+                UnaryOp::Positive => unary_positive(value, expr.span),
+                UnaryOp::Negate => unary_negate(value, expr.span),
+                UnaryOp::LogicalNot => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Structure field initializer must be numeric",
+                    Some(expr.span),
+                )),
+            }
+        }
         ExprKind::AddressOf(_) => Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
             "AddressOf is not allowed in constant expressions",
