@@ -85,19 +85,33 @@ End Sub
 
 #[test]
 #[cfg(windows)]
-fn declare_windows_message_box_a() {
-    // MessageBoxA(0, "text", "caption", 0)
+fn declare_windows_get_tick_count_64() {
     let source = r#"
-Private Declare PtrSafe Function MessageBox Lib "user32" Alias "MessageBoxA" (ByVal hwnd As LongPtr, ByVal text As String, ByVal caption As String, ByVal utype As Long) As Long
+Private Declare PtrSafe Function GetTickCount64 Lib "kernel32" () As LongLong
 
 Sub Main()
-    ' We won't actually call it because it's interactive, but we check if it resolves and returns something if we could mock it.
-    ' Actually, let's not call interactive APIs in tests.
+    ' Just verify it calls correctly and returns a value
+    Dim val As LongLong
+    val = GetTickCount64()
+    Console.WriteLine("Done")
 End Sub
 "#;
-    // Just parse and validate
-    let program = crate::parse_source(source).unwrap();
-    crate::validate(&program).unwrap();
+    assert_eq!(run_source(source), vec!["Done"]);
+}
+
+#[test]
+#[cfg(windows)]
+fn declare_windows_lstrlen_a() {
+    let source = r#"
+Private Declare PtrSafe Function lstrlenA Lib "kernel32" (ByVal lpString As String) As Long
+
+Sub Main()
+    Dim length As Long
+    length = lstrlenA("Hello")
+    Console.WriteLine(length)
+End Sub
+"#;
+    assert_eq!(run_source(source), vec!["5"]);
 }
 
 #[test]
