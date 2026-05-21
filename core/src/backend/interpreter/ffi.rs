@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{CString, c_char, c_int, c_void};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
 use libffi::middle::{Arg as FfiArg, Cif, CodePtr, Ret, Type as FfiType, arg as ffi_arg};
@@ -17,13 +18,33 @@ thread_local! {
     static ACTIVE_INTERPRETER: RefCell<Option<*mut Interpreter>> = const { RefCell::new(None) };
 }
 
+struct ActiveInterpreterGuard {
+    previous: Option<*mut Interpreter>,
+}
+
+impl ActiveInterpreterGuard {
+    fn enter(interpreter: *mut Interpreter) -> Self {
+        let previous = ACTIVE_INTERPRETER.with(|i| {
+            let previous = *i.borrow();
+            *i.borrow_mut() = Some(interpreter);
+            previous
+        });
+        Self { previous }
+    }
+}
+
+impl Drop for ActiveInterpreterGuard {
+    fn drop(&mut self) {
+        ACTIVE_INTERPRETER.with(|i| *i.borrow_mut() = self.previous);
+    }
+}
+
 pub(crate) struct CallbackTrampoline {
     pub(crate) _cif: Cif,
     pub(crate) alloc: *mut c_void,
     #[allow(dead_code)]
     pub(crate) code: *mut c_void,
-    #[allow(clippy::box_collection)]
-    pub(crate) function_name: Box<String>,
+    pub(crate) userdata: Box<CallbackUserData>,
 }
 
 impl Drop for CallbackTrampoline {
@@ -37,9 +58,32 @@ impl Drop for CallbackTrampoline {
 impl std::fmt::Debug for CallbackTrampoline {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CallbackTrampoline")
-            .field("function_name", &self.function_name)
+            .field("function_name", &self.userdata.function_name)
             .finish()
     }
+}
+
+pub(crate) struct CallbackUserData {
+    function_name: String,
+    params: Vec<CallbackParam>,
+    return_type: TypeName,
+    is_sub: bool,
+}
+
+impl std::fmt::Debug for CallbackUserData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CallbackUserData")
+            .field("function_name", &self.function_name)
+            .field("params", &self.params.len())
+            .field("return_type", &self.return_type)
+            .field("is_sub", &self.is_sub)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct CallbackParam {
+    ty: TypeName,
 }
 
 #[derive(Default)]
@@ -59,6 +103,7 @@ impl std::fmt::Debug for NativeLibraries {
 struct NativeLibrary {
     display_name: String,
     handle: *mut c_void,
+    symbols: HashMap<String, *mut c_void>,
 }
 
 impl Drop for NativeLibraries {
@@ -272,29 +317,19 @@ impl Interpreter {
         let return_type = return_type.unwrap();
 
         let mut arg_types = Vec::new();
+        let mut callback_params = Vec::new();
         for param in &params {
             let ty = self.resolve_type_name(&param.ty, &Frame::default(), span)?;
-            arg_types.push(FfiType::pointer()); // ByRef or strings are pointers
-            // Actually, we need to map Valo types to libffi types for the callback.
-            // Wait, in C, callbacks can take byval integers. We MUST map types correctly!
-            let ffi_type = if matches!(param.mode, PassingMode::ByVal) {
-                match ty {
-                    TypeName::Byte => FfiType::u8(),
-                    TypeName::Integer => FfiType::i16(),
-                    TypeName::Long => FfiType::i32(),
-                    TypeName::Int64 | TypeName::Currency | TypeName::Variant => FfiType::i64(),
-                    TypeName::UInt32 => FfiType::u32(),
-                    TypeName::UInt64 => FfiType::u64(),
-                    TypeName::Boolean => FfiType::i16(),
-                    TypeName::Single => FfiType::f32(),
-                    TypeName::Double => FfiType::f64(),
-                    TypeName::Ptr | TypeName::FuncPtr | TypeName::String => FfiType::pointer(),
-                    _ => FfiType::pointer(), // fallback
-                }
-            } else {
-                FfiType::pointer()
-            };
+            if !matches!(param.mode, PassingMode::ByVal) {
+                return Err(unsupported(
+                    "AddressOf callbacks currently require ByVal parameters",
+                    param.span,
+                )
+                .with_help("pass pointer-sized values as ByVal LongPtr"));
+            }
+            let ffi_type = callback_ffi_type(&ty, param.span)?;
             arg_types.push(ffi_type);
+            callback_params.push(CallbackParam { ty });
         }
 
         let ret_ffi_type = if is_sub {
@@ -314,94 +349,81 @@ impl Interpreter {
             ));
         }
 
-        let function_name = Box::new(name.to_string());
-        let userdata = function_name.as_ref() as *const String as *mut c_void;
+        let userdata = Box::new(CallbackUserData {
+            function_name: name.to_string(),
+            params: callback_params,
+            return_type: return_type.clone(),
+            is_sub,
+        });
+        let userdata_ptr = userdata.as_ref() as *const CallbackUserData as *mut c_void;
 
         unsafe extern "C" fn ffi_callback_trampoline(
             _cif: &libffi::low::ffi_cif,
             result: &mut c_void,
-            _args: *const *const c_void,
+            args: *const *const c_void,
             userdata: &mut c_void,
         ) {
-            let function_name = unsafe { &*(userdata as *mut c_void as *const String) };
+            let userdata = unsafe { &*(userdata as *mut c_void as *const CallbackUserData) };
 
             let interpreter_ptr =
                 ACTIVE_INTERPRETER.with(|i| i.borrow().unwrap_or(std::ptr::null_mut()));
 
             if interpreter_ptr.is_null() {
-                eprintln!(
-                    "Fatal error: ffi_callback_trampoline called without active interpreter."
-                );
+                write_callback_default(result, &userdata.return_type, userdata.is_sub);
+                eprintln!("Valo callback diagnostic: callback invoked without active interpreter");
                 return;
             }
 
             let interpreter = unsafe { &mut *interpreter_ptr };
+            let span = callback_span();
+            let call_res = catch_unwind(AssertUnwindSafe(|| {
+                let valo_args = read_callback_args(args, &userdata.params, span)?;
+                let mut frame = Frame::default();
+                interpreter.call_function(&userdata.function_name, &valo_args, &mut frame, span)
+            }));
 
-            // We must construct the arguments from the pointers in `args`.
-            // Because this is quite complex (requires reading memory based on types),
-            // and `AddressOf` was just requested as a foundation, we can stub the arg passing
-            // by passing empty values, or just let it panic if we don't handle it yet.
-            // For now, let's just call the function with NO args to prove the trampoline works.
-            let valo_args = Vec::new();
-
-            // Stub: In a full implementation we would read `args` according to `cif.arg_types`.
-            // Let's call the function.
-            let mut frame = Frame::default();
-            let call_res = interpreter.call_function(
-                function_name,
-                &valo_args,
-                &mut frame,
-                Span::new(
-                    crate::runtime::FileId(0),
-                    crate::runtime::SourcePos { line: 0, column: 0 },
-                    crate::runtime::SourcePos { line: 0, column: 0 },
-                ),
-            );
-
-            // Default result to 0 to avoid garbage.
-            unsafe {
-                std::ptr::write_bytes(result as *mut c_void as *mut u8, 0, 8);
-            }
-
-            if let Ok(val) = call_res {
-                let num = match val {
-                    Value::Int64(n) => n,
-                    Value::Int32(n) => n as i64,
-                    Value::Int16(n) => n as i64,
-                    Value::Byte(n) => n as i64,
-                    Value::UInt64(n) => n as i64,
-                    Value::UInt32(n) => n as i64,
-                    Value::FuncPtr(n) | Value::Ptr(n) => n as i64,
-                    _ => 0,
-                };
-                unsafe { *(result as *mut c_void as *mut i64) = num };
-            } else if let Err(e) = call_res {
-                eprintln!("Callback error: {:?}", e);
+            match call_res {
+                Ok(Ok(value)) => {
+                    write_callback_result(result, value, &userdata.return_type, userdata.is_sub)
+                }
+                Ok(Err(error)) => {
+                    write_callback_default(result, &userdata.return_type, userdata.is_sub);
+                    interpreter.set_err(&error, 0);
+                    eprintln!("Valo callback diagnostic: {}", error.message);
+                }
+                Err(_) => {
+                    write_callback_default(result, &userdata.return_type, userdata.is_sub);
+                    eprintln!("Valo callback diagnostic: callback panicked");
+                }
             }
         }
 
-        unsafe {
+        let prep_result = unsafe {
             libffi::low::prep_closure_mut(
                 alloc as *mut _,
                 cif.as_raw_ptr(),
                 ffi_callback_trampoline,
-                userdata,
+                userdata_ptr,
                 code,
             )
-            .map_err(|_| {
-                Diagnostic::new(
-                    crate::runtime::DiagnosticCode::GENERIC,
-                    "Failed to prepare libffi closure",
-                    Some(span),
-                )
-            })?;
+        };
+        if prep_result.is_err() {
+            unsafe {
+                libffi::low::closure_free(alloc as *mut _);
+            }
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Failed to prepare libffi callback trampoline",
+                Some(span),
+            )
+            .with_help("the target platform may not support executable libffi closures"));
         }
 
         self.callback_trampolines.push(CallbackTrampoline {
             _cif: cif,
             alloc: alloc as *mut c_void,
             code: code.0,
-            function_name,
+            userdata,
         });
 
         self.ffi_callbacks.insert(key(name), code.0 as usize);
@@ -433,8 +455,7 @@ impl Interpreter {
             .symbol(&declare.lib, symbol_name, span)?;
         let return_type = declare.return_type.as_ref().unwrap_or(&TypeName::Variant);
 
-        let old_interpreter = ACTIVE_INTERPRETER.with(|i| *i.borrow());
-        ACTIVE_INTERPRETER.with(|i| *i.borrow_mut() = Some(self as *mut Interpreter));
+        let _active_interpreter = ActiveInterpreterGuard::enter(self as *mut Interpreter);
 
         let value_result = call_symbol(
             symbol,
@@ -444,8 +465,6 @@ impl Interpreter {
             declare.calling_convention,
             span,
         );
-
-        ACTIVE_INTERPRETER.with(|i| *i.borrow_mut() = old_interpreter);
 
         let value = value_result?;
         marshaled.write_back(&self.types)?;
@@ -516,7 +535,10 @@ impl Interpreter {
 
 impl NativeLibraries {
     fn symbol(&mut self, lib: &str, symbol: &str, span: Span) -> Result<*mut c_void, Diagnostic> {
-        let library = self.load(lib, span)?;
+        let library = self.load_mut(lib, span)?;
+        if let Some(ptr) = library.symbols.get(symbol).copied() {
+            return Ok(ptr);
+        }
         let c_symbol = CString::new(symbol).map_err(|_| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::FFI_SYMBOL_NOT_FOUND,
@@ -535,10 +557,11 @@ impl NativeLibraries {
                 Some(span),
             ));
         }
+        library.symbols.insert(symbol.to_string(), ptr);
         Ok(ptr)
     }
 
-    fn load(&mut self, lib: &str, span: Span) -> Result<&NativeLibrary, Diagnostic> {
+    fn load_mut(&mut self, lib: &str, span: Span) -> Result<&mut NativeLibrary, Diagnostic> {
         let key = lib.to_ascii_lowercase();
         if !self.handles.contains_key(&key) {
             let candidates = library_candidates(lib);
@@ -550,6 +573,7 @@ impl NativeLibraries {
                     loaded = Some(NativeLibrary {
                         display_name: candidate.display().to_string(),
                         handle,
+                        symbols: HashMap::new(),
                     });
                     break;
                 }
@@ -579,7 +603,7 @@ impl NativeLibraries {
             };
             self.handles.insert(key.clone(), library);
         }
-        Ok(self.handles.get(&key).expect("library inserted"))
+        Ok(self.handles.get_mut(&key).expect("library inserted"))
     }
 }
 
@@ -610,6 +634,144 @@ fn declare_uses_pointer(declare: &DeclareDecl) -> bool {
             .return_type
             .as_ref()
             .is_some_and(|ty| matches!(ty, TypeName::Ptr | TypeName::FuncPtr))
+}
+
+fn callback_ffi_type(ty: &TypeName, span: Span) -> Result<FfiType, Diagnostic> {
+    match ty {
+        TypeName::Byte => Ok(FfiType::u8()),
+        TypeName::Integer => Ok(FfiType::i16()),
+        TypeName::Long => Ok(FfiType::i32()),
+        TypeName::Int64 | TypeName::Currency => Ok(FfiType::i64()),
+        TypeName::UInt32 => Ok(FfiType::u32()),
+        TypeName::UInt64 => Ok(FfiType::u64()),
+        TypeName::Boolean => Ok(FfiType::i16()),
+        TypeName::Single => Ok(FfiType::f32()),
+        TypeName::Double => Ok(FfiType::f64()),
+        TypeName::Ptr | TypeName::FuncPtr => Ok(FfiType::pointer()),
+        TypeName::String
+        | TypeName::Variant
+        | TypeName::Decimal
+        | TypeName::Date
+        | TypeName::User(_) => Err(unsupported(
+            format!(
+                "callback parameter type '{}' is not supported by AddressOf marshaling",
+                ty.display_name()
+            ),
+            span,
+        )),
+    }
+}
+
+fn callback_span() -> Span {
+    Span::new(
+        crate::runtime::FileId(0),
+        crate::runtime::SourcePos { line: 0, column: 0 },
+        crate::runtime::SourcePos { line: 0, column: 0 },
+    )
+}
+
+fn read_callback_args(
+    args: *const *const c_void,
+    params: &[CallbackParam],
+    span: Span,
+) -> Result<Vec<Expr>, Diagnostic> {
+    if args.is_null() && !params.is_empty() {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::FFI_CALL,
+            "callback trampoline received a null argument vector",
+            Some(span),
+        ));
+    }
+    params
+        .iter()
+        .enumerate()
+        .map(|(index, param)| {
+            let slot = unsafe { *args.add(index) };
+            if slot.is_null() {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::FFI_CALL,
+                    "callback trampoline received a null argument slot",
+                    Some(span),
+                ));
+            }
+            let kind = unsafe { read_callback_value(slot, &param.ty) };
+            Ok(Expr { kind, span })
+        })
+        .collect()
+}
+
+unsafe fn read_callback_value(slot: *const c_void, ty: &TypeName) -> ExprKind {
+    match ty {
+        TypeName::Byte => ExprKind::Integer(unsafe { *(slot as *const u8) } as i64),
+        TypeName::Integer => ExprKind::Integer(unsafe { *(slot as *const i16) } as i64),
+        TypeName::Long => ExprKind::Integer(unsafe { *(slot as *const i32) } as i64),
+        TypeName::Int64 | TypeName::Currency => ExprKind::Integer(unsafe { *(slot as *const i64) }),
+        TypeName::UInt32 => ExprKind::Integer(unsafe { *(slot as *const u32) } as i64),
+        TypeName::UInt64 => ExprKind::Integer(unsafe { *(slot as *const u64) } as i64),
+        TypeName::Boolean => ExprKind::Boolean(unsafe { *(slot as *const i16) } != 0),
+        TypeName::Single => ExprKind::Double(unsafe { *(slot as *const f32) } as f64),
+        TypeName::Double => ExprKind::Double(unsafe { *(slot as *const f64) }),
+        TypeName::Ptr | TypeName::FuncPtr => {
+            ExprKind::Integer(unsafe { *(slot as *const usize) } as i64)
+        }
+        TypeName::String
+        | TypeName::Variant
+        | TypeName::Decimal
+        | TypeName::Date
+        | TypeName::User(_) => ExprKind::Empty,
+    }
+}
+
+fn write_callback_default(result: &mut c_void, return_type: &TypeName, is_sub: bool) {
+    if is_sub {
+        return;
+    }
+    unsafe {
+        match return_type {
+            TypeName::Byte => *(result as *mut c_void as *mut u8) = 0,
+            TypeName::Integer | TypeName::Boolean => {
+                *(result as *mut c_void as *mut i16) = 0;
+            }
+            TypeName::Long => *(result as *mut c_void as *mut i32) = 0,
+            TypeName::Int64 | TypeName::Currency | TypeName::Variant => {
+                *(result as *mut c_void as *mut i64) = 0;
+            }
+            TypeName::UInt32 => *(result as *mut c_void as *mut u32) = 0,
+            TypeName::UInt64 => *(result as *mut c_void as *mut u64) = 0,
+            TypeName::Single => *(result as *mut c_void as *mut f32) = 0.0,
+            TypeName::Double => *(result as *mut c_void as *mut f64) = 0.0,
+            TypeName::Ptr | TypeName::FuncPtr => {
+                *(result as *mut c_void as *mut *mut c_void) = std::ptr::null_mut();
+            }
+            TypeName::String | TypeName::Decimal | TypeName::Date | TypeName::User(_) => {}
+        }
+    }
+}
+
+fn write_callback_result(result: &mut c_void, value: Value, return_type: &TypeName, is_sub: bool) {
+    if is_sub {
+        return;
+    }
+    let span = callback_span();
+    let value = coerce_assignment(return_type, value, span).unwrap_or(Value::Empty);
+    unsafe {
+        match value {
+            Value::Byte(v) => *(result as *mut c_void as *mut u8) = v,
+            Value::Int16(v) => *(result as *mut c_void as *mut i16) = v,
+            Value::Int32(v) => *(result as *mut c_void as *mut i32) = v,
+            Value::Int64(v) => *(result as *mut c_void as *mut i64) = v,
+            Value::UInt32(v) => *(result as *mut c_void as *mut u32) = v,
+            Value::UInt64(v) => *(result as *mut c_void as *mut u64) = v,
+            Value::Boolean(v) => *(result as *mut c_void as *mut i16) = if v { -1 } else { 0 },
+            Value::Single(v) => *(result as *mut c_void as *mut f32) = v,
+            Value::Double(v) => *(result as *mut c_void as *mut f64) = v,
+            Value::Currency(v) => *(result as *mut c_void as *mut i64) = v,
+            Value::Ptr(v) | Value::FuncPtr(v) => {
+                *(result as *mut c_void as *mut usize) = v;
+            }
+            _ => write_callback_default(result, return_type, is_sub),
+        }
+    }
 }
 
 fn marshal_byval(
@@ -692,8 +854,8 @@ fn marshal_byref(
         Value::Int16(v) => ArgumentStorage::I16(Box::new(v)),
         Value::Int32(v) => ArgumentStorage::I32(Box::new(v)),
         Value::Int64(v) => ArgumentStorage::I64(Box::new(v)),
-        Value::UInt32(v) => ArgumentStorage::I32(Box::new(v as i32)),
-        Value::UInt64(v) => ArgumentStorage::I64(Box::new(v as i64)),
+        Value::UInt32(v) => ArgumentStorage::U32(Box::new(v)),
+        Value::UInt64(v) => ArgumentStorage::U64(Box::new(v)),
         Value::Boolean(v) => ArgumentStorage::Bool(Box::new(if v { -1 } else { 0 })),
         Value::Ptr(v) | Value::FuncPtr(v) => ArgumentStorage::Ptr(Box::new(v)),
         Value::Currency(v) => ArgumentStorage::I64(Box::new(v)),
@@ -870,11 +1032,16 @@ fn unpack_array(
 fn unpack_record(ty: &RuntimeType, bytes: &[u8], span: Span) -> Result<Value, Diagnostic> {
     let mut fields = HashMap::new();
     let mut offset = 0;
+    let mut max_align = 1;
     for field in &ty.fields {
+        let align = native_type_align(&field.ty, span)?;
+        max_align = max_align.max(align);
+        offset = align_offset(offset, align);
         let (value, size) = read_value(&bytes[offset..], &field.ty, span)?;
         fields.insert(key(&field.name), value);
         offset += size;
     }
+    let _ = align_offset(offset, max_align);
     Ok(Value::Record {
         type_name: ty.name.clone(),
         fields,
@@ -1003,6 +1170,7 @@ fn pack_record(
         ));
     }
     let mut bytes = Vec::new();
+    let mut max_align = 1;
     for field in &ty.fields {
         if field.array.is_some() {
             return Err(unsupported(
@@ -1010,6 +1178,9 @@ fn pack_record(
                 span,
             ));
         }
+        let align = native_type_align(&field.ty, span)?;
+        max_align = max_align.max(align);
+        pad_to_align(&mut bytes, align);
         let Some(value) = fields.get(&key(&field.name)) else {
             return Err(unsupported(
                 format!("structure field '{}' is missing", field.name),
@@ -1018,7 +1189,43 @@ fn pack_record(
         };
         append_value(&mut bytes, &field.ty, value, span)?;
     }
+    pad_to_align(&mut bytes, max_align);
     Ok(bytes)
+}
+
+fn native_type_align(ty: &TypeName, span: Span) -> Result<usize, Diagnostic> {
+    let size = native_type_size(ty, span)?;
+    Ok(size.min(std::mem::size_of::<usize>()).max(1))
+}
+
+fn native_type_size(ty: &TypeName, span: Span) -> Result<usize, Diagnostic> {
+    let size = match ty {
+        TypeName::Byte => 1,
+        TypeName::Integer | TypeName::Boolean => 2,
+        TypeName::Long | TypeName::UInt32 | TypeName::Single => 4,
+        TypeName::Int64 | TypeName::UInt64 | TypeName::Currency | TypeName::Double => 8,
+        TypeName::Ptr | TypeName::FuncPtr => std::mem::size_of::<usize>(),
+        _ => {
+            return Err(unsupported(
+                format!(
+                    "field type '{}' is not blittable for native structure layout",
+                    ty.display_name()
+                ),
+                span,
+            ));
+        }
+    };
+    Ok(size)
+}
+
+fn align_offset(offset: usize, align: usize) -> usize {
+    let mask = align.saturating_sub(1);
+    (offset + mask) & !mask
+}
+
+fn pad_to_align(bytes: &mut Vec<u8>, align: usize) {
+    let aligned = align_offset(bytes.len(), align);
+    bytes.resize(aligned, 0);
 }
 
 fn append_value(

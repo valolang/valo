@@ -105,12 +105,20 @@ pub(crate) fn dispatch_function(
 
     if effective_name.eq_ignore_ascii_case("StrPtr") {
         expect_arg_count(effective_name, args, 1, span)?;
-        let value = interpreter.eval_expr(&args[0], frame)?;
-        if let Value::String(s) = value {
-            let ptr = s.as_ptr() as usize;
-            return Ok(Some(Value::Ptr(ptr)));
+        let arg = &args[0];
+        if let crate::ExprKind::Variable(name) = &arg.kind {
+            let variable = frame.variable(name, arg.span)?;
+            let value = variable.cell.borrow();
+            if let Value::String(s) = &*value {
+                return Ok(Some(Value::Ptr(s.as_ptr() as usize)));
+            }
+            return Ok(Some(Value::Ptr(0)));
         }
-        return Ok(Some(Value::Ptr(0))); // Fallback for Null/Empty
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            "StrPtr requires a string variable",
+            Some(arg.span),
+        ));
     }
 
     if effective_name.eq_ignore_ascii_case("ObjPtr") {

@@ -874,6 +874,14 @@ fn validate_builtin_function(
         validate_expr(&args[0], symbols, types, signatures)?;
         return Ok(Some(TypeName::Integer));
     }
+    if effective_name.eq_ignore_ascii_case("VarPtr")
+        || effective_name.eq_ignore_ascii_case("StrPtr")
+        || effective_name.eq_ignore_ascii_case("ObjPtr")
+    {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures)?;
+        return Ok(Some(TypeName::Ptr));
+    }
     if effective_name.eq_ignore_ascii_case("TypeName") {
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures)?;
@@ -2027,6 +2035,8 @@ pub(super) fn ensure_assignable(
         || (is_numeric_type(target) && is_numeric_type(source))
         || (matches!(target, TypeName::Ptr | TypeName::FuncPtr) && is_numeric_type(source))
         || (is_numeric_type(target) && matches!(source, TypeName::Ptr | TypeName::FuncPtr))
+        || (matches!(target, TypeName::Ptr | TypeName::FuncPtr)
+            && matches!(source, TypeName::Ptr | TypeName::FuncPtr))
         || matches!(target, TypeName::User(name) if name.rsplit('.').next().is_some_and(|name| name.eq_ignore_ascii_case("Object")))
             && matches!(source, TypeName::User(_))
     {

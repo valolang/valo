@@ -1,9 +1,5 @@
 use std::{env, process};
 
-#[cfg(target_os = "android")]
-#[unsafe(no_mangle)]
-pub extern "C" fn __clear_cache(_beg: *mut std::ffi::c_void, _end: *mut std::ffi::c_void) {}
-
 mod commands;
 
 fn main() {

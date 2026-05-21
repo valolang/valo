@@ -177,3 +177,61 @@ End Sub
     assert_eq!(diagnostic.code.0, "V3003");
     assert!(diagnostic.message.contains("ByRef String buffers"));
 }
+
+#[test]
+fn addressof_byval_numeric_callback_returns_stable_pointer() {
+    let source = r#"
+Function MyCallback(ByVal value As Long) As Long
+    MyCallback = value + 1
+End Function
+
+Sub Main()
+    Dim ptr As LongPtr
+    ptr = AddressOf MyCallback
+    Console.WriteLine(ptr <> 0)
+End Sub
+"#;
+
+    assert_eq!(run_source(source), vec!["True"]);
+}
+
+#[test]
+fn addressof_byref_callback_reports_v3003() {
+    let diagnostic = source_diagnostic(
+        r#"
+Function MyCallback(value As Long) As Long
+    MyCallback = value
+End Function
+
+Sub Main()
+    Dim ptr As LongPtr
+    ptr = AddressOf MyCallback
+End Sub
+"#,
+    );
+
+    assert_eq!(diagnostic.code.0, "V3003");
+    assert!(
+        diagnostic
+            .message
+            .contains("AddressOf callbacks currently require ByVal")
+    );
+}
+
+#[test]
+fn strptr_requires_variable_to_avoid_temporary_pointer() {
+    let diagnostic = source_diagnostic(
+        r#"
+Sub Main()
+    Console.WriteLine(StrPtr("temporary"))
+End Sub
+"#,
+    );
+
+    assert_eq!(diagnostic.code.0, "V0001");
+    assert!(
+        diagnostic
+            .message
+            .contains("StrPtr requires a string variable")
+    );
+}

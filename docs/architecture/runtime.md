@@ -46,16 +46,28 @@ The interpreter registers `Declare Function` and `Declare Sub` declarations as c
 Native support lives in `core/src/backend/interpreter/ffi.rs` and `core/src/runtime/ffi_platform.rs`, providing:
 
 *   Platform library resolution and caching.
+*   Symbol caching per loaded library to avoid repeated platform lookups.
 *   Automatic system library mapping (`libc`/`libm` to platform equivalents).
 *   Symbol lookup through `LoadLibrary`/`GetProcAddress` on Windows and `dlopen`/`dlsym` on Unix platforms.
 *   Mixed-signature invocation through `libffi`.
 *   Pointer-aware `PtrSafe` and `LongPtr` validation.
-*   Scalar, string, ByRef, simple array, and blittable structure marshaling where safe.
+*   Scalar, string, ByRef, simple array, and native-aligned blittable structure marshaling where safe.
 *   Dynamic libffi closure trampolines for native callbacks (`AddressOf`).
 *   Pointer builtins for raw memory inspection (`VarPtr`, `StrPtr`, `ObjPtr`).
 *   Diagnostics `V3001` through `V3004` for library, symbol, marshaling, and ABI/call failures.
 
 Libraries are closed when the interpreter shuts down. Unsupported native shapes are rejected with diagnostics rather than exposing internal panics.
+
+The callback model keeps libffi closure memory, executable code pointers, CIF metadata, and callback signature data alive in the interpreter until shutdown. The active interpreter is installed through a thread-local guard while native calls are in progress, so callback re-entry restores the previous interpreter state even if a native call reports an error. Callback panics and Valo callback errors are contained at the trampoline boundary and translated into diagnostics/default return values; they are not allowed to unwind into native code.
+
+Executable callback memory and instruction-cache synchronization are delegated to libffi and the host runtime. Android/Termux ARM64 also gets a single core-crate `__clear_cache` compatibility shim, because the bundled libffi archive can reference that symbol while Bionic does not always provide it at link time. The CLI does not export its own copy, preventing duplicate linker symbols.
+
+Platform ABI notes:
+
+*   Windows uses `LoadLibraryA`/`GetProcAddress`; `StdCall` is rejected except where it is meaningful on 32-bit Windows. Windows x64 uses the platform default ABI.
+*   macOS maps `libc`/`libm` to `libSystem.B.dylib`; ARM64 structure marshaling uses native field alignment and padding.
+*   Linux maps `libc`/`libm` to the usual glibc sonames.
+*   Android/Termux maps `libc`/`libm` to Bionic `.so` names and uses the single core cache-flush shim required by bundled libffi builds.
 
 ## Builtins
 

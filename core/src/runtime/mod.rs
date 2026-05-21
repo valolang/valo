@@ -7,11 +7,11 @@
 mod coerce;
 pub mod compare;
 mod diagnostic;
+pub mod ffi_platform;
 pub mod numeric;
 pub mod ops;
 mod type_name;
 mod value;
-pub mod ffi_platform;
 
 pub use coerce::coerce_assignment;
 pub use diagnostic::{
