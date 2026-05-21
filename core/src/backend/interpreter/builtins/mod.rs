@@ -85,6 +85,55 @@ pub(crate) fn dispatch_function(
         return dispatch_callbyname(interpreter, effective_name, args, frame, span);
     }
 
+    if effective_name.eq_ignore_ascii_case("VarPtr") {
+        expect_arg_count(effective_name, args, 1, span)?;
+        let arg = &args[0];
+        let var_name = match &arg.kind {
+            crate::ExprKind::Variable(name) => name,
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "VarPtr requires a variable",
+                    Some(arg.span),
+                ));
+            }
+        };
+        let variable = frame.variable(var_name, arg.span)?;
+        let ptr = std::rc::Rc::as_ptr(&variable.cell) as usize;
+        return Ok(Some(Value::Ptr(ptr)));
+    }
+
+    if effective_name.eq_ignore_ascii_case("StrPtr") {
+        expect_arg_count(effective_name, args, 1, span)?;
+        let value = interpreter.eval_expr(&args[0], frame)?;
+        if let Value::String(s) = value {
+            let ptr = s.as_ptr() as usize;
+            return Ok(Some(Value::Ptr(ptr)));
+        }
+        return Ok(Some(Value::Ptr(0))); // Fallback for Null/Empty
+    }
+
+    if effective_name.eq_ignore_ascii_case("ObjPtr") {
+        expect_arg_count(effective_name, args, 1, span)?;
+        let value = interpreter.eval_expr(&args[0], frame)?;
+        match value {
+            Value::Object(obj) => {
+                let ptr = std::rc::Rc::as_ptr(&obj) as usize;
+                return Ok(Some(Value::Ptr(ptr)));
+            }
+            Value::Nothing => {
+                return Ok(Some(Value::Ptr(0)));
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "ObjPtr requires an object",
+                    Some(span),
+                ));
+            }
+        }
+    }
+
     if !is_builtin_function(effective_name) {
         return Ok(None);
     }

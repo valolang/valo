@@ -62,6 +62,7 @@ pub enum ExprKind {
         op: UnaryOp,
         expr: Box<Expr>,
     },
+    AddressOf(Box<Expr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

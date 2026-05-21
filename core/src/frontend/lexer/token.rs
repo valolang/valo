@@ -44,6 +44,7 @@ pub enum TokenKind {
     Call,
     Set,
     Nothing,
+    AddressOf,
     Empty,
     Null,
     Is,

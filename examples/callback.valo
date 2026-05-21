@@ -1,0 +1,9 @@
+Function MyCallback(ByVal a As Long, ByVal b As Long) As Long
+    MyCallback = a + b
+End Function
+
+Sub Main()
+    Dim ptr As LongPtr
+    ptr = AddressOf MyCallback
+    Console.WriteLine(ptr <> 0)
+End Sub

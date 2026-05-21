@@ -76,6 +76,11 @@ fn eval_const_default(
                 Some(expr.span),
             )),
         },
+        ExprKind::AddressOf(_) => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "AddressOf is not allowed in constant expressions",
+            Some(expr.span),
+        )),
         ExprKind::Binary { left, op, right } => {
             let left = eval_const_default(left, enums, span)?;
             let right = eval_const_default(right, enums, span)?;

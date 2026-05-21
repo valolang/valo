@@ -29,6 +29,10 @@ pub fn run_source(source: &str) -> Result<Vec<String>, Diagnostic> {
     run(&program)
 }
 
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "C" fn __clear_cache(_beg: *mut std::ffi::c_void, _end: *mut std::ffi::c_void) {}
+
 pub fn run_file(path: impl AsRef<std::path::Path>) -> Result<Vec<String>, String> {
     let project = match load_project(path) {
         Ok(p) => p,

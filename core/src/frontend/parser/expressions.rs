@@ -267,6 +267,16 @@ impl Parser {
             });
         }
 
+        if self.match_simple(&TokenKind::AddressOf) {
+            let start = self.previous().span;
+            let expr = self.parse_primary()?;
+            let span = Span::new(self.file_id, start.start, expr.span.end);
+            return Ok(Expr {
+                kind: ExprKind::AddressOf(Box::new(expr)),
+                span,
+            });
+        }
+
         self.parse_primary()
     }
 

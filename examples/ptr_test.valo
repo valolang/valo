@@ -1,0 +1,16 @@
+Sub Main()
+    Dim x As Integer
+    x = 42
+    Console.WriteLine(VarPtr(x) <> 0)
+    
+    Dim s As String
+    s = "Hello"
+    Console.WriteLine(StrPtr(s) <> 0)
+    
+    Dim c As New Collection
+    Console.WriteLine(ObjPtr(c) <> 0)
+    Console.WriteLine(ObjPtr(Nothing) = 0)
+End Sub
+
+Class Collection
+End Class

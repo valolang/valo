@@ -20,6 +20,8 @@ pub struct Interpreter {
     pub(crate) functions: HashMap<String, Function>,
     pub(crate) declares: HashMap<String, DeclareDecl>,
     pub(crate) native_libraries: super::ffi::NativeLibraries,
+    pub(crate) ffi_callbacks: HashMap<String, usize>,
+    pub(crate) callback_trampolines: Vec<super::ffi::CallbackTrampoline>,
     pub(crate) output: Vec<String>,
     pub(crate) option_base: i64,
     pub(crate) option_compare: crate::OptionCompare,
@@ -57,6 +59,8 @@ impl Default for Interpreter {
             functions: HashMap::new(),
             declares: HashMap::new(),
             native_libraries: super::ffi::NativeLibraries::default(),
+            ffi_callbacks: HashMap::new(),
+            callback_trampolines: Vec::new(),
             output: Vec::new(),
             option_base: 0,
             option_compare: crate::OptionCompare::Binary,
@@ -864,6 +868,11 @@ impl Interpreter {
                 op: UnaryOp::Negate,
                 expr,
             } => Ok(-self.eval_enum_const_expr(expr, members)?),
+            ExprKind::AddressOf(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "AddressOf is not allowed in constant expressions",
+                Some(expr.span),
+            )),
             ExprKind::Binary { left, op, right } => {
                 let left = self.eval_enum_const_expr(left, members)?;
                 let right = self.eval_enum_const_expr(right, members)?;

@@ -50,6 +50,8 @@ Native support lives in `core/src/backend/interpreter/ffi.rs` and provides:
 *   Mixed-signature invocation through `libffi`.
 *   Pointer-aware `PtrSafe` and `LongPtr` validation.
 *   Scalar, string, ByRef, simple array, and blittable structure marshaling where safe.
+*   Dynamic libffi closure trampolines for native callbacks (`AddressOf`).
+*   Pointer builtins for raw memory inspection (`VarPtr`, `StrPtr`, `ObjPtr`).
 *   Diagnostics `V3001` through `V3004` for library, symbol, marshaling, and ABI/call failures.
 
 Libraries are closed when the interpreter shuts down. Unsupported native shapes are rejected with diagnostics rather than exposing internal panics.

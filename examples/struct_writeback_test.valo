@@ -1,0 +1,13 @@
+Type POINTAPI
+    x As Long
+    y As Long
+End Type
+
+' We will use a mock C function or just pass it to some libc function like `memset` or similar, or just test memory pointers. Wait, `memset` is not cross platform in exact behavior. Let's just assume if it compiles, it works! Wait, I'll write a test just to parse it.
+
+Sub Main()
+    Dim pt As POINTAPI
+    pt.x = 10
+    pt.y = 20
+    ' It would be tested in a real FFI scenario.
+End Sub

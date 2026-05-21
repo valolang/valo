@@ -1310,6 +1310,7 @@ fn expr_uses_with_target(expr: &Expr) -> bool {
             expr_uses_with_target(left) || expr_uses_with_target(right)
         }
         ExprKind::Unary { expr, .. } => expr_uses_with_target(expr),
+        ExprKind::AddressOf(inner) => expr_uses_with_target(inner),
         ExprKind::String(_)
         | ExprKind::Integer(_)
         | ExprKind::Double(_)

@@ -759,6 +759,10 @@ pub(super) fn validate_expr(
                 Ok(TypeName::Boolean)
             }
         },
+        ExprKind::AddressOf(_) => {
+            // Wait, AddressOf returns a FuncPtr or LongPtr!
+            Ok(TypeName::FuncPtr)
+        }
     }
 }
 

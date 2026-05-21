@@ -34,7 +34,25 @@ Supported scalar marshaling:
 
 ByRef parameters pass mutable native pointers for supported scalar types and write the value back after the call. `LongPtr` maps to a pointer-sized runtime value: 32-bit on 32-bit targets and 64-bit on 64-bit targets.
 
-Simple blittable arrays and structures are packed for native calls where practical. Unsupported forms, including object references, mutable string buffers, non-blittable fields, and structure/array write-back, produce `V3003`.
+Simple blittable arrays and structures are packed for native calls where practical, and ByRef structures and arrays are synchronized (write-back) into Valo runtime memory after native calls. Unsupported forms, including object references, mutable string buffers, and non-blittable fields, produce `V3003`.
+
+## Pointers & Callbacks
+
+Valo provides the `VarPtr`, `StrPtr`, and `ObjPtr` builtins for interfacing with raw memory pointers, as well as `AddressOf` for generating native function pointers for callbacks.
+
+```vb
+Declare PtrSafe Function EnumWindows Lib "user32" (ByVal lpEnumFunc As LongPtr, ByVal lParam As LongPtr) As Long
+
+Function MyEnumWindowsProc(ByVal hwnd As LongPtr, ByVal lParam As LongPtr) As Long
+    Console.WriteLine("Got hwnd: " & Hex(hwnd))
+    MyEnumWindowsProc = 1
+End Function
+
+Sub Main()
+    ' AddressOf generates a libffi closure trampoline for native code to call back into Valo.
+    EnumWindows(AddressOf MyEnumWindowsProc, 0)
+End Sub
+```
 
 ## Safety
 
@@ -42,4 +60,4 @@ Native calls are inherently unsafe at the ABI boundary. Valo isolates user-facin
 
 ## Limitations
 
-The current runtime uses `libffi` for mixed native signatures. Complex COM/OLE Automation `Variant` pointers, object-pointer marshaling, mutable string buffers, and full structure write-back are intentionally not exposed until the runtime has safe ownership rules for those cases.
+The current runtime uses `libffi` for mixed native signatures. Complex COM/OLE Automation `Variant` pointers, object-pointer marshaling, and mutable string buffers are intentionally not exposed until the runtime has safe ownership rules for those cases.

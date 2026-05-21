@@ -328,6 +328,20 @@ impl Interpreter {
                     )),
                 }
             }
+            ExprKind::AddressOf(inner) => {
+                let name = match &inner.kind {
+                    ExprKind::Variable(name) => name,
+                    _ => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "AddressOf target must be a method name",
+                            Some(inner.span),
+                        ));
+                    }
+                };
+                let ptr = self.create_callback(name, expr.span)?;
+                Ok(Value::FuncPtr(ptr))
+            }
             ExprKind::Binary { left, op, right } => {
                 let left_value = self.eval_expr(left, frame)?;
                 if matches!(left_value, Value::Missing) {

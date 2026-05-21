@@ -1227,7 +1227,7 @@ impl Interpreter {
     }
 }
 
-fn qualified_key(module_key: Option<&str>, name: &str) -> String {
+pub(crate) fn qualified_key(module_key: Option<&str>, name: &str) -> String {
     match module_key {
         Some(module_key) => format!("{}::{}", module_key, key(name)),
         None => key(name),

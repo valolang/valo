@@ -142,6 +142,7 @@ impl<'a> Lexer<'a> {
             "call" => TokenKind::Call,
             "set" => TokenKind::Set,
             "nothing" => TokenKind::Nothing,
+            "addressof" => TokenKind::AddressOf,
             "empty" => TokenKind::Empty,
             "null" => TokenKind::Null,
             "is" => TokenKind::Is,

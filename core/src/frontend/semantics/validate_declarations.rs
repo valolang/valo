@@ -1447,6 +1447,7 @@ pub(super) fn ensure_const_expr(
         | ExprKind::IIf { .. }
         | ExprKind::NamedArg { .. }
         | ExprKind::TypeOfIs { .. }
+        | ExprKind::AddressOf(_)
         | ExprKind::MemberCall { .. } => Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
             "Const initializer must be a compile-time constant",
