@@ -244,21 +244,19 @@ fn dispatch_callbyname(
         match call_type {
             1 => {
                 // VbMethod
-                if let Err(err) =
-                    interpreter.call_method_sub(obj.clone(), &member, remaining_args, frame, span)
-                {
-                    if matches!(err.code, crate::runtime::DiagnosticCode("V1400")) {
-                        // Not found as Sub, try Function
-                        return Ok(Some(interpreter.call_method_function(
-                            obj,
-                            &member,
-                            remaining_args,
-                            frame,
-                            span,
-                        )?));
-                    }
-                    return Err(err);
+                // Try Function first to get a return value
+                if let Ok(val) = interpreter.call_method_function(
+                    obj.clone(),
+                    &member,
+                    remaining_args,
+                    frame,
+                    span,
+                ) {
+                    return Ok(Some(val));
                 }
+
+                // If function fails, try Sub
+                interpreter.call_method_sub(obj, &member, remaining_args, frame, span)?;
                 return Ok(Some(Value::Empty));
             }
             2 => {

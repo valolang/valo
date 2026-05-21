@@ -72,6 +72,7 @@ impl VariableCell {
 #[derive(Debug, Default, Clone)]
 pub struct Frame {
     variables: HashMap<String, Variable>,
+    return_slots: HashMap<String, Value>,
     module_key: Option<String>,
     with_stack: Vec<Value>,
     yielded_values: Option<Vec<Value>>,
@@ -81,6 +82,13 @@ pub struct Frame {
 }
 
 impl Frame {
+    pub(crate) fn set_return_slot(&mut self, slot: String, value: Value) {
+        self.return_slots.insert(slot, value);
+    }
+
+    pub(crate) fn get_return_slot(&self, slot: &str) -> Option<Value> {
+        self.return_slots.get(slot).cloned()
+    }
     pub(crate) fn set_yield_mode(&mut self) {
         self.yielded_values = Some(Vec::new());
     }

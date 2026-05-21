@@ -272,7 +272,10 @@ pub(super) fn validate_expr(
         ExprKind::Variable(name) => {
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
                 match var_type {
-                    VarType::Scalar(ty) | VarType::Optional(ty) | VarType::Const(ty) => {
+                    VarType::Scalar(ty)
+                    | VarType::Optional(ty)
+                    | VarType::Const(ty)
+                    | VarType::FunctionReturn(ty) => {
                         return Ok(ty);
                     }
                     VarType::Array(_) => {
@@ -849,13 +852,14 @@ pub(super) fn validate_array_expr(
             Some(VarType::Scalar(TypeName::Variant))
             | Some(VarType::Optional(TypeName::Variant))
             | Some(VarType::Const(TypeName::Variant)) => Ok(TypeName::Variant),
-            Some(VarType::Scalar(_)) | Some(VarType::Optional(_)) | Some(VarType::Const(_)) => {
-                Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::ARRAY,
-                    format!("Variable '{}' is not an array", name),
-                    Some(expr.span),
-                ))
-            }
+            Some(VarType::Scalar(_))
+            | Some(VarType::Optional(_))
+            | Some(VarType::Const(_))
+            | Some(VarType::FunctionReturn(_)) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::ARRAY,
+                format!("Variable '{}' is not an array", name),
+                Some(expr.span),
+            )),
             None => {
                 if let Some(VarType::Scalar(TypeName::User(class_name))) =
                     symbols.get("me").cloned()

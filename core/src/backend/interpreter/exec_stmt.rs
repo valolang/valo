@@ -822,6 +822,14 @@ impl Interpreter {
     ) -> Result<(), Diagnostic> {
         match target {
             AssignTarget::Variable { name, .. } => {
+                if let Some(_slot) = frame.get_return_slot(&format!("__return_{}", name)) {
+                    // This logic will be used when `name` is the function name.
+                    // However, we need a way to detect if it's the current function.
+                    // For now, assume if it's in the return_slots, it's a return assignment.
+                    frame.set_return_slot(format!("__return_{}", name), value);
+                    return Ok(());
+                }
+
                 if let Ok(owner_variable) = frame.variable("me", span) {
                     let is_record_field = {
                         let owner = owner_variable.borrow();

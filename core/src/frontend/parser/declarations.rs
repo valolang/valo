@@ -1001,6 +1001,7 @@ impl Parser {
             is_iterator,
             params,
             return_type,
+            return_slot: None,
             body,
             span: Span::new(self.file_id, start.start, end.end),
         })
@@ -1057,6 +1058,7 @@ impl Parser {
                 is_iterator,
                 params,
                 return_type,
+                return_slot: None,
                 body,
                 span: Span::new(self.file_id, start.start, end.end),
             },

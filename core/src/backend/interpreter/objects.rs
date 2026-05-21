@@ -807,6 +807,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                             is_iterator: true,
                             params: property.params.clone(),
                             return_type: property.return_type.clone().expect("get returns"),
+                            return_slot: None,
                             body: property.body.clone(),
                             span: property.span,
                         });

@@ -288,6 +288,7 @@ pub struct Function {
     pub is_iterator: bool,
     pub params: Vec<Parameter>,
     pub return_type: TypeName,
+    pub return_slot: Option<String>,
     pub body: Vec<Stmt>,
     pub span: Span,
 }

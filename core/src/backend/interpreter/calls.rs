@@ -1,10 +1,10 @@
+use crate::interpreter::values::{default_value, key};
 use crate::runtime::{ArrayValue, Diagnostic, Span, TypeName, Value, coerce_assignment};
 use crate::{Expr, ExprKind, Function, PassingMode};
 use std::rc::Rc;
 
 use super::frame::{Variable, VariableCell};
 use super::objects::ensure_object;
-use super::values::key;
 use super::{ControlFlow, Frame, Interpreter, RuntimeClass};
 
 impl Interpreter {
@@ -124,7 +124,12 @@ impl Interpreter {
             frame.declare_const("me", TypeName::User(structure.name.clone()), record, span)?;
             self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
             let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
-            if !frame.has_variable(&function.name) {
+            if let Some(slot) = &function.return_slot {
+                frame.set_return_slot(
+                    slot.clone(),
+                    default_value(&return_type, &self.types, &self.enums, function.span)?,
+                );
+            } else if !frame.has_variable(&function.name) {
                 frame.declare(
                     &function.name,
                     return_type.clone(),
@@ -151,6 +156,9 @@ impl Interpreter {
                             Some(function.span),
                         ));
                     }
+                    if let Some(slot) = &function.return_slot {
+                        frame.set_return_slot(slot.clone(), value.clone());
+                    }
                     coerce_assignment(&return_type, value, span)
                 }
                 ControlFlow::Continue | ControlFlow::ExitFunction => {
@@ -167,6 +175,14 @@ impl Interpreter {
                             allocated: true,
                             dynamic: true,
                         })))
+                    } else if let Some(slot) = &function.return_slot {
+                        Ok(frame.get_return_slot(slot).ok_or_else(|| {
+                            Diagnostic::new(
+                                crate::runtime::DiagnosticCode::GENERIC,
+                                "Return slot not found",
+                                Some(function.span),
+                            )
+                        })?)
                     } else {
                         frame.get(&function.name, function.span)
                     }
@@ -230,7 +246,12 @@ impl Interpreter {
             }
             self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
             let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
-            if !frame.has_variable(&function.name) {
+            if let Some(slot) = &function.return_slot {
+                frame.set_return_slot(
+                    slot.clone(),
+                    default_value(&return_type, &self.types, &self.enums, function.span)?,
+                );
+            } else if !frame.has_variable(&function.name) {
                 frame.declare(
                     &function.name,
                     return_type.clone(),
@@ -255,6 +276,9 @@ impl Interpreter {
                             Some(function.span),
                         ));
                     }
+                    if let Some(slot) = &function.return_slot {
+                        frame.set_return_slot(slot.clone(), value.clone());
+                    }
                     coerce_assignment(&return_type, value, span)
                 }
                 ControlFlow::Continue | ControlFlow::ExitFunction => {
@@ -271,6 +295,14 @@ impl Interpreter {
                             allocated: true,
                             dynamic: true,
                         })))
+                    } else if let Some(slot) = &function.return_slot {
+                        Ok(frame.get_return_slot(slot).ok_or_else(|| {
+                            Diagnostic::new(
+                                crate::runtime::DiagnosticCode::GENERIC,
+                                "Return slot not found",
+                                Some(function.span),
+                            )
+                        })?)
                     } else {
                         frame.get(&function.name, function.span)
                     }
@@ -857,7 +889,12 @@ impl Interpreter {
             self.bind_class_constants(&class, &mut frame)?;
             self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
             let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
-            if !frame.has_variable(&function.name) {
+            if let Some(slot) = &function.return_slot {
+                frame.set_return_slot(
+                    slot.clone(),
+                    default_value(&return_type, &self.types, &self.enums, function.span)?,
+                );
+            } else if !frame.has_variable(&function.name) {
                 frame.declare(
                     &function.name,
                     return_type.clone(),
@@ -884,6 +921,9 @@ impl Interpreter {
                             Some(function.span),
                         ));
                     }
+                    if let Some(slot) = &function.return_slot {
+                        frame.set_return_slot(slot.clone(), value.clone());
+                    }
                     coerce_assignment(&return_type, value, span)
                 }
                 ControlFlow::Continue | ControlFlow::ExitFunction => {
@@ -900,6 +940,14 @@ impl Interpreter {
                             allocated: true,
                             dynamic: true,
                         })))
+                    } else if let Some(slot) = &function.return_slot {
+                        Ok(frame.get_return_slot(slot).ok_or_else(|| {
+                            Diagnostic::new(
+                                crate::runtime::DiagnosticCode::GENERIC,
+                                "Return slot not found",
+                                Some(function.span),
+                            )
+                        })?)
                     } else {
                         frame.get(&function.name, function.span)
                     }

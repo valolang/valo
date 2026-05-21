@@ -1725,9 +1725,12 @@ pub(super) fn validate_function(
     let mut symbols = HashMap::new();
     add_module_symbols(module_symbols, &mut symbols);
     add_parameters(&function.params, &mut symbols)?;
+
+    // Assign a unique return slot
+    let return_slot = format!("__return_{}", function.name);
     symbols.insert(
         key(&function.name),
-        VarType::Scalar(function.return_type.clone()),
+        VarType::FunctionReturn(function.return_type.clone()),
     );
 
     let mut saw_return = assigns_to_name(&function.body, &function.name);
@@ -1739,6 +1742,7 @@ pub(super) fn validate_function(
         signatures,
         Context::Function {
             return_type: function.return_type.clone(),
+            return_slot: Some(return_slot),
             is_iterator: function.is_iterator,
             saw_return: &mut saw_return,
             saw_yield: &mut saw_yield,

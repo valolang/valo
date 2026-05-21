@@ -44,7 +44,7 @@ pub(super) fn validate_class(
                 add_parameters(&method.function.params, &mut symbols)?;
                 symbols.insert(
                     key(&method.function.name),
-                    VarType::Scalar(method.function.return_type.clone()),
+                    VarType::FunctionReturn(method.function.return_type.clone()),
                 );
                 let mut saw_return = assigns_to_name(&method.function.body, &method.function.name);
                 let mut saw_yield = false;
@@ -56,6 +56,7 @@ pub(super) fn validate_class(
                     Context::MethodFunction {
                         class_name: class_decl.name.clone(),
                         return_type: method.function.return_type.clone(),
+                        return_slot: Some(format!("__return_{}", method.function.name)),
                         is_iterator: method.function.is_iterator,
                         saw_return: &mut saw_return,
                         saw_yield: &mut saw_yield,
@@ -105,7 +106,7 @@ pub(super) fn validate_class(
                 add_parameters(&method.function.params, &mut symbols)?;
                 symbols.insert(
                     key(&method.function.name),
-                    VarType::Scalar(method.function.return_type.clone()),
+                    VarType::FunctionReturn(method.function.return_type.clone()),
                 );
                 let mut saw_return = assigns_to_name(&method.function.body, &method.function.name);
                 let mut saw_yield = false;
@@ -117,6 +118,7 @@ pub(super) fn validate_class(
                     Context::MethodFunction {
                         class_name: class_decl.name.clone(),
                         return_type: method.function.return_type.clone(),
+                        return_slot: Some(format!("__return_{}", method.function.name)),
                         is_iterator: true,
                         saw_return: &mut saw_return,
                         saw_yield: &mut saw_yield,
@@ -150,7 +152,10 @@ pub(super) fn validate_class(
                             .return_type
                             .clone()
                             .expect("property get return type");
-                        symbols.insert(key(&property.name), VarType::Scalar(return_type.clone()));
+                        symbols.insert(
+                            key(&property.name),
+                            VarType::FunctionReturn(return_type.clone()),
+                        );
                         let mut saw_return = assigns_to_name(&property.body, &property.name);
                         let mut saw_yield = false;
                         validate_statements(
@@ -161,6 +166,7 @@ pub(super) fn validate_class(
                             Context::PropertyGet {
                                 class_name: class_decl.name.clone(),
                                 return_type,
+                                return_slot: Some(format!("__return_{}", property.name)),
                                 is_iterator: property.is_iterator,
                                 saw_return: &mut saw_return,
                                 saw_yield: &mut saw_yield,
@@ -564,7 +570,7 @@ pub(super) fn validate_structure(
                 add_parameters(&method.function.params, &mut symbols)?;
                 symbols.insert(
                     key(&method.function.name),
-                    VarType::Scalar(method.function.return_type.clone()),
+                    VarType::FunctionReturn(method.function.return_type.clone()),
                 );
                 let mut saw_return = assigns_to_name(&method.function.body, &method.function.name);
                 let mut saw_yield = false;
@@ -576,6 +582,7 @@ pub(super) fn validate_structure(
                     Context::MethodFunction {
                         class_name: type_decl.name.clone(),
                         return_type: method.function.return_type.clone(),
+                        return_slot: Some(format!("__return_{}", method.function.name)),
                         is_iterator: method.function.is_iterator,
                         saw_return: &mut saw_return,
                         saw_yield: &mut saw_yield,
@@ -628,7 +635,10 @@ pub(super) fn validate_structure(
                             .return_type
                             .clone()
                             .expect("property get return type");
-                        symbols.insert(key(&property.name), VarType::Scalar(return_type.clone()));
+                        symbols.insert(
+                            key(&property.name),
+                            VarType::FunctionReturn(return_type.clone()),
+                        );
                         let mut saw_return = assigns_to_name(&property.body, &property.name);
                         let mut saw_yield = false;
                         validate_statements(
@@ -639,6 +649,7 @@ pub(super) fn validate_structure(
                             Context::PropertyGet {
                                 class_name: type_decl.name.clone(),
                                 return_type,
+                                return_slot: Some(format!("__return_{}", property.name)),
                                 is_iterator: property.is_iterator,
                                 saw_return: &mut saw_return,
                                 saw_yield: &mut saw_yield,
