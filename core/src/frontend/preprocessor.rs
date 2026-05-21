@@ -82,15 +82,32 @@ pub fn preprocess(source: &str) -> Result<String, Diagnostic> {
 
 fn join_line_continuations(source: &str) -> String {
     let mut output = String::new();
-    for line in source.lines() {
-        let code = strip_comment(line);
-        if code.trim_end().ends_with('_') {
-            let underscore = code.rfind('_').expect("checked");
-            output.push_str(&line[..underscore]);
+    let mut in_string = false;
+    let mut lines = source.lines().peekable();
+
+    while let Some(line) = lines.next() {
+        let mut code = String::new();
+        let mut line_in_string = in_string;
+        for ch in line.chars() {
+            if ch == '"' {
+                line_in_string = !line_in_string;
+            }
+            code.push(ch);
+        }
+
+        let stripped = strip_comment(&code);
+        let trimmed = stripped.trim_end();
+
+        // VBA rule: _ must be preceded by at least one space and be the last non-comment char
+        if !line_in_string && trimmed.ends_with(" _") {
+            let underscore_pos = trimmed.rfind(" _").unwrap();
+            output.push_str(&line[..underscore_pos]);
             output.push(' ');
+            in_string = line_in_string;
         } else {
             output.push_str(line);
             output.push('\n');
+            in_string = line_in_string;
         }
     }
     output

@@ -57,6 +57,22 @@ impl Interpreter {
             ExprKind::New { class_name, args } => {
                 self.new_object(class_name, args, frame, expr.span)
             }
+            ExprKind::IIf {
+                condition,
+                true_expr,
+                false_expr,
+            } => {
+                let cond = self.eval_expr(condition, frame)?;
+                if cond.is_truthy() {
+                    self.eval_expr(true_expr, frame)
+                } else {
+                    self.eval_expr(false_expr, frame)
+                }
+            }
+            ExprKind::Index { target, args } => {
+                let target_val = self.eval_expr(target, frame)?;
+                self.eval_index_expr(target_val, args, frame, expr.span)
+            }
             ExprKind::Variable(name) => {
                 if name.eq_ignore_ascii_case("Erl") {
                     Ok(Value::Int64(self.erl))
@@ -340,6 +356,9 @@ impl Interpreter {
                     crate::BinaryOp::Concat => RuntimeBinaryOp::Concat,
                     crate::BinaryOp::LogicalAnd => RuntimeBinaryOp::LogicalAnd,
                     crate::BinaryOp::LogicalOr => RuntimeBinaryOp::LogicalOr,
+                    crate::BinaryOp::LogicalXor => RuntimeBinaryOp::LogicalXor,
+                    crate::BinaryOp::LogicalEqv => RuntimeBinaryOp::LogicalEqv,
+                    crate::BinaryOp::LogicalImp => RuntimeBinaryOp::LogicalImp,
                     crate::BinaryOp::Equal => RuntimeBinaryOp::Equal,
                     crate::BinaryOp::NotEqual => RuntimeBinaryOp::NotEqual,
                     crate::BinaryOp::Less => RuntimeBinaryOp::Less,
@@ -355,6 +374,70 @@ impl Interpreter {
                 };
                 eval_binary(left, runtime_op, right, runtime_compare, expr.span)
             }
+        }
+    }
+
+    pub(crate) fn eval_index_expr(
+        &mut self,
+        target: Value,
+        args: &[crate::Expr],
+        frame: &mut Frame,
+        span: crate::runtime::Span,
+    ) -> Result<Value, Diagnostic> {
+        match target {
+            Value::Array { .. } => {
+                let mut dims = Vec::new();
+                for arg in args {
+                    dims.push(self.eval_integer_expr(arg, frame, "Array index must be Integer")?);
+                }
+                super::arrays::read_array_element(&target, &dims, span)
+            }
+            Value::Object(ref object) => {
+                let class_name = object.borrow().class_name.clone();
+                if let Some(default_member) = self
+                    .classes
+                    .get(&super::values::key(&class_name))
+                    .and_then(|c| c.default_member.clone())
+                {
+                    return self.call_method_function(
+                        target.clone(),
+                        &default_member,
+                        args,
+                        frame,
+                        span,
+                    );
+                }
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    format!("Class '{}' has no default property", class_name),
+                    Some(span),
+                ))
+            }
+            Value::Record { ref type_name, .. } => {
+                if let Some(default_member) = self
+                    .types
+                    .get(&super::values::key(type_name))
+                    .and_then(|t| t.default_property.clone())
+                {
+                    return self.call_record_function(
+                        target.clone(),
+                        &default_member,
+                        args,
+                        frame,
+                        span,
+                    );
+                }
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::ARRAY,
+                    format!("Structure '{}' has no default property", type_name),
+                    Some(span),
+                ))
+            }
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::ARRAY,
+                "Target is not an array or a class with a default property",
+                Some(span),
+            )),
         }
     }
 

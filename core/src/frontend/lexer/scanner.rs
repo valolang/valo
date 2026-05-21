@@ -42,7 +42,13 @@ impl<'a> Lexer<'a> {
                 '0'..='9' => tokens.push(self.number()?),
                 'A'..='Z' | 'a'..='z' | '_' => tokens.push(self.identifier()),
                 '[' => tokens.push(self.bracketed_identifier()?),
-                '.' => tokens.push(self.single_char(TokenKind::Dot)),
+                '.' => {
+                    if self.peek_next().is_some_and(|c| c.is_ascii_digit()) {
+                        tokens.push(self.number()?)
+                    } else {
+                        tokens.push(self.single_char(TokenKind::Dot))
+                    }
+                }
                 ',' => tokens.push(self.single_char(TokenKind::Comma)),
                 ':' => tokens.push(self.single_char(TokenKind::Colon)),
                 '(' => tokens.push(self.single_char(TokenKind::LeftParen)),
@@ -53,7 +59,15 @@ impl<'a> Lexer<'a> {
                 '^' => tokens.push(self.single_char(TokenKind::Caret)),
                 '/' => tokens.push(self.single_char(TokenKind::Slash)),
                 '\\' => tokens.push(self.single_char(TokenKind::Backslash)),
-                '&' => tokens.push(self.single_char(TokenKind::Ampersand)),
+                '&' => {
+                    if let Some('H') | Some('h') = self.peek_next() {
+                        tokens.push(self.hex_number()?)
+                    } else if let Some('O') | Some('o') = self.peek_next() {
+                        tokens.push(self.octal_number()?)
+                    } else {
+                        tokens.push(self.single_char(TokenKind::Ampersand))
+                    }
+                }
                 '%' => tokens.push(self.single_char(TokenKind::Percent)),
                 '!' => tokens.push(self.single_char(TokenKind::Exclamation)),
                 '#' => tokens.push(self.single_char(TokenKind::Hash)),
@@ -182,6 +196,9 @@ impl<'a> Lexer<'a> {
             "yield" => TokenKind::Yield,
             "and" => TokenKind::And,
             "or" => TokenKind::Or,
+            "xor" => TokenKind::Xor,
+            "eqv" => TokenKind::Eqv,
+            "imp" => TokenKind::Imp,
             "not" => TokenKind::Not,
             "mod" => TokenKind::Mod,
             "redim" => TokenKind::ReDim,
@@ -236,21 +253,61 @@ impl<'a> Lexer<'a> {
         let start = self.pos();
         let mut text = String::new();
         let mut is_float = false;
+        let mut has_exponent = false;
+
+        if let Some('.') = self.peek() {
+            is_float = true;
+            text.push('.');
+            self.advance();
+        }
 
         while let Some(ch) = self.peek() {
             if ch.is_ascii_digit() {
                 text.push(ch);
                 self.advance();
-            } else if ch == '.' && !is_float {
-                if self.peek_next().is_some_and(|c| c.is_ascii_digit()) {
+            } else if ch == '.' && !is_float && !has_exponent {
+                is_float = true;
+                text.push(ch);
+                self.advance();
+            } else if (ch == 'E' || ch == 'e') && !has_exponent {
+                let mut valid = false;
+                if let Some(next) = self.peek_next() {
+                    if next.is_ascii_digit() {
+                        valid = true;
+                    } else if next == '+' || next == '-' {
+                        if self.peek_at(2).is_some_and(|c| c.is_ascii_digit()) {
+                            valid = true;
+                        }
+                    }
+                }
+
+                if valid {
+                    has_exponent = true;
                     is_float = true;
                     text.push(ch);
                     self.advance();
+                    if let Some(next) = self.peek() {
+                        if next == '+' || next == '-' {
+                            text.push(next);
+                            self.advance();
+                        }
+                    }
                 } else {
                     break;
                 }
             } else {
                 break;
+            }
+        }
+
+        if let Some(ch) = self.peek() {
+            match ch {
+                '%' | '&' | '^' | '!' | '#' | '@' => {
+                    text.push(ch);
+                    self.advance();
+                    is_float = true;
+                }
+                _ => {}
             }
         }
 
@@ -295,6 +352,52 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
+    }
+
+    fn hex_number(&mut self) -> Result<Token, Diagnostic> {
+        let start = self.pos();
+        self.advance(); // &
+        self.advance(); // H or h
+        let mut text = String::new();
+        while let Some(ch) = self.peek() {
+            if ch.is_ascii_hexdigit() {
+                text.push(ch);
+                self.advance();
+            } else if ch == '&' {
+                text.push(ch);
+                self.advance();
+                break;
+            } else {
+                break;
+            }
+        }
+        Ok(Token {
+            kind: TokenKind::Hex(text),
+            span: Span::new(self.file_id, start, self.pos()),
+        })
+    }
+
+    fn octal_number(&mut self) -> Result<Token, Diagnostic> {
+        let start = self.pos();
+        self.advance(); // &
+        self.advance(); // O or o
+        let mut text = String::new();
+        while let Some(ch) = self.peek() {
+            if ('0'..='7').contains(&ch) {
+                text.push(ch);
+                self.advance();
+            } else if ch == '&' {
+                text.push(ch);
+                self.advance();
+                break;
+            } else {
+                break;
+            }
+        }
+        Ok(Token {
+            kind: TokenKind::Octal(text),
+            span: Span::new(self.file_id, start, self.pos()),
+        })
     }
 
     fn string(&mut self) -> Result<Token, Diagnostic> {
@@ -399,6 +502,10 @@ impl<'a> Lexer<'a> {
 
     fn peek_next(&self) -> Option<char> {
         self.chars.get(self.index + 1).copied()
+    }
+
+    fn peek_at(&self, offset: usize) -> Option<char> {
+        self.chars.get(self.index + offset).copied()
     }
 
     fn advance(&mut self) -> Option<char> {

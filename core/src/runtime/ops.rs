@@ -16,6 +16,9 @@ pub enum RuntimeBinaryOp {
     Concat,
     LogicalAnd,
     LogicalOr,
+    LogicalXor,
+    LogicalEqv,
+    LogicalImp,
     Equal,
     NotEqual,
     Is,
@@ -90,6 +93,15 @@ pub fn eval_binary(
         }
         RuntimeBinaryOp::LogicalOr => {
             logical_or_bitwise(left, right, span, |a, b| a || b, |a, b| a | b)
+        }
+        RuntimeBinaryOp::LogicalXor => {
+            logical_or_bitwise(left, right, span, |a, b| a ^ b, |a, b| a ^ b)
+        }
+        RuntimeBinaryOp::LogicalEqv => {
+            logical_or_bitwise(left, right, span, |a, b| a == b, |a, b| !(a ^ b))
+        }
+        RuntimeBinaryOp::LogicalImp => {
+            logical_or_bitwise(left, right, span, |a, b| !a || b, |a, b| (!a) | b)
         }
         RuntimeBinaryOp::Equal => Ok(Value::Boolean(values_equal(&left, &right, compare))),
         RuntimeBinaryOp::NotEqual => Ok(Value::Boolean(!values_equal(&left, &right, compare))),

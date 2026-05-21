@@ -629,6 +629,27 @@ pub(super) fn validate_expr(
             )?;
             Ok(function.return_type.clone().expect("function return type"))
         }
+        ExprKind::Index { target, args } => {
+            let _target_type = validate_expr(target, symbols, types, signatures)?;
+            for arg in args {
+                validate_expr(arg, symbols, types, signatures)?;
+            }
+            Ok(TypeName::Variant)
+        }
+        ExprKind::IIf {
+            condition,
+            true_expr,
+            false_expr,
+        } => {
+            validate_expr(condition, symbols, types, signatures)?;
+            let true_type = validate_expr(true_expr, symbols, types, signatures)?;
+            let false_type = validate_expr(false_expr, symbols, types, signatures)?;
+            if true_type.same_type(&false_type) {
+                Ok(true_type)
+            } else {
+                Ok(TypeName::Variant)
+            }
+        }
         ExprKind::Binary { left, op, right } => {
             let left_type = validate_expr(left, symbols, types, signatures)?;
             let right_type = validate_expr(right, symbols, types, signatures)?;
@@ -655,7 +676,11 @@ pub(super) fn validate_expr(
                     }
                 }
                 BinaryOp::Concat => Ok(TypeName::String),
-                BinaryOp::LogicalAnd | BinaryOp::LogicalOr => {
+                BinaryOp::LogicalAnd
+                | BinaryOp::LogicalOr
+                | BinaryOp::LogicalXor
+                | BinaryOp::LogicalEqv
+                | BinaryOp::LogicalImp => {
                     if left_type.same_type(&TypeName::Boolean)
                         && right_type.same_type(&TypeName::Boolean)
                     {

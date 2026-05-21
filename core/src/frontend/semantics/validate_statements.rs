@@ -1287,6 +1287,18 @@ fn expr_uses_with_target(expr: &Expr) -> bool {
         ExprKind::New { args, .. } | ExprKind::Call { args, .. } => {
             args.iter().any(expr_uses_with_target)
         }
+        ExprKind::Index { target, args } => {
+            expr_uses_with_target(target) || args.iter().any(expr_uses_with_target)
+        }
+        ExprKind::IIf {
+            condition,
+            true_expr,
+            false_expr,
+        } => {
+            expr_uses_with_target(condition)
+                || expr_uses_with_target(true_expr)
+                || expr_uses_with_target(false_expr)
+        }
         ExprKind::NamedArg { expr, .. } | ExprKind::TypeOfIs { expr, .. } => {
             expr_uses_with_target(expr)
         }

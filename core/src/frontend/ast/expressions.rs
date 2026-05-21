@@ -35,6 +35,15 @@ pub enum ExprKind {
         name: String,
         args: Vec<Expr>,
     },
+    Index {
+        target: Box<Expr>,
+        args: Vec<Expr>,
+    },
+    IIf {
+        condition: Box<Expr>,
+        true_expr: Box<Expr>,
+        false_expr: Box<Expr>,
+    },
     MemberAccess {
         object: Box<Expr>,
         field: String,
@@ -67,6 +76,9 @@ pub enum BinaryOp {
     Concat,
     LogicalAnd,
     LogicalOr,
+    LogicalXor,
+    LogicalEqv,
+    LogicalImp,
     Equal,
     NotEqual,
     Less,

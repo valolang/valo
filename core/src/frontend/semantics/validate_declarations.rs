@@ -1408,6 +1408,8 @@ pub(super) fn ensure_const_expr(
         | ExprKind::WithTarget
         | ExprKind::New { .. }
         | ExprKind::Call { .. }
+        | ExprKind::Index { .. }
+        | ExprKind::IIf { .. }
         | ExprKind::NamedArg { .. }
         | ExprKind::TypeOfIs { .. }
         | ExprKind::MemberCall { .. } => Err(Diagnostic::new(
