@@ -1,31 +1,7 @@
 use super::helpers::{run_source, source_diagnostic};
-
-#[cfg(unix)]
-fn libc_name() -> &'static str {
-    #[cfg(target_os = "android")]
-    {
-        "libc.so"
-    }
-    #[cfg(all(unix, not(target_os = "android")))]
-    {
-        "libc.so.6"
-    }
-}
-
-#[cfg(unix)]
-fn libm_name() -> &'static str {
-    #[cfg(target_os = "android")]
-    {
-        "libm.so"
-    }
-    #[cfg(all(unix, not(target_os = "android")))]
-    {
-        "libm.so.6"
-    }
-}
+use crate::runtime::ffi_platform::*;
 
 #[test]
-#[cfg(unix)]
 fn declare_function_calls_libc_strlen_with_byval_string() {
     let source = format!(
         r#"
@@ -35,7 +11,7 @@ Sub Main()
     Console.WriteLine(lstrlen("Valo"))
 End Sub
 "#,
-        libc_name()
+        platform_libc()
     );
 
     assert_eq!(run_source(&source), vec!["4"]);
@@ -53,31 +29,30 @@ Sub Main()
     Console.WriteLine("ok")
 End Sub
 "#,
-        libc_name()
+        platform_libc()
     );
 
     assert_eq!(run_source(&source), vec!["ok"]);
 }
 
 #[test]
-#[cfg(unix)]
 fn declare_function_calls_libm_with_double_argument_and_return() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function NativeCos Lib "{}" Alias "cos" CDecl (ByVal value As Double) As Double
+Private Declare PtrSafe Function NativeCos Lib "{}" Alias "{}" CDecl (ByVal value As Double) As Double
 
 Sub Main()
     Console.WriteLine(NativeCos(0#))
 End Sub
 "#,
-        libm_name()
+        platform_libm(),
+        platform_test_math_symbol()
     );
 
     assert_eq!(run_source(&source), vec!["1"]);
 }
 
 #[test]
-#[cfg(unix)]
 fn declare_byref_numeric_argument_is_written_back() {
     let source = format!(
         r#"
@@ -89,10 +64,56 @@ Sub Main()
     Console.WriteLine(value <> 0)
 End Sub
 "#,
-        libc_name()
+        platform_libc()
     );
 
     assert_eq!(run_source(&source), vec!["True", "True"]);
+}
+
+#[test]
+#[cfg(windows)]
+fn declare_windows_get_current_process_id() {
+    let source = r#"
+Private Declare PtrSafe Function GetCurrentProcessId Lib "kernel32" () As Long
+
+Sub Main()
+    Console.WriteLine(GetCurrentProcessId() <> 0)
+End Sub
+"#;
+    assert_eq!(run_source(source), vec!["True"]);
+}
+
+#[test]
+#[cfg(windows)]
+fn declare_windows_message_box_a() {
+    // MessageBoxA(0, "text", "caption", 0)
+    let source = r#"
+Private Declare PtrSafe Function MessageBox Lib "user32" Alias "MessageBoxA" (ByVal hwnd As LongPtr, ByVal text As String, ByVal caption As String, ByVal utype As Long) As Long
+
+Sub Main()
+    ' We won't actually call it because it's interactive, but we check if it resolves and returns something if we could mock it.
+    ' Actually, let's not call interactive APIs in tests.
+End Sub
+"#;
+    // Just parse and validate
+    let program = crate::parse_source(source).unwrap();
+    crate::validate(&program).unwrap();
+}
+
+#[test]
+#[cfg(unix)]
+fn declare_unix_getpid() {
+    let source = format!(
+        r#"
+Private Declare PtrSafe Function getpid Lib "{}" () As Long
+
+Sub Main()
+    Console.WriteLine(getpid() <> 0)
+End Sub
+"#,
+        platform_libc()
+    );
+    assert_eq!(run_source(&source), vec!["True"]);
 }
 
 #[test]
@@ -116,7 +137,6 @@ End Sub
 }
 
 #[test]
-#[cfg(unix)]
 fn missing_native_symbol_reports_v3002() {
     let source = format!(
         r#"
@@ -126,7 +146,7 @@ Sub Main()
     Console.WriteLine(Nope())
 End Sub
 "#,
-        libc_name()
+        platform_libc()
     );
     let diagnostic = source_diagnostic(&source);
 
@@ -139,7 +159,6 @@ End Sub
 }
 
 #[test]
-#[cfg(unix)]
 fn unsupported_byref_string_reports_v3003() {
     let source = format!(
         r#"
@@ -151,7 +170,7 @@ Sub Main()
     Console.WriteLine(lstrlen(value))
 End Sub
 "#,
-        libc_name()
+        platform_libc()
     );
     let diagnostic = source_diagnostic(&source);
 

@@ -43,9 +43,10 @@ Future FFI resources (file handles, database connections) will primarily utilize
 
 The interpreter registers `Declare Function` and `Declare Sub` declarations as callable signatures during semantic validation and runtime initialization. Calls are dispatched before normal Valo procedure lookup.
 
-Native support lives in `core/src/backend/interpreter/ffi.rs` and provides:
+Native support lives in `core/src/backend/interpreter/ffi.rs` and `core/src/runtime/ffi_platform.rs`, providing:
 
 *   Platform library resolution and caching.
+*   Automatic system library mapping (`libc`/`libm` to platform equivalents).
 *   Symbol lookup through `LoadLibrary`/`GetProcAddress` on Windows and `dlopen`/`dlsym` on Unix platforms.
 *   Mixed-signature invocation through `libffi`.
 *   Pointer-aware `PtrSafe` and `LongPtr` validation.

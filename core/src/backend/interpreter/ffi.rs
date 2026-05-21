@@ -555,12 +555,27 @@ impl NativeLibraries {
                 }
             }
             let Some(library) = loaded else {
-                return Err(Diagnostic::new(
+                let diagnostic = Diagnostic::new(
                     crate::runtime::DiagnosticCode::FFI_LIBRARY_NOT_FOUND,
                     format!("native library `{lib}` could not be loaded"),
                     Some(span),
                 )
-                .with_note(format!("attempted: {}", attempted.join(", "))));
+                .with_note(format!("attempted: {}", attempted.join(", ")));
+
+                #[cfg(target_os = "macos")]
+                {
+                    if lib.eq_ignore_ascii_case("libc") || lib.eq_ignore_ascii_case("libm") {
+                        return Err(diagnostic.with_help("try using `libSystem.B.dylib` or just `libc` / `libm` for automatic resolution"));
+                    }
+                }
+                #[cfg(windows)]
+                {
+                    if lib.eq_ignore_ascii_case("libc") || lib.eq_ignore_ascii_case("libm") {
+                        return Err(diagnostic.with_help("try using `msvcrt.dll` or just `libc` / `libm` for automatic resolution"));
+                    }
+                }
+
+                return Err(diagnostic);
             };
             self.handles.insert(key.clone(), library);
         }
@@ -1245,9 +1260,15 @@ fn platform_names(lib: &str) -> Vec<String> {
             names.push(format!("{lib}.dll"));
         }
         names.push(lib.to_string());
+        if lib.eq_ignore_ascii_case("libc") || lib.eq_ignore_ascii_case("libm") {
+            names.push("msvcrt.dll".to_string());
+        }
     }
     #[cfg(target_os = "macos")]
     {
+        if lib.eq_ignore_ascii_case("libc") || lib.eq_ignore_ascii_case("libm") {
+            names.push("libSystem.B.dylib".to_string());
+        }
         if !lib.ends_with(".dylib") {
             names.push(format!("lib{lib}.dylib"));
             names.push(format!("{lib}.dylib"));
@@ -1259,15 +1280,23 @@ fn platform_names(lib: &str) -> Vec<String> {
     {
         match lib {
             #[cfg(target_os = "android")]
-            "libc" => names.push("libc.so".to_string()),
+            "libc" | "libm" => {
+                names.push("libc.so".to_string());
+                names.push("libm.so".to_string());
+            }
             #[cfg(not(target_os = "android"))]
             "libc" => names.push("libc.so.6".to_string()),
+            #[cfg(not(target_os = "android"))]
             "libm" => names.push("libm.so.6".to_string()),
             _ => {}
         }
         if !lib.contains(".so") {
             names.push(format!("{lib}.so"));
             names.push(format!("lib{lib}.so"));
+            if !lib.contains(".so.") {
+                names.push(format!("{lib}.so.6"));
+                names.push(format!("lib{lib}.so.6"));
+            }
         }
         names.push(format!("/lib/{lib}"));
         names.push(format!("/usr/lib/{lib}"));

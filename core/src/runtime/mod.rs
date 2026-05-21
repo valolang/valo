@@ -11,6 +11,7 @@ pub mod numeric;
 pub mod ops;
 mod type_name;
 mod value;
+pub mod ffi_platform;
 
 pub use coerce::coerce_assignment;
 pub use diagnostic::{
