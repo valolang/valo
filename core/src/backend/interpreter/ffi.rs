@@ -7,7 +7,9 @@ use std::rc::Rc;
 
 use libffi::middle::{Arg as FfiArg, Cif, CodePtr, Ret, Type as FfiType, arg as ffi_arg};
 
-use crate::runtime::{Diagnostic, Span, TypeName, Value, coerce_assignment};
+use crate::runtime::{
+    ArrayValue, Diagnostic, RecordValue, Span, TypeName, Value, coerce_assignment,
+};
 use crate::{CallingConvention, DeclareDecl, DeclareKind, Expr, ExprKind, PassingMode};
 
 use super::frame::Variable;
@@ -540,7 +542,7 @@ impl Interpreter {
                         None
                     };
                     let value = if let Some(variable) = &variable {
-                        variable.cell.borrow().clone()
+                        variable.borrow().clone()
                     } else {
                         self.eval_expr(arg, frame)?
                     };
@@ -638,7 +640,7 @@ impl NativeLibraries {
 impl MarshaledArgs {
     fn write_back(&mut self, types: &HashMap<String, RuntimeType>) -> Result<(), Diagnostic> {
         for update in &self.byrefs {
-            let original_value = update.variable.cell.borrow().clone();
+            let original_value = update.variable.borrow().clone();
             let value = value_from_storage(
                 &self.storage[update.storage_index],
                 &update.ty,
@@ -646,7 +648,7 @@ impl MarshaledArgs {
                 types,
                 update.span,
             )?;
-            *update.variable.cell.borrow_mut() =
+            *update.variable.borrow_mut() =
                 coerce_assignment(&update.variable.ty, value, update.span)?;
         }
         Ok(())
@@ -834,11 +836,11 @@ fn marshal_byval(
         Value::Null | Value::Nothing | Value::Empty => {
             (ArgumentStorage::Ptr(Box::new(0)), FfiType::pointer())
         }
-        Value::Array { .. } => Err(unsupported(
+        Value::Array(_) => Err(unsupported(
             "ByVal arrays are not supported by native marshaling",
             span,
         ))?,
-        Value::Record { .. } => Err(unsupported(
+        Value::Record(_) => Err(unsupported(
             "ByVal structures are not supported; pass structures ByRef",
             span,
         ))?,
@@ -895,28 +897,23 @@ fn marshal_byref(
                 span,
             ));
         }
-        Value::Array {
-            element_type,
-            elements,
-            allocated,
-            ..
-        } => {
-            if !allocated {
+        Value::Array(array) => {
+            if !array.allocated {
                 return Err(unsupported(
                     "unallocated arrays cannot be passed to native code",
                     span,
                 ));
             }
-            ArgumentStorage::Array(pack_array(&element_type, &elements, span)?)
+            ArgumentStorage::Array(pack_array(&array.element_type, &array.elements, span)?)
         }
-        Value::Record { type_name, fields } => {
-            let ty = types.get(&key(&type_name)).ok_or_else(|| {
+        Value::Record(record) => {
+            let ty = types.get(&key(&record.type_name)).ok_or_else(|| {
                 unsupported(
-                    format!("structure type '{}' is not available", type_name),
+                    format!("structure type '{}' is not available", record.type_name),
                     span,
                 )
             })?;
-            ArgumentStorage::Record(pack_record(ty, &fields, span)?)
+            ArgumentStorage::Record(pack_record(ty, &record.fields, span)?)
         }
         Value::Null | Value::Nothing | Value::Empty => ArgumentStorage::Ptr(Box::new(0)),
         Value::Object(_)
@@ -1013,22 +1010,15 @@ fn value_from_storage(
             unpack_record(rt, bytes, span)?
         }
         (ArgumentStorage::Array(bytes), _) => {
-            if let Value::Array {
-                element_type,
-                bounds,
-                allocated,
-                dynamic,
-                ..
-            } = original_value
-            {
-                let elements = unpack_array(element_type, bytes, span)?;
-                Value::Array {
-                    element_type: element_type.clone(),
+            if let Value::Array(array) = original_value {
+                let elements = unpack_array(&array.element_type, bytes, span)?;
+                Value::Array(Rc::new(ArrayValue {
+                    element_type: array.element_type.clone(),
                     elements,
-                    bounds: bounds.clone(),
-                    allocated: *allocated,
-                    dynamic: *dynamic,
-                }
+                    bounds: array.bounds.clone(),
+                    allocated: array.allocated,
+                    dynamic: array.dynamic,
+                }))
             } else {
                 return Err(unsupported("original value was not an array", span));
             }
@@ -1070,10 +1060,10 @@ fn unpack_record(ty: &RuntimeType, bytes: &[u8], span: Span) -> Result<Value, Di
         offset += size;
     }
     let _ = align_offset(offset, max_align);
-    Ok(Value::Record {
+    Ok(Value::Record(Rc::new(RecordValue {
         type_name: ty.name.clone(),
         fields,
-    })
+    })))
 }
 
 fn read_value(bytes: &[u8], ty: &TypeName, span: Span) -> Result<(Value, usize), Diagnostic> {

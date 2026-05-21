@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::runtime::{Diagnostic, EventBinding, ObjectValue, Span, TypeName, Value};
+use crate::runtime::{ArrayValue, Diagnostic, EventBinding, ObjectValue, Span, TypeName, Value};
 use crate::{ArrayDecl, ClassMember, Expr, ExprKind, Function, Procedure, PropertyKind};
 
 use super::arrays::{array_element_mut, read_array_element, redim_array, write_array_element};
@@ -41,13 +41,13 @@ impl Interpreter {
                 }
             };
 
-            return Ok(Value::Array {
+            return Ok(Value::Array(Rc::new(crate::runtime::ArrayValue {
                 element_type: ty.clone(),
                 elements,
                 bounds,
                 allocated,
                 dynamic: is_dynamic,
-            });
+            })));
         }
 
         default_value(ty, &self.types, &self.enums, span)
@@ -173,9 +173,11 @@ impl Interpreter {
             }
             if !args.is_empty() {
                 let mut constructed = record;
-                let Value::Record { fields, .. } = &mut constructed else {
+                let Value::Record(record_data) = &mut constructed else {
                     unreachable!();
                 };
+                let record_data = Rc::make_mut(record_data);
+                let fields = &mut record_data.fields;
                 if args.len() != type_def.fields.len() {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::GENERIC,
@@ -254,11 +256,11 @@ impl Interpreter {
         }
         match read_field_member(value, member, span) {
             Ok(value) => Ok(value),
-            Err(error) if matches!(value, Value::Record { .. }) => {
-                if let Value::Record { type_name, .. } = value
+            Err(error) if matches!(value, Value::Record(_)) => {
+                if let Value::Record(record) = value
                     && self
                         .types
-                        .get(&key(type_name))
+                        .get(&key(&record.type_name))
                         .is_some_and(|type_def| type_def.properties.contains_key(&key(member)))
                 {
                     return self.call_record_property_get(value.clone(), member, &[], frame, span);
@@ -322,7 +324,7 @@ impl Interpreter {
                     );
                 }
                 let variable = frame.variable(name, target.span)?;
-                let mut root = variable.cell.borrow_mut();
+                let mut root = variable.borrow_mut();
                 let element = array_element_mut(&mut root, &indices, span)?;
                 if object_has_field(element, member) || !matches!(element, Value::Object(_)) {
                     let old = write_member(element, member, value, span)?;
@@ -351,13 +353,13 @@ impl Interpreter {
         value: Value,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let mut root = variable.cell.borrow_mut();
+        let mut root = variable.borrow_mut();
         if object_has_field(&root, member) || !matches!(&*root, Value::Object(_)) {
-            if let Value::Record { type_name, fields } = &*root
-                && !fields.contains_key(&key(member))
+            if let Value::Record(record) = &*root
+                && !record.fields.contains_key(&key(member))
                 && self
                     .types
-                    .get(&key(type_name))
+                    .get(&key(&record.type_name))
                     .is_some_and(|type_def| type_def.properties.contains_key(&key(member)))
             {
                 drop(root);
@@ -498,28 +500,22 @@ impl Interpreter {
                 Some(span),
             ));
         };
-        let Value::Array {
-            element_type,
-            elements,
-            allocated,
-            bounds,
-            dynamic,
-        } = slot
-        else {
+        let Value::Array(array) = slot else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::ARRAY,
                 "Erase target must be an array",
                 Some(span),
             ));
         };
+        let array = Rc::make_mut(array);
 
-        if *dynamic {
-            elements.clear();
-            bounds.clear();
-            *allocated = false;
+        if array.dynamic {
+            array.elements.clear();
+            array.bounds.clear();
+            array.allocated = false;
         } else {
-            for element in elements.iter_mut() {
-                *element = default_value(element_type, &self.types, &self.enums, span)?;
+            for element in &mut array.elements {
+                *element = default_value(&array.element_type, &self.types, &self.enums, span)?;
             }
         }
         Ok(())
@@ -581,13 +577,13 @@ impl Interpreter {
             ));
         };
         if matches!(slot, Value::Empty | Value::Null | Value::Missing) {
-            *slot = Value::Array {
+            *slot = Value::Array(Rc::new(ArrayValue {
                 element_type: TypeName::Variant,
                 elements: Vec::new(),
                 bounds: Vec::new(),
                 allocated: false,
                 dynamic: true,
-            };
+            }));
         }
         redim_array(slot, new_bounds, preserve, &self.types, &self.enums, span)
     }

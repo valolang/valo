@@ -1,5 +1,6 @@
 use crate::runtime::{Diagnostic, Span, TypeName, Value, coerce_assignment};
 use crate::{ClassMember, TypeDecl, TypeKind};
+use std::rc::Rc;
 
 use super::properties::{RuntimeProperty, RuntimePropertyAccessor};
 use super::values::key;
@@ -28,7 +29,7 @@ pub(crate) fn read_field_member(
         .with_primary_label("attempted to access a member on Nothing")
         .with_help("assign an object before accessing its members"));
     }
-    let Value::Record { type_name, fields } = value else {
+    let Value::Record(record) = value else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
             "Member access requires a user-defined Type value",
@@ -36,10 +37,10 @@ pub(crate) fn read_field_member(
         ));
     };
 
-    fields.get(&key(field)).cloned().ok_or_else(|| {
+    record.fields.get(&key(field)).cloned().ok_or_else(|| {
         Diagnostic::new(
             crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!("Type '{}' has no field '{}'", type_name, field),
+            format!("Type '{}' has no field '{}'", record.type_name, field),
             Some(span),
         )
     })
@@ -74,18 +75,19 @@ pub(crate) fn write_member(
         .with_primary_label("attempted to assign a member on Nothing")
         .with_help("assign an object before assigning its members"));
     }
-    let Value::Record { type_name, fields } = value else {
+    let Value::Record(record) = value else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
             "Member assignment requires a user-defined Type value",
             Some(span),
         ));
     };
+    let record = Rc::make_mut(record);
 
-    let Some(slot) = fields.get_mut(&key(field)) else {
+    let Some(slot) = record.fields.get_mut(&key(field)) else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!("Type '{}' has no field '{}'", type_name, field),
+            format!("Type '{}' has no field '{}'", record.type_name, field),
             Some(span),
         ));
     };

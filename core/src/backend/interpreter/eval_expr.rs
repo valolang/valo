@@ -214,7 +214,7 @@ impl Interpreter {
                 if frame.has_variable(name) {
                     let value = frame.get(name, expr.span)?;
                     match value {
-                        Value::Array { .. } => {
+                        Value::Array(_) => {
                             let mut dims = Vec::new();
                             for arg in args {
                                 dims.push(self.eval_integer_expr(
@@ -249,10 +249,10 @@ impl Interpreter {
                                 Some(expr.span),
                             ));
                         }
-                        Value::Record { ref type_name, .. } => {
+                        Value::Record(ref record) => {
                             if let Some(default_member) = self
                                 .types
-                                .get(&super::values::key(type_name))
+                                .get(&super::values::key(&record.type_name))
                                 .and_then(|t| t.default_property.clone())
                             {
                                 return self.call_record_function(
@@ -283,7 +283,7 @@ impl Interpreter {
                 }
                 if let Ok(me) = frame.get("me", expr.span)
                     && let Ok(field_value) = self.read_member(&me, name, frame, expr.span)
-                    && matches!(field_value, Value::Array { .. })
+                    && matches!(field_value, Value::Array(_))
                 {
                     let mut dims = Vec::new();
                     for arg in args {
@@ -310,7 +310,7 @@ impl Interpreter {
                     return self.call_module_function(module_name, method, args, frame, expr.span);
                 }
                 let object = self.eval_expr(object, frame)?;
-                if matches!(object, Value::Record { .. }) {
+                if matches!(object, Value::Record(_)) {
                     return self.call_record_function(object, method, args, frame, expr.span);
                 }
                 self.call_method_function(object, method, args, frame, expr.span)
@@ -401,7 +401,7 @@ impl Interpreter {
         span: crate::runtime::Span,
     ) -> Result<Value, Diagnostic> {
         match target {
-            Value::Array { .. } => {
+            Value::Array(_) => {
                 let mut dims = Vec::new();
                 for arg in args {
                     dims.push(self.eval_integer_expr(arg, frame, "Array index must be Integer")?);
@@ -429,10 +429,10 @@ impl Interpreter {
                     Some(span),
                 ))
             }
-            Value::Record { ref type_name, .. } => {
+            Value::Record(ref record) => {
                 if let Some(default_member) = self
                     .types
-                    .get(&super::values::key(type_name))
+                    .get(&super::values::key(&record.type_name))
                     .and_then(|t| t.default_property.clone())
                 {
                     return self.call_record_function(
@@ -445,7 +445,7 @@ impl Interpreter {
                 }
                 Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::ARRAY,
-                    format!("Structure '{}' has no default property", type_name),
+                    format!("Structure '{}' has no default property", record.type_name),
                     Some(span),
                 ))
             }
@@ -463,12 +463,8 @@ impl Interpreter {
         frame: &mut Frame,
         span: crate::runtime::Span,
     ) -> Result<Value, Diagnostic> {
-        if matches!(value, Value::Record { .. }) {
-            let type_name = match &value {
-                Value::Record { type_name, .. } => type_name.clone(),
-                _ => unreachable!(),
-            };
-            if let Some(type_def) = self.types.get(&super::values::key(&type_name))
+        if let Value::Record(record) = &value {
+            if let Some(type_def) = self.types.get(&super::values::key(&record.type_name))
                 && let Some(default_member) = type_def.default_property.clone()
             {
                 return self.call_record_property_get(value, &default_member, &[], frame, span);

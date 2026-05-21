@@ -946,14 +946,18 @@ impl Interpreter {
                     )?;
                 }
             }
-            Value::Array { elements, .. } => {
-                for element in elements {
-                    self.maybe_terminate(element, span)?;
+            Value::Array(array) => {
+                if let Ok(array) = Rc::try_unwrap(array) {
+                    for element in array.elements {
+                        self.maybe_terminate(element, span)?;
+                    }
                 }
             }
-            Value::Record { fields, .. } => {
-                for field_value in fields.into_values() {
-                    self.maybe_terminate(field_value, span)?;
+            Value::Record(record) => {
+                if let Ok(record) = Rc::try_unwrap(record) {
+                    for field_value in record.fields.into_values() {
+                        self.maybe_terminate(field_value, span)?;
+                    }
                 }
             }
             _ => {}
@@ -967,7 +971,7 @@ impl Interpreter {
         span: crate::runtime::Span,
     ) -> Result<(), Diagnostic> {
         for (_, variable) in frame.into_variables() {
-            let value = variable.cell.borrow().clone();
+            let value = variable.borrow().clone();
             drop(variable);
             self.maybe_terminate(value, span)?;
         }

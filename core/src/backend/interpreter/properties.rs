@@ -1,5 +1,6 @@
-use crate::runtime::{Diagnostic, Span, TypeName, Value, coerce_assignment};
+use crate::runtime::{ArrayValue, Diagnostic, Span, TypeName, Value, coerce_assignment};
 use crate::{ClassProperty, Expr, PropertyKind, Stmt};
+use std::rc::Rc;
 
 use super::frame::Variable;
 use super::objects::ensure_object;
@@ -9,19 +10,20 @@ use super::{ControlFlow, Frame, Interpreter};
 impl Interpreter {
     pub(crate) fn call_record_property_get(
         &mut self,
-        record: Value,
+        record_val: Value,
         property: &str,
         args: &[Expr],
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let Value::Record { type_name, .. } = &record else {
+        let Value::Record(record) = &record_val else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "Property access requires a Structure value",
+                "Property assignment requires a Structure value",
                 Some(span),
             ));
         };
+        let type_name = &record.type_name;
         let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -45,7 +47,12 @@ impl Interpreter {
         if let Some((module_key, _)) = key(&structure.name).split_once('.') {
             frame.set_module_key(module_key.to_string());
         }
-        frame.declare_const("me", TypeName::User(structure.name.clone()), record, span)?;
+        frame.declare_const(
+            "me",
+            TypeName::User(structure.name.clone()),
+            record_val.clone(),
+            span,
+        )?;
         self.bind_parameters(&accessor.params, args, caller_frame, &mut frame)?;
         let return_type = self.resolve_type_name(
             accessor.return_type.as_ref().expect("get return type"),
@@ -85,7 +92,7 @@ impl Interpreter {
                 if accessor.is_iterator {
                     let elements = frame.take_yielded_values().unwrap_or_default();
                     let len = elements.len() as i64;
-                    Ok(Value::Array {
+                    Ok(Value::Array(Rc::new(ArrayValue {
                         element_type: return_type,
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
@@ -94,7 +101,7 @@ impl Interpreter {
                         }],
                         allocated: true,
                         dynamic: true,
-                    })
+                    })))
                 } else {
                     frame.get(&accessor.name, accessor.span)
                 }
@@ -128,14 +135,15 @@ impl Interpreter {
         value: Value,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let record = variable.cell.borrow().clone();
-        let Value::Record { type_name, .. } = &record else {
+        let record_val = variable.borrow().clone();
+        let Value::Record(record) = &record_val else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "Property assignment requires a Structure value",
                 Some(span),
             ));
         };
+        let type_name = &record.type_name;
         let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -288,7 +296,7 @@ impl Interpreter {
                 if accessor.is_iterator {
                     let elements = frame.take_yielded_values().unwrap_or_default();
                     let len = elements.len() as i64;
-                    Ok(Value::Array {
+                    Ok(Value::Array(Rc::new(ArrayValue {
                         element_type: return_type,
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
@@ -297,7 +305,7 @@ impl Interpreter {
                         }],
                         allocated: true,
                         dynamic: true,
-                    })
+                    })))
                 } else {
                     frame.get(&accessor.name, accessor.span)
                 }

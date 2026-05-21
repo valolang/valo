@@ -4,6 +4,21 @@ use crate::TypeName;
 use crate::runtime::ArrayBound;
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ArrayValue {
+    pub element_type: TypeName,
+    pub elements: Vec<Value>,
+    pub bounds: Vec<ArrayBound>,
+    pub allocated: bool,
+    pub dynamic: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordValue {
+    pub type_name: String,
+    pub fields: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     String(String),
     Byte(u8),
@@ -20,17 +35,8 @@ pub enum Value {
     Date(f64), // VBA serial date
     Ptr(usize),
     FuncPtr(usize),
-    Array {
-        element_type: TypeName,
-        elements: Vec<Value>,
-        bounds: Vec<ArrayBound>,
-        allocated: bool,
-        dynamic: bool,
-    },
-    Record {
-        type_name: String,
-        fields: HashMap<String, Value>,
-    },
+    Array(Rc<ArrayValue>),
+    Record(Rc<RecordValue>),
     Object(Rc<RefCell<ObjectValue>>),
     Error(i32),
     Nothing,
@@ -82,8 +88,8 @@ impl Value {
             Value::Date(_) => TypeName::Date,
             Value::Ptr(_) => TypeName::Ptr,
             Value::FuncPtr(_) => TypeName::FuncPtr,
-            Value::Array { .. } => TypeName::Variant,
-            Value::Record { type_name, .. } => TypeName::User(type_name.clone()),
+            Value::Array(_) => TypeName::Variant,
+            Value::Record(record) => TypeName::User(record.type_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
             Value::Error(_) => TypeName::Variant,
             Value::Nothing | Value::Null | Value::Missing => TypeName::Variant,
@@ -108,12 +114,8 @@ impl Value {
             Value::Ptr(value) => *value != 0,
             Value::FuncPtr(value) => *value != 0,
             Value::String(value) => !value.is_empty(),
-            Value::Array {
-                elements,
-                allocated,
-                ..
-            } => *allocated && !elements.is_empty(),
-            Value::Record { .. } => true,
+            Value::Array(array) => array.allocated && !array.elements.is_empty(),
+            Value::Record(_) => true,
             Value::Object(_) => true,
             Value::Error(code) => *code != 0,
             Value::Nothing | Value::Null | Value::Missing => false,
@@ -148,8 +150,8 @@ impl Value {
             Value::Date(value) => format!("<Date: {}>", value),
             Value::Ptr(value) => format!("0x{:X}", value),
             Value::FuncPtr(value) => format!("<FuncPtr: 0x{:X}>", value),
-            Value::Array { .. } => "<Array>".to_string(),
-            Value::Record { type_name, .. } => format!("<{}>", type_name),
+            Value::Array(_) => "<Array>".to_string(),
+            Value::Record(record) => format!("<{}>", record.type_name),
             Value::Object(object) => format!("<{}>", object.borrow().class_name),
             Value::Error(code) => format!("Error {}", code),
             Value::Nothing => "Nothing".to_string(),

@@ -1,5 +1,6 @@
 use crate::runtime::numeric::value_to_i64;
-use crate::runtime::{Diagnostic, Value};
+use crate::runtime::{ArrayValue, Diagnostic, Value};
+use std::rc::Rc;
 
 pub(crate) fn eval_arrays(
     name: &str,
@@ -8,7 +9,7 @@ pub(crate) fn eval_arrays(
 ) -> Result<Option<Value>, Diagnostic> {
     if name.eq_ignore_ascii_case("Array") {
         let len = args.len() as i64;
-        return Ok(Some(Value::Array {
+        return Ok(Some(Value::Array(Rc::new(ArrayValue {
             element_type: crate::runtime::TypeName::Variant,
             elements: args.to_vec(),
             bounds: vec![crate::runtime::ArrayBound {
@@ -17,7 +18,7 @@ pub(crate) fn eval_arrays(
             }],
             allocated: true,
             dynamic: true,
-        }));
+        }))));
     }
 
     if name.eq_ignore_ascii_case("LBound") || name.eq_ignore_ascii_case("UBound") {

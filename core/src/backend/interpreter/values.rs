@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::runtime::numeric::{unary_negate, unary_positive};
-use crate::runtime::{Diagnostic, Span, TypeName, Value, coerce_assignment};
+use crate::runtime::{Diagnostic, RecordValue, Span, TypeName, Value, coerce_assignment};
 use crate::{BinaryOp, Expr, ExprKind, UnaryOp};
 
 use super::records::{RuntimeEnum, RuntimeType};
@@ -47,10 +48,10 @@ pub(crate) fn default_value(
         fields.insert(key(&field.name), value);
     }
 
-    Ok(Value::Record {
+    Ok(Value::Record(Rc::new(RecordValue {
         type_name: type_def.name.clone(),
         fields,
-    })
+    })))
 }
 
 fn eval_const_default(

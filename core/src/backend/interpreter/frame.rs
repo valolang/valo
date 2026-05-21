@@ -1,15 +1,73 @@
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::ArrayDecl;
 use crate::runtime::{
-    ArrayBound, Diagnostic, ObjectValue, Span, TypeName, Value, coerce_assignment,
+    ArrayBound, ArrayValue, Diagnostic, ObjectValue, Span, TypeName, Value, coerce_assignment,
 };
 
 use super::arrays::{read_array_element, redim_array, write_array_element};
 use super::records::{RuntimeEnum, RuntimeType};
 use super::values::{default_value, key};
+
+#[derive(Debug, Clone)]
+pub(crate) enum VariableCell {
+    Direct(Rc<RefCell<Value>>),
+    ArrayElement {
+        array: Rc<RefCell<Value>>,
+        index: usize,
+    },
+    Member {
+        object: Rc<RefCell<Value>>,
+        member: String,
+    },
+}
+
+impl VariableCell {
+    pub fn borrow(&self) -> Ref<'_, Value> {
+        match self {
+            VariableCell::Direct(cell) => cell.borrow(),
+            VariableCell::ArrayElement { array, index } => Ref::map(array.borrow(), |val| {
+                if let Value::Array(array) = val {
+                    &array.elements[*index]
+                } else {
+                    panic!("Expected array in VariableCell::ArrayElement");
+                }
+            }),
+            VariableCell::Member { object, member } => Ref::map(object.borrow(), |v| {
+                if let Value::Record(record) = v {
+                    record.fields.get(&key(member)).expect("field missing")
+                } else {
+                    panic!("Expected record in VariableCell::Member");
+                }
+            }),
+        }
+    }
+
+    pub fn borrow_mut(&self) -> RefMut<'_, Value> {
+        match self {
+            VariableCell::Direct(cell) => cell.borrow_mut(),
+            VariableCell::ArrayElement { array, index } => RefMut::map(array.borrow_mut(), |val| {
+                if let Value::Array(array) = val {
+                    &mut Rc::make_mut(array).elements[*index]
+                } else {
+                    panic!("Expected array in VariableCell::ArrayElement");
+                }
+            }),
+            VariableCell::Member { object, member } => RefMut::map(object.borrow_mut(), |v| {
+                if let Value::Record(record) = v {
+                    Rc::make_mut(record)
+                        .fields
+                        .get_mut(&key(member))
+                        .expect("field missing")
+                } else {
+                    panic!("Expected record in VariableCell::Member");
+                }
+            }),
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct Frame {
@@ -88,13 +146,13 @@ impl Frame {
                 }
             };
 
-            Value::Array {
+            Value::Array(Rc::new(ArrayValue {
                 element_type: ty.clone(),
                 elements,
                 bounds,
                 allocated,
                 dynamic: is_dynamic,
-            }
+            }))
         } else {
             default_value(&ty, types, enums, span)?
         };
@@ -102,8 +160,8 @@ impl Frame {
         self.variables.insert(
             key,
             Variable {
-                cell: Rc::new(RefCell::new(value)),
-                ty,
+                ty: ty.clone(),
+                cell: VariableCell::Direct(Rc::new(RefCell::new(value))),
                 dynamic_array,
                 is_const: false,
                 module_level: false,
@@ -150,7 +208,9 @@ impl Frame {
         self.variables.insert(
             key,
             Variable {
-                cell: Rc::new(RefCell::new(coerce_assignment(&ty, value, span)?)),
+                cell: VariableCell::Direct(Rc::new(RefCell::new(coerce_assignment(
+                    &ty, value, span,
+                )?))),
                 ty,
                 dynamic_array: false,
                 is_const: true,
@@ -178,7 +238,7 @@ impl Frame {
         variable.module_level = true;
         variable.is_const = is_const;
         if let Some(value) = value {
-            *variable.cell.borrow_mut() = coerce_assignment(&ty, value, span)?;
+            *variable.borrow_mut() = coerce_assignment(&ty, value, span)?;
         }
         Ok(())
     }
@@ -242,7 +302,7 @@ impl Frame {
             key,
             Variable {
                 ty: TypeName::User(class_name.to_string()),
-                cell: Rc::new(RefCell::new(Value::Object(object))),
+                cell: VariableCell::Direct(Rc::new(RefCell::new(Value::Object(object)))),
                 dynamic_array: false,
                 is_const: false,
                 module_level: false,
@@ -276,8 +336,8 @@ impl Frame {
             .with_help("remove the assignment or use a non-Const variable"));
         }
 
-        let old = variable.cell.borrow().clone();
-        *variable.cell.borrow_mut() = coerce_assignment(&variable.ty, value, span)?;
+        let old = variable.borrow().clone();
+        *variable.borrow_mut() = coerce_assignment(&variable.ty, value, span)?;
         Ok(old)
     }
 
@@ -289,14 +349,14 @@ impl Frame {
                 Some(span),
             )
         })?;
-        *variable.cell.borrow_mut() = Value::Missing;
+        *variable.borrow_mut() = Value::Missing;
         Ok(())
     }
 
     pub(crate) fn get(&self, name: &str, span: Span) -> Result<Value, Diagnostic> {
         self.variables
             .get(&key(name))
-            .map(|variable| variable.cell.borrow().clone())
+            .map(|variable| variable.borrow().clone())
             .ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -335,7 +395,7 @@ impl Frame {
         span: Span,
     ) -> Result<Value, Diagnostic> {
         let variable = self.variable(name, span)?;
-        let array = variable.cell.borrow();
+        let array = variable.borrow();
         read_array_element(&array, indices, span)
     }
 
@@ -347,7 +407,7 @@ impl Frame {
         span: Span,
     ) -> Result<Value, Diagnostic> {
         let variable = self.variable(name, span)?;
-        let mut array = variable.cell.borrow_mut();
+        let mut array = variable.borrow_mut();
         write_array_element(&mut array, indices, value, span)
     }
 
@@ -370,7 +430,7 @@ impl Frame {
             )
             .with_primary_label("ReDim target is not a dynamic array"));
         }
-        let mut array = variable.cell.borrow_mut();
+        let mut array = variable.borrow_mut();
         redim_array(&mut array, new_bounds, preserve, types, enums, span)
     }
 
@@ -382,28 +442,22 @@ impl Frame {
         enums: &HashMap<String, RuntimeEnum>,
     ) -> Result<(), Diagnostic> {
         let variable = self.variable(name, span)?;
-        let mut array = variable.cell.borrow_mut();
-        let Value::Array {
-            element_type,
-            elements,
-            allocated,
-            bounds,
-            dynamic,
-        } = &mut *array
-        else {
+        let mut array_val = variable.borrow_mut();
+        let Value::Array(array) = &mut *array_val else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::ARRAY,
                 "Erase target must be an array",
                 Some(span),
             ));
         };
-        if *dynamic {
-            elements.clear();
-            bounds.clear();
-            *allocated = false;
+        let array = Rc::make_mut(array);
+        if array.dynamic {
+            array.elements.clear();
+            array.bounds.clear();
+            array.allocated = false;
         } else {
-            for element in elements.iter_mut() {
-                *element = default_value(element_type, types, enums, span)?;
+            for element in &mut array.elements {
+                *element = default_value(&array.element_type, types, enums, span)?;
             }
         }
         Ok(())
@@ -499,8 +553,18 @@ impl Frame {
 #[derive(Debug, Clone)]
 pub(crate) struct Variable {
     pub(crate) ty: TypeName,
-    pub(crate) cell: Rc<RefCell<Value>>,
+    pub(crate) cell: VariableCell,
     pub(crate) dynamic_array: bool,
     pub(crate) is_const: bool,
     pub(crate) module_level: bool,
+}
+
+impl Variable {
+    pub fn borrow(&self) -> Ref<'_, Value> {
+        self.cell.borrow()
+    }
+
+    pub fn borrow_mut(&self) -> RefMut<'_, Value> {
+        self.cell.borrow_mut()
+    }
 }

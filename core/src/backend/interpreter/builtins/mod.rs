@@ -99,7 +99,11 @@ pub(crate) fn dispatch_function(
             }
         };
         let variable = frame.variable(var_name, arg.span)?;
-        let ptr = std::rc::Rc::as_ptr(&variable.cell) as usize;
+        let ptr = if let super::frame::VariableCell::Direct(cell) = &variable.cell {
+            std::rc::Rc::as_ptr(cell) as usize
+        } else {
+            0
+        };
         return Ok(Some(Value::Ptr(ptr)));
     }
 
@@ -108,7 +112,7 @@ pub(crate) fn dispatch_function(
         let arg = &args[0];
         if let crate::ExprKind::Variable(name) = &arg.kind {
             let variable = frame.variable(name, arg.span)?;
-            let value = variable.cell.borrow();
+            let value = variable.borrow();
             if let Value::String(s) = &*value {
                 return Ok(Some(Value::Ptr(s.as_ptr() as usize)));
             }

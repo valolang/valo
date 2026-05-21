@@ -1229,31 +1229,39 @@ fn validate_argument_value(
             ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)
         }
         PassingMode::ByRef => {
-            let ExprKind::Variable(name) = &arg.kind else {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                    "ByRef argument must be a variable",
-                    Some(arg.span),
-                ));
-            };
-            let Some(arg_type) = symbols.get(&key(name)).cloned() else {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                    format!("Variable '{}' is not declared", name),
-                    Some(arg.span),
-                ));
-            };
-            let expected = VarType::Scalar(param.ty.clone());
-            if !arg_type.same_var_type(&expected) {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::GENERIC,
-                    format!(
-                        "ByRef argument type {} must match parameter type {}",
-                        arg_type.display_name(),
-                        expected.display_name()
-                    ),
-                    Some(arg.span),
-                ));
+            match &arg.kind {
+                ExprKind::Variable(name) => {
+                    let Some(arg_type) = symbols.get(&key(name)).cloned() else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                            format!("Variable '{}' is not declared", name),
+                            Some(arg.span),
+                        ));
+                    };
+                    let expected = VarType::Scalar(param.ty.clone());
+                    if !arg_type.same_var_type(&expected) {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            format!(
+                                "ByRef argument type {} must match parameter type {}",
+                                arg_type.display_name(),
+                                expected.display_name()
+                            ),
+                            Some(arg.span),
+                        ));
+                    }
+                }
+                ExprKind::Call { .. } | ExprKind::MemberAccess { .. } | ExprKind::Index { .. } => {
+                    let arg_type = validate_expr(arg, symbols, types, signatures)?;
+                    ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)?;
+                }
+                _ => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        "ByRef argument must be a variable, array element, or field",
+                        Some(arg.span),
+                    ));
+                }
             }
             Ok(())
         }

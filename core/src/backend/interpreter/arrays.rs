@@ -1,4 +1,5 @@
 use crate::runtime::{ArrayBound, Diagnostic, Span, Value, coerce_assignment};
+use std::rc::Rc;
 
 use super::records::{RuntimeEnum, RuntimeType};
 use super::values::{default_value, key};
@@ -10,23 +11,16 @@ pub(crate) fn read_array_element(
     indices: &[i64],
     span: Span,
 ) -> Result<Value, Diagnostic> {
-    let Value::Array {
-        elements,
-        bounds,
-        allocated,
-        dynamic: _,
-        ..
-    } = value
-    else {
+    let Value::Array(array) = value else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,
             "Value is not an array",
             Some(span),
         ));
     };
-    ensure_allocated(*allocated, span)?;
-    let index = calculate_index(indices, bounds, span)?;
-    Ok(elements[index].clone())
+    ensure_allocated(array.allocated, span)?;
+    let index = calculate_index(indices, &array.bounds, span)?;
+    Ok(array.elements[index].clone())
 }
 
 pub(crate) fn write_array_element(
@@ -35,24 +29,18 @@ pub(crate) fn write_array_element(
     new_value: Value,
     span: Span,
 ) -> Result<Value, Diagnostic> {
-    let Value::Array {
-        element_type,
-        elements,
-        bounds,
-        allocated,
-        dynamic: _,
-    } = value
-    else {
+    let Value::Array(array) = value else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,
             "Value is not an array",
             Some(span),
         ));
     };
-    ensure_allocated(*allocated, span)?;
-    let index = calculate_index(indices, bounds, span)?;
-    let old = elements[index].clone();
-    elements[index] = coerce_assignment(element_type, new_value, span)?;
+    let array = Rc::make_mut(array);
+    ensure_allocated(array.allocated, span)?;
+    let index = calculate_index(indices, &array.bounds, span)?;
+    let old = array.elements[index].clone();
+    array.elements[index] = coerce_assignment(&array.element_type, new_value, span)?;
     Ok(old)
 }
 
@@ -61,67 +49,55 @@ pub(crate) fn array_element_mut<'a>(
     indices: &[i64],
     span: Span,
 ) -> Result<&'a mut Value, Diagnostic> {
-    let Value::Array {
-        elements,
-        bounds,
-        allocated,
-        dynamic: _,
-        ..
-    } = value
-    else {
+    let Value::Array(array) = value else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,
             "Value is not an array",
             Some(span),
         ));
     };
-    ensure_allocated(*allocated, span)?;
-    let index = calculate_index(indices, bounds, span)?;
-    Ok(&mut elements[index])
+    let array = Rc::make_mut(array);
+    ensure_allocated(array.allocated, span)?;
+    let index = calculate_index(indices, &array.bounds, span)?;
+    Ok(&mut array.elements[index])
 }
 
 pub(crate) fn lbound(value: &Value, dimension: usize, span: Span) -> Result<i64, Diagnostic> {
-    let Value::Array {
-        allocated, bounds, ..
-    } = value
-    else {
+    let Value::Array(array) = value else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,
             "LBound requires an array",
             Some(span),
         ));
     };
-    ensure_allocated(*allocated, span)?;
-    if dimension == 0 || dimension > bounds.len() {
+    ensure_allocated(array.allocated, span)?;
+    if dimension == 0 || dimension > array.bounds.len() {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,
             format!("Array dimension {} is out of range", dimension),
             Some(span),
         ));
     }
-    Ok(bounds[dimension - 1].lower)
+    Ok(array.bounds[dimension - 1].lower)
 }
 
 pub(crate) fn ubound(value: &Value, dimension: usize, span: Span) -> Result<i64, Diagnostic> {
-    let Value::Array {
-        allocated, bounds, ..
-    } = value
-    else {
+    let Value::Array(array) = value else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,
             "UBound requires an array",
             Some(span),
         ));
     };
-    ensure_allocated(*allocated, span)?;
-    if dimension == 0 || dimension > bounds.len() {
+    ensure_allocated(array.allocated, span)?;
+    if dimension == 0 || dimension > array.bounds.len() {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,
             format!("Array dimension {} is out of range", dimension),
             Some(span),
         ));
     }
-    Ok(bounds[dimension - 1].upper)
+    Ok(array.bounds[dimension - 1].upper)
 }
 
 pub(crate) fn redim_array(
@@ -132,14 +108,7 @@ pub(crate) fn redim_array(
     enums: &HashMap<String, RuntimeEnum>,
     span: Span,
 ) -> Result<(), Diagnostic> {
-    let Value::Array {
-        element_type,
-        elements,
-        bounds: old_bounds,
-        allocated,
-        dynamic: _,
-    } = value
-    else {
+    let Value::Array(array) = value else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,
             "ReDim target must be a dynamic array",
@@ -147,18 +116,19 @@ pub(crate) fn redim_array(
         )
         .with_primary_label("ReDim target is not a dynamic array"));
     };
+    let array = Rc::make_mut(array);
 
-    if preserve && *allocated {
-        if old_bounds.len() != new_bounds.len() {
+    if preserve && array.allocated {
+        if array.bounds.len() != new_bounds.len() {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::ARRAY,
                 "ReDim Preserve cannot change the number of dimensions",
                 Some(span),
             ));
         }
-        for i in 0..old_bounds.len() {
-            if i < old_bounds.len() - 1 {
-                if old_bounds[i] != new_bounds[i] {
+        for (i, (old_bound, new_bound)) in array.bounds.iter().zip(&new_bounds).enumerate() {
+            if i < array.bounds.len() - 1 {
+                if old_bound != new_bound {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
                         "ReDim Preserve can only change the last dimension",
@@ -167,7 +137,7 @@ pub(crate) fn redim_array(
                 }
             } else {
                 // Last dimension
-                if old_bounds[i].lower != new_bounds[i].lower {
+                if old_bound.lower != new_bound.lower {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
                         "ReDim Preserve cannot change the lower bound of the last dimension",
@@ -184,40 +154,35 @@ pub(crate) fn redim_array(
     }
 
     let mut new_elements = Vec::new();
-    if preserve && *allocated {
+    if preserve && array.allocated {
         // Copy existing elements that fit into the new bounds.
         // Since only the last dimension changes, and we use column-major,
         // the existing elements for smaller indices of the last dimension
         // are at the same physical indices in the flattened vector.
-        let old_len = elements.len();
-        new_elements.extend(elements.iter().take(new_len.min(old_len)).cloned());
+        let old_len = array.elements.len();
+        new_elements.extend(array.elements.iter().take(new_len.min(old_len)).cloned());
     }
 
     while new_elements.len() < new_len {
-        new_elements.push(default_value(element_type, types, enums, span)?);
+        new_elements.push(default_value(&array.element_type, types, enums, span)?);
     }
 
-    *elements = new_elements;
-    *old_bounds = new_bounds;
-    *allocated = true;
+    array.elements = new_elements;
+    array.bounds = new_bounds;
+    array.allocated = true;
     Ok(())
 }
 
 pub(crate) fn array_values(value: &Value, span: Span) -> Result<Vec<Value>, Diagnostic> {
-    let Value::Array {
-        elements,
-        allocated,
-        ..
-    } = value
-    else {
+    let Value::Array(array) = value else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,
             "For Each requires an array",
             Some(span),
         ));
     };
-    ensure_allocated(*allocated, span)?;
-    Ok(elements.clone())
+    ensure_allocated(array.allocated, span)?;
+    Ok(array.elements.clone())
 }
 
 pub(crate) fn enumerable_values(
@@ -244,7 +209,7 @@ fn enumerable_values_with_depth(
         ));
     }
 
-    if matches!(value, Value::Array { .. }) {
+    if matches!(value, Value::Array(_)) {
         return array_values(&value, span);
     }
 
@@ -335,7 +300,7 @@ fn ensure_allocated(allocated: bool, span: Span) -> Result<(), Diagnostic> {
 /// Calculate the flattened index for a multidimensional array (column-major).
 /// column-major: index = d1 + D1 * (d2 + D2 * (d3 + ...))
 /// where Di is the size of dimension i.
-fn calculate_index(
+pub(crate) fn calculate_index(
     indices: &[i64],
     bounds: &[ArrayBound],
     span: Span,

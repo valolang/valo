@@ -14,7 +14,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("IsArray") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(Value::Boolean(matches!(args[0], Value::Array { .. }))));
+        return Ok(Some(Value::Boolean(matches!(args[0], Value::Array(_)))));
     }
     if name.eq_ignore_ascii_case("IsNull") {
         expect_value_count(name, args, 1, span)?;
@@ -145,9 +145,9 @@ fn vartype(value: &Value) -> i64 {
         Value::Decimal(_) => 14,
         Value::Byte(_) => 17,
         Value::Int64(_) => 20,
-        Value::Array { .. } => 8192,
+        Value::Array(_) => 8192,
         Value::Error(_) => 10,
-        Value::Record { .. } | Value::Missing => 12,
+        Value::Record(_) | Value::Missing => 12,
         Value::Ptr(_) | Value::UInt32(_) | Value::UInt64(_) | Value::FuncPtr(_) => 12,
     }
 }
@@ -170,8 +170,8 @@ fn value_type_name(value: &Value) -> String {
         Value::Error(_) => "Error".to_string(),
         Value::Object(object) => object.borrow().class_name.clone(),
         Value::Nothing => "Nothing".to_string(),
-        Value::Array { .. } => "Array".to_string(),
-        Value::Record { type_name, .. } => type_name.clone(),
+        Value::Array(_) => "Array".to_string(),
+        Value::Record(record) => record.type_name.clone(),
         Value::Missing => "Missing".to_string(),
         Value::Ptr(_) => "Ptr".to_string(),
         Value::FuncPtr(_) => "FuncPtr".to_string(),

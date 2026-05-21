@@ -1,11 +1,12 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use crate::runtime::{Diagnostic, RuntimeErrorInfo, Value};
 use crate::{
     AssignTarget, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ReDimTarget, ResumeTarget,
     Stmt, UsingResource,
 };
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
 
 use super::values::key;
 use super::{ControlFlow, Frame, Interpreter};
@@ -225,14 +226,14 @@ impl Interpreter {
                 }
                 if let crate::ExprKind::Variable(name) = &object.kind
                     && let Ok(variable) = frame.variable(name, object.span)
-                    && matches!(&*variable.cell.borrow(), Value::Record { .. })
+                    && matches!(&*variable.borrow(), Value::Record(_))
                 {
                     self.call_record_sub_variable(variable, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
                 }
                 if matches!(object.kind, crate::ExprKind::Me)
                     && let Ok(variable) = frame.variable("me", object.span)
-                    && matches!(&*variable.cell.borrow(), Value::Record { .. })
+                    && matches!(&*variable.borrow(), Value::Record(_))
                 {
                     self.call_record_sub_variable(variable, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
@@ -593,7 +594,7 @@ impl Interpreter {
         let dispose_result = self.call_dispose(resource_value, frame, span);
         let remove_result = if let Some(name) = declared_name {
             if let Some(variable) = frame.remove_variable(name) {
-                let value = variable.cell.borrow().clone();
+                let value = variable.borrow().clone();
                 drop(variable);
                 self.maybe_terminate(value, span)
             } else {
@@ -816,11 +817,11 @@ impl Interpreter {
             AssignTarget::Variable { name, .. } => {
                 if let Ok(owner_variable) = frame.variable("me", span) {
                     let is_record_field = {
-                        let owner = owner_variable.cell.borrow();
+                        let owner = owner_variable.borrow();
                         matches!(
                             &*owner,
-                            Value::Record { fields, .. }
-                                if fields.contains_key(&super::values::key(name))
+                            Value::Record(record)
+                                if record.fields.contains_key(&super::values::key(name))
                         )
                     };
                     if is_record_field {
@@ -832,10 +833,10 @@ impl Interpreter {
                     self.maybe_terminate(old, span)
                 } else {
                     let owner_variable = frame.variable("me", span)?;
-                    if matches!(&*owner_variable.cell.borrow(), Value::Record { .. }) {
+                    if matches!(&*owner_variable.borrow(), Value::Record(_)) {
                         self.assign_member_to_variable(owner_variable, name, value, span)
                     } else {
-                        let owner = owner_variable.cell.borrow().clone();
+                        let owner = owner_variable.borrow().clone();
                         self.assign_bare_class_field(owner, name, value, span)
                     }
                 }

@@ -1,7 +1,8 @@
-use crate::runtime::{Diagnostic, Span, TypeName, Value, coerce_assignment};
+use crate::runtime::{ArrayValue, Diagnostic, Span, TypeName, Value, coerce_assignment};
 use crate::{Expr, ExprKind, Function, PassingMode};
+use std::rc::Rc;
 
-use super::frame::Variable;
+use super::frame::{Variable, VariableCell};
 use super::objects::ensure_object;
 use super::values::key;
 use super::{ControlFlow, Frame, Interpreter, RuntimeClass};
@@ -29,21 +30,25 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let record = variable.cell.borrow().clone();
-        let Value::Record { type_name, .. } = &record else {
+        let record = variable.borrow().clone();
+        let Value::Record(record_val) = &record else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "Structure method call requires a Structure value",
                 Some(span),
             ));
         };
-        let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Structure '{}' is not defined", type_name),
-                Some(span),
-            )
-        })?;
+        let structure = self
+            .types
+            .get(&key(&record_val.type_name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Structure '{}' is not defined", record_val.type_name),
+                    Some(span),
+                )
+            })?;
         if method.eq_ignore_ascii_case("Constructor") {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -92,20 +97,24 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let Value::Record { type_name, .. } = &record else {
+        let Value::Record(record_val) = &record else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "Structure method call requires a Structure value",
                 Some(span),
             ));
         };
-        let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Structure '{}' is not defined", type_name),
-                Some(span),
-            )
-        })?;
+        let structure = self
+            .types
+            .get(&key(&record_val.type_name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Structure '{}' is not defined", record_val.type_name),
+                    Some(span),
+                )
+            })?;
         if let Some(function) = structure.functions.get(&key(method)).cloned() {
             let mut frame = Frame::default();
             frame.inherit_modules_from(caller_frame)?;
@@ -148,7 +157,7 @@ impl Interpreter {
                     if function.is_iterator {
                         let elements = frame.take_yielded_values().unwrap_or_default();
                         let len = elements.len() as i64;
-                        Ok(Value::Array {
+                        Ok(Value::Array(Rc::new(ArrayValue {
                             element_type: function.return_type.clone(),
                             elements,
                             bounds: vec![crate::runtime::ArrayBound {
@@ -157,7 +166,7 @@ impl Interpreter {
                             }],
                             allocated: true,
                             dynamic: true,
-                        })
+                        })))
                     } else {
                         frame.get(&function.name, function.span)
                     }
@@ -252,7 +261,7 @@ impl Interpreter {
                     if function.is_iterator {
                         let elements = frame.take_yielded_values().unwrap_or_default();
                         let len = elements.len() as i64;
-                        Ok(Value::Array {
+                        Ok(Value::Array(Rc::new(ArrayValue {
                             element_type: function.return_type.clone(),
                             elements,
                             bounds: vec![crate::runtime::ArrayBound {
@@ -261,7 +270,7 @@ impl Interpreter {
                             }],
                             allocated: true,
                             dynamic: true,
-                        })
+                        })))
                     } else {
                         frame.get(&function.name, function.span)
                     }
@@ -442,7 +451,7 @@ impl Interpreter {
                 if function.is_iterator {
                     let elements = frame.take_yielded_values().unwrap_or_default();
                     let len = elements.len() as i64;
-                    Ok(Value::Array {
+                    Ok(Value::Array(Rc::new(ArrayValue {
                         element_type: function.return_type.clone(),
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
@@ -451,7 +460,7 @@ impl Interpreter {
                         }],
                         allocated: true,
                         dynamic: true,
-                    })
+                    })))
                 } else {
                     frame.get(&function.name, function.span)
                 }
@@ -881,7 +890,7 @@ impl Interpreter {
                     if function.is_iterator {
                         let elements = frame.take_yielded_values().unwrap_or_default();
                         let len = elements.len() as i64;
-                        Ok(Value::Array {
+                        Ok(Value::Array(Rc::new(ArrayValue {
                             element_type: function.return_type.clone(),
                             elements,
                             bounds: vec![crate::runtime::ArrayBound {
@@ -890,7 +899,7 @@ impl Interpreter {
                             }],
                             allocated: true,
                             dynamic: true,
-                        })
+                        })))
                     } else {
                         frame.get(&function.name, function.span)
                     }
@@ -1018,7 +1027,7 @@ impl Interpreter {
                 if function.is_iterator {
                     let elements = frame.take_yielded_values().unwrap_or_default();
                     let len = elements.len() as i64;
-                    Ok(Value::Array {
+                    Ok(Value::Array(Rc::new(ArrayValue {
                         element_type: function.return_type.clone(),
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
@@ -1027,7 +1036,7 @@ impl Interpreter {
                         }],
                         allocated: true,
                         dynamic: true,
-                    })
+                    })))
                 } else {
                     frame.get(&function.name, function.span)
                 }
@@ -1146,7 +1155,7 @@ impl Interpreter {
                 let len = elements.len();
                 let _ = callee_frame.assign(
                     &param.name,
-                    Value::Array {
+                    Value::Array(Rc::new(ArrayValue {
                         element_type: param.ty.clone(),
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
@@ -1155,7 +1164,7 @@ impl Interpreter {
                         }],
                         allocated: true,
                         dynamic: true,
-                    },
+                    })),
                     param.span,
                 )?;
 
@@ -1209,22 +1218,214 @@ impl Interpreter {
                         }
                         continue;
                     };
-                    if let ExprKind::Variable(arg_name) = &arg.kind {
-                        let variable = caller_frame.variable(arg_name, arg.span)?;
-                        callee_frame.declare_alias(&param.name, param_ty, variable, param.span)?;
-                    } else {
-                        // VBA allows passing non-variables to ByRef parameters (they are copied to a temporary)
-                        let value = self.eval_expr(arg, caller_frame)?;
-                        callee_frame.declare(
-                            &param.name,
-                            param_ty,
-                            None,
-                            self.option_base,
-                            param.span,
-                            &self.types,
-                            &self.enums,
-                        )?;
-                        let _ = callee_frame.assign(&param.name, value, param.span)?;
+                    match &arg.kind {
+                        ExprKind::Variable(arg_name) => {
+                            let variable = caller_frame.variable(arg_name, arg.span)?;
+                            callee_frame.declare_alias(
+                                &param.name,
+                                param_ty,
+                                variable,
+                                param.span,
+                            )?;
+                        }
+                        ExprKind::Call { name, args } if caller_frame.has_variable(name) => {
+                            let array_variable = caller_frame.variable(name, arg.span)?;
+                            let mut indices = Vec::new();
+                            for index_expr in args {
+                                indices
+                                    .push(caller_frame.simple_index_value(index_expr, arg.span)?);
+                            }
+                            if let VariableCell::Direct(array_cell) = &array_variable.cell {
+                                let index = {
+                                    let array_val = array_cell.borrow();
+                                    if let Value::Array(array) = &*array_val {
+                                        super::arrays::calculate_index(
+                                            &indices,
+                                            &array.bounds,
+                                            arg.span,
+                                        )?
+                                    } else {
+                                        return Err(Diagnostic::new(
+                                            crate::runtime::DiagnosticCode::ARRAY,
+                                            format!("Variable '{}' is not an array", name),
+                                            Some(arg.span),
+                                        ));
+                                    }
+                                };
+                                let variable = Variable {
+                                    ty: param_ty.clone(),
+                                    cell: VariableCell::ArrayElement {
+                                        array: array_cell.clone(),
+                                        index,
+                                    },
+                                    dynamic_array: false,
+                                    is_const: false,
+                                    module_level: false,
+                                };
+                                callee_frame.declare_alias(
+                                    &param.name,
+                                    param_ty,
+                                    variable,
+                                    param.span,
+                                )?;
+                            } else {
+                                let value = self.eval_expr(arg, caller_frame)?;
+                                callee_frame.declare(
+                                    &param.name,
+                                    param_ty,
+                                    None,
+                                    self.option_base,
+                                    param.span,
+                                    &self.types,
+                                    &self.enums,
+                                )?;
+                                let _ = callee_frame.assign(&param.name, value, param.span)?;
+                            }
+                        }
+                        ExprKind::Call { .. } => {
+                            let value = self.eval_expr(arg, caller_frame)?;
+                            callee_frame.declare(
+                                &param.name,
+                                param_ty,
+                                None,
+                                self.option_base,
+                                param.span,
+                                &self.types,
+                                &self.enums,
+                            )?;
+                            let _ = callee_frame.assign(&param.name, value, param.span)?;
+                        }
+                        ExprKind::Index { target, args } => {
+                            if let ExprKind::Variable(name) = &target.kind
+                                && caller_frame.has_variable(name)
+                            {
+                                let array_variable = caller_frame.variable(name, arg.span)?;
+                                let mut indices = Vec::new();
+                                for index_expr in args {
+                                    indices.push(
+                                        caller_frame.simple_index_value(index_expr, arg.span)?,
+                                    );
+                                }
+                                if let VariableCell::Direct(array_cell) = &array_variable.cell {
+                                    let index = {
+                                        let array_val = array_cell.borrow();
+                                        if let Value::Array(array) = &*array_val {
+                                            super::arrays::calculate_index(
+                                                &indices,
+                                                &array.bounds,
+                                                arg.span,
+                                            )?
+                                        } else {
+                                            return Err(Diagnostic::new(
+                                                crate::runtime::DiagnosticCode::ARRAY,
+                                                format!("Variable '{}' is not an array", name),
+                                                Some(arg.span),
+                                            ));
+                                        }
+                                    };
+                                    let variable = Variable {
+                                        ty: param_ty.clone(),
+                                        cell: VariableCell::ArrayElement {
+                                            array: array_cell.clone(),
+                                            index,
+                                        },
+                                        dynamic_array: false,
+                                        is_const: false,
+                                        module_level: false,
+                                    };
+                                    callee_frame.declare_alias(
+                                        &param.name,
+                                        param_ty,
+                                        variable,
+                                        param.span,
+                                    )?;
+                                } else {
+                                    let value = self.eval_expr(arg, caller_frame)?;
+                                    callee_frame.declare(
+                                        &param.name,
+                                        param_ty,
+                                        None,
+                                        self.option_base,
+                                        param.span,
+                                        &self.types,
+                                        &self.enums,
+                                    )?;
+                                    let _ = callee_frame.assign(&param.name, value, param.span)?;
+                                }
+                            } else {
+                                let value = self.eval_expr(arg, caller_frame)?;
+                                callee_frame.declare(
+                                    &param.name,
+                                    param_ty,
+                                    None,
+                                    self.option_base,
+                                    param.span,
+                                    &self.types,
+                                    &self.enums,
+                                )?;
+                                let _ = callee_frame.assign(&param.name, value, param.span)?;
+                            }
+                        }
+                        ExprKind::MemberAccess { object, field } => {
+                            if let ExprKind::Variable(obj_name) = &object.kind {
+                                let obj_variable = caller_frame.variable(obj_name, object.span)?;
+                                if let VariableCell::Direct(obj_cell) = &obj_variable.cell {
+                                    let variable = Variable {
+                                        ty: param_ty.clone(),
+                                        cell: VariableCell::Member {
+                                            object: obj_cell.clone(),
+                                            member: field.clone(),
+                                        },
+                                        dynamic_array: false,
+                                        is_const: false,
+                                        module_level: false,
+                                    };
+                                    callee_frame.declare_alias(
+                                        &param.name,
+                                        param_ty,
+                                        variable,
+                                        param.span,
+                                    )?;
+                                } else {
+                                    let value = self.eval_expr(arg, caller_frame)?;
+                                    callee_frame.declare(
+                                        &param.name,
+                                        param_ty,
+                                        None,
+                                        self.option_base,
+                                        param.span,
+                                        &self.types,
+                                        &self.enums,
+                                    )?;
+                                    let _ = callee_frame.assign(&param.name, value, param.span)?;
+                                }
+                            } else {
+                                let value = self.eval_expr(arg, caller_frame)?;
+                                callee_frame.declare(
+                                    &param.name,
+                                    param_ty,
+                                    None,
+                                    self.option_base,
+                                    param.span,
+                                    &self.types,
+                                    &self.enums,
+                                )?;
+                                let _ = callee_frame.assign(&param.name, value, param.span)?;
+                            }
+                        }
+                        _ => {
+                            let value = self.eval_expr(arg, caller_frame)?;
+                            callee_frame.declare(
+                                &param.name,
+                                param_ty,
+                                None,
+                                self.option_base,
+                                param.span,
+                                &self.types,
+                                &self.enums,
+                            )?;
+                            let _ = callee_frame.assign(&param.name, value, param.span)?;
+                        }
                     }
                 }
             }
