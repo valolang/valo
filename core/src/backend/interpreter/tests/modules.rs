@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::run_file;
+use super::helpers::run_file_diagnostic;
 
 fn temp_project() -> PathBuf {
     let stamp = SystemTime::now()
@@ -97,7 +98,7 @@ End Sub
         "Public Function Add(ByVal A As Integer, ByVal B As Integer) As Integer\nReturn A + B\nEnd Function\n",
     );
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT);
 }
 
@@ -145,7 +146,7 @@ fn duplicate_import_alias_is_rejected_case_insensitively() {
     write(&dir, "A.valo", "");
     write(&dir, "B.valo", "");
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::DUPLICATE_IMPORT);
 }
 
@@ -189,7 +190,7 @@ End Sub
         "Private Function Hidden() As Integer\nReturn 1\nEnd Function\n",
     );
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
 }
 
@@ -214,7 +215,7 @@ End Sub
         "Public Const Answer As Integer = 42\nPrivate Const Hidden As Integer = 7\n",
     );
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
 }
 
@@ -343,7 +344,7 @@ End Structure
 "#,
     );
 
-    let error = run_file(dir.join("main.valo")).unwrap_err().to_string();
+    let error = run_file_diagnostic(dir.join("main.valo")).to_string();
     assert!(error.contains("Imported type 'Models.Point' is Private"));
 }
 
@@ -479,7 +480,7 @@ End Sub
     );
     write(&dir, "Models.valo", "Private Class Hidden\nEnd Class\n");
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
 
     let dir = temp_project();
@@ -496,7 +497,7 @@ End Sub
     );
     write(&dir, "Enums.valo", "Private Enum Secret\nValue\nEnd Enum\n");
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
 }
 
@@ -516,7 +517,7 @@ End Sub
     );
     write(&dir, "Models.valo", "");
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(
         error.code,
         crate::runtime::DiagnosticCode::UNKNOWN_QUALIFIED_SYMBOL
@@ -544,7 +545,7 @@ End Sub
         "Public Type PersonRecord\nName As String\nEnd Type\n",
     );
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(
         error.code,
         crate::runtime::DiagnosticCode::INVALID_QUALIFIED_ACCESS
@@ -556,7 +557,7 @@ fn missing_module_is_reported() {
     let dir = temp_project();
     write(&dir, "main.valo", "Import Missing\n\nSub Main()\nEnd Sub\n");
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::MODULE_NOT_FOUND);
 }
 
@@ -566,6 +567,6 @@ fn import_cycle_is_reported() {
     write(&dir, "main.valo", "Import A\n\nSub Main()\nEnd Sub\n");
     write(&dir, "A.valo", "Import main\n");
 
-    let error = run_file(dir.join("main.valo")).unwrap_err();
+    let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::IMPORT_CYCLE);
 }

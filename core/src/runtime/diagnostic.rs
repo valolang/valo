@@ -12,15 +12,66 @@ impl SourcePos {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub struct FileId(pub u32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
+    pub file_id: FileId,
     pub start: SourcePos,
     pub end: SourcePos,
 }
 
 impl Span {
-    pub fn new(start: SourcePos, end: SourcePos) -> Self {
-        Self { start, end }
+    pub fn new(file_id: FileId, start: SourcePos, end: SourcePos) -> Self {
+        Self {
+            file_id,
+            start,
+            end,
+        }
+    }
+
+    pub fn empty(file_id: FileId) -> Self {
+        Self::new(file_id, SourcePos::new(1, 1), SourcePos::new(1, 1))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SourceMap {
+    sources: Vec<Source>,
+}
+
+#[derive(Debug, Clone)]
+struct Source {
+    name: String,
+    content: String,
+}
+
+impl Default for SourceMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SourceMap {
+    pub fn new() -> Self {
+        Self {
+            sources: Vec::new(),
+        }
+    }
+
+    pub fn add(&mut self, name: String, content: String) -> FileId {
+        let id = FileId(self.sources.len() as u32);
+        self.sources.push(Source { name, content });
+        id
+    }
+
+    pub fn get_name(&self, id: FileId) -> Option<&str> {
+        self.sources.get(id.0 as usize).map(|s| s.name.as_str())
+    }
+
+    pub fn get_content(&self, id: FileId) -> Option<&str> {
+        self.sources.get(id.0 as usize).map(|s| s.content.as_str())
     }
 }
 
@@ -103,42 +154,79 @@ impl Diagnostic {
         self
     }
 
-    pub fn render(&self, source_name: &str, source: &str) -> String {
+    pub fn render(&self, source_map: &SourceMap) -> String {
+        let use_color = std::env::var("NO_COLOR").is_err();
+        self.render_colored(source_map, use_color)
+    }
+
+    pub fn render_colored(&self, source_map: &SourceMap, use_color: bool) -> String {
         let mut out = String::new();
+        let color = ColorSupport::new(use_color);
+
         out.push_str(&format!(
-            "{}[{}]: {}\n",
-            self.severity, self.code, self.message
+            "{}{}[{}]{}: {}{}{}\n",
+            color.bold(self.severity_color()),
+            self.severity,
+            self.code,
+            color.reset(),
+            color.bold(""),
+            self.message,
+            color.reset()
         ));
 
         if let Some(span) = &self.span {
+            let source_name = source_map.get_name(span.file_id).unwrap_or("<unknown>");
             out.push_str(&format!(
-                "  --> {}:{}:{}\n",
-                source_name, span.start.line, span.start.column
+                "  {}-->{}{} {}:{}:{}\n",
+                color.blue(""),
+                color.reset(),
+                color.bold(""),
+                source_name,
+                span.start.line,
+                span.start.column
             ));
-            out.push_str("   |\n");
-            render_span_lines(&mut out, source, **span, &self.labels);
-        }
+            out.push_str(&format!("   {}|{}\n", color.blue(""), color.reset()));
 
-        for note in self.notes.iter() {
-            out.push_str(&format!("note: {note}\n"));
-        }
-        for help in self.helps.iter() {
-            out.push_str(&format!("help: {help}\n"));
-        }
-        for related in self.related.iter() {
-            out.push_str(&format!(
-                "{}[{}]: {}\n",
-                related.severity, related.code, related.message
-            ));
-            if let Some(span) = &related.span {
-                out.push_str(&format!(
-                    "  --> {}:{}:{}\n",
-                    source_name, span.start.line, span.start.column
-                ));
+            if let Some(source) = source_map.get_content(span.file_id) {
+                render_span_lines(&mut out, source, **span, &self.labels, &color);
             }
         }
 
+        for note in self.notes.iter() {
+            out.push_str(&format!(
+                "   {}={} {}note{}: {}\n",
+                color.blue(""),
+                color.reset(),
+                color.cyan(""),
+                color.reset(),
+                note
+            ));
+        }
+        for help in self.helps.iter() {
+            out.push_str(&format!(
+                "   {}={} {}help{}: {}\n",
+                color.blue(""),
+                color.reset(),
+                color.cyan(""),
+                color.reset(),
+                help
+            ));
+        }
+        for related in self.related.iter() {
+            out.push_str(&related.render_colored(source_map, use_color));
+            out.push('\n');
+        }
+
         out.trim_end().to_string()
+    }
+
+    fn severity_color(&self) -> &'static str {
+        match self.severity {
+            Severity::Error => "\x1b[31;1m",
+            Severity::Warning => "\x1b[33;1m",
+            Severity::Note => "\x1b[36;1m",
+            Severity::Help => "\x1b[32;1m",
+        }
     }
 }
 
@@ -156,6 +244,114 @@ impl fmt::Display for Diagnostic {
 }
 
 impl std::error::Error for Diagnostic {}
+
+struct ColorSupport {
+    enabled: bool,
+}
+
+impl ColorSupport {
+    fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+
+    fn bold(&self, code: &str) -> String {
+        if self.enabled {
+            format!("{}{}", code, "\x1b[1m")
+        } else {
+            String::new()
+        }
+    }
+
+    fn blue(&self, _text: &str) -> &str {
+        if self.enabled { "\x1b[34;1m" } else { "" }
+    }
+
+    fn cyan(&self, _text: &str) -> &str {
+        if self.enabled { "\x1b[36;1m" } else { "" }
+    }
+
+    fn reset(&self) -> &str {
+        if self.enabled { "\x1b[0m" } else { "" }
+    }
+}
+
+fn render_span_lines(
+    out: &mut String,
+    source: &str,
+    primary: Span,
+    labels: &[DiagnosticLabel],
+    color: &ColorSupport,
+) {
+    let line_number = primary.start.line;
+    let source_line = source
+        .lines()
+        .nth(line_number.saturating_sub(1))
+        .unwrap_or("");
+
+    out.push_str(&format!(
+        "{}{:3} |{} {}\n",
+        color.blue(""),
+        line_number,
+        color.reset(),
+        source_line
+    ));
+
+    let primary_label = labels
+        .iter()
+        .find(|label| label.style == LabelStyle::Primary && label.span == primary)
+        .map(|label| label.message.as_str())
+        .unwrap_or("");
+
+    out.push_str(&format!(
+        "    {}|{} {}{}{} {}\n",
+        color.blue(""),
+        color.reset(),
+        " ".repeat(primary.start.column.saturating_sub(1)),
+        color.bold("\x1b[31m"),
+        "^".repeat(span_width(primary)),
+        primary_label
+    ));
+    out.push_str(color.reset());
+
+    for label in labels
+        .iter()
+        .filter(|label| label.style == LabelStyle::Secondary)
+    {
+        if label.span.start.line == line_number {
+            out.push_str(&format!(
+                "    {}|{} {}{} {}\n",
+                color.blue(""),
+                color.reset(),
+                " ".repeat(label.span.start.column.saturating_sub(1)),
+                "-".repeat(span_width(label.span)),
+                label.message
+            ));
+        } else {
+            let source_line = source
+                .lines()
+                .nth(label.span.start.line.saturating_sub(1))
+                .unwrap_or("");
+            out.push_str(&format!("    {}|{}\n", color.blue(""), color.reset()));
+            out.push_str(&format!(
+                "{}{:3} |{} {}\n",
+                color.blue(""),
+                label.span.start.line,
+                color.reset(),
+                source_line
+            ));
+            out.push_str(&format!(
+                "    {}|{} {}{} {}\n",
+                color.blue(""),
+                color.reset(),
+                " ".repeat(label.span.start.column.saturating_sub(1)),
+                "-".repeat(span_width(label.span)),
+                label.message
+            ));
+        }
+    }
+
+    out.push_str(&format!("    {}|{}\n", color.blue(""), color.reset()));
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -245,56 +441,6 @@ pub enum LabelStyle {
     Secondary,
 }
 
-fn render_span_lines(out: &mut String, source: &str, primary: Span, labels: &[DiagnosticLabel]) {
-    let line_number = primary.start.line;
-    let source_line = source
-        .lines()
-        .nth(line_number.saturating_sub(1))
-        .unwrap_or("");
-    out.push_str(&format!("{line_number:>3} | {source_line}\n"));
-
-    let primary_label = labels
-        .iter()
-        .find(|label| label.style == LabelStyle::Primary && label.span == primary)
-        .map(|label| label.message.as_str())
-        .unwrap_or("");
-    out.push_str(&format!(
-        "    | {}{} {}\n",
-        " ".repeat(primary.start.column.saturating_sub(1)),
-        "^".repeat(span_width(primary)),
-        primary_label
-    ));
-
-    for label in labels
-        .iter()
-        .filter(|label| label.style == LabelStyle::Secondary)
-    {
-        if label.span.start.line == line_number {
-            out.push_str(&format!(
-                "    | {}{} {}\n",
-                " ".repeat(label.span.start.column.saturating_sub(1)),
-                "-".repeat(span_width(label.span)),
-                label.message
-            ));
-        } else {
-            let source_line = source
-                .lines()
-                .nth(label.span.start.line.saturating_sub(1))
-                .unwrap_or("");
-            out.push_str("   |\n");
-            out.push_str(&format!("{:>3} | {source_line}\n", label.span.start.line));
-            out.push_str(&format!(
-                "    | {}{} {}\n",
-                " ".repeat(label.span.start.column.saturating_sub(1)),
-                "-".repeat(span_width(label.span)),
-                label.message
-            ));
-        }
-    }
-
-    out.push_str("   |\n");
-}
-
 fn span_width(span: Span) -> usize {
     if span.start.line == span.end.line {
         span.end.column.saturating_sub(span.start.column).max(1)
@@ -309,8 +455,14 @@ mod tests {
 
     #[test]
     fn renders_code_labels_notes_and_help() {
-        let span = Span::new(SourcePos::new(2, 5), SourcePos::new(2, 8));
-        let other = Span::new(SourcePos::new(1, 1), SourcePos::new(1, 4));
+        let mut source_map = SourceMap::new();
+        let file_id = source_map.add(
+            "test.valo".to_string(),
+            "Dim age As Integer\n    age = \"Valo\"".to_string(),
+        );
+
+        let span = Span::new(file_id, SourcePos::new(2, 5), SourcePos::new(2, 8));
+        let other = Span::new(file_id, SourcePos::new(1, 1), SourcePos::new(1, 4));
         let diagnostic = Diagnostic::new(
             DiagnosticCode::GENERIC,
             "cannot assign String to Integer",
@@ -319,16 +471,16 @@ mod tests {
         .with_code(DiagnosticCode::TYPE_MISMATCH)
         .with_primary_label("expected Integer, found String")
         .with_secondary_label(other, "variable declared here")
-        .with_note("assignment types must match")
+        .with_note("assignment types match")
         .with_help("change the variable type or assign an Integer value");
 
-        let rendered = diagnostic.render("test.valo", "Dim age As Integer\n    age = \"Valo\"");
+        let rendered = diagnostic.render_colored(&source_map, false);
 
         assert!(rendered.contains("error[V1100]: cannot assign String to Integer"));
         assert!(rendered.contains("--> test.valo:2:5"));
         assert!(rendered.contains("expected Integer, found String"));
         assert!(rendered.contains("variable declared here"));
-        assert!(rendered.contains("note: assignment types must match"));
+        assert!(rendered.contains("note: assignment types match"));
         assert!(rendered.contains("help: change the variable type"));
     }
 }

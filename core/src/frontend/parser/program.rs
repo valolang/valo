@@ -125,6 +125,7 @@ impl Parser {
                         attributes: class_attributes,
                         members: class_members,
                         span: crate::runtime::Span::new(
+                            self.file_id,
                             crate::runtime::SourcePos::new(1, 1),
                             self.previous().span.end,
                         ),

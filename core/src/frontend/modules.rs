@@ -6,15 +6,16 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::frontend::ast::{ImportDecl, Program};
-use crate::frontend::parser::parse_source;
-use crate::runtime::{Diagnostic, DiagnosticCode, Span};
 use crate::Visibility;
+use crate::frontend::ast::{ImportDecl, Program};
+use crate::frontend::parser::parse_source_with_id;
+use crate::runtime::{Diagnostic, DiagnosticCode, FileId, SourceMap, Span};
 
 #[derive(Debug, Clone)]
 pub struct Project {
     pub entry: usize,
     pub modules: Vec<LoadedModule>,
+    pub source_map: SourceMap,
 }
 
 #[derive(Debug, Clone)]
@@ -23,6 +24,7 @@ pub struct LoadedModule {
     pub path: PathBuf,
     pub program: Program,
     pub imports: Vec<ResolvedImport>,
+    pub file_id: FileId,
 }
 
 #[derive(Debug, Clone)]
@@ -33,19 +35,23 @@ pub struct ResolvedImport {
     pub span: Span,
 }
 
-pub fn load_project(entry_path: impl AsRef<Path>) -> Result<Project, Diagnostic> {
+pub fn load_project(entry_path: impl AsRef<Path>) -> Result<Project, (Diagnostic, SourceMap)> {
     let mut loader = ModuleLoader::default();
-    let entry = loader.load(entry_path.as_ref(), &mut Vec::new())?;
-    Ok(Project {
-        entry,
-        modules: loader.modules,
-    })
+    match loader.load(entry_path.as_ref(), &mut Vec::new()) {
+        Ok(entry) => Ok(Project {
+            entry,
+            modules: loader.modules,
+            source_map: loader.source_map,
+        }),
+        Err(err) => Err((err, loader.source_map)),
+    }
 }
 
 #[derive(Default)]
 struct ModuleLoader {
     modules: Vec<LoadedModule>,
     by_path: HashMap<PathBuf, usize>,
+    source_map: SourceMap,
 }
 
 impl ModuleLoader {
@@ -74,15 +80,18 @@ impl ModuleLoader {
         }
 
         stack.push(canonical.clone());
-        let source = fs::read_to_string(&canonical).map_err(|err| {
+        let source_content = fs::read_to_string(&canonical).map_err(|err| {
             Diagnostic::new(
                 DiagnosticCode::MODULE_NOT_FOUND,
                 format!("Module '{}' could not be read: {err}", canonical.display()),
                 None,
             )
         })?;
-        let program = parse_source(&source)?;
+
         let name = module_name(&canonical);
+        let file_id = self.source_map.add(name.clone(), source_content.clone());
+        let program = parse_source_with_id(&source_content, file_id)?;
+
         let index = self.modules.len();
         self.by_path.insert(canonical.clone(), index);
         self.modules.push(LoadedModule {
@@ -90,6 +99,7 @@ impl ModuleLoader {
             path: canonical.clone(),
             program,
             imports: Vec::new(),
+            file_id,
         });
 
         let imports = self.modules[index].program.imports.clone();

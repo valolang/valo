@@ -29,6 +29,7 @@ The Valo Frontend is a multi-stage pipeline that ensures source code is syntacti
     *   Finds `.valo`, `.bas`, and `.cls` files on disk.
     *   Resolves `Import` statements.
     *   Ensures unique module names and handles circular dependencies.
+    *   Manages the `SourceMap`, assigning a unique `FileId` to each loaded module for accurate diagnostics.
 
 ## Key Design Principles
 

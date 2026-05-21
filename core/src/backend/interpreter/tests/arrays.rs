@@ -17,7 +17,7 @@ fn test_multidimensional_array() {
             Console.WriteLine(matrix(2, 1))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["10", "20", "30", "40"]);
@@ -37,7 +37,7 @@ fn test_redim_preserve_multidimensional() {
             Console.WriteLine(m(2, 3))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["1", "4", "0"]);
@@ -54,7 +54,7 @@ fn test_array_builtin() {
             Console.WriteLine(v(2))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["1", "hello", "True"]);
@@ -74,7 +74,7 @@ fn test_split_join() {
             Console.WriteLine(Join(parts, \"-\"))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["a", "b", "c", "a-b-c"]);
@@ -95,7 +95,7 @@ fn test_filter() {
             Next
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["apple", "banana", "date"]);
@@ -112,7 +112,7 @@ fn test_lbound_ubound_multidimensional() {
             Console.WriteLine(UBound(a, 2))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["1", "10", "5", "15"]);
@@ -134,7 +134,7 @@ fn test_for_each_multidimensional() {
             Next
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["1", "2", "3", "4"]);

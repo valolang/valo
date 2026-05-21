@@ -48,13 +48,7 @@ impl Interpreter {
                                 .is_some_and(|(_, local)| local.eq_ignore_ascii_case(class_name))
                     }
                     Value::Nothing => false,
-                    _ => {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                            "TypeOf requires a class object",
-                            Some(object_expr.span),
-                        ));
-                    }
+                    _ => false,
                 };
                 Ok(Value::Boolean(result))
             }

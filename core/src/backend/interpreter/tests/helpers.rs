@@ -1,11 +1,11 @@
-use crate::frontend::ast::Program;
 use crate::backend::interpreter::run;
+use crate::frontend::ast::Program;
 use crate::frontend::parser::Parser;
-use crate::runtime::Diagnostic;
 use crate::frontend::semantics::validate;
+use crate::runtime::{Diagnostic, FileId};
 
 pub fn parse_and_validate(source: &str) -> Result<Program, Diagnostic> {
-    let program = Parser::parse_source(source)?;
+    let program = Parser::parse_source(source, FileId::default())?;
     validate(&program)?;
     Ok(program)
 }
@@ -26,5 +26,19 @@ pub fn source_diagnostic(source: &str) -> Diagnostic {
     match parse_and_validate(source) {
         Ok(program) => run(&program).unwrap_err(),
         Err(error) => error,
+    }
+}
+
+pub fn run_file_diagnostic(path: impl AsRef<std::path::Path>) -> Diagnostic {
+    match crate::frontend::modules::load_project(path) {
+        Ok(project) => {
+            if let Err(err) = crate::frontend::semantics::validate_project(&project) {
+                return err;
+            }
+            crate::backend::interpreter::Interpreter::new()
+                .run_project(&project)
+                .unwrap_err()
+        }
+        Err((err, _)) => err,
     }
 }

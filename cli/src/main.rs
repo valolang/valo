@@ -4,7 +4,15 @@ mod commands;
 
 fn main() {
     if let Err(error) = real_main() {
-        eprintln!("error: {error}");
+        if error.starts_with("error")
+            || error.starts_with("warning")
+            || error.starts_with("note")
+            || error.starts_with("help")
+        {
+            eprintln!("{error}");
+        } else {
+            eprintln!("error: {error}");
+        }
         process::exit(1);
     }
 }

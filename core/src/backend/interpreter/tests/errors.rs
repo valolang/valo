@@ -271,6 +271,8 @@ End Sub
     assert!(error.contains("Modulo by zero"));
 }
 
+use crate::runtime::FileId;
+
 #[test]
 fn malformed_case_is_has_readable_diagnostic() {
     let error = Parser::parse_source(
@@ -283,6 +285,7 @@ Sub Main()
     End Select
 End Sub
 "#,
+        FileId::default(),
     )
     .unwrap_err()
     .to_string();

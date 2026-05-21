@@ -98,12 +98,12 @@ impl Parser {
                 as_new: decl.as_new,
                 new_args: decl.new_args,
                 initializer: decl.initializer,
-                span: Span::new(start.start, end.end),
+                span: Span::new(self.file_id, start.start, end.end),
             })
         } else {
             Ok(Stmt::DimMany {
                 decls,
-                span: Span::new(start.start, end.end),
+                span: Span::new(self.file_id, start.start, end.end),
             })
         }
     }
@@ -121,12 +121,12 @@ impl Parser {
                 as_new: decl.as_new,
                 new_args: decl.new_args,
                 initializer: decl.initializer,
-                span: Span::new(start.start, end.end),
+                span: Span::new(self.file_id, start.start, end.end),
             })
         } else {
             Ok(Stmt::StaticMany {
                 decls,
-                span: Span::new(start.start, end.end),
+                span: Span::new(self.file_id, start.start, end.end),
             })
         }
     }
@@ -260,7 +260,7 @@ impl Parser {
             as_new,
             new_args,
             initializer,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -311,7 +311,7 @@ impl Parser {
             name,
             ty,
             value,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -325,7 +325,7 @@ impl Parser {
         Ok(Stmt::Assign {
             target,
             expr,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -339,7 +339,7 @@ impl Parser {
         Ok(Stmt::Assign {
             target,
             expr,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -353,7 +353,7 @@ impl Parser {
         Ok(Stmt::SetAssign {
             target,
             expr,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -368,7 +368,7 @@ impl Parser {
             let colon = self.expect_simple(TokenKind::Colon, "Expected ':' after label")?;
             return Ok(Stmt::Label {
                 name,
-                span: Span::new(token.span.start, colon.span.end),
+                span: Span::new(self.file_id, token.span.start, colon.span.end),
             });
         }
         if matches!(self.peek_kind(), TokenKind::Dot) {
@@ -390,7 +390,7 @@ impl Parser {
             ExprKind::Call { name, args } => Ok(Stmt::SubCall {
                 name,
                 args,
-                span: Span::new(start.start, target.span.end),
+                span: Span::new(self.file_id, start.start, target.span.end),
             }),
             ExprKind::MemberCall {
                 object,
@@ -400,7 +400,7 @@ impl Parser {
                 object: *object,
                 method,
                 args,
-                span: Span::new(start.start, target.span.end),
+                span: Span::new(self.file_id, start.start, target.span.end),
             }),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -421,7 +421,7 @@ impl Parser {
         Ok(Stmt::RaiseEvent {
             name,
             args,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -442,7 +442,7 @@ impl Parser {
                     };
                     Expr {
                         kind: ExprKind::Call { name, args },
-                        span: Span::new(start.start, self.previous().span.end),
+                        span: Span::new(self.file_id, start.start, self.previous().span.end),
                     }
                 }
             }
@@ -477,7 +477,7 @@ impl Parser {
         Ok(Stmt::SubCall {
             name,
             args,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -516,17 +516,17 @@ impl Parser {
                 target: AssignTarget::ArrayElement {
                     name,
                     indices: args,
-                    span: Span::new(start.start, target_end.end),
+                    span: Span::new(self.file_id, start.start, target_end.end),
                 },
                 expr,
-                span: Span::new(start.start, end.end),
+                span: Span::new(self.file_id, start.start, end.end),
             });
         }
 
         if self.check_simple(&TokenKind::Dot) {
             let target = self.parse_member_access(Expr {
                 kind: ExprKind::Call { name, args },
-                span: Span::new(start.start, self.previous().span.end),
+                span: Span::new(self.file_id, start.start, self.previous().span.end),
             })?;
             let target_span = target.span;
             let ExprKind::MemberAccess { object, field } = target.kind else {
@@ -546,7 +546,7 @@ impl Parser {
                     span: target_span,
                 },
                 expr,
-                span: Span::new(target_span.start, end.end),
+                span: Span::new(self.file_id, target_span.start, end.end),
             });
         }
 
@@ -554,7 +554,7 @@ impl Parser {
         Ok(Stmt::SubCall {
             name,
             args,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -571,7 +571,7 @@ impl Parser {
             let end = args.last().map(|arg| arg.span).unwrap_or(target_span);
             return Ok(Stmt::DebugPrint {
                 args,
-                span: Span::new(target_span.start, end.end),
+                span: Span::new(self.file_id, target_span.start, end.end),
             });
         }
         if let ExprKind::MemberCall {
@@ -619,7 +619,7 @@ impl Parser {
                 object: *object,
                 method: field,
                 args,
-                span: Span::new(target_span.start, end.end),
+                span: Span::new(self.file_id, target_span.start, end.end),
             });
         }
         self.expect_simple(TokenKind::Equal, "Expected '=' in member assignment")?;
@@ -633,7 +633,7 @@ impl Parser {
                 span: target_span,
             },
             expr,
-            span: Span::new(target_span.start, end.end),
+            span: Span::new(self.file_id, target_span.start, end.end),
         })
     }
 
@@ -701,7 +701,7 @@ impl Parser {
             .span;
         Ok(Stmt::ConsoleWriteLine {
             args,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -714,7 +714,7 @@ impl Parser {
 
         Ok(Stmt::Return {
             expr,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -727,7 +727,7 @@ impl Parser {
 
         Ok(Stmt::Yield {
             expr,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -735,7 +735,41 @@ impl Parser {
         let start = self.expect_simple(TokenKind::If, "Expected 'If'")?.span;
         let condition = self.parse_expression()?;
         self.expect_simple(TokenKind::Then, "Expected 'Then' after If condition")?;
-        self.expect_newline("Expected newline after 'Then'")?;
+
+        if !self.check_simple(&TokenKind::Newline) && !self.is_at_end() {
+            // Single-line If
+            let mut then_body = Vec::new();
+            while !self.check_simple(&TokenKind::Else) && !self.at_statement_separator() {
+                then_body.push(self.parse_stmt()?);
+                if !self.match_simple(&TokenKind::Colon) {
+                    break;
+                }
+            }
+
+            let else_body = if self.match_simple(&TokenKind::Else) {
+                let mut body = Vec::new();
+                while !self.at_statement_separator() {
+                    body.push(self.parse_stmt()?);
+                    if !self.match_simple(&TokenKind::Colon) {
+                        break;
+                    }
+                }
+                body
+            } else {
+                Vec::new()
+            };
+
+            let end = self.previous().span;
+            return Ok(Stmt::If {
+                condition,
+                then_body,
+                elseif_branches: Vec::new(),
+                else_body,
+                span: Span::new(self.file_id, start.start, end.end),
+            });
+        }
+
+        self.expect_newline("Expected newline after 'Then' or single-line statement")?;
 
         let then_body =
             self.parse_block_until(&[BlockEnd::ElseIf, BlockEnd::Else, BlockEnd::EndIf])?;
@@ -768,7 +802,7 @@ impl Parser {
             then_body,
             elseif_branches,
             else_body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -784,7 +818,7 @@ impl Parser {
         Ok(Stmt::While {
             condition,
             body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -801,7 +835,7 @@ impl Parser {
         Ok(Stmt::With {
             target,
             body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -826,7 +860,7 @@ impl Parser {
         Ok(Stmt::Using {
             resource,
             body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -879,7 +913,7 @@ impl Parser {
             subject,
             branches,
             else_body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -946,6 +980,44 @@ impl Parser {
         } else {
             None
         };
+
+        if self.match_simple(&TokenKind::Colon) {
+            let mut body = Vec::new();
+            while !self.check_simple(&TokenKind::Loop) && !self.is_at_end() {
+                body.push(self.parse_stmt()?);
+                if !self.match_simple(&TokenKind::Colon) {
+                    break;
+                }
+            }
+            self.expect_simple(TokenKind::Loop, "Expected 'Loop' in inline Do loop")?;
+            let loop_span = self.previous().span;
+
+            let condition = if let Some((is_while, condition)) = pre_condition {
+                if is_while {
+                    DoLoopCondition::PreWhile(condition)
+                } else {
+                    DoLoopCondition::PreUntil(condition)
+                }
+            } else if self.match_simple(&TokenKind::While) {
+                DoLoopCondition::PostWhile(self.parse_expression()?)
+            } else if self.match_simple(&TokenKind::Until) {
+                DoLoopCondition::PostUntil(self.parse_expression()?)
+            } else {
+                DoLoopCondition::Infinite
+            };
+
+            let end = match &condition {
+                DoLoopCondition::PostWhile(expr) | DoLoopCondition::PostUntil(expr) => expr.span,
+                _ => loop_span,
+            };
+
+            return Ok(Stmt::DoLoop {
+                condition,
+                body,
+                span: Span::new(self.file_id, start.start, end.end),
+            });
+        }
+
         self.expect_newline("Expected newline after Do statement")?;
 
         let body = self.parse_block_until(&[BlockEnd::Loop])?;
@@ -980,7 +1052,7 @@ impl Parser {
         Ok(Stmt::DoLoop {
             condition,
             body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -1025,7 +1097,7 @@ impl Parser {
             step,
             next_variable,
             body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -1057,7 +1129,7 @@ impl Parser {
             iterable,
             next_variable,
             body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -1066,39 +1138,8 @@ impl Parser {
             .expect_simple(TokenKind::ReDim, "Expected 'ReDim'")?
             .span;
         let preserve = self.match_simple(&TokenKind::Preserve);
-        let target_start = self.peek().span;
-        let target = if self.match_simple(&TokenKind::Me) {
-            let object = Expr {
-                kind: ExprKind::Me,
-                span: target_start,
-            };
-            self.expect_simple(TokenKind::Dot, "Expected '.' after 'Me' in ReDim target")?;
-            let field = self.expect_identifier("Expected field name after 'Me.'")?;
-            ReDimTarget::Member {
-                object,
-                field,
-                span: Span::new(target_start.start, self.previous().span.end),
-            }
-        } else {
-            let name = self.expect_identifier("Expected array name after 'ReDim'")?;
-            if self.match_simple(&TokenKind::Dot) {
-                let object = Expr {
-                    kind: ExprKind::Variable(name),
-                    span: target_start,
-                };
-                let field = self.expect_identifier("Expected field name after '.'")?;
-                ReDimTarget::Member {
-                    object,
-                    field,
-                    span: Span::new(target_start.start, self.previous().span.end),
-                }
-            } else {
-                ReDimTarget::Variable {
-                    name,
-                    span: target_start,
-                }
-            }
-        };
+        let target = self.parse_redim_target("ReDim")?;
+
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after array name")?;
         let mut dims = Vec::new();
         loop {
@@ -1119,7 +1160,7 @@ impl Parser {
             target,
             dims,
             preserve,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -1127,12 +1168,51 @@ impl Parser {
         let start = self
             .expect_simple(TokenKind::Erase, "Expected 'Erase'")?
             .span;
-        let name = self.expect_identifier("Expected array name after 'Erase'")?;
+        let target = self.parse_redim_target("Erase")?;
         let end = self.previous().span;
         Ok(Stmt::Erase {
-            name,
-            span: Span::new(start.start, end.end),
+            target,
+            span: Span::new(self.file_id, start.start, end.end),
         })
+    }
+
+    fn parse_redim_target(&mut self, context: &str) -> Result<ReDimTarget, Diagnostic> {
+        let start = self.peek().span;
+        if self.match_simple(&TokenKind::Me) {
+            let object = Expr {
+                kind: ExprKind::Me,
+                span: start,
+            };
+            self.expect_simple(
+                TokenKind::Dot,
+                &format!("Expected '.' after 'Me' in {} target", context),
+            )?;
+            let field =
+                self.expect_identifier(&format!("Expected field name after 'Me.' in {}", context))?;
+            Ok(ReDimTarget::Member {
+                object,
+                field,
+                span: Span::new(self.file_id, start.start, self.previous().span.end),
+            })
+        } else {
+            let name =
+                self.expect_identifier(&format!("Expected array name after '{}'", context))?;
+            if self.match_simple(&TokenKind::Dot) {
+                let object = Expr {
+                    kind: ExprKind::Variable(name),
+                    span: start,
+                };
+                let field = self
+                    .expect_identifier(&format!("Expected field name after '.' in {}", context))?;
+                Ok(ReDimTarget::Member {
+                    object,
+                    field,
+                    span: Span::new(self.file_id, start.start, self.previous().span.end),
+                })
+            } else {
+                Ok(ReDimTarget::Variable { name, span: start })
+            }
+        }
     }
 
     fn parse_goto(&mut self) -> Result<Stmt, Diagnostic> {
@@ -1151,7 +1231,7 @@ impl Parser {
         };
         Ok(Stmt::GoTo {
             label,
-            span: Span::new(start.start, token.span.end),
+            span: Span::new(self.file_id, start.start, token.span.end),
         })
     }
 
@@ -1195,7 +1275,7 @@ impl Parser {
         let end = self.previous().span;
         Ok(Stmt::OnError {
             mode,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -1208,7 +1288,7 @@ impl Parser {
                 let next = self.advance();
                 return Ok(Stmt::Resume {
                     target: ResumeTarget::Next,
-                    span: Span::new(start.start, next.span.end),
+                    span: Span::new(self.file_id, start.start, next.span.end),
                 });
             }
             TokenKind::Identifier(_) => {
@@ -1218,7 +1298,7 @@ impl Parser {
                 };
                 return Ok(Stmt::Resume {
                     target: ResumeTarget::Label(label),
-                    span: Span::new(start.start, token.span.end),
+                    span: Span::new(self.file_id, start.start, token.span.end),
                 });
             }
             TokenKind::Integer(_) => {
@@ -1228,7 +1308,7 @@ impl Parser {
                 };
                 return Ok(Stmt::Resume {
                     target: ResumeTarget::Label(number.to_string()),
-                    span: Span::new(start.start, token.span.end),
+                    span: Span::new(self.file_id, start.start, token.span.end),
                 });
             }
             _ => ResumeTarget::Retry,
@@ -1274,7 +1354,7 @@ impl Parser {
             Some(CatchBlock {
                 variable,
                 body,
-                span: Span::new(catch_start.start, catch_end.end),
+                span: Span::new(self.file_id, catch_start.start, catch_end.end),
             })
         } else {
             None
@@ -1304,7 +1384,7 @@ impl Parser {
             try_body,
             catch_block,
             finally_body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -1327,7 +1407,7 @@ impl Parser {
         };
         Ok(Stmt::Exit {
             target,
-            span: Span::new(start.start, token.span.end),
+            span: Span::new(self.file_id, start.start, token.span.end),
         })
     }
 

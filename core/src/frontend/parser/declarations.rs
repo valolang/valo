@@ -45,7 +45,7 @@ impl Parser {
             target,
             name,
             value,
-            span: Span::new(start_span.start, value_token.span.end),
+            span: Span::new(self.file_id, start_span.start, value_token.span.end),
         })
     }
 
@@ -64,7 +64,7 @@ impl Parser {
         Ok(ImportDecl {
             module,
             alias,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -104,7 +104,7 @@ impl Parser {
             name,
             attributes,
             members,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -217,7 +217,7 @@ impl Parser {
             visibility,
             name,
             params,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -287,7 +287,7 @@ impl Parser {
             params,
             return_type,
             body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -322,7 +322,7 @@ impl Parser {
             members.push(EnumMemberDecl {
                 name: member_name,
                 value,
-                span: Span::new(member_start.start, end.end),
+                span: Span::new(self.file_id, member_start.start, end.end),
             });
             self.expect_statement_end("Expected newline after enum member")?;
             self.skip_newlines();
@@ -338,7 +338,7 @@ impl Parser {
             visibility,
             name,
             members,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -365,7 +365,7 @@ impl Parser {
             name,
             ty,
             value,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -483,7 +483,7 @@ impl Parser {
             name,
             fields,
             members,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -613,7 +613,7 @@ impl Parser {
             name,
             params,
             body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -666,7 +666,7 @@ impl Parser {
             name: canonical_name.to_string(),
             params,
             body,
-            span: Span::new(start_span.start, end.end),
+            span: Span::new(self.file_id, start_span.start, end.end),
         })
     }
 
@@ -703,7 +703,7 @@ impl Parser {
             params,
             return_type,
             body,
-            span: Span::new(start.start, end.end),
+            span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
@@ -756,7 +756,7 @@ impl Parser {
                 params,
                 return_type,
                 body,
-                span: Span::new(start.start, end.end),
+                span: Span::new(self.file_id, start.start, end.end),
             },
         })
     }
@@ -806,7 +806,11 @@ impl Parser {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::ARRAY,
                     "ParamArray must be declared as Variant()",
-                    Some(Span::new(start.start, self.previous().span.end)),
+                    Some(Span::new(
+                        self.file_id,
+                        start.start,
+                        self.previous().span.end,
+                    )),
                 ));
             }
             let end = self.previous().span;
@@ -817,7 +821,7 @@ impl Parser {
                 is_optional,
                 optional_default,
                 is_param_array,
-                span: Span::new(start.start, end.end),
+                span: Span::new(self.file_id, start.start, end.end),
             });
 
             if !self.match_simple(&TokenKind::Comma) {

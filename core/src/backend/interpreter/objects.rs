@@ -22,6 +22,7 @@ impl Interpreter {
         if let Some(array) = array {
             let mut elements = Vec::new();
             let mut bounds = Vec::new();
+            let mut is_dynamic = false;
             let allocated = match array {
                 ArrayDecl::Fixed(fixed_bounds) => {
                     let mut total_len: usize = 1;
@@ -34,7 +35,10 @@ impl Interpreter {
                     }
                     true
                 }
-                ArrayDecl::Dynamic => false,
+                ArrayDecl::Dynamic => {
+                    is_dynamic = true;
+                    false
+                }
             };
 
             return Ok(Value::Array {
@@ -42,6 +46,7 @@ impl Interpreter {
                 elements,
                 bounds,
                 allocated,
+                dynamic: is_dynamic,
             });
         }
 
@@ -463,6 +468,63 @@ impl Interpreter {
         self.call_property_set(target, member, value, span)
     }
 
+    pub(crate) fn erase_member_array(
+        &mut self,
+        object: &Value,
+        field: &str,
+        span: Span,
+        _frame: &mut Frame,
+    ) -> Result<(), Diagnostic> {
+        let Value::Object(object_ref) = object else {
+            if let Value::Nothing = object {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    "Object reference is Nothing",
+                    Some(span),
+                ));
+            }
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Erase member target must be an object",
+                Some(span),
+            ));
+        };
+        let mut object_mut = object_ref.borrow_mut();
+        let class_name = object_mut.class_name.clone();
+        let Some(slot) = object_mut.fields.get_mut(&key(field)) else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Class '{}' has no field '{}'", class_name, field),
+                Some(span),
+            ));
+        };
+        let Value::Array {
+            element_type,
+            elements,
+            allocated,
+            bounds,
+            dynamic,
+        } = slot
+        else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::ARRAY,
+                "Erase target must be an array",
+                Some(span),
+            ));
+        };
+
+        if *dynamic {
+            elements.clear();
+            bounds.clear();
+            *allocated = false;
+        } else {
+            for element in elements.iter_mut() {
+                *element = default_value(element_type, &self.types, &self.enums, span)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn redim_target(
         &mut self,
         target: &crate::ReDimTarget,
@@ -524,6 +586,7 @@ impl Interpreter {
                 elements: Vec::new(),
                 bounds: Vec::new(),
                 allocated: false,
+                dynamic: true,
             };
         }
         redim_array(slot, new_bounds, preserve, &self.types, &self.enums, span)

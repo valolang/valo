@@ -1793,7 +1793,9 @@ pub(super) fn ensure_class_type(
 }
 
 pub(super) fn is_object_reference_expr(expr: &Expr, ty: &TypeName, types: &TypeRegistry) -> bool {
-    matches!(expr.kind, ExprKind::Nothing) || is_class_type(ty, types)
+    matches!(expr.kind, ExprKind::Nothing)
+        || is_class_type(ty, types)
+        || ty.same_type(&TypeName::Variant)
 }
 
 pub(super) fn is_class_type(ty: &TypeName, types: &TypeRegistry) -> bool {

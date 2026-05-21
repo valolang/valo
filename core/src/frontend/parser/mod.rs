@@ -10,26 +10,35 @@ mod statements;
 use crate::frontend::ast::*;
 use crate::frontend::lexer::{Lexer, Token, TokenKind};
 use crate::frontend::preprocessor::preprocess;
-use crate::runtime::Diagnostic;
+use crate::runtime::{Diagnostic, FileId};
 
 pub fn parse_source(source: &str) -> Result<Program, Diagnostic> {
-    Parser::parse_source(source)
+    Parser::parse_source(source, FileId::default())
+}
+
+pub fn parse_source_with_id(source: &str, file_id: FileId) -> Result<Program, Diagnostic> {
+    Parser::parse_source(source, file_id)
 }
 
 pub struct Parser {
+    pub(super) file_id: FileId,
     pub(super) tokens: Vec<Token>,
     pub(super) current: usize,
 }
 
 impl Parser {
-    pub fn parse_source(source: &str) -> Result<Program, Diagnostic> {
+    pub fn parse_source(source: &str, file_id: FileId) -> Result<Program, Diagnostic> {
         let source = preprocess(source)?;
-        let tokens = Lexer::new(&source).tokenize()?;
-        Self::new(tokens).parse_program()
+        let tokens = Lexer::new(&source).with_id(file_id).tokenize()?;
+        Self::new(tokens, file_id).parse_program()
     }
 
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, current: 0 }
+    pub fn new(tokens: Vec<Token>, file_id: FileId) -> Self {
+        Self {
+            file_id,
+            tokens,
+            current: 0,
+        }
     }
 
     pub(super) fn consume_statement_end(&mut self) {

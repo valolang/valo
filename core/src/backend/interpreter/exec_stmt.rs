@@ -1,7 +1,7 @@
 use crate::runtime::{Diagnostic, RuntimeErrorInfo, Value};
 use crate::{
-    AssignTarget, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ResumeTarget, Stmt,
-    UsingResource,
+    AssignTarget, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ReDimTarget, ResumeTarget,
+    Stmt, UsingResource,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -449,8 +449,16 @@ impl Interpreter {
                 self.redim_target(target, new_bounds, *preserve, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
-            Stmt::Erase { name, span } => {
-                frame.erase_array(name, *span, &self.types, &self.enums)?;
+            Stmt::Erase { target, span } => {
+                match target {
+                    ReDimTarget::Variable { name, .. } => {
+                        frame.erase_array(name, *span, &self.types, &self.enums)?;
+                    }
+                    ReDimTarget::Member { object, field, .. } => {
+                        let obj_value = self.eval_expr(object, frame)?;
+                        self.erase_member_array(&obj_value, field, *span, frame)?;
+                    }
+                }
                 Ok(ControlFlow::Continue)
             }
             Stmt::Label { .. } => Ok(ControlFlow::Continue),

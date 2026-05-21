@@ -11,7 +11,7 @@ impl Parser {
 
         while self.match_simple(&TokenKind::Or) {
             let right = self.parse_and()?;
-            let span = Span::new(expr.span.start, right.span.end);
+            let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
                     left: Box::new(expr),
@@ -30,7 +30,7 @@ impl Parser {
 
         while self.match_simple(&TokenKind::And) {
             let right = self.parse_not()?;
-            let span = Span::new(expr.span.start, right.span.end);
+            let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
                     left: Box::new(expr),
@@ -56,13 +56,13 @@ impl Parser {
                     expr: Box::new(expr),
                     class_name,
                 },
-                span: Span::new(start.start, end.end),
+                span: Span::new(self.file_id, start.start, end.end),
             });
         }
         if self.match_simple(&TokenKind::Not) {
             let start = self.previous().span;
             let expr = self.parse_not()?;
-            let span = Span::new(start.start, expr.span.end);
+            let span = Span::new(self.file_id, start.start, expr.span.end);
             return Ok(Expr {
                 kind: ExprKind::Unary {
                     op: UnaryOp::LogicalNot,
@@ -80,7 +80,7 @@ impl Parser {
 
         while let Some(op) = self.match_comparison_op() {
             let right = self.parse_concat()?;
-            let span = Span::new(expr.span.start, right.span.end);
+            let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
                     left: Box::new(expr),
@@ -99,7 +99,7 @@ impl Parser {
 
         while self.match_simple(&TokenKind::Ampersand) {
             let right = self.parse_term()?;
-            let span = Span::new(expr.span.start, right.span.end);
+            let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
                     left: Box::new(expr),
@@ -130,7 +130,7 @@ impl Parser {
             };
 
             let right = self.parse_factor()?;
-            let span = Span::new(expr.span.start, right.span.end);
+            let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
                     left: Box::new(expr),
@@ -165,7 +165,7 @@ impl Parser {
             };
 
             let right = self.parse_unary()?;
-            let span = Span::new(expr.span.start, right.span.end);
+            let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
                     left: Box::new(expr),
@@ -183,7 +183,7 @@ impl Parser {
         if self.match_simple(&TokenKind::Minus) {
             let start = self.previous().span;
             let expr = self.parse_unary()?;
-            let span = Span::new(start.start, expr.span.end);
+            let span = Span::new(self.file_id, start.start, expr.span.end);
             return Ok(Expr {
                 kind: ExprKind::Unary {
                     op: UnaryOp::Negate,
@@ -229,7 +229,7 @@ impl Parser {
                     kind: ExprKind::WithTarget,
                     span,
                 };
-                let member_span = Span::new(span.start, field_token.span.end);
+                let member_span = Span::new(self.file_id, span.start, field_token.span.end);
                 if self.match_simple(&TokenKind::LeftParen) {
                     let args = self.finish_call_arguments()?;
                     let end = self.previous().span;
@@ -239,7 +239,7 @@ impl Parser {
                             method: field,
                             args,
                         },
-                        span: Span::new(span.start, end.end),
+                        span: Span::new(self.file_id, span.start, end.end),
                     });
                 }
                 return self.parse_member_access(Expr {
@@ -258,8 +258,11 @@ impl Parser {
                     class_name.push('.');
                     class_name.push_str(&member);
                 }
-                self.expect_simple(TokenKind::LeftParen, "Expected '(' after class name")?;
-                let args = self.finish_call_arguments()?;
+                let args = if self.match_simple(&TokenKind::LeftParen) {
+                    self.finish_call_arguments()?
+                } else {
+                    Vec::new()
+                };
                 ExprKind::New { class_name, args }
             }
             TokenKind::Identifier(name) => {
@@ -303,7 +306,7 @@ impl Parser {
                     ));
                 }
             };
-            let span = Span::new(expr.span.start, field_token.span.end);
+            let span = Span::new(self.file_id, expr.span.start, field_token.span.end);
             if self.match_simple(&TokenKind::LeftParen) {
                 let args = self.finish_call_arguments()?;
                 let end = self.previous().span;
@@ -313,7 +316,7 @@ impl Parser {
                         method: field,
                         args,
                     },
-                    span: Span::new(span.start, end.end),
+                    span: Span::new(self.file_id, span.start, end.end),
                 };
             } else {
                 expr = Expr {
@@ -370,7 +373,7 @@ impl Parser {
             self.expect_simple(TokenKind::Colon, "Expected ':' in named argument")?;
             self.expect_simple(TokenKind::Equal, "Expected '=' in named argument")?;
             let expr = self.parse_expression()?;
-            let span = Span::new(name_token.span.start, expr.span.end);
+            let span = Span::new(self.file_id, name_token.span.start, expr.span.end);
             return Ok(Expr {
                 kind: ExprKind::NamedArg {
                     name,

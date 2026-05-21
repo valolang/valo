@@ -14,8 +14,8 @@ mod value;
 
 pub use coerce::coerce_assignment;
 pub use diagnostic::{
-    Diagnostic, DiagnosticCode, DiagnosticLabel, LabelStyle, RuntimeErrorInfo, Severity, SourcePos,
-    Span,
+    Diagnostic, DiagnosticCode, DiagnosticLabel, FileId, LabelStyle, RuntimeErrorInfo, Severity,
+    SourceMap, SourcePos, Span,
 };
 pub use type_name::TypeName;
 pub use value::{EventBinding, ObjectValue, Value};

@@ -1,8 +1,9 @@
-use crate::runtime::{Diagnostic, SourcePos, Span};
+use crate::runtime::{Diagnostic, FileId, SourcePos, Span};
 
 use super::{Token, TokenKind};
 
 pub struct Lexer<'a> {
+    file_id: FileId,
     chars: Vec<char>,
     index: usize,
     line: usize,
@@ -13,12 +14,18 @@ pub struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     pub fn new(source: &'a str) -> Self {
         Self {
+            file_id: FileId::default(),
             chars: source.chars().collect(),
             index: 0,
             line: 1,
             column: 1,
             _source: source,
         }
+    }
+
+    pub fn with_id(mut self, file_id: FileId) -> Self {
+        self.file_id = file_id;
+        self
     }
 
     pub fn tokenize(mut self) -> Result<Vec<Token>, Diagnostic> {
@@ -68,7 +75,7 @@ impl<'a> Lexer<'a> {
         let pos = self.pos();
         tokens.push(Token {
             kind: TokenKind::Eof,
-            span: Span::new(pos, pos),
+            span: Span::new(self.file_id, pos, pos),
         });
         Ok(tokens)
     }
@@ -181,7 +188,7 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind,
-            span: Span::new(start, self.pos()),
+            span: Span::new(self.file_id, start, self.pos()),
         }
     }
 
@@ -197,12 +204,12 @@ impl<'a> Lexer<'a> {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
                         "Square-bracket array type syntax is not supported; use 'Dim name() As Type'",
-                        Some(Span::new(start, self.pos())),
+                        Some(Span::new(self.file_id, start, self.pos())),
                     ));
                 }
                 return Ok(Token {
                     kind: TokenKind::Identifier(text),
-                    span: Span::new(start, self.pos()),
+                    span: Span::new(self.file_id, start, self.pos()),
                 });
             }
             if ch == '\n' {
@@ -215,7 +222,7 @@ impl<'a> Lexer<'a> {
         Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::PARSE,
             "Unterminated bracketed identifier",
-            Some(Span::new(start, self.pos())),
+            Some(Span::new(self.file_id, start, self.pos())),
         ))
     }
 
@@ -244,7 +251,7 @@ impl<'a> Lexer<'a> {
         if is_float {
             Ok(Token {
                 kind: TokenKind::Float(text),
-                span: Span::new(start, self.pos()),
+                span: Span::new(self.file_id, start, self.pos()),
             })
         } else {
             let value = text.parse::<i64>().map_err(|_| {
@@ -255,26 +262,26 @@ impl<'a> Lexer<'a> {
                             "Integer literal '{}' is too large (use Int64 or Double)",
                             text
                         ),
-                        Some(Span::new(start, self.pos())),
+                        Some(Span::new(self.file_id, start, self.pos())),
                     );
                 }
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::GENERIC,
                     format!("Integer literal '{}' is out of range", text),
-                    Some(Span::new(start, self.pos())),
+                    Some(Span::new(self.file_id, start, self.pos())),
                 )
             });
 
             match value {
                 Ok(v) => Ok(Token {
                     kind: TokenKind::Integer(v),
-                    span: Span::new(start, self.pos()),
+                    span: Span::new(self.file_id, start, self.pos()),
                 }),
                 Err(e) => {
                     if text.parse::<f64>().is_ok() {
                         Ok(Token {
                             kind: TokenKind::Float(text),
-                            span: Span::new(start, self.pos()),
+                            span: Span::new(self.file_id, start, self.pos()),
                         })
                     } else {
                         Err(e)
@@ -294,7 +301,7 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 return Ok(Token {
                     kind: TokenKind::String(value),
-                    span: Span::new(start, self.pos()),
+                    span: Span::new(self.file_id, start, self.pos()),
                 });
             }
 
@@ -302,7 +309,7 @@ impl<'a> Lexer<'a> {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::PARSE,
                     "Unterminated string literal",
-                    Some(Span::new(start, self.pos())),
+                    Some(Span::new(self.file_id, start, self.pos())),
                 ));
             }
 
@@ -313,7 +320,7 @@ impl<'a> Lexer<'a> {
         Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::PARSE,
             "Unterminated string literal",
-            Some(Span::new(start, self.pos())),
+            Some(Span::new(self.file_id, start, self.pos())),
         ))
     }
 
@@ -333,7 +340,7 @@ impl<'a> Lexer<'a> {
         };
         Token {
             kind,
-            span: Span::new(start, self.pos()),
+            span: Span::new(self.file_id, start, self.pos()),
         }
     }
 
@@ -349,7 +356,7 @@ impl<'a> Lexer<'a> {
         };
         Token {
             kind,
-            span: Span::new(start, self.pos()),
+            span: Span::new(self.file_id, start, self.pos()),
         }
     }
 
@@ -367,13 +374,13 @@ impl<'a> Lexer<'a> {
         self.advance();
         Token {
             kind,
-            span: Span::new(start, self.pos()),
+            span: Span::new(self.file_id, start, self.pos()),
         }
     }
 
     fn current_span(&self) -> Span {
         let pos = self.pos();
-        Span::new(pos, pos)
+        Span::new(self.file_id, pos, pos)
     }
 
     fn pos(&self) -> SourcePos {

@@ -125,7 +125,8 @@ pub(crate) fn dispatch_function(
 fn is_builtin_function(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "sgn" | "int"
+        "sgn"
+            | "int"
             | "randomize"
             | "rnd"
             | "split"

@@ -1,8 +1,5 @@
-use std::{
-    fs,
-    io::{self, Write},
-};
-use valo_core::{Frame, Interpreter, Parser, run_file, validate};
+use std::io::{self, Write};
+use valo_core::{Frame, Interpreter, run_file, validate};
 
 pub fn run(mut args: impl Iterator<Item = String>) -> Result<(), String> {
     let Some(path) = args.next() else {
@@ -13,10 +10,7 @@ pub fn run(mut args: impl Iterator<Item = String>) -> Result<(), String> {
         return Err("usage: valo run <file>".to_string());
     }
 
-    let output = run_file(&path).map_err(|err| {
-        let source = fs::read_to_string(&path).unwrap_or_default();
-        err.render(&path, &source)
-    })?;
+    let output = run_file(&path)?;
 
     for line in output {
         println!("{line}");
@@ -30,9 +24,14 @@ pub fn check(mut args: impl Iterator<Item = String>) -> Result<(), String> {
         return Err("usage: valo check <file>".to_string());
     };
 
-    let source = fs::read_to_string(&path).map_err(|_| format!("Could not read file: {}", path))?;
-    let program = Parser::parse_source(&source).map_err(|err| err.render(&path, &source))?;
-    validate(&program).map_err(|err| err.render(&path, &source))?;
+    match valo_core::load_project(&path) {
+        Ok(project) => {
+            if let Err(err) = valo_core::validate_project(&project) {
+                return Err(err.render(&project.source_map));
+            }
+        }
+        Err((err, map)) => return Err(err.render(&map)),
+    }
 
     println!("File validated successfully.");
     Ok(())
@@ -61,11 +60,13 @@ pub fn repl() -> Result<(), String> {
             continue;
         }
 
-        let source = format!("Sub Main()\n{}\nEnd Sub", line);
-        match Parser::parse_source(&source) {
+        let source_content = format!("Sub Main()\n{}\nEnd Sub", line);
+        let mut source_map = valo_core::SourceMap::new();
+        let file_id = source_map.add("repl".to_string(), source_content.clone());
+        match valo_core::parse_source_with_id(&source_content, file_id) {
             Ok(program) => {
                 if let Err(err) = validate(&program) {
-                    eprintln!("Validation error: {:?}", err);
+                    eprintln!("{}", err.render(&source_map));
                 } else {
                     match interpreter.run_repl_snippet(&program, &mut global_frame) {
                         Ok(output) => {
@@ -73,11 +74,11 @@ pub fn repl() -> Result<(), String> {
                                 println!("{}", out_line);
                             }
                         }
-                        Err(err) => eprintln!("Runtime error: {:?}", err),
+                        Err(err) => eprintln!("{}", err.render(&source_map)),
                     }
                 }
             }
-            Err(err) => eprintln!("Parse error: {:?}", err),
+            Err(err) => eprintln!("{}", err.render(&source_map)),
         }
     }
     Ok(())

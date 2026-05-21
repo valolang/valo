@@ -142,6 +142,7 @@ impl Interpreter {
                                 upper: self.option_base + len - 1,
                             }],
                             allocated: true,
+                            dynamic: true,
                         })
                     } else {
                         frame.get(&function.name, function.span)
@@ -242,6 +243,7 @@ impl Interpreter {
                                 upper: self.option_base + len - 1,
                             }],
                             allocated: true,
+                            dynamic: true,
                         })
                     } else {
                         frame.get(&function.name, function.span)
@@ -411,6 +413,7 @@ impl Interpreter {
                             upper: self.option_base + len - 1,
                         }],
                         allocated: true,
+                        dynamic: true,
                     })
                 } else {
                     frame.get(&function.name, function.span)
@@ -810,6 +813,7 @@ impl Interpreter {
                                 upper: self.option_base + len - 1,
                             }],
                             allocated: true,
+                            dynamic: true,
                         })
                     } else {
                         frame.get(&function.name, function.span)
@@ -945,6 +949,7 @@ impl Interpreter {
                             upper: self.option_base + len - 1,
                         }],
                         allocated: true,
+                        dynamic: true,
                     })
                 } else {
                     frame.get(&function.name, function.span)
@@ -1072,6 +1077,7 @@ impl Interpreter {
                             upper: self.option_base + len as i64 - 1,
                         }],
                         allocated: true,
+                        dynamic: true,
                     },
                     param.span,
                 )?;
@@ -1126,15 +1132,23 @@ impl Interpreter {
                         }
                         continue;
                     };
-                    let ExprKind::Variable(arg_name) = &arg.kind else {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                            "ByRef argument must be a variable",
-                            Some(arg.span),
-                        ));
-                    };
-                    let variable = caller_frame.variable(arg_name, arg.span)?;
-                    callee_frame.declare_alias(&param.name, param_ty, variable, param.span)?;
+                    if let ExprKind::Variable(arg_name) = &arg.kind {
+                        let variable = caller_frame.variable(arg_name, arg.span)?;
+                        callee_frame.declare_alias(&param.name, param_ty, variable, param.span)?;
+                    } else {
+                        // VBA allows passing non-variables to ByRef parameters (they are copied to a temporary)
+                        let value = self.eval_expr(arg, caller_frame)?;
+                        callee_frame.declare(
+                            &param.name,
+                            param_ty,
+                            None,
+                            self.option_base,
+                            param.span,
+                            &self.types,
+                            &self.enums,
+                        )?;
+                        let _ = callee_frame.assign(&param.name, value, param.span)?;
+                    }
                 }
             }
         }

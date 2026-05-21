@@ -93,6 +93,7 @@ impl Interpreter {
                             upper: self.option_base + len - 1,
                         }],
                         allocated: true,
+                        dynamic: true,
                     })
                 } else {
                     frame.get(&accessor.name, accessor.span)
@@ -295,6 +296,7 @@ impl Interpreter {
                             upper: self.option_base + len - 1,
                         }],
                         allocated: true,
+                        dynamic: true,
                     })
                 } else {
                     frame.get(&accessor.name, accessor.span)

@@ -30,7 +30,7 @@ fn test_callbyname() {
             Console.WriteLine(obj.Value)
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["42", "42", "42", "99"]);
@@ -47,7 +47,7 @@ fn test_vba_constants() {
             Console.WriteLine(VbMethod)
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["0", "1", "8", "8192", "1"]);
@@ -71,7 +71,7 @@ fn test_random() {
             End If
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output[2], "matched");
@@ -87,7 +87,7 @@ fn test_vba_namespace() {
             Console.WriteLine(VBA.TypeName(123))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["a-b-c", "Integer"]);
@@ -105,7 +105,7 @@ fn test_isempty() {
             Console.WriteLine(IsEmpty(v))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["True", "False", "True"]);
@@ -126,7 +126,7 @@ fn test_return_modernization() {
             Console.WriteLine(Test(5))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["30", "6"]);

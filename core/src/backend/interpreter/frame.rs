@@ -69,6 +69,7 @@ impl Frame {
         let value = if let Some(array) = array {
             let mut elements = Vec::new();
             let mut bounds = Vec::new();
+            let mut is_dynamic = false;
             let allocated = match array {
                 ArrayDecl::Fixed(fixed_bounds) => {
                     let mut total_len: usize = 1;
@@ -81,7 +82,10 @@ impl Frame {
                     }
                     true
                 }
-                ArrayDecl::Dynamic => false,
+                ArrayDecl::Dynamic => {
+                    is_dynamic = true;
+                    false
+                }
             };
 
             Value::Array {
@@ -89,6 +93,7 @@ impl Frame {
                 elements,
                 bounds,
                 allocated,
+                dynamic: is_dynamic,
             }
         } else {
             default_value(&ty, types, enums, span)?
@@ -383,7 +388,7 @@ impl Frame {
             elements,
             allocated,
             bounds,
-            ..
+            dynamic,
         } = &mut *array
         else {
             return Err(Diagnostic::new(
@@ -392,7 +397,7 @@ impl Frame {
                 Some(span),
             ));
         };
-        if variable.dynamic_array {
+        if *dynamic {
             elements.clear();
             bounds.clear();
             *allocated = false;

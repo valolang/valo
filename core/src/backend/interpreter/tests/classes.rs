@@ -1,4 +1,5 @@
 use crate::backend::interpreter::tests::helpers::*;
+use crate::runtime::SourceMap;
 
 #[test]
 fn exported_class_attributes_default_member_as_new_and_class_initialize_work() {
@@ -212,7 +213,9 @@ Sub Main()
 End Sub
 "#;
     let diagnostic = source_diagnostic(source);
-    let rendered = diagnostic.render("stack.valo", source);
+    let mut map = SourceMap::new();
+    map.add("stack.valo".to_string(), source.to_string());
+    let rendered = diagnostic.render_colored(&map, false);
 
     assert!(rendered.contains("error[V1200]"));
     assert!(rendered.contains("note: while executing Sub 'Boom'"));

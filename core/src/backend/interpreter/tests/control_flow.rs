@@ -1,5 +1,6 @@
 use crate::backend::interpreter::tests::helpers::*;
 use crate::frontend::parser::Parser;
+use crate::runtime::{FileId, SourceMap};
 
 #[test]
 fn runs_control_flow() {
@@ -35,6 +36,7 @@ Sub Main()
     x = 
 End Sub
 "#,
+        FileId::default(),
     )
     .unwrap_err();
 
@@ -81,10 +83,12 @@ Sub Main()
 End Sub
 "#;
     let diagnostic = source_diagnostic(source);
-    let rendered = diagnostic.render("examples/test.valo", source);
+    let mut map = SourceMap::new();
+    map.add("examples/test.valo".to_string(), source.to_string());
+    let rendered = diagnostic.render_colored(&map, false);
 
     assert!(rendered.contains("error[V1100]"));
-    assert!(rendered.contains("--> examples/test.valo:4:"));
+    assert!(rendered.contains("--> examples/test.valo:4:5"));
     assert!(rendered.contains("expected Integer, found String"));
     assert!(rendered.contains("help: change the variable type"));
 }
@@ -1297,6 +1301,7 @@ Sub Main()
         Console.WriteLine("open")
 End Sub
 "#,
+        FileId::default(),
     )
     .unwrap_err()
     .to_string();

@@ -12,7 +12,7 @@ Attribute VB_Name = "Counter"
 
 Public value As Integer
 "#;
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     assert_eq!(program.classes.len(), 1);
     assert_eq!(program.classes[0].name, "Counter");
 }

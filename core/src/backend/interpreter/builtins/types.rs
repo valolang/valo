@@ -26,7 +26,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("IsError") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(Value::Boolean(false)));
+        return Ok(Some(Value::Boolean(matches!(args[0], Value::Error(_)))));
     }
     if name.eq_ignore_ascii_case("VarType") {
         expect_value_count(name, args, 1, span)?;
@@ -146,6 +146,7 @@ fn vartype(value: &Value) -> i64 {
         Value::Byte(_) => 17,
         Value::Int64(_) => 20,
         Value::Array { .. } => 8192,
+        Value::Error(_) => 10,
         Value::Record { .. } | Value::Missing => 12,
         Value::Ptr(_) | Value::UInt32(_) | Value::UInt64(_) | Value::FuncPtr(_) => 12,
     }
@@ -166,6 +167,7 @@ fn value_type_name(value: &Value) -> String {
         Value::Boolean(_) => "Boolean".to_string(),
         Value::Date(_) => "Date".to_string(),
         Value::String(_) => "String".to_string(),
+        Value::Error(_) => "Error".to_string(),
         Value::Object(object) => object.borrow().class_name.clone(),
         Value::Nothing => "Nothing".to_string(),
         Value::Array { .. } => "Array".to_string(),

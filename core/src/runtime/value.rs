@@ -25,12 +25,14 @@ pub enum Value {
         elements: Vec<Value>,
         bounds: Vec<ArrayBound>,
         allocated: bool,
+        dynamic: bool,
     },
     Record {
         type_name: String,
         fields: HashMap<String, Value>,
     },
     Object(Rc<RefCell<ObjectValue>>),
+    Error(i32),
     Nothing,
     Null,
     Missing,
@@ -83,6 +85,7 @@ impl Value {
             Value::Array { .. } => TypeName::Variant,
             Value::Record { type_name, .. } => TypeName::User(type_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
+            Value::Error(_) => TypeName::Variant,
             Value::Nothing | Value::Null | Value::Missing => TypeName::Variant,
             Value::Empty => TypeName::Variant,
         }
@@ -112,6 +115,7 @@ impl Value {
             } => *allocated && !elements.is_empty(),
             Value::Record { .. } => true,
             Value::Object(_) => true,
+            Value::Error(code) => *code != 0,
             Value::Nothing | Value::Null | Value::Missing => false,
             Value::Empty => false,
         }
@@ -147,6 +151,7 @@ impl Value {
             Value::Array { .. } => "<Array>".to_string(),
             Value::Record { type_name, .. } => format!("<{}>", type_name),
             Value::Object(object) => format!("<{}>", object.borrow().class_name),
+            Value::Error(code) => format!("Error {}", code),
             Value::Nothing => "Nothing".to_string(),
             Value::Null => "Null".to_string(),
             Value::Missing => "<Missing>".to_string(),

@@ -598,18 +598,11 @@ pub(super) fn validate_statements(
                     // But we might not know the original dimension count yet if it's dynamic.
                 }
             }
-            Stmt::Erase { name, span } => {
-                let Some(var_type) = symbols.get(&key(name)) else {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                        format!("Variable '{}' is not declared", name),
-                        Some(*span),
-                    ));
-                };
-                if !matches!(var_type, VarType::Array(_)) {
+            Stmt::Erase { target, span } => {
+                if !redim_target_is_dynamic_array(target, symbols, types, signatures, &context)? {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
-                        "Erase target must be an array",
+                        "Erase target must be an array or Variant",
                         Some(*span),
                     ));
                 }

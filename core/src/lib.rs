@@ -11,11 +11,11 @@ pub mod frontend;
 pub mod runtime;
 
 // Re-exports for compatibility and ease of use
-pub use backend::interpreter::{self, run, Frame, Interpreter};
+pub use backend::interpreter::{self, Frame, Interpreter, run};
 pub use frontend::ast::*;
 pub use frontend::lexer::{self, Lexer, Token, TokenKind};
-pub use frontend::modules::{self, load_project, Project};
-pub use frontend::parser::{self, parse_source, Parser};
+pub use frontend::modules::{self, Project, load_project};
+pub use frontend::parser::{self, Parser, parse_source, parse_source_with_id};
 pub use frontend::preprocessor;
 pub use frontend::semantics::{self, validate, validate_project};
 pub use runtime::*;
@@ -29,8 +29,15 @@ pub fn run_source(source: &str) -> Result<Vec<String>, Diagnostic> {
     run(&program)
 }
 
-pub fn run_file(path: impl AsRef<std::path::Path>) -> Result<Vec<String>, Diagnostic> {
-    let project = load_project(path)?;
-    semantics::validate_project(&project)?;
-    Interpreter::new().run_project(&project)
+pub fn run_file(path: impl AsRef<std::path::Path>) -> Result<Vec<String>, String> {
+    let project = match load_project(path) {
+        Ok(p) => p,
+        Err((err, map)) => return Err(err.render(&map)),
+    };
+    if let Err(err) = semantics::validate_project(&project) {
+        return Err(err.render(&project.source_map));
+    }
+    Interpreter::new()
+        .run_project(&project)
+        .map_err(|err| err.render(&project.source_map))
 }

@@ -14,26 +14,24 @@ Every error or warning in Valo is encapsulated in a `Diagnostic` struct (`core/s
 
 ## Rendering
 
-Diagnostics are rendered in a format inspired by Rust and Zig, optimized for readability in terminal environments.
+Diagnostics are rendered in a professional, Rust-inspired format. Features include:
+
+-   **Source-Aware Spans:** Diagnostics correctly point to the original source file, even across imported modules.
+-   **Colorized Output:** Colored output is enabled by default in terminal environments, with support for the `NO_COLOR` standard.
+-   **Contextual Labels:** Primary and secondary labels provide pinpoint accuracy for errors.
+-   **Import Chains:** Errors in imported modules include notes explaining the import chain.
 
 ```txt
-error[V1100]: Cannot assign String value to Integer variable
-  --> script.valo:3:3
+error[V0100]: expected statement after `Then` or newline for block If
+  --> List.cls:39:24
    |
-3 |   x = "string"
-   |   ^^^^^^^^^^^^ expected Integer, found String
+39 |     If newCap < 0 Then Err.Raise 5, "List", "Capacity must be >= 0"
+   |                        ^^^^^^^^^ expected statement
    |
-help: change the variable type or assign a value with the expected type
+   = note: while parsing imported module `List`
+   = note: imported from main.valo:1:1
 ```
-
-## Phases
-
-Valo emits diagnostics during three distinct phases:
-
-1.  **Parse Phase:** Reports syntax errors like missing keywords, unbalanced parentheses, or malformed constructs.
-2.  **Semantic Phase:** Reports logical errors like type mismatches, unknown variables, or invalid module imports.
-3.  **Runtime Phase:** Reports execution-time failures like division by zero or out-of-bounds array access.
 
 ## Implementation Details
 
-The `Diagnostic` system is designed to be cumulative during the parse and semantic phases. The `Parser` and `Validator` can continue processing after an error is found, collecting multiple diagnostics to report to the user at once.
+The diagnostics system uses a central `SourceMap` (`core/src/runtime/diagnostic.rs`) to manage file names and contents. Every `Span` contains a `FileId` that resolves back to the `SourceMap`, allowing the renderer to show the correct source line regardless of which file triggered the diagnostic.

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::frontend::ast::OptionCompare;
-use crate::runtime::{Diagnostic, SourcePos, Span};
+use crate::runtime::{Diagnostic, FileId, SourcePos, Span};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ConstValue {
@@ -61,6 +61,7 @@ pub fn preprocess(source: &str) -> Result<String, Diagnostic> {
 
     if let Some(frame) = stack.last() {
         let span = Span::new(
+            FileId::default(),
             SourcePos::new(source.lines().count(), 1),
             SourcePos::new(source.lines().count(), 1),
         );
@@ -382,7 +383,7 @@ fn diagnostic(line: usize, column: usize, message: &str) -> Diagnostic {
     Diagnostic::new(
         crate::runtime::DiagnosticCode::GENERIC,
         message,
-        Some(Span::new(pos, pos)),
+        Some(Span::new(FileId::default(), pos, pos)),
     )
     .with_primary_label(message)
 }

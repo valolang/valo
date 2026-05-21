@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime::FileId;
 
 #[test]
 fn parses_main_with_if_and_while() {
@@ -17,7 +18,7 @@ Sub Main()
 End Sub
 "#;
 
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
 
     assert_eq!(program.procedures.len(), 1);
     assert_eq!(program.procedures[0].name, "Main");
@@ -44,7 +45,7 @@ Sub Main()
 End Sub
 "#;
 
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
 
     assert_eq!(program.procedures[0].body.len(), 3);
 }
@@ -68,7 +69,7 @@ Sub Main()
 End Sub
 "#;
 
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
     let members = &program.classes[0].members;
 
     assert!(matches!(members[1], ClassMember::Property(_)));
@@ -83,6 +84,7 @@ Sub Main()
     Dim x As Integer x = 1
 End Sub
 "#,
+        FileId::default(),
     )
     .unwrap_err();
 
@@ -102,6 +104,7 @@ Sub Main()
         Console.WriteLine("open")
 End Sub
 "#,
+        FileId::default(),
     )
     .unwrap_err();
 
@@ -117,6 +120,7 @@ Sub Main()
         Console.WriteLine("open")
 End Sub
 "#,
+        FileId::default(),
     )
     .unwrap_err();
 
@@ -133,6 +137,7 @@ Sub Main()
         Console.WriteLine(i)
 End Sub
 "#,
+        FileId::default(),
     )
     .unwrap_err();
 
@@ -146,6 +151,7 @@ fn reports_missing_end_sub() {
 Sub Main()
     Console.WriteLine("open")
 "#,
+        FileId::default(),
     )
     .unwrap_err();
 

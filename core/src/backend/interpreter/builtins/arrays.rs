@@ -16,6 +16,7 @@ pub(crate) fn eval_arrays(
                 upper: len - 1,
             }],
             allocated: true,
+            dynamic: true,
         }));
     }
 

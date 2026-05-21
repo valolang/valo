@@ -14,6 +14,7 @@ pub(crate) fn read_array_element(
         elements,
         bounds,
         allocated,
+        dynamic: _,
         ..
     } = value
     else {
@@ -39,6 +40,7 @@ pub(crate) fn write_array_element(
         elements,
         bounds,
         allocated,
+        dynamic: _,
     } = value
     else {
         return Err(Diagnostic::new(
@@ -63,6 +65,7 @@ pub(crate) fn array_element_mut<'a>(
         elements,
         bounds,
         allocated,
+        dynamic: _,
         ..
     } = value
     else {
@@ -134,6 +137,7 @@ pub(crate) fn redim_array(
         elements,
         bounds: old_bounds,
         allocated,
+        dynamic: _,
     } = value
     else {
         return Err(Diagnostic::new(

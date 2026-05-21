@@ -116,7 +116,7 @@ pub enum Stmt {
         span: Span,
     },
     Erase {
-        name: String,
+        target: ReDimTarget,
         span: Span,
     },
     Label {

@@ -23,7 +23,7 @@ fn test_numeric_ranges_and_overflow() {
             Console.WriteLine(i64)
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(
@@ -48,7 +48,7 @@ fn test_mixed_arithmetic() {
             Console.WriteLine(i + s)
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["12.5", "25", "11.5"]);
@@ -70,7 +70,7 @@ fn test_conversions() {
             Console.WriteLine(TypeName(d))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["123", "123", "123", "123.456", "Date"]);
@@ -88,7 +88,7 @@ fn test_byte_array() {
             Console.WriteLine(data(1))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["65", "66"]);
@@ -101,7 +101,7 @@ fn byte_square_bracket_array_syntax_is_rejected() {
             Dim data As Byte[]
         End Sub
     ";
-    let error = Parser::parse_source(source).unwrap_err().to_string();
+    let error = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap_err().to_string();
     assert!(error.contains("Square-bracket array type syntax is not supported"));
 }
 
@@ -118,7 +118,7 @@ fn test_unsigned_types() {
             Console.WriteLine(u64)
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["4294967295", "18446744073709551615"]);
@@ -137,7 +137,7 @@ fn test_ptr_foundation() {
             Console.WriteLine(TypeName(f))
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["Ptr", "FuncPtr"]);

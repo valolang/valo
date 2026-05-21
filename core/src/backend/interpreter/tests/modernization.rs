@@ -15,7 +15,7 @@ fn test_try_catch_success() {
             End Try
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["try", "finally"]);
@@ -34,7 +34,7 @@ fn test_try_catch_error() {
             End Try
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["error: 100 Description", "finally"]);
@@ -59,7 +59,7 @@ fn test_try_finally_error_propagation() {
             End Try
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["finally in dangerous", "caught in main"]);
@@ -73,7 +73,7 @@ fn test_debug_print() {
             Debug.Print(\"world\")
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["hello\t1\tTrue", "world"]);
@@ -90,7 +90,7 @@ fn test_try_catch_optional_variable() {
             End Try
         End Sub
     ";
-    let program = Parser::parse_source(source).unwrap();
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["caught"]);

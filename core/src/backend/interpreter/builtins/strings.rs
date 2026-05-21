@@ -38,6 +38,7 @@ pub(crate) fn eval_strings(
                 upper: len - 1,
             }],
             allocated: true,
+            dynamic: true,
         }));
     }
 
@@ -110,6 +111,7 @@ pub(crate) fn eval_strings(
                 upper: len - 1,
             }],
             allocated: true,
+            dynamic: true,
         }));
     }
 
