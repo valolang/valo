@@ -224,6 +224,13 @@ impl Interpreter {
                     self.call_module_sub(module_name, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
                 }
+                if let crate::ExprKind::Variable(class_name) = &object.kind
+                    && !frame.has_variable(class_name)
+                    && self.classes.contains_key(&super::values::key(class_name))
+                {
+                    self.call_shared_sub(class_name, method, args, frame, *span)?;
+                    return Ok(ControlFlow::Continue);
+                }
                 if let crate::ExprKind::Variable(name) = &object.kind
                     && let Ok(variable) = frame.variable(name, object.span)
                     && matches!(&*variable.borrow(), Value::Record(_))

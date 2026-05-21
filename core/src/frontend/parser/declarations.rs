@@ -76,6 +76,15 @@ impl Parser {
             .expect_simple(TokenKind::Class, "Expected 'Class'")?
             .span;
         let name = self.expect_identifier("Expected class name after 'Class'")?;
+        let mut implements = Vec::new();
+        if self.match_simple(&TokenKind::Implements) {
+            loop {
+                implements.push(self.parse_type_name()?);
+                if !self.match_simple(&TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
         self.expect_newline("Expected newline after Class declaration")?;
 
         let mut members = Vec::new();
@@ -102,14 +111,126 @@ impl Parser {
         Ok(ClassDecl {
             visibility,
             name,
+            implements,
             attributes,
             members,
             span: Span::new(self.file_id, start.start, end.end),
         })
     }
 
+    pub(super) fn parse_interface_decl(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<InterfaceDecl, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Interface, "Expected 'Interface'")?
+            .span;
+        let name = self.expect_identifier("Expected interface name after 'Interface'")?;
+        self.expect_newline("Expected newline after Interface declaration")?;
+        let mut members = Vec::new();
+        self.skip_newlines();
+        while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndInterface]) {
+            members.push(self.parse_interface_member()?);
+            self.skip_newlines();
+        }
+        self.expect_simple(TokenKind::End, "Expected 'End Interface'")?;
+        let end = self
+            .expect_simple(TokenKind::Interface, "Expected 'Interface' after 'End'")?
+            .span;
+        self.consume_statement_end();
+        Ok(InterfaceDecl {
+            visibility,
+            name,
+            members,
+            span: Span::new(self.file_id, start.start, end.end),
+        })
+    }
+
+    fn parse_interface_member(&mut self) -> Result<InterfaceMember, Diagnostic> {
+        let _visibility = self.parse_optional_visibility();
+        match self.peek_kind() {
+            TokenKind::Sub => {
+                let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
+                let name = self.expect_identifier("Expected interface Sub name")?;
+                self.expect_simple(TokenKind::LeftParen, "Expected '(' after Sub name")?;
+                let params = self.parse_parameters()?;
+                self.expect_simple(TokenKind::RightParen, "Expected ')' after parameters")?;
+                let end = self.previous().span;
+                self.expect_statement_end("Expected newline after interface Sub")?;
+                Ok(InterfaceMember::Sub(InterfaceMethod {
+                    name,
+                    params,
+                    return_type: None,
+                    span: Span::new(self.file_id, start.start, end.end),
+                }))
+            }
+            TokenKind::Function => {
+                let start = self
+                    .expect_simple(TokenKind::Function, "Expected 'Function'")?
+                    .span;
+                let name = self.expect_identifier("Expected interface Function name")?;
+                self.expect_simple(TokenKind::LeftParen, "Expected '(' after Function name")?;
+                let params = self.parse_parameters()?;
+                self.expect_simple(TokenKind::RightParen, "Expected ')' after parameters")?;
+                self.expect_simple(TokenKind::As, "Expected 'As' before return type")?;
+                let return_type = self.parse_type_name()?;
+                let end = self.previous().span;
+                self.expect_statement_end("Expected newline after interface Function")?;
+                Ok(InterfaceMember::Function(InterfaceMethod {
+                    name,
+                    params,
+                    return_type: Some(return_type),
+                    span: Span::new(self.file_id, start.start, end.end),
+                }))
+            }
+            TokenKind::Property => {
+                let start = self
+                    .expect_simple(TokenKind::Property, "Expected 'Property'")?
+                    .span;
+                let kind = if self.match_simple(&TokenKind::Get) {
+                    PropertyKind::Get
+                } else if self.match_simple(&TokenKind::Let) {
+                    PropertyKind::Let
+                } else if self.match_simple(&TokenKind::Set) {
+                    PropertyKind::Set
+                } else {
+                    return Err(self.error_here("Expected 'Get', 'Let', or 'Set' after 'Property'"));
+                };
+                let name = self.expect_identifier("Expected interface Property name")?;
+                self.expect_simple(TokenKind::LeftParen, "Expected '(' after property name")?;
+                let params = self.parse_parameters()?;
+                self.expect_simple(TokenKind::RightParen, "Expected ')' after parameters")?;
+                let return_type = if kind == PropertyKind::Get {
+                    self.expect_simple(TokenKind::As, "Expected 'As' before property type")?;
+                    Some(self.parse_type_name()?)
+                } else {
+                    None
+                };
+                let end = self.previous().span;
+                self.expect_statement_end("Expected newline after interface Property")?;
+                Ok(InterfaceMember::Property(InterfaceProperty {
+                    name,
+                    kind,
+                    params,
+                    return_type,
+                    span: Span::new(self.file_id, start.start, end.end),
+                }))
+            }
+            TokenKind::Event => {
+                let event = self.parse_event(Visibility::Public)?;
+                Ok(InterfaceMember::Event(InterfaceEvent {
+                    name: event.name,
+                    params: event.params,
+                    span: event.span,
+                }))
+            }
+            _ => Err(self.error_here("Expected interface member")),
+        }
+    }
+
     pub(super) fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
         let visibility = self.parse_optional_visibility();
+        let is_shared = self.match_simple(&TokenKind::Shared);
         let with_events = self.match_simple(&TokenKind::WithEvents);
         let is_default = self.match_simple(&TokenKind::Default);
         let is_iterator = self.match_simple(&TokenKind::Iterator);
@@ -140,6 +261,8 @@ impl Parser {
                 if matches!(self.peek_next_kind(), Some(TokenKind::New)) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        is_shared,
+                        implements: Vec::new(),
                         procedure: self.parse_lifecycle_sub_procedure(
                             visibility,
                             "New",
@@ -152,6 +275,8 @@ impl Parser {
                 ) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        is_shared,
+                        implements: Vec::new(),
                         procedure: self.parse_lifecycle_sub_procedure(
                             visibility,
                             "Terminate",
@@ -159,20 +284,25 @@ impl Parser {
                         )?,
                     }))
                 } else {
+                    let (procedure, implements) = self.parse_class_procedure(visibility)?;
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
-                        procedure: self.parse_procedure(visibility)?,
+                        is_shared,
+                        implements,
+                        procedure,
                     }))
                 }
             }
-            TokenKind::Function => Ok(ClassMember::Function(
-                self.parse_class_function(visibility, is_iterator)?,
-            )),
-            TokenKind::Property => Ok(ClassMember::Property(self.parse_property(
-                visibility,
-                is_default,
-                is_iterator,
-            )?)),
+            TokenKind::Function => {
+                let mut function = self.parse_class_function(visibility, is_iterator)?;
+                function.is_shared = is_shared;
+                Ok(ClassMember::Function(function))
+            }
+            TokenKind::Property => {
+                let mut property = self.parse_property(visibility, is_default, is_iterator)?;
+                property.is_shared = is_shared;
+                Ok(ClassMember::Property(property))
+            }
             _ if is_iterator => {
                 Err(self.error_here("Expected Function or Property after Iterator"))
             }
@@ -190,6 +320,7 @@ impl Parser {
                     .into_iter()
                     .map(|decl| ClassField {
                         visibility,
+                        is_shared,
                         with_events,
                         name: decl.name,
                         ty: decl.ty,
@@ -210,6 +341,29 @@ impl Parser {
         }
     }
 
+    fn parse_optional_implements_clause(&mut self) -> Result<Vec<ImplementsClause>, Diagnostic> {
+        let mut clauses = Vec::new();
+        if !self.match_simple(&TokenKind::Implements) {
+            return Ok(clauses);
+        }
+        loop {
+            let start = self.previous().span;
+            let interface_name = TypeName::User(self.expect_identifier("Expected interface name")?);
+            self.expect_simple(TokenKind::Dot, "Expected '.' in Implements clause")?;
+            let member_name = self.expect_identifier("Expected interface member name")?;
+            let end = self.previous().span;
+            clauses.push(ImplementsClause {
+                interface_name,
+                member_name,
+                span: Span::new(self.file_id, start.start, end.end),
+            });
+            if !self.match_simple(&TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(clauses)
+    }
+
     fn parse_event(&mut self, visibility: Visibility) -> Result<ClassEvent, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Event, "Expected 'Event'")?
@@ -222,6 +376,7 @@ impl Parser {
         self.expect_statement_end("Expected newline after event declaration")?;
         Ok(ClassEvent {
             visibility,
+            is_shared: false,
             name,
             params,
             span: Span::new(self.file_id, start.start, end.end),
@@ -261,6 +416,7 @@ impl Parser {
         } else {
             None
         };
+        let implements = self.parse_optional_implements_clause()?;
         self.expect_newline("Expected newline after property declaration")?;
         while matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
         {
@@ -286,6 +442,8 @@ impl Parser {
 
         Ok(ClassProperty {
             visibility,
+            is_shared: false,
+            implements,
             is_default,
             is_enumerator,
             is_iterator,
@@ -301,6 +459,8 @@ impl Parser {
     pub(super) fn parse_optional_visibility(&mut self) -> Visibility {
         if self.match_simple(&TokenKind::Private) {
             Visibility::Private
+        } else if self.match_simple(&TokenKind::Friend) {
+            Visibility::Friend
         } else {
             self.match_simple(&TokenKind::Public);
             Visibility::Public
@@ -640,12 +800,25 @@ impl Parser {
                 Some(self.peek().span),
             )),
             TokenKind::Sub => {
-                if matches!(
+                if matches!(self.peek_next_kind(), Some(TokenKind::New)) {
+                    Ok(ClassMember::Sub(ClassSub {
+                        visibility,
+                        is_shared: false,
+                        implements: Vec::new(),
+                        procedure: self.parse_lifecycle_sub_procedure(
+                            visibility,
+                            "New",
+                            "Initialize",
+                        )?,
+                    }))
+                } else if matches!(
                     self.peek_next_kind(),
                     Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor")
                 ) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        is_shared: false,
+                        implements: Vec::new(),
                         procedure: self.parse_lifecycle_sub_procedure(
                             visibility,
                             "Constructor",
@@ -655,6 +828,8 @@ impl Parser {
                 } else {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        is_shared: false,
+                        implements: Vec::new(),
                         procedure: self.parse_procedure(visibility)?,
                     }))
                 }
@@ -705,6 +880,40 @@ impl Parser {
             body,
             span: Span::new(self.file_id, start.start, end.end),
         })
+    }
+
+    fn parse_class_procedure(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<(Procedure, Vec<ImplementsClause>), Diagnostic> {
+        let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
+        let name = self.expect_identifier("Expected procedure name after 'Sub'")?;
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' after procedure name")?;
+        let params = self.parse_parameters()?;
+        self.expect_simple(
+            TokenKind::RightParen,
+            "Expected ')' after procedure parameters",
+        )?;
+        let implements = self.parse_optional_implements_clause()?;
+        self.expect_newline("Expected newline after procedure declaration")?;
+
+        let body = self.parse_block_until(&[BlockEnd::EndSub])?;
+        self.expect_simple(TokenKind::End, "Expected 'End Sub'")?;
+        let end = self
+            .expect_simple(TokenKind::Sub, "Expected 'Sub' after 'End'")?
+            .span;
+        self.consume_statement_end();
+
+        Ok((
+            Procedure {
+                visibility,
+                name,
+                params,
+                body,
+                span: Span::new(self.file_id, start.start, end.end),
+            },
+            implements,
+        ))
     }
 
     fn parse_lifecycle_sub_procedure(
@@ -814,6 +1023,7 @@ impl Parser {
         )?;
         self.expect_simple(TokenKind::As, "Expected 'As' before function return type")?;
         let return_type = self.parse_type_name()?;
+        let implements = self.parse_optional_implements_clause()?;
         self.expect_newline("Expected newline after function declaration")?;
 
         let mut is_enumerator = false;
@@ -838,6 +1048,8 @@ impl Parser {
 
         Ok(ClassFunction {
             visibility,
+            is_shared: false,
+            implements,
             is_enumerator,
             function: Function {
                 visibility,

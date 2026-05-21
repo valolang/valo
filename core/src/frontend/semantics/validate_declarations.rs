@@ -5,6 +5,7 @@ use crate::runtime::Span;
 pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
     let mut types = HashMap::new();
     let mut enums = HashMap::new();
+    let mut interfaces = HashMap::new();
     let mut classes = HashMap::new();
 
     // Add built-in Error class
@@ -354,10 +355,174 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         );
     }
 
+    for interface_decl in &program.interfaces {
+        let interface_key = key(&interface_decl.name);
+        if types.contains_key(&interface_key)
+            || enums.contains_key(&interface_key)
+            || interfaces.contains_key(&interface_key)
+            || classes.contains_key(&interface_key)
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Interface '{}' is already defined", interface_decl.name),
+                Some(interface_decl.span),
+            ));
+        }
+        let mut subs = HashMap::new();
+        let mut functions = HashMap::new();
+        let mut events = HashMap::new();
+        let mut properties: HashMap<String, ClassPropertySig> = HashMap::new();
+        for member in &interface_decl.members {
+            match member {
+                crate::InterfaceMember::Sub(method) => {
+                    let member_key = key(&method.name);
+                    if subs.contains_key(&member_key)
+                        || functions.contains_key(&member_key)
+                        || events.contains_key(&member_key)
+                        || properties.contains_key(&member_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!(
+                                "Member '{}' is already declared in Interface '{}'",
+                                method.name, interface_decl.name
+                            ),
+                            Some(method.span),
+                        ));
+                    }
+                    subs.insert(
+                        member_key,
+                        ClassMethodSig {
+                            visibility: Visibility::Public,
+                            name: method.name.clone(),
+                            _is_iterator: false,
+                            is_declare: false,
+                            params: params_to_sigs(&method.params),
+                            return_type: None,
+                        },
+                    );
+                }
+                crate::InterfaceMember::Function(method) => {
+                    let member_key = key(&method.name);
+                    if subs.contains_key(&member_key)
+                        || functions.contains_key(&member_key)
+                        || events.contains_key(&member_key)
+                        || properties.contains_key(&member_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!(
+                                "Member '{}' is already declared in Interface '{}'",
+                                method.name, interface_decl.name
+                            ),
+                            Some(method.span),
+                        ));
+                    }
+                    functions.insert(
+                        member_key,
+                        ClassMethodSig {
+                            visibility: Visibility::Public,
+                            name: method.name.clone(),
+                            _is_iterator: false,
+                            is_declare: false,
+                            params: params_to_sigs(&method.params),
+                            return_type: method.return_type.clone(),
+                        },
+                    );
+                }
+                crate::InterfaceMember::Event(event) => {
+                    let member_key = key(&event.name);
+                    if subs.contains_key(&member_key)
+                        || functions.contains_key(&member_key)
+                        || events.contains_key(&member_key)
+                        || properties.contains_key(&member_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!(
+                                "Member '{}' is already declared in Interface '{}'",
+                                event.name, interface_decl.name
+                            ),
+                            Some(event.span),
+                        ));
+                    }
+                    events.insert(
+                        member_key,
+                        ClassEventSig {
+                            visibility: Visibility::Public,
+                            name: event.name.clone(),
+                            _is_iterator: false,
+                            is_declare: false,
+                            params: params_to_sigs(&event.params),
+                            return_type: None,
+                        },
+                    );
+                }
+                crate::InterfaceMember::Property(property) => {
+                    let property_key = key(&property.name);
+                    if subs.contains_key(&property_key)
+                        || functions.contains_key(&property_key)
+                        || events.contains_key(&property_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!(
+                                "Property '{}' conflicts with another member in Interface '{}'",
+                                property.name, interface_decl.name
+                            ),
+                            Some(property.span),
+                        ));
+                    }
+                    let property_sig =
+                        properties
+                            .entry(property_key)
+                            .or_insert_with(|| ClassPropertySig {
+                                name: property.name.clone(),
+                                get: None,
+                                let_: None,
+                                set: None,
+                            });
+                    let target = match property.kind {
+                        PropertyKind::Get => &mut property_sig.get,
+                        PropertyKind::Let => &mut property_sig.let_,
+                        PropertyKind::Set => &mut property_sig.set,
+                    };
+                    if target.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!(
+                                "Property {:?} '{}' is already declared in Interface '{}'",
+                                property.kind, property.name, interface_decl.name
+                            ),
+                            Some(property.span),
+                        ));
+                    }
+                    *target = Some(PropertyAccessorSig {
+                        visibility: Visibility::Public,
+                        is_iterator: false,
+                        params: params_to_sigs(&property.params),
+                        return_type: property.return_type.clone(),
+                    });
+                }
+            }
+        }
+        interfaces.insert(
+            interface_key,
+            InterfaceSig {
+                name: interface_decl.name.clone(),
+                subs,
+                functions,
+                events,
+                properties,
+            },
+        );
+    }
+
     for class_decl in &program.classes {
         let class_key = key(&class_decl.name);
         if types.contains_key(&class_key)
             || enums.contains_key(&class_key)
+            || interfaces.contains_key(&class_key)
             || classes.contains_key(&class_key)
         {
             return Err(Diagnostic::new(
@@ -744,6 +909,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     let registry = TypeRegistry {
         types,
         enums,
+        interfaces,
         classes,
     };
     for type_decl in &program.types {
@@ -841,6 +1007,33 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         }
                     }
                 },
+            }
+        }
+    }
+    for interface_decl in &program.interfaces {
+        for member in &interface_decl.members {
+            match member {
+                crate::InterfaceMember::Sub(method) | crate::InterfaceMember::Function(method) => {
+                    for param in &method.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                    if let Some(return_type) = &method.return_type {
+                        ensure_known_type(return_type, &registry, method.span)?;
+                    }
+                }
+                crate::InterfaceMember::Event(event) => {
+                    for param in &event.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                }
+                crate::InterfaceMember::Property(property) => {
+                    for param in &property.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                    if let Some(return_type) = &property.return_type {
+                        ensure_known_type(return_type, &registry, property.span)?;
+                    }
+                }
             }
         }
     }
@@ -1115,6 +1308,18 @@ pub(super) fn collect_signatures(
                     enum_decl.name, existing
                 ),
                 Some(enum_decl.span),
+            ));
+        }
+    }
+    for interface_decl in &program.interfaces {
+        if let Some(existing) = names.insert(key(&interface_decl.name), "Interface") {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!(
+                    "Name '{}' conflicts with existing {}",
+                    interface_decl.name, existing
+                ),
+                Some(interface_decl.span),
             ));
         }
     }
@@ -1478,7 +1683,7 @@ pub(super) fn ensure_const_expr(
     }
 }
 
-fn params_to_sigs(params: &[Parameter]) -> Vec<ParamSig> {
+pub(super) fn params_to_sigs(params: &[Parameter]) -> Vec<ParamSig> {
     params
         .iter()
         .map(|param| ParamSig {

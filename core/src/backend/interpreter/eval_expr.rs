@@ -202,6 +202,12 @@ impl Interpreter {
                     }
                     return Ok(value);
                 }
+                if let ExprKind::Variable(class_name) = &object.kind
+                    && !frame.has_variable(class_name)
+                    && self.classes.contains_key(&super::values::key(class_name))
+                {
+                    return self.read_shared_member(class_name, field, frame, expr.span);
+                }
                 let object = self.eval_expr(object, frame)?;
                 self.read_member(&object, field, frame, expr.span)
             }
@@ -308,6 +314,12 @@ impl Interpreter {
                         .is_ok()
                 {
                     return self.call_module_function(module_name, method, args, frame, expr.span);
+                }
+                if let ExprKind::Variable(class_name) = &object.kind
+                    && !frame.has_variable(class_name)
+                    && self.classes.contains_key(&super::values::key(class_name))
+                {
+                    return self.call_shared_function(class_name, method, args, frame, expr.span);
                 }
                 let object = self.eval_expr(object, frame)?;
                 if matches!(object, Value::Record(_)) {

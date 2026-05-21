@@ -16,6 +16,7 @@ pub struct Interpreter {
     pub(crate) enums: HashMap<String, RuntimeEnum>,
     pub(crate) enum_members: HashMap<String, i64>,
     pub(crate) classes: HashMap<String, RuntimeClass>,
+    pub(crate) shared_class_fields: HashMap<String, HashMap<String, Value>>,
     pub(crate) procedures: HashMap<String, Procedure>,
     pub(crate) functions: HashMap<String, Function>,
     pub(crate) declares: HashMap<String, DeclareDecl>,
@@ -56,6 +57,7 @@ impl Default for Interpreter {
             enums: HashMap::new(),
             enum_members: HashMap::new(),
             classes: HashMap::new(),
+            shared_class_fields: HashMap::new(),
             procedures: HashMap::new(),
             functions: HashMap::new(),
             declares: HashMap::new(),
@@ -194,10 +196,13 @@ impl Interpreter {
                         with_events: false,
                     },
                 ],
+                shared_fields: Vec::new(),
                 constants: Vec::new(),
                 events: HashMap::new(),
                 subs: HashMap::new(),
+                shared_subs: HashMap::new(),
                 functions: HashMap::new(),
+                shared_functions: HashMap::new(),
                 iterator: None,
                 properties: HashMap::new(),
                 enumerator_member: None,
@@ -263,6 +268,9 @@ impl Interpreter {
             self.classes
                 .insert(key(&class_decl.name), RuntimeClass::from(class_decl));
         }
+        self.initialize_shared_class_fields(crate::runtime::Span::empty(
+            crate::runtime::FileId::default(),
+        ))?;
         for procedure in &program.procedures {
             self.procedures
                 .insert(key(&procedure.name), procedure.clone());
@@ -389,6 +397,9 @@ impl Interpreter {
             self.classes
                 .insert(key(&class_decl.name), RuntimeClass::from(class_decl));
         }
+        self.initialize_shared_class_fields(crate::runtime::Span::empty(
+            crate::runtime::FileId::default(),
+        ))?;
         for procedure in &program.procedures {
             if procedure.name.eq_ignore_ascii_case("main") {
                 continue; // Main is run directly
@@ -642,6 +653,9 @@ impl Interpreter {
             }
             self.register_declares(&module.program.declares, Some(&module_key));
         }
+        self.initialize_shared_class_fields(crate::runtime::Span::empty(
+            crate::runtime::FileId::default(),
+        ))?;
         for module in &project.modules {
             let module_key = super::values::key(&module.name);
             let mut frame = Frame::default();

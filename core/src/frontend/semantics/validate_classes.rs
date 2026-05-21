@@ -6,6 +6,7 @@ pub(super) fn validate_class(
     signatures: &Signatures,
     module_symbols: &HashMap<String, VarType>,
 ) -> Result<(), Diagnostic> {
+    validate_implements(class_decl, types)?;
     let class_consts = class_constant_symbols(class_decl);
     for member in &class_decl.members {
         match member {
@@ -216,6 +217,294 @@ pub(super) fn validate_class(
         }
     }
     Ok(())
+}
+
+fn validate_implements(
+    class_decl: &crate::ClassDecl,
+    types: &TypeRegistry,
+) -> Result<(), Diagnostic> {
+    let class_sig = types
+        .get_class(&class_decl.name)
+        .expect("class signature collected");
+    let mut implemented = std::collections::HashSet::new();
+    for interface_name in &class_decl.implements {
+        let TypeName::User(interface_name) = interface_name else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Implements target must be an Interface",
+                Some(class_decl.span),
+            ));
+        };
+        let interface = types.get_interface(interface_name).ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Interface '{}' is not defined", interface_name),
+                Some(class_decl.span),
+            )
+        })?;
+        for method in interface.subs.values() {
+            let target = find_explicit_sub_impl(class_decl, interface_name, &method.name)?;
+            if !signature_matches(&target.params, None, &method.params, None) {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Implementation '{}.{}' signature does not match '{}.{}'",
+                        class_decl.name, target.name, interface.name, method.name
+                    ),
+                    Some(class_decl.span),
+                ));
+            }
+            let key = format!("{}.{}", key(interface_name), key(&method.name));
+            if !implemented.insert(key) {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                    format!(
+                        "Interface member '{}.{}' is implemented more than once",
+                        interface.name, method.name
+                    ),
+                    Some(class_decl.span),
+                ));
+            }
+        }
+        for method in interface.functions.values() {
+            let target = find_explicit_function_impl(class_decl, interface_name, &method.name)?;
+            if !signature_matches(
+                &target.params,
+                target.return_type.as_ref(),
+                &method.params,
+                method.return_type.as_ref(),
+            ) {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Implementation '{}.{}' signature does not match '{}.{}'",
+                        class_decl.name, target.name, interface.name, method.name
+                    ),
+                    Some(class_decl.span),
+                ));
+            }
+            let key = format!("{}.{}", key(interface_name), key(&method.name));
+            if !implemented.insert(key) {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                    format!(
+                        "Interface member '{}.{}' is implemented more than once",
+                        interface.name, method.name
+                    ),
+                    Some(class_decl.span),
+                ));
+            }
+        }
+        for property in interface.properties.values() {
+            if let Some(get) = &property.get {
+                let target = find_explicit_property_impl(
+                    class_decl,
+                    interface_name,
+                    &property.name,
+                    PropertyKind::Get,
+                )?;
+                if !signature_matches(
+                    &target.params,
+                    target.return_type.as_ref(),
+                    &get.params,
+                    get.return_type.as_ref(),
+                ) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!(
+                            "Implementation '{}.{}' signature does not match '{}.{}'",
+                            class_decl.name, target.name, interface.name, property.name
+                        ),
+                        Some(class_decl.span),
+                    ));
+                }
+            }
+            if let Some(let_) = &property.let_ {
+                let target = find_explicit_property_impl(
+                    class_decl,
+                    interface_name,
+                    &property.name,
+                    PropertyKind::Let,
+                )?;
+                if !signature_matches(&target.params, None, &let_.params, None) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!(
+                            "Implementation '{}.{}' signature does not match '{}.{}'",
+                            class_decl.name, target.name, interface.name, property.name
+                        ),
+                        Some(class_decl.span),
+                    ));
+                }
+            }
+            if let Some(set) = &property.set {
+                let target = find_explicit_property_impl(
+                    class_decl,
+                    interface_name,
+                    &property.name,
+                    PropertyKind::Set,
+                )?;
+                if !signature_matches(&target.params, None, &set.params, None) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!(
+                            "Implementation '{}.{}' signature does not match '{}.{}'",
+                            class_decl.name, target.name, interface.name, property.name
+                        ),
+                        Some(class_decl.span),
+                    ));
+                }
+            }
+        }
+        for event in interface.events.values() {
+            if !class_sig
+                .events
+                .get(&key(&event.name))
+                .is_some_and(|candidate| {
+                    signature_matches(&candidate.params, None, &event.params, None)
+                })
+            {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!(
+                        "Class '{}' is missing implementation for event '{}.{}'",
+                        class_decl.name, interface.name, event.name
+                    ),
+                    Some(class_decl.span),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn find_explicit_sub_impl(
+    class_decl: &crate::ClassDecl,
+    interface_name: &str,
+    member_name: &str,
+) -> Result<CallableSig, Diagnostic> {
+    for member in &class_decl.members {
+        if let ClassMember::Sub(method) = member
+            && method
+                .implements
+                .iter()
+                .any(|clause| implements_matches(clause, interface_name, member_name))
+        {
+            return Ok(CallableSig {
+                visibility: method.visibility,
+                name: method.procedure.name.clone(),
+                _is_iterator: false,
+                is_declare: false,
+                params: params_to_sigs(&method.procedure.params),
+                return_type: None,
+            });
+        }
+    }
+    Err(Diagnostic::new(
+        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+        format!(
+            "Class '{}' is missing implementation for '{}.{}'",
+            class_decl.name, interface_name, member_name
+        ),
+        Some(class_decl.span),
+    ))
+}
+
+fn find_explicit_function_impl(
+    class_decl: &crate::ClassDecl,
+    interface_name: &str,
+    member_name: &str,
+) -> Result<CallableSig, Diagnostic> {
+    for member in &class_decl.members {
+        if let ClassMember::Function(method) = member
+            && method
+                .implements
+                .iter()
+                .any(|clause| implements_matches(clause, interface_name, member_name))
+        {
+            return Ok(CallableSig {
+                visibility: method.visibility,
+                name: method.function.name.clone(),
+                _is_iterator: method.function.is_iterator,
+                is_declare: false,
+                params: params_to_sigs(&method.function.params),
+                return_type: Some(method.function.return_type.clone()),
+            });
+        }
+    }
+    Err(Diagnostic::new(
+        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+        format!(
+            "Class '{}' is missing implementation for '{}.{}'",
+            class_decl.name, interface_name, member_name
+        ),
+        Some(class_decl.span),
+    ))
+}
+
+fn find_explicit_property_impl(
+    class_decl: &crate::ClassDecl,
+    interface_name: &str,
+    member_name: &str,
+    kind: PropertyKind,
+) -> Result<CallableSig, Diagnostic> {
+    for member in &class_decl.members {
+        if let ClassMember::Property(property) = member
+            && property.kind == kind
+            && property
+                .implements
+                .iter()
+                .any(|clause| implements_matches(clause, interface_name, member_name))
+        {
+            return Ok(CallableSig {
+                visibility: property.visibility,
+                name: property.name.clone(),
+                _is_iterator: property.is_iterator,
+                is_declare: false,
+                params: params_to_sigs(&property.params),
+                return_type: property.return_type.clone(),
+            });
+        }
+    }
+    Err(Diagnostic::new(
+        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+        format!(
+            "Class '{}' is missing implementation for '{}.{}'",
+            class_decl.name, interface_name, member_name
+        ),
+        Some(class_decl.span),
+    ))
+}
+
+fn implements_matches(
+    clause: &crate::ImplementsClause,
+    interface_name: &str,
+    member_name: &str,
+) -> bool {
+    matches!(&clause.interface_name, TypeName::User(name) if name.eq_ignore_ascii_case(interface_name))
+        && clause.member_name.eq_ignore_ascii_case(member_name)
+}
+
+fn signature_matches(
+    actual_params: &[ParamSig],
+    actual_return: Option<&TypeName>,
+    expected_params: &[ParamSig],
+    expected_return: Option<&TypeName>,
+) -> bool {
+    actual_return
+        .zip(expected_return)
+        .is_none_or(|(left, right)| left.same_type(right))
+        && actual_return.is_some() == expected_return.is_some()
+        && actual_params.len() == expected_params.len()
+        && actual_params
+            .iter()
+            .zip(expected_params.iter())
+            .all(|(left, right)| {
+                left.mode == right.mode
+                    && left.ty.same_type(&right.ty)
+                    && left.is_optional == right.is_optional
+                    && left.is_param_array == right.is_param_array
+            })
 }
 
 fn class_constant_symbols(class_decl: &crate::ClassDecl) -> HashMap<String, VarType> {

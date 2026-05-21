@@ -11,7 +11,7 @@ use crate::frontend::semantics::context::Context;
 use crate::frontend::semantics::symbols::{CallableSig, ParamSig, Signatures, VarType, key};
 use crate::frontend::semantics::types::{
     ClassEventSig, ClassFieldSig, ClassMethodSig, ClassPropertySig, ClassSig, EnumSig, FieldSig,
-    PropertyAccessorSig, TypeRegistry, TypeSig,
+    InterfaceSig, PropertyAccessorSig, TypeRegistry, TypeSig,
 };
 
 #[path = "validate_classes.rs"]
@@ -26,7 +26,7 @@ mod validate_statements;
 use validate_classes::{validate_class, validate_structure};
 use validate_declarations::{
     add_module_symbols, add_parameters, collect_module_symbols, collect_signatures, collect_types,
-    ensure_const_expr, validate_function, validate_procedure,
+    ensure_const_expr, params_to_sigs, validate_function, validate_procedure,
 };
 use validate_expressions::*;
 use validate_statements::validate_statements;

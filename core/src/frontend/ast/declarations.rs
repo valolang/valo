@@ -14,6 +14,7 @@ pub struct Program {
     pub module_vars: Vec<ModuleVarDecl>,
     pub module_consts: Vec<ConstDecl>,
     pub declares: Vec<DeclareDecl>,
+    pub interfaces: Vec<InterfaceDecl>,
     pub classes: Vec<ClassDecl>,
     pub procedures: Vec<Procedure>,
     pub functions: Vec<Function>,
@@ -132,8 +133,49 @@ pub struct FieldDecl {
 pub struct ClassDecl {
     pub visibility: Visibility,
     pub name: String,
+    pub implements: Vec<TypeName>,
     pub attributes: Vec<AttributeDecl>,
     pub members: Vec<ClassMember>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceDecl {
+    pub visibility: Visibility,
+    pub name: String,
+    pub members: Vec<InterfaceMember>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum InterfaceMember {
+    Sub(InterfaceMethod),
+    Function(InterfaceMethod),
+    Property(InterfaceProperty),
+    Event(InterfaceEvent),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceMethod {
+    pub name: String,
+    pub params: Vec<Parameter>,
+    pub return_type: Option<TypeName>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceProperty {
+    pub name: String,
+    pub kind: PropertyKind,
+    pub params: Vec<Parameter>,
+    pub return_type: Option<TypeName>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceEvent {
+    pub name: String,
+    pub params: Vec<Parameter>,
     pub span: Span,
 }
 
@@ -152,6 +194,7 @@ pub enum ClassMember {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassField {
     pub visibility: Visibility,
+    pub is_shared: bool,
     pub with_events: bool,
     pub name: String,
     pub ty: Option<TypeName>,
@@ -163,6 +206,7 @@ pub struct ClassField {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassEvent {
     pub visibility: Visibility,
+    pub is_shared: bool,
     pub name: String,
     pub params: Vec<Parameter>,
     pub span: Span,
@@ -171,12 +215,16 @@ pub struct ClassEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassSub {
     pub visibility: Visibility,
+    pub is_shared: bool,
+    pub implements: Vec<ImplementsClause>,
     pub procedure: Procedure,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassFunction {
     pub visibility: Visibility,
+    pub is_shared: bool,
+    pub implements: Vec<ImplementsClause>,
     pub is_enumerator: bool,
     pub function: Function,
 }
@@ -190,6 +238,8 @@ pub struct ClassIterator {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassProperty {
     pub visibility: Visibility,
+    pub is_shared: bool,
+    pub implements: Vec<ImplementsClause>,
     pub is_default: bool,
     pub is_enumerator: bool,
     pub is_iterator: bool,
@@ -198,6 +248,13 @@ pub struct ClassProperty {
     pub params: Vec<Parameter>,
     pub return_type: Option<TypeName>,
     pub body: Vec<Stmt>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplementsClause {
+    pub interface_name: TypeName,
+    pub member_name: String,
     pub span: Span,
 }
 
@@ -212,6 +269,7 @@ pub enum PropertyKind {
 pub enum Visibility {
     Public,
     Private,
+    Friend,
 }
 
 #[derive(Debug, Clone, PartialEq)]

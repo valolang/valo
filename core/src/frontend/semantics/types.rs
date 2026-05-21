@@ -27,6 +27,7 @@ pub(super) struct TypeSig {
 pub(super) struct TypeRegistry {
     pub(super) types: HashMap<String, TypeSig>,
     pub(super) enums: HashMap<String, EnumSig>,
+    pub(super) interfaces: HashMap<String, InterfaceSig>,
     pub(super) classes: HashMap<String, ClassSig>,
 }
 
@@ -34,6 +35,7 @@ impl TypeRegistry {
     pub(super) fn contains(&self, name: &str) -> bool {
         self.types.contains_key(&key(name))
             || self.enums.contains_key(&key(name))
+            || self.interfaces.contains_key(&key(name))
             || self.classes.contains_key(&key(name))
     }
 
@@ -47,6 +49,10 @@ impl TypeRegistry {
 
     pub(super) fn get_enum(&self, name: &str) -> Option<&EnumSig> {
         self.enums.get(&key(name))
+    }
+
+    pub(super) fn get_interface(&self, name: &str) -> Option<&InterfaceSig> {
+        self.interfaces.get(&key(name))
     }
 }
 
@@ -67,6 +73,15 @@ pub(super) struct ClassSig {
     pub(super) properties: HashMap<String, ClassPropertySig>,
     pub(super) enumerator: Option<String>,
     pub(super) default_property: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct InterfaceSig {
+    pub(super) name: String,
+    pub(super) subs: HashMap<String, ClassMethodSig>,
+    pub(super) functions: HashMap<String, ClassMethodSig>,
+    pub(super) events: HashMap<String, ClassEventSig>,
+    pub(super) properties: HashMap<String, ClassPropertySig>,
 }
 
 #[derive(Debug, Clone)]

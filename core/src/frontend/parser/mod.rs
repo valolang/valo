@@ -191,6 +191,7 @@ pub(super) enum BlockEnd {
     EndSub,
     EndType,
     EndStructure,
+    EndInterface,
     EndEnum,
     EndClass,
     EndWith,

@@ -232,6 +232,23 @@ impl Interpreter {
         Ok(object)
     }
 
+    pub(crate) fn initialize_shared_class_fields(&mut self, span: Span) -> Result<(), Diagnostic> {
+        let classes: Vec<_> = self.classes.values().cloned().collect();
+        for class in classes {
+            if class.shared_fields.is_empty() {
+                continue;
+            }
+            let mut fields = HashMap::new();
+            for field in &class.shared_fields {
+                let ty = self.resolve_type_name(&field.ty, &Frame::default(), span)?;
+                let value = self.default_field_value(&ty, &field.array, span)?;
+                fields.insert(key(&field.name), value);
+            }
+            self.shared_class_fields.insert(key(&class.name), fields);
+        }
+        Ok(())
+    }
+
     pub(crate) fn read_member(
         &mut self,
         value: &Value,
@@ -269,6 +286,33 @@ impl Interpreter {
             }
             Err(error) => Err(error),
         }
+    }
+
+    pub(crate) fn read_shared_member(
+        &mut self,
+        class_name: &str,
+        member: &str,
+        frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let class_name = self.resolve_user_type_name(class_name, frame, span)?;
+        if let Some(fields) = self.shared_class_fields.get(&key(&class_name))
+            && let Some(value) = fields.get(&key(member))
+        {
+            return Ok(value.clone());
+        }
+        let class = self.classes.get(&key(&class_name)).ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Class '{}' is not defined", class_name),
+                Some(span),
+            )
+        })?;
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            format!("Class '{}' has no Shared field '{}'", class.name, member),
+            Some(span),
+        ))
     }
 
     pub(crate) fn assign_member(
@@ -648,10 +692,13 @@ pub(crate) fn ensure_object(
 pub(crate) struct RuntimeClass {
     pub(crate) name: String,
     pub(crate) fields: Vec<RuntimeField>,
+    pub(crate) shared_fields: Vec<RuntimeField>,
     pub(crate) constants: Vec<crate::ConstDecl>,
     pub(crate) events: HashMap<String, RuntimeEvent>,
     pub(crate) subs: HashMap<String, Procedure>,
+    pub(crate) shared_subs: HashMap<String, Procedure>,
     pub(crate) functions: HashMap<String, Function>,
+    pub(crate) shared_functions: HashMap<String, Function>,
     pub(crate) iterator: Option<Function>,
     pub(crate) properties: HashMap<String, RuntimeProperty>,
     pub(crate) enumerator_member: Option<String>,
@@ -661,29 +708,44 @@ pub(crate) struct RuntimeClass {
 impl From<&crate::ClassDecl> for RuntimeClass {
     fn from(value: &crate::ClassDecl) -> Self {
         let mut fields = Vec::new();
+        let mut shared_fields = Vec::new();
         let mut constants = Vec::new();
         let mut events = HashMap::new();
         let mut subs = HashMap::new();
+        let mut shared_subs = HashMap::new();
         let mut functions = HashMap::new();
+        let mut shared_functions = HashMap::new();
         let mut iterator = None;
         let mut properties = HashMap::new();
         let mut enumerator_member = None;
         let mut default_member = None;
         for member in &value.members {
             match member {
-                ClassMember::Field(field) => fields.push(RuntimeField {
-                    name: field.name.clone(),
-                    ty: field
-                        .ty
-                        .clone()
-                        .unwrap_or(crate::runtime::TypeName::Variant),
-                    array: field.array.clone(),
-                    initializer: field.initializer.clone(),
-                    with_events: field.with_events,
-                }),
+                ClassMember::Field(field) => {
+                    let target = if field.is_shared {
+                        &mut shared_fields
+                    } else {
+                        &mut fields
+                    };
+                    target.push(RuntimeField {
+                        name: field.name.clone(),
+                        ty: field
+                            .ty
+                            .clone()
+                            .unwrap_or(crate::runtime::TypeName::Variant),
+                        array: field.array.clone(),
+                        initializer: field.initializer.clone(),
+                        with_events: field.with_events,
+                    });
+                }
                 ClassMember::Fields(class_fields) => {
                     for field in class_fields {
-                        fields.push(RuntimeField {
+                        let target = if field.is_shared {
+                            &mut shared_fields
+                        } else {
+                            &mut fields
+                        };
+                        target.push(RuntimeField {
                             name: field.name.clone(),
                             ty: field
                                 .ty
@@ -705,7 +767,11 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                     );
                 }
                 ClassMember::Sub(method) => {
-                    subs.insert(key(&method.procedure.name), method.procedure.clone());
+                    if method.is_shared {
+                        shared_subs.insert(key(&method.procedure.name), method.procedure.clone());
+                    } else {
+                        subs.insert(key(&method.procedure.name), method.procedure.clone());
+                    }
                 }
                 ClassMember::Function(method) => {
                     if method.is_enumerator {
@@ -714,7 +780,12 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                     if method.function.is_iterator && method.function.params.is_empty() {
                         iterator = Some(method.function.clone());
                     }
-                    functions.insert(key(&method.function.name), method.function.clone());
+                    if method.is_shared {
+                        shared_functions
+                            .insert(key(&method.function.name), method.function.clone());
+                    } else {
+                        functions.insert(key(&method.function.name), method.function.clone());
+                    }
                 }
                 ClassMember::Iterator(method) => {
                     iterator = Some(method.function.clone());
@@ -760,10 +831,13 @@ impl From<&crate::ClassDecl> for RuntimeClass {
         Self {
             name: value.name.clone(),
             fields,
+            shared_fields,
             constants,
             events,
             subs,
+            shared_subs,
             functions,
+            shared_functions,
             iterator,
             properties,
             enumerator_member,

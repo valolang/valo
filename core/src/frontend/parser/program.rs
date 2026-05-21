@@ -14,6 +14,7 @@ impl Parser {
         let mut module_vars = Vec::new();
         let mut module_consts = Vec::new();
         let mut declares = Vec::new();
+        let mut interfaces = Vec::new();
         let mut classes = Vec::new();
         let mut procedures = Vec::new();
         let mut functions = Vec::new();
@@ -34,6 +35,7 @@ impl Parser {
                         || !module_vars.is_empty()
                         || !module_consts.is_empty()
                         || !declares.is_empty()
+                        || !interfaces.is_empty()
                         || !classes.is_empty()
                         || !procedures.is_empty()
                         || !functions.is_empty()
@@ -100,6 +102,9 @@ impl Parser {
                     types.push(self.parse_type_decl(Visibility::Public)?)
                 }
                 TokenKind::Enum => enums.push(self.parse_enum_decl(Visibility::Public)?),
+                TokenKind::Interface => {
+                    interfaces.push(self.parse_interface_decl(Visibility::Public)?)
+                }
                 _ if is_class_module => {
                     let mut class_members = Vec::new();
                     let mut class_attributes = Vec::new();
@@ -124,6 +129,7 @@ impl Parser {
                     classes.push(ClassDecl {
                         visibility: Visibility::Public,
                         name,
+                        implements: Vec::new(),
                         attributes: class_attributes,
                         members: class_members,
                         span: crate::runtime::Span::new(
@@ -157,7 +163,7 @@ impl Parser {
                 TokenKind::Identifier(_) => {
                     module_vars.extend(self.parse_module_vars(Visibility::Private)?);
                 }
-                TokenKind::Public | TokenKind::Private => {
+                TokenKind::Public | TokenKind::Private | TokenKind::Friend => {
                     let visibility = self.parse_optional_visibility();
                     let is_iterator = self.match_simple(&TokenKind::Iterator);
                     if self.check_simple(&TokenKind::Enum) {
@@ -189,6 +195,11 @@ impl Parser {
                             return Err(self.error_here("Iterator is not supported on Class"));
                         }
                         classes.push(self.parse_class_decl(visibility)?);
+                    } else if self.check_simple(&TokenKind::Interface) {
+                        if is_iterator {
+                            return Err(self.error_here("Iterator is not supported on Interface"));
+                        }
+                        interfaces.push(self.parse_interface_decl(visibility)?);
                     } else if self.check_simple(&TokenKind::Sub) {
                         if is_iterator {
                             return Err(self.error_here("Iterator is not supported on Sub"));
@@ -231,6 +242,7 @@ impl Parser {
             module_vars,
             module_consts,
             declares,
+            interfaces,
             classes,
             procedures,
             functions,

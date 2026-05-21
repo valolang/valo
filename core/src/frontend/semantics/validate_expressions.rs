@@ -408,6 +408,27 @@ pub(super) fn validate_expr(
                     Some(expr.span),
                 ));
             }
+            if let ExprKind::Variable(class_name) = &object.kind
+                && !symbols.contains_key(&key(class_name))
+                && let Some(class_sig) = types.get_class(class_name)
+            {
+                if let Some(field_sig) = class_sig.fields.get(&key(field)) {
+                    return Ok(field_sig.ty.clone());
+                }
+                if let Some(property_sig) = class_sig.properties.get(&key(field))
+                    && let Some(get) = &property_sig.get
+                {
+                    return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
+                }
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!(
+                        "Class '{}' has no Shared member '{}'",
+                        class_sig.name, field
+                    ),
+                    Some(expr.span),
+                ));
+            }
             let object_type = validate_expr(object, symbols, types, signatures)?;
             let current_class = member_access_class(object, &object_type);
             member_read_type(
@@ -450,6 +471,41 @@ pub(super) fn validate_expr(
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::GENERIC,
                     "Err only supports Clear() and Raise()",
+                    Some(expr.span),
+                ));
+            }
+            if let ExprKind::Variable(class_name) = &object.kind
+                && !symbols.contains_key(&key(class_name))
+                && let Some(class_sig) = types.get_class(class_name)
+            {
+                if let Some(function) = class_sig.functions.get(&key(method)) {
+                    validate_arguments(
+                        "Function", function, args, symbols, types, signatures, expr.span,
+                    )?;
+                    return Ok(function.return_type.clone().unwrap_or(TypeName::Variant));
+                }
+                if let Some(property_sig) = class_sig.properties.get(&key(method))
+                    && let Some(get) = &property_sig.get
+                {
+                    let callable = CallableSig {
+                        visibility: Visibility::Public,
+                        name: property_sig.name.clone(),
+                        _is_iterator: get.is_iterator,
+                        is_declare: false,
+                        params: get.params.clone(),
+                        return_type: get.return_type.clone(),
+                    };
+                    validate_arguments(
+                        "Property", &callable, args, symbols, types, signatures, expr.span,
+                    )?;
+                    return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
+                }
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!(
+                        "Class '{}' has no Shared method '{}'",
+                        class_sig.name, method
+                    ),
                     Some(expr.span),
                 ));
             }
@@ -1784,6 +1840,7 @@ fn ensure_visible(
     span: crate::runtime::Span,
 ) -> Result<(), Diagnostic> {
     if visibility == Visibility::Public
+        || visibility == Visibility::Friend
         || current_class.is_some_and(|class_name| class_name.eq_ignore_ascii_case(owner_class))
     {
         Ok(())

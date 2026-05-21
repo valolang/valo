@@ -959,6 +959,135 @@ impl Interpreter {
         ))
     }
 
+    pub(crate) fn call_shared_function(
+        &mut self,
+        class_name: &str,
+        method: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let class_name = self.resolve_user_type_name(class_name, caller_frame, span)?;
+        let class = self
+            .classes
+            .get(&key(&class_name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Class '{}' is not defined", class_name),
+                    Some(span),
+                )
+            })?;
+        let function = class
+            .shared_functions
+            .get(&key(method))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!("Class '{}' has no Shared function '{}'", class.name, method),
+                    Some(span),
+                )
+            })?;
+        let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
+        if let Some((module_key, _)) = key(&class.name).split_once('.') {
+            frame.set_module_key(module_key.to_string());
+        }
+        self.bind_class_constants(&class, &mut frame)?;
+        self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
+        let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
+        if !frame.has_variable(&function.name) {
+            frame.declare(
+                &function.name,
+                return_type.clone(),
+                None,
+                self.option_base,
+                function.span,
+                &self.types,
+                &self.enums,
+            )?;
+        }
+        self.scope_stack
+            .push(format!("{}.{}", class.name, function.name));
+        let result = self.exec_block(&function.body, &mut frame);
+        self.scope_stack.pop();
+        match result? {
+            ControlFlow::Return(value) => coerce_assignment(&return_type, value, span),
+            ControlFlow::Continue | ControlFlow::ExitFunction => {
+                frame.get(&function.name, function.span)
+            }
+            ControlFlow::ExitSub => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Sub is only valid inside Sub",
+                Some(function.span),
+            )),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
+        }
+    }
+
+    pub(crate) fn call_shared_sub(
+        &mut self,
+        class_name: &str,
+        method: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let class_name = self.resolve_user_type_name(class_name, caller_frame, span)?;
+        let class = self
+            .classes
+            .get(&key(&class_name))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Class '{}' is not defined", class_name),
+                    Some(span),
+                )
+            })?;
+        let procedure = class
+            .shared_subs
+            .get(&key(method))
+            .cloned()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!("Class '{}' has no Shared method '{}'", class.name, method),
+                    Some(span),
+                )
+            })?;
+        let mut frame = Frame::default();
+        frame.inherit_modules_from(caller_frame)?;
+        if let Some((module_key, _)) = key(&class.name).split_once('.') {
+            frame.set_module_key(module_key.to_string());
+        }
+        self.bind_class_constants(&class, &mut frame)?;
+        self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
+        self.scope_stack
+            .push(format!("{}.{}", class.name, procedure.name));
+        let result = self.exec_block(&procedure.body, &mut frame);
+        self.scope_stack.pop();
+        match result? {
+            ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+            ControlFlow::Return(_) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Return is only allowed inside Function",
+                Some(procedure.span),
+            )),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit statement escaped its block",
+                Some(span),
+            )),
+        }
+    }
+
     pub(crate) fn call_method_function_decl(
         &mut self,
         object: Value,
