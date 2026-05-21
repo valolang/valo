@@ -138,6 +138,95 @@ End Sub
 }
 
 #[test]
+fn ffi_vector_math_stress_completes_with_structure_array_mutation() {
+    let source = format!(
+        r#"
+Private Declare PtrSafe Function NativeCos Lib "{}" Alias "{}" CDecl (ByVal value As Double) As Double
+Private Declare PtrSafe Function NativeSin Lib "{}" Alias "sin" CDecl (ByVal value As Double) As Double
+Private Declare PtrSafe Function NativeSqrt Lib "{}" Alias "sqrt" CDecl (ByVal value As Double) As Double
+
+Structure Vec3
+    Public X As Double
+    Public Y As Double
+    Public Z As Double
+End Structure
+
+Function MakeVec(ByVal i As Integer) As Vec3
+    Dim v As Vec3
+    v.X = (i Mod 17) - 8.5
+    v.Y = (i Mod 23) - 11.5
+    v.Z = (i Mod 31) - 15.5
+    Return v
+End Function
+
+Function Length(ByVal v As Vec3) As Double
+    Length = NativeSqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z)
+End Function
+
+Function Normalize(ByVal v As Vec3) As Vec3
+    Dim result As Vec3
+    Dim len As Double
+    len = Length(v)
+    If len = 0# Then
+        Return v
+    End If
+    result.X = v.X / len
+    result.Y = v.Y / len
+    result.Z = v.Z / len
+    Return result
+End Function
+
+Function RotateY(ByVal v As Vec3, ByVal angle As Double) As Vec3
+    Dim result As Vec3
+    Dim c As Double
+    Dim s As Double
+    c = NativeCos(angle)
+    s = NativeSin(angle)
+    result.X = v.X * c + v.Z * s
+    result.Y = v.Y
+    result.Z = -v.X * s + v.Z * c
+    Return result
+End Function
+
+Sub Main()
+    Const Count As Integer = 120
+    Dim points() As Vec3
+    Dim i As Integer
+    Dim pass As Integer
+    Dim angle As Double
+    Dim total As Double
+    Dim avg As Double
+
+    ReDim points(0 To Count - 1)
+    For i = 0 To Count - 1
+        points(i) = MakeVec(i)
+    Next i
+
+    For pass = 1 To 4
+        angle = pass * 0.0174532925199433#
+        For i = 0 To Count - 1
+            points(i) = Normalize(points(i))
+            points(i) = RotateY(points(i), angle)
+        Next i
+    Next pass
+
+    For i = 0 To Count - 1
+        total = total + Length(points(i))
+    Next i
+    avg = total / Count
+    Console.WriteLine(avg > 0.999# And avg < 1.001#)
+End Sub
+"#,
+        platform_libm(),
+        platform_test_math_symbol(),
+        platform_libm(),
+        platform_libm()
+    );
+
+    assert_eq!(run_source(&source), vec!["True"]);
+}
+
+#[test]
 fn declare_alias_uses_local_name_for_semantics_and_native_symbol_for_lookup() {
     let source = format!(
         r#"

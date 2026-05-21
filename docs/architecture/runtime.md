@@ -47,6 +47,7 @@ Native support lives in `core/src/backend/interpreter/ffi.rs` and `core/src/runt
 
 *   Platform library resolution and caching.
 *   Symbol caching per loaded library to avoid repeated platform lookups.
+*   Per-interpreter libffi CIF caching keyed by resolved Declare signature, so repeated native calls do not rebuild call metadata in tight loops.
 *   Automatic system library mapping (`libc`/`libm` to platform equivalents).
 *   Symbol lookup through `LoadLibrary`/`GetProcAddress` on Windows and `dlopen`/`dlsym` on Unix platforms.
 *   Mixed-signature invocation through `libffi`.

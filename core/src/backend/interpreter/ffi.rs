@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::ffi::{CString, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use libffi::middle::{Arg as FfiArg, Cif, CodePtr, Ret, Type as FfiType, arg as ffi_arg};
 
@@ -123,7 +124,7 @@ struct MarshaledArgs {
     byrefs: Vec<ByRefUpdate>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum ArgKind {
     Value,
     PointerValue,
@@ -467,12 +468,26 @@ impl Interpreter {
             .native_libraries
             .symbol(&declare.lib, symbol_name, span)?;
         let return_type = declare.return_type.as_ref().unwrap_or(&TypeName::Variant);
+        let cif_key = native_cif_key(declare, &marshaled, return_type);
+        if !self.native_cifs.contains_key(&cif_key) {
+            let return_ffi = return_ffi_type(return_type, declare.kind == DeclareKind::Sub, span)?;
+            self.native_cifs.insert(
+                cif_key.clone(),
+                Rc::new(Cif::new(marshaled.arg_types.clone(), return_ffi)),
+            );
+        }
+        let cif = self
+            .native_cifs
+            .get(&cif_key)
+            .expect("native CIF inserted before call")
+            .clone();
 
         let _active_interpreter = ActiveInterpreterGuard::enter(self as *mut Interpreter);
 
         let value_result = call_symbol(
             symbol,
             &marshaled,
+            &cif,
             return_type,
             declare.kind == DeclareKind::Sub,
             declare.calling_convention,
@@ -1281,6 +1296,7 @@ fn unsupported(message: impl Into<String>, span: Span) -> Diagnostic {
 fn call_symbol(
     symbol: *mut c_void,
     marshaled: &MarshaledArgs,
+    cif: &Cif,
     return_type: &TypeName,
     is_sub: bool,
     convention: CallingConvention,
@@ -1319,16 +1335,33 @@ fn call_symbol(
             }
         })
         .collect::<Vec<_>>();
-    let cif = Cif::new(
-        marshaled.arg_types.clone(),
-        return_ffi_type(return_type, is_sub, span)?,
-    );
     let code = CodePtr(symbol);
     if is_sub {
         unsafe { cif.call_return_into(code, &args, Ret::void()) };
         return Ok(Value::Empty);
     }
-    call_return_value(&cif, code, &args, return_type, span)
+    call_return_value(cif, code, &args, return_type, span)
+}
+
+fn native_cif_key(
+    declare: &DeclareDecl,
+    marshaled: &MarshaledArgs,
+    return_type: &TypeName,
+) -> String {
+    let symbol = declare.alias.as_deref().unwrap_or(&declare.name);
+    let mut key = format!(
+        "{}\0{}\0{:?}\0{:?}\0{}",
+        declare.lib,
+        symbol,
+        declare.kind,
+        declare.calling_convention,
+        return_type.display_name()
+    );
+    for (ffi_type, kind) in marshaled.arg_types.iter().zip(marshaled.arg_kinds.iter()) {
+        key.push('\0');
+        key.push_str(&format!("{ffi_type:?}:{kind:?}"));
+    }
+    key
 }
 
 fn return_ffi_type(ty: &TypeName, is_sub: bool, span: Span) -> Result<FfiType, Diagnostic> {
