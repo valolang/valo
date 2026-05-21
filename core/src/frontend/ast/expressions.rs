@@ -60,6 +60,7 @@ pub enum BinaryOp {
     Add,
     Subtract,
     Multiply,
+    Exponent,
     Divide,
     IntegerDivide,
     Modulo,

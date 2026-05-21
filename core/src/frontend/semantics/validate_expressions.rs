@@ -103,6 +103,19 @@ pub(super) fn validate_assignment_target(
             };
             let element_type = match var_type {
                 VarType::Array(ty) => ty,
+                VarType::Scalar(TypeName::User(class_name))
+                | VarType::Optional(TypeName::User(class_name))
+                | VarType::Const(TypeName::User(class_name))
+                    if types
+                        .get_class(&class_name)
+                        .and_then(|class| class.default_property.as_ref())
+                        .is_some() =>
+                {
+                    for index in indices {
+                        validate_expr(index, symbols, types, signatures)?;
+                    }
+                    return Ok(value_type.clone());
+                }
                 VarType::Scalar(TypeName::Variant)
                 | VarType::Optional(TypeName::Variant)
                 | VarType::Const(TypeName::Variant) => TypeName::Variant,
@@ -307,6 +320,18 @@ pub(super) fn validate_expr(
             ];
             if builtins.iter().any(|b| name.eq_ignore_ascii_case(b)) {
                 return Ok(TypeName::Integer);
+            }
+            if let Some(function) = signatures.functions.get(&key(name)) {
+                validate_arguments(
+                    "Function",
+                    function,
+                    &[],
+                    symbols,
+                    types,
+                    signatures,
+                    expr.span,
+                )?;
+                return Ok(function.return_type.clone().expect("function return type"));
             }
             if let Some(VarType::Scalar(TypeName::User(owner_name))) = symbols.get("me").cloned() {
                 if let Some(class_sig) = types.get_class(&owner_name)
@@ -611,6 +636,7 @@ pub(super) fn validate_expr(
                 BinaryOp::Add
                 | BinaryOp::Subtract
                 | BinaryOp::Multiply
+                | BinaryOp::Exponent
                 | BinaryOp::Divide
                 | BinaryOp::IntegerDivide
                 | BinaryOp::Modulo => {

@@ -8,7 +8,7 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 
 ### Source Modes
 *   **`.valo` Files:** Modern native syntax. Prefers class `Sub New`/`Sub Terminate`, `Structure`, `Default` keyword, and structured imports.
-*   **`.bas` / `.cls` Files:** VBA compatibility mode. Supports `Attribute VB_*` metadata, `Class_Initialize`, `Class_Terminate`, and `Type`.
+*   **`.bas` / `.cls` Files:** VBA compatibility mode. Supports `Attribute VB_*` metadata, `Class_Initialize`, `Class_Terminate`, `Type`, `Declare`, and common exported-module encodings.
 
 ### Feature Comparison
 
@@ -16,7 +16,7 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 |---------|----------------------|-----------------------------------|
 | Constructor | `Public Sub New()` | `Private Sub Class_Initialize()` |
 | Destructor | `Public Sub Terminate()` | `Private Sub Class_Terminate()` |
-| Default Member | `Public Default Property Get Item()` | `Attribute Item.VB_UserMemId = 0` |
+| Default Member | `Public Default Property Get Item()` | `Attribute Item.VB_UserMemId = 0` on the Get/Let/Set property group |
 | Value Records | `Public Structure Point` | `Public Type Point` |
 | Byte Arrays | `Dim data() As Byte` | `Dim data() As Byte` |
 | Debug Output | `Console.WriteLine` | `Debug.Print` |
@@ -28,9 +28,14 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 - `Err` Object: Full support for `Err.Raise`, `Err.Number`, and `Err.Description` in all modes.
 - `Array Built-ins`: `Split`, `Join`, `Filter`, `LBound`, and `UBound` behave according to standard VBA semantics.
 - `Multidimensional Arrays`: Fully supported with `ReDim Preserve` compatibility (last-dimension only resizing).
-- `Declare`/`PtrSafe`: Reserved for future FFI work; not implemented yet.
+- `New ClassName`: Parentheses are optional for zero-argument construction, matching VBA (`Set v = New Vec2`).
+- `Const`: Module, local, and class-scope constants are supported, including multi-Const declarations such as `Public Const PI = 3.14, E = 2.71`.
+- `^`: Exponent expressions are supported and evaluate through numeric promotion.
+- `Declare`/`PtrSafe`: The frontend parses `Declare Function`/`Declare Sub` metadata, including `Lib`, `Alias`, `PtrSafe`, `LongPtr`, `LongLong`, and `As Any`. Runtime FFI invocation is intentionally future work.
+- Source encodings: `.bas` and `.cls` imports accept UTF-8, UTF-8 BOM, UTF-16 LE/BE BOM, and Windows-1252/ANSI fallback, with normalized line endings for diagnostics.
 
 `Structure` is the native Valo value type and supports methods, properties, constructors, and copy semantics. `Type` remains the VBA-compatible fields-only record syntax.
+Structure fields may use constant-expression defaults, for example `Public X As Double = 0#`.
 
 ## Intentional Differences
 

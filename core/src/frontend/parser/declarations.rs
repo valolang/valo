@@ -126,6 +126,13 @@ impl Parser {
                 }
                 self.parse_event(visibility).map(ClassMember::Event)
             }
+            TokenKind::Const => self.parse_module_consts(visibility).and_then(|mut consts| {
+                if consts.len() == 1 {
+                    Ok(ClassMember::Const(consts.remove(0)))
+                } else {
+                    Err(self.error_here("Class Const declarations must be one per member"))
+                }
+            }),
             TokenKind::Sub => {
                 if is_iterator {
                     return Err(self.error_here("Iterator is not supported on Sub"));
@@ -306,7 +313,7 @@ impl Parser {
     ) -> Result<EnumDecl, Diagnostic> {
         let start = self.expect_simple(TokenKind::Enum, "Expected 'Enum'")?.span;
         let name = self.expect_identifier("Expected enum name after 'Enum'")?;
-        self.expect_newline("Expected newline after Enum declaration")?;
+        self.expect_statement_end("Expected newline after Enum declaration")?;
 
         let mut members = Vec::new();
         self.skip_newlines();
@@ -342,29 +349,103 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_module_const(
+    pub(super) fn parse_module_consts(
         &mut self,
         visibility: Visibility,
-    ) -> Result<ConstDecl, Diagnostic> {
+    ) -> Result<Vec<ConstDecl>, Diagnostic> {
+        let consts = self.parse_const_declarators(visibility)?;
+        self.expect_statement_end("Expected newline after Const declaration")?;
+        Ok(consts)
+    }
+
+    pub(super) fn parse_const_declarators(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<Vec<ConstDecl>, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Const, "Expected 'Const'")?
             .span;
-        let name = self.expect_identifier("Expected constant name")?;
-        let ty = if self.match_simple(&TokenKind::As) {
+        let mut consts = Vec::new();
+        loop {
+            let item_start = self.peek().span;
+            let name = self.expect_identifier("Expected constant name")?;
+            let ty = if self.match_simple(&TokenKind::As) {
+                Some(self.parse_type_name()?)
+            } else {
+                None
+            };
+            self.expect_simple(TokenKind::Equal, "Expected '=' in Const declaration")?;
+            let value = self.parse_expression()?;
+            let end = value.span;
+            consts.push(ConstDecl {
+                visibility,
+                name,
+                ty,
+                value,
+                span: Span::new(self.file_id, item_start.start, end.end),
+            });
+            if !self.match_simple(&TokenKind::Comma) {
+                break;
+            }
+        }
+        if let Some(first) = consts.first_mut() {
+            first.span.start = start.start;
+        }
+        Ok(consts)
+    }
+
+    pub(super) fn parse_declare_decl(
+        &mut self,
+        visibility: Visibility,
+    ) -> Result<DeclareDecl, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Declare, "Expected 'Declare'")?
+            .span;
+        let ptr_safe = self.match_simple(&TokenKind::PtrSafe);
+        let kind = if self.match_simple(&TokenKind::Function) {
+            DeclareKind::Function
+        } else if self.match_simple(&TokenKind::Sub) {
+            DeclareKind::Sub
+        } else {
+            return Err(self.error_here("Expected Function or Sub after Declare"));
+        };
+        let name = self.expect_identifier("Expected Declare name")?;
+        self.expect_simple(TokenKind::Lib, "Expected Lib in Declare")?;
+        let lib = match self.advance().kind {
+            TokenKind::String(value) => value,
+            _ => return Err(self.error_here("Expected library string after Lib")),
+        };
+        let alias = if self.match_simple(&TokenKind::Alias) {
+            match self.advance().kind {
+                TokenKind::String(value) => Some(value),
+                _ => return Err(self.error_here("Expected alias string after Alias")),
+            }
+        } else {
+            None
+        };
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' in Declare")?;
+        let params = self.parse_parameters()?;
+        self.expect_simple(
+            TokenKind::RightParen,
+            "Expected ')' after Declare parameters",
+        )?;
+        let return_type = if kind == DeclareKind::Function {
+            self.expect_simple(TokenKind::As, "Expected 'As' before Declare return type")?;
             Some(self.parse_type_name()?)
         } else {
             None
         };
-        self.expect_simple(TokenKind::Equal, "Expected '=' in Const declaration")?;
-        let value = self.parse_expression()?;
-        let end = value.span;
-        self.expect_statement_end("Expected newline after Const declaration")?;
-
-        Ok(ConstDecl {
+        let end = self.previous().span;
+        self.expect_statement_end("Expected newline after Declare")?;
+        Ok(DeclareDecl {
             visibility,
+            ptr_safe,
+            kind,
             name,
-            ty,
-            value,
+            lib,
+            alias,
+            params,
+            return_type,
             span: Span::new(self.file_id, start.start, end.end),
         })
     }
@@ -448,10 +529,10 @@ impl Parser {
                             Some(decl.span),
                         ));
                     };
-                    if decl.initializer.is_some() {
+                    if kind == TypeKind::Type && decl.initializer.is_some() {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                            "Structure and Type field initializers are not supported yet",
+                            "VBA Type field initializers are not supported",
                             Some(decl.span),
                         ));
                     }
@@ -460,6 +541,7 @@ impl Parser {
                         name: decl.name,
                         ty,
                         array: decl.array,
+                        initializer: decl.initializer,
                         span: decl.span,
                     });
                 }
@@ -860,8 +942,10 @@ impl Parser {
                     Ok(TypeName::Decimal)
                 } else if name.eq_ignore_ascii_case("Date") {
                     Ok(TypeName::Date)
-                } else if name.eq_ignore_ascii_case("Ptr") {
+                } else if name.eq_ignore_ascii_case("Ptr") || name.eq_ignore_ascii_case("LongPtr") {
                     Ok(TypeName::Ptr)
+                } else if name.eq_ignore_ascii_case("LongLong") {
+                    Ok(TypeName::Int64)
                 } else if name.eq_ignore_ascii_case("FuncPtr") {
                     Ok(TypeName::FuncPtr)
                 } else if name.eq_ignore_ascii_case("Object") {
@@ -876,6 +960,7 @@ impl Parser {
                     Ok(TypeName::User(name))
                 }
             }
+            TokenKind::Any => Ok(TypeName::Variant),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::PARSE,
                 "Expected type name",

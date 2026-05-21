@@ -36,6 +36,10 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+    ConstMany {
+        consts: Vec<crate::ConstDecl>,
+        span: Span,
+    },
     Assign {
         target: AssignTarget,
         expr: Expr,

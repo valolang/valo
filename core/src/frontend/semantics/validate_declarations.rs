@@ -128,7 +128,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
 
         for member in &type_decl.members {
             match member {
-                ClassMember::Field(_) | ClassMember::Fields(_) => {
+                ClassMember::Field(_) | ClassMember::Fields(_) | ClassMember::Const(_) => {
                     unreachable!("structure fields are stored separately")
                 }
                 ClassMember::Event(event) => {
@@ -236,17 +236,10 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 ClassMember::Property(property) => {
                     let property_key = key(&property.name);
                     if property.is_default {
-                        if property.kind != PropertyKind::Get {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                                format!(
-                                    "Only Property Get can be marked as Default in Structure '{}'",
-                                    type_decl.name
-                                ),
-                                Some(property.span),
-                            ));
-                        }
-                        if default_member.is_some() {
+                        if default_member
+                            .as_ref()
+                            .is_some_and(|name| !name.eq_ignore_ascii_case(&property.name))
+                        {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
                                 format!(
@@ -392,6 +385,33 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     for field in class_fields {
                         insert_class_field(class_decl, field, &mut fields, &events, &properties)?;
                     }
+                }
+                ClassMember::Const(const_decl) => {
+                    let const_key = key(&const_decl.name);
+                    if fields.contains_key(&const_key)
+                        || events.contains_key(&const_key)
+                        || subs.contains_key(&const_key)
+                        || functions.contains_key(&const_key)
+                        || properties.contains_key(&const_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
+                                "Const '{}' conflicts with another member in Class '{}'",
+                                const_decl.name, class_decl.name
+                            ),
+                            Some(const_decl.span),
+                        ));
+                    }
+                    fields.insert(
+                        const_key,
+                        ClassFieldSig {
+                            visibility: const_decl.visibility,
+                            with_events: false,
+                            ty: const_decl.ty.clone().unwrap_or(TypeName::Variant),
+                            array: None,
+                        },
+                    );
                 }
                 ClassMember::Event(event) => {
                     let event_key = key(&event.name);
@@ -611,17 +631,10 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         enumerator_member = Some(property.name.clone());
                     }
                     if property.is_default {
-                        if property.kind != PropertyKind::Get {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                                format!(
-                                    "Only Property Get can be marked as Default in Class '{}'",
-                                    class_decl.name
-                                ),
-                                Some(property.span),
-                            ));
-                        }
-                        if default_member.is_some() {
+                        if default_member
+                            .as_ref()
+                            .is_some_and(|name| !name.eq_ignore_ascii_case(&property.name))
+                        {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                                 format!("Class '{}' has multiple default members", class_decl.name),
@@ -728,11 +741,31 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     for type_decl in &program.types {
         for field in &type_decl.fields {
             ensure_known_type(&field.ty, &registry, field.span)?;
+            if let Some(initializer) = &field.initializer {
+                ensure_const_expr(initializer, &HashMap::new(), &registry)?;
+                let initializer_type = validate_expr(
+                    initializer,
+                    &HashMap::new(),
+                    &registry,
+                    &Signatures {
+                        subs: HashMap::new(),
+                        functions: HashMap::new(),
+                    },
+                )?;
+                ensure_assignable_expr(
+                    &field.ty,
+                    &initializer_type,
+                    initializer,
+                    &registry,
+                    initializer.span,
+                )?;
+            }
         }
         for member in &type_decl.members {
             match member {
                 ClassMember::Field(_)
                 | ClassMember::Fields(_)
+                | ClassMember::Const(_)
                 | ClassMember::Event(_)
                 | ClassMember::Iterator(_) => {}
                 ClassMember::Sub(method) => {
@@ -811,6 +844,17 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     for field in fields {
                         validate_class_field_type(field, &registry)?;
                     }
+                }
+                ClassMember::Const(const_decl) => {
+                    let mut symbols = HashMap::new();
+                    ensure_const_expr(&const_decl.value, &symbols, &registry)?;
+                    if let Some(ty) = &const_decl.ty {
+                        ensure_known_type(ty, &registry, const_decl.span)?;
+                    }
+                    symbols.insert(
+                        key(&const_decl.name),
+                        VarType::Const(const_decl.ty.clone().unwrap_or(TypeName::Variant)),
+                    );
                 }
                 ClassMember::Event(event) => {
                     for param in &event.params {
@@ -982,6 +1026,7 @@ fn validate_withevents_handlers(
             let fields: Vec<&crate::ClassField> = match member {
                 ClassMember::Field(field) => vec![field],
                 ClassMember::Fields(fields) => fields.iter().collect(),
+                ClassMember::Const(_) => continue,
                 _ => continue,
             };
             for field in fields {

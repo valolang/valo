@@ -13,6 +13,7 @@ pub struct Program {
     pub enums: Vec<EnumDecl>,
     pub module_vars: Vec<ModuleVarDecl>,
     pub module_consts: Vec<ConstDecl>,
+    pub declares: Vec<DeclareDecl>,
     pub classes: Vec<ClassDecl>,
     pub procedures: Vec<Procedure>,
     pub functions: Vec<Function>,
@@ -60,6 +61,25 @@ pub struct ConstDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct DeclareDecl {
+    pub visibility: Visibility,
+    pub ptr_safe: bool,
+    pub kind: DeclareKind,
+    pub name: String,
+    pub lib: String,
+    pub alias: Option<String>,
+    pub params: Vec<Parameter>,
+    pub return_type: Option<TypeName>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeclareKind {
+    Function,
+    Sub,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct EnumDecl {
     pub visibility: Visibility,
     pub name: String,
@@ -96,6 +116,7 @@ pub struct FieldDecl {
     pub name: String,
     pub ty: TypeName,
     pub array: Option<super::ArrayDecl>,
+    pub initializer: Option<super::Expr>,
     pub span: Span,
 }
 
@@ -112,6 +133,7 @@ pub struct ClassDecl {
 pub enum ClassMember {
     Field(ClassField),
     Fields(Vec<ClassField>),
+    Const(ConstDecl),
     Event(ClassEvent),
     Sub(ClassSub),
     Function(ClassFunction),

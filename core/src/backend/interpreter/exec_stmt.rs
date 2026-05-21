@@ -162,6 +162,15 @@ impl Interpreter {
                 frame.declare_const(name, ty, value, *span)?;
                 Ok(ControlFlow::Continue)
             }
+            Stmt::ConstMany { consts, .. } => {
+                for const_decl in consts {
+                    let value = self.eval_expr(&const_decl.value, frame)?;
+                    let ty = const_decl.ty.clone().unwrap_or_else(|| value.type_name());
+                    let ty = self.resolve_type_name(&ty, frame, const_decl.span)?;
+                    frame.declare_const(&const_decl.name, ty, value, const_decl.span)?;
+                }
+                Ok(ControlFlow::Continue)
+            }
             Stmt::Assign { target, expr, span } => {
                 let value = self.eval_expr(expr, frame)?;
                 self.assign_target(target, value, frame, *span)?;
@@ -833,14 +842,43 @@ impl Interpreter {
             }
             AssignTarget::ArrayElement { name, indices, .. } => {
                 let mut dims = Vec::new();
+                let mut index_values = Vec::new();
                 for index_expr in indices {
-                    dims.push(self.eval_integer_expr(
-                        index_expr,
-                        frame,
-                        "Array index must be Integer",
-                    )?);
+                    let index_value = self.eval_expr(index_expr, frame)?;
+                    dims.push(match &index_value {
+                        Value::Byte(value) => i64::from(*value),
+                        Value::Int16(value) => i64::from(*value),
+                        Value::Int32(value) => i64::from(*value),
+                        Value::Int64(value) => *value,
+                        _ => {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                "Array index must be Integer",
+                                Some(index_expr.span),
+                            ));
+                        }
+                    });
+                    index_values.push(index_value);
                 }
                 let old = if frame.has_variable(name) {
+                    let target = frame.get(name, span)?;
+                    if let Value::Object(ref object) = target {
+                        let class_name = object.borrow().class_name.clone();
+                        if let Some(default_member) = self
+                            .classes
+                            .get(&super::values::key(&class_name))
+                            .and_then(|class| class.default_member.clone())
+                        {
+                            index_values.push(value);
+                            self.call_property_set_values(
+                                target,
+                                &default_member,
+                                &index_values,
+                                span,
+                            )?;
+                            return Ok(());
+                        }
+                    }
                     frame.assign_array_element(name, &dims, value, span)?
                 } else {
                     let owner = frame.get("me", span)?;
@@ -984,6 +1022,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::Static { span, .. }
         | Stmt::StaticMany { span, .. }
         | Stmt::Const { span, .. }
+        | Stmt::ConstMany { span, .. }
         | Stmt::Assign { span, .. }
         | Stmt::SetAssign { span, .. }
         | Stmt::ConsoleWriteLine { span, .. }

@@ -76,6 +76,9 @@ impl Interpreter {
                             {
                                 return Ok(value);
                             }
+                            if self.functions.contains_key(&super::values::key(name)) {
+                                return self.call_function(name, &[], frame, expr.span);
+                            }
 
                             Err(error)
                         }
@@ -330,6 +333,7 @@ impl Interpreter {
                     crate::BinaryOp::Add => RuntimeBinaryOp::Add,
                     crate::BinaryOp::Subtract => RuntimeBinaryOp::Subtract,
                     crate::BinaryOp::Multiply => RuntimeBinaryOp::Multiply,
+                    crate::BinaryOp::Exponent => RuntimeBinaryOp::Exponent,
                     crate::BinaryOp::Divide => RuntimeBinaryOp::Divide,
                     crate::BinaryOp::IntegerDivide => RuntimeBinaryOp::IntegerDivide,
                     crate::BinaryOp::Modulo => RuntimeBinaryOp::Modulo,

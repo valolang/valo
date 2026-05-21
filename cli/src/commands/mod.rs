@@ -1,7 +1,33 @@
 use std::io::{self, Write};
 use valo_core::{Frame, Interpreter, run_file, validate};
 
-pub fn run(mut args: impl Iterator<Item = String>) -> Result<(), String> {
+#[derive(Debug, Clone, Copy)]
+pub enum ColorChoice {
+    Auto,
+    Always,
+    Never,
+}
+
+impl ColorChoice {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "auto" => Ok(Self::Auto),
+            "always" => Ok(Self::Always),
+            "never" => Ok(Self::Never),
+            _ => Err("usage: --color must be auto, always, or never".to_string()),
+        }
+    }
+
+    fn enabled(self) -> bool {
+        match self {
+            Self::Auto => valo_core::terminal_supports_color(),
+            Self::Always => true,
+            Self::Never => false,
+        }
+    }
+}
+
+pub fn run(mut args: impl Iterator<Item = String>, _color: ColorChoice) -> Result<(), String> {
     let Some(path) = args.next() else {
         return Err("usage: valo run <file>".to_string());
     };
@@ -19,7 +45,7 @@ pub fn run(mut args: impl Iterator<Item = String>) -> Result<(), String> {
     Ok(())
 }
 
-pub fn check(mut args: impl Iterator<Item = String>) -> Result<(), String> {
+pub fn check(mut args: impl Iterator<Item = String>, color: ColorChoice) -> Result<(), String> {
     let Some(path) = args.next() else {
         return Err("usage: valo check <file>".to_string());
     };
@@ -27,10 +53,10 @@ pub fn check(mut args: impl Iterator<Item = String>) -> Result<(), String> {
     match valo_core::load_project(&path) {
         Ok(project) => {
             if let Err(err) = valo_core::validate_project(&project) {
-                return Err(err.render(&project.source_map));
+                return Err(err.render_colored(&project.source_map, color.enabled()));
             }
         }
-        Err((err, map)) => return Err(err.render(&map)),
+        Err((err, map)) => return Err(err.render_colored(&map, color.enabled())),
     }
 
     println!("File validated successfully.");

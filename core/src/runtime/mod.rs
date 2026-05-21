@@ -15,7 +15,7 @@ mod value;
 pub use coerce::coerce_assignment;
 pub use diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticLabel, FileId, LabelStyle, RuntimeErrorInfo, Severity,
-    SourceMap, SourcePos, Span,
+    SourceMap, SourcePos, Span, terminal_supports_color,
 };
 pub use type_name::TypeName;
 pub use value::{EventBinding, ObjectValue, Value};

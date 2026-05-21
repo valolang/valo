@@ -2,6 +2,32 @@ use super::*;
 use crate::UsingResource;
 use std::collections::HashSet;
 
+fn validate_const_decl(
+    name: &str,
+    ty: &Option<TypeName>,
+    value: &Expr,
+    span: crate::runtime::Span,
+    symbols: &mut HashMap<String, VarType>,
+    types: &TypeRegistry,
+    signatures: &Signatures,
+) -> Result<(), Diagnostic> {
+    ensure_const_expr(value, symbols, types)?;
+    let value_type = validate_expr(value, symbols, types, signatures)?;
+    let const_type = ty.clone().unwrap_or(value_type.clone());
+    ensure_known_type(&const_type, types, span)?;
+    ensure_assignable_expr(&const_type, &value_type, value, types, span)?;
+    let key = key(name);
+    if symbols.contains_key(&key) {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+            format!("Variable '{}' is already declared", name),
+            Some(span),
+        ));
+    }
+    symbols.insert(key, VarType::Const(const_type));
+    Ok(())
+}
+
 pub(super) fn validate_statements(
     statements: &[Stmt],
     symbols: &mut HashMap<String, VarType>,
@@ -144,20 +170,20 @@ pub(super) fn validate_statements(
                 value,
                 span,
             } => {
-                ensure_const_expr(value, symbols, types)?;
-                let value_type = validate_expr(value, symbols, types, signatures)?;
-                let const_type = ty.clone().unwrap_or(value_type.clone());
-                ensure_known_type(&const_type, types, *span)?;
-                ensure_assignable_expr(&const_type, &value_type, value, types, *span)?;
-                let key = key(name);
-                if symbols.contains_key(&key) {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
-                        format!("Variable '{}' is already declared", name),
-                        Some(*span),
-                    ));
+                validate_const_decl(name, ty, value, *span, symbols, types, signatures)?;
+            }
+            Stmt::ConstMany { consts, .. } => {
+                for const_decl in consts {
+                    validate_const_decl(
+                        &const_decl.name,
+                        &const_decl.ty,
+                        &const_decl.value,
+                        const_decl.span,
+                        symbols,
+                        types,
+                        signatures,
+                    )?;
                 }
-                symbols.insert(key, VarType::Const(const_type));
             }
             Stmt::Assign { target, expr, span } => {
                 let expr_type = class_field_expr_type(expr, symbols, types, &context)
@@ -1047,6 +1073,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::Static { span, .. }
         | Stmt::StaticMany { span, .. }
         | Stmt::Const { span, .. }
+        | Stmt::ConstMany { span, .. }
         | Stmt::Assign { span, .. }
         | Stmt::SetAssign { span, .. }
         | Stmt::ConsoleWriteLine { span, .. }
@@ -1080,6 +1107,9 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
         Stmt::Const { value, .. } | Stmt::Return { expr: value, .. } => {
             expr_uses_with_target(value)
         }
+        Stmt::ConstMany { consts, .. } => consts
+            .iter()
+            .any(|const_decl| expr_uses_with_target(&const_decl.value)),
         Stmt::Assign { target, expr, .. } | Stmt::SetAssign { target, expr, .. } => {
             assign_target_uses_with_target(target) || expr_uses_with_target(expr)
         }

@@ -652,6 +652,7 @@ pub(crate) fn ensure_object(
 pub(crate) struct RuntimeClass {
     pub(crate) name: String,
     pub(crate) fields: Vec<RuntimeField>,
+    pub(crate) constants: Vec<crate::ConstDecl>,
     pub(crate) events: HashMap<String, RuntimeEvent>,
     pub(crate) subs: HashMap<String, Procedure>,
     pub(crate) functions: HashMap<String, Function>,
@@ -664,6 +665,7 @@ pub(crate) struct RuntimeClass {
 impl From<&crate::ClassDecl> for RuntimeClass {
     fn from(value: &crate::ClassDecl) -> Self {
         let mut fields = Vec::new();
+        let mut constants = Vec::new();
         let mut events = HashMap::new();
         let mut subs = HashMap::new();
         let mut functions = HashMap::new();
@@ -680,6 +682,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                         .clone()
                         .unwrap_or(crate::runtime::TypeName::Variant),
                     array: field.array.clone(),
+                    initializer: field.initializer.clone(),
                     with_events: field.with_events,
                 }),
                 ClassMember::Fields(class_fields) => {
@@ -691,10 +694,12 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                                 .clone()
                                 .unwrap_or(crate::runtime::TypeName::Variant),
                             array: field.array.clone(),
+                            initializer: field.initializer.clone(),
                             with_events: field.with_events,
                         });
                     }
                 }
+                ClassMember::Const(const_decl) => constants.push(const_decl.clone()),
                 ClassMember::Event(event) => {
                     events.insert(
                         key(&event.name),
@@ -759,6 +764,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
         Self {
             name: value.name.clone(),
             fields,
+            constants,
             events,
             subs,
             functions,

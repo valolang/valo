@@ -17,7 +17,7 @@ Every error or warning in Valo is encapsulated in a `Diagnostic` struct (`core/s
 Diagnostics are rendered in a professional, Rust-inspired format. Features include:
 
 -   **Source-Aware Spans:** Diagnostics correctly point to the original source file, even across imported modules.
--   **Colorized Output:** Colored output is enabled by default in terminal environments, with support for the `NO_COLOR` standard.
+-   **Colorized Output:** Color is automatic only when stderr is a capable TTY. `NO_COLOR` disables ANSI, redirected output is plain text, and the CLI supports `--color auto|always|never`.
 -   **Contextual Labels:** Primary and secondary labels provide pinpoint accuracy for errors.
 -   **Import Chains:** Errors in imported modules include notes explaining the import chain.
 
@@ -35,3 +35,5 @@ error[V0100]: expected statement after `Then` or newline for block If
 ## Implementation Details
 
 The diagnostics system uses a central `SourceMap` (`core/src/runtime/diagnostic.rs`) to manage file names and contents. Every `Span` contains a `FileId` that resolves back to the `SourceMap`, allowing the renderer to show the correct source line regardless of which file triggered the diagnostic.
+
+On Windows, Valo avoids emitting raw ANSI escapes in unsupported consoles. Modern terminals can use color automatically; legacy or redirected sessions receive plain diagnostics.

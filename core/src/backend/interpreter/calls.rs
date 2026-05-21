@@ -4,9 +4,23 @@ use crate::{Expr, ExprKind, Function, PassingMode};
 use super::frame::Variable;
 use super::objects::ensure_object;
 use super::values::key;
-use super::{ControlFlow, Frame, Interpreter};
+use super::{ControlFlow, Frame, Interpreter, RuntimeClass};
 
 impl Interpreter {
+    fn bind_class_constants(
+        &mut self,
+        class: &RuntimeClass,
+        frame: &mut Frame,
+    ) -> Result<(), Diagnostic> {
+        for const_decl in &class.constants {
+            let value = self.eval_expr(&const_decl.value, frame)?;
+            let ty = const_decl.ty.clone().unwrap_or_else(|| value.type_name());
+            let ty = self.resolve_type_name(&ty, frame, const_decl.span)?;
+            frame.declare_const(&const_decl.name, ty, value, const_decl.span)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn call_record_sub_variable(
         &mut self,
         variable: Variable,
@@ -641,6 +655,7 @@ impl Interpreter {
             frame.set_module_key(module_key.to_string());
         }
         frame.declare_object_alias("me", &class.name, instance, span)?;
+        self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         self.scope_stack
             .push(format!("{}.{}", class.name, procedure.name));
@@ -704,6 +719,7 @@ impl Interpreter {
             frame.set_module_key(module_key.to_string());
         }
         frame.declare_object_alias("me", &class.name, instance, span)?;
+        self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
         self.scope_stack
             .push(format!("{}.{}", class.name, procedure.name));
@@ -770,6 +786,7 @@ impl Interpreter {
                 frame.set_module_key(module_key.to_string());
             }
             frame.declare_object_alias("me", &class.name, instance, span)?;
+            self.bind_class_constants(&class, &mut frame)?;
             self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
             let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
             if !frame.has_variable(&function.name) {
@@ -907,6 +924,7 @@ impl Interpreter {
             frame.set_module_key(module_key.to_string());
         }
         frame.declare_object_alias("me", &class.name, instance, span)?;
+        self.bind_class_constants(&class, &mut frame)?;
         let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
         if !frame.has_variable(&function.name) {
             frame.declare(
@@ -1155,7 +1173,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn bind_parameter_values(
+    pub(crate) fn bind_parameter_values(
         &mut self,
         params: &[crate::Parameter],
         args: &[Value],

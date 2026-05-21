@@ -333,6 +333,16 @@ impl Interpreter {
         value: Value,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        self.call_property_set_values(object, property, &[value], span)
+    }
+
+    pub(crate) fn call_property_set_values(
+        &mut self,
+        object: Value,
+        property: &str,
+        values: &[Value],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
         let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
@@ -356,6 +366,7 @@ impl Interpreter {
                 Some(span),
             )
         })?;
+        let value = values.last().cloned().unwrap_or(Value::Missing);
         let accessor = if matches!(value, Value::Object(_) | Value::Nothing) {
             property_sig.set.as_ref().or(property_sig.let_.as_ref())
         } else {
@@ -369,28 +380,9 @@ impl Interpreter {
                 Some(span),
             )
         })?;
-        let Some(param) = accessor.params.first() else {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                format!(
-                    "Property {:?} '{}' expects one parameter",
-                    accessor.kind, property
-                ),
-                Some(accessor.span),
-            ));
-        };
         let mut frame = Frame::default();
         frame.declare_object_alias("me", &class.name, instance, span)?;
-        frame.declare(
-            &param.name,
-            param.ty.clone(),
-            None,
-            self.option_base,
-            param.span,
-            &self.types,
-            &self.enums,
-        )?;
-        let _ = frame.assign(&param.name, value, span)?;
+        self.bind_parameter_values(&accessor.params, values, &mut frame, span)?;
         self.scope_stack
             .push(format!("{}.{}", class.name, accessor.name));
         let result = self.exec_block(&accessor.body, &mut frame);

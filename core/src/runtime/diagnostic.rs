@@ -1,4 +1,5 @@
 use std::fmt;
+use std::io::IsTerminal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourcePos {
@@ -155,8 +156,7 @@ impl Diagnostic {
     }
 
     pub fn render(&self, source_map: &SourceMap) -> String {
-        let use_color = std::env::var("NO_COLOR").is_err();
-        self.render_colored(source_map, use_color)
+        self.render_colored(source_map, terminal_supports_color())
     }
 
     pub fn render_colored(&self, source_map: &SourceMap, use_color: bool) -> String {
@@ -227,6 +227,31 @@ impl Diagnostic {
             Severity::Note => "\x1b[36;1m",
             Severity::Help => "\x1b[32;1m",
         }
+    }
+}
+
+pub fn terminal_supports_color() -> bool {
+    if std::env::var_os("NO_COLOR").is_some() || !std::io::stderr().is_terminal() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        if std::env::var_os("WT_SESSION").is_some()
+            || std::env::var_os("ANSICON").is_some()
+            || std::env::var_os("ConEmuANSI").is_some()
+            || std::env::var("TERM")
+                .map(|term| term != "dumb")
+                .unwrap_or(false)
+        {
+            return true;
+        }
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var("TERM")
+            .map(|term| term != "dumb")
+            .unwrap_or(false)
     }
 }
 

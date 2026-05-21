@@ -115,6 +115,16 @@ Sub Main()
 End Sub
 ```
 
+VBA-exported classes may mark the default property group with `Attribute Item.VB_UserMemId = 0`. Valo groups same-name `Property Get`, `Property Let`, and `Property Set` accessors as one property, so indexed reads, value assignments, and object `Set` assignments all target the same default member.
+
+Class-scope constants are supported:
+
+```vb
+Class MathBox
+    Private Const Scale As Double = 2
+End Class
+```
+
 ## Events
 
 Classes can declare events that other objects or modules can handle.

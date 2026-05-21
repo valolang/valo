@@ -125,6 +125,7 @@ impl From<&TypeDecl> for RuntimeType {
                     name: field.name.clone(),
                     ty: field.ty.clone(),
                     array: field.array.clone(),
+                    initializer: field.initializer.clone(),
                     with_events: false,
                 })
                 .collect(),
@@ -145,6 +146,7 @@ impl From<&TypeDecl> for RuntimeType {
                     ClassMember::Function(method) => {
                         Some((key(&method.function.name), method.function.clone()))
                     }
+                    ClassMember::Const(_) => None,
                     _ => None,
                 })
                 .collect(),
@@ -184,5 +186,6 @@ pub(crate) struct RuntimeField {
     pub(crate) name: String,
     pub(crate) ty: TypeName,
     pub(crate) array: Option<crate::ArrayDecl>,
+    pub(crate) initializer: Option<crate::Expr>,
     pub(crate) with_events: bool,
 }

@@ -77,6 +77,30 @@ End Sub
 }
 
 #[test]
+fn parses_vba_declare_frontend_metadata() {
+    let source = r#"
+Private Declare PtrSafe Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As LongPtr, ByVal lpWindowName As Any) As LongLong
+Public Declare PtrSafe Sub Sleep Lib "kernel32" (ByVal dwMilliseconds As Long)
+
+Sub Main()
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.declares.len(), 2);
+    assert!(program.declares[0].ptr_safe);
+    assert_eq!(program.declares[0].lib, "user32");
+    assert_eq!(program.declares[0].alias.as_deref(), Some("FindWindowA"));
+    assert_eq!(program.declares[0].params.len(), 2);
+    assert_eq!(
+        program.declares[0].return_type,
+        Some(crate::TypeName::Int64)
+    );
+    assert_eq!(program.declares[1].return_type, None);
+}
+
+#[test]
 fn rejects_missing_statement_newline() {
     let error = Parser::parse_source(
         r#"

@@ -13,6 +13,7 @@ impl Parser {
         let mut enums = Vec::new();
         let mut module_vars = Vec::new();
         let mut module_consts = Vec::new();
+        let mut declares = Vec::new();
         let mut classes = Vec::new();
         let mut procedures = Vec::new();
         let mut functions = Vec::new();
@@ -32,6 +33,7 @@ impl Parser {
                         || !enums.is_empty()
                         || !module_vars.is_empty()
                         || !module_consts.is_empty()
+                        || !declares.is_empty()
                         || !classes.is_empty()
                         || !procedures.is_empty()
                         || !functions.is_empty()
@@ -132,8 +134,9 @@ impl Parser {
                     });
                 }
                 TokenKind::Const => {
-                    module_consts.push(self.parse_module_const(Visibility::Private)?)
+                    module_consts.extend(self.parse_module_consts(Visibility::Private)?)
                 }
+                TokenKind::Declare => declares.push(self.parse_declare_decl(Visibility::Public)?),
                 TokenKind::Dim => {
                     self.expect_simple(TokenKind::Dim, "Expected 'Dim'")?;
                     module_vars.extend(self.parse_module_vars(Visibility::Private)?);
@@ -166,7 +169,12 @@ impl Parser {
                         if is_iterator {
                             return Err(self.error_here("Iterator is not supported on Const"));
                         }
-                        module_consts.push(self.parse_module_const(visibility)?);
+                        module_consts.extend(self.parse_module_consts(visibility)?);
+                    } else if self.check_simple(&TokenKind::Declare) {
+                        if is_iterator {
+                            return Err(self.error_here("Iterator is not supported on Declare"));
+                        }
+                        declares.push(self.parse_declare_decl(visibility)?);
                     } else if self.check_simple(&TokenKind::Type)
                         || self.check_simple(&TokenKind::Structure)
                     {
@@ -222,6 +230,7 @@ impl Parser {
             enums,
             module_vars,
             module_consts,
+            declares,
             classes,
             procedures,
             functions,

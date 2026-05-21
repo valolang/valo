@@ -9,6 +9,7 @@ pub enum RuntimeBinaryOp {
     Add,
     Subtract,
     Multiply,
+    Exponent,
     Divide,
     IntegerDivide,
     Modulo,
@@ -41,6 +42,10 @@ pub fn eval_binary(
         }
         RuntimeBinaryOp::Multiply => {
             math_binary(left, right, span, |a, b| a.wrapping_mul(b), |a, b| a * b)
+        }
+        RuntimeBinaryOp::Exponent => {
+            let (a, b) = expect_numbers(left, right, span)?;
+            Ok(Value::Double(a.powf(b)))
         }
         RuntimeBinaryOp::Divide => {
             let (a, b) = expect_numbers(left, right, span)?;

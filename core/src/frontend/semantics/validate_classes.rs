@@ -6,13 +6,15 @@ pub(super) fn validate_class(
     signatures: &Signatures,
     module_symbols: &HashMap<String, VarType>,
 ) -> Result<(), Diagnostic> {
+    let class_consts = class_constant_symbols(class_decl);
     for member in &class_decl.members {
         match member {
-            ClassMember::Field(_) | ClassMember::Fields(_) => {}
+            ClassMember::Field(_) | ClassMember::Fields(_) | ClassMember::Const(_) => {}
             ClassMember::Event(_) => {}
             ClassMember::Sub(method) => {
                 let mut symbols = HashMap::new();
                 add_module_symbols(module_symbols, &mut symbols);
+                add_module_symbols(&class_consts, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
                     VarType::Scalar(TypeName::User(class_decl.name.clone())),
@@ -33,6 +35,7 @@ pub(super) fn validate_class(
             ClassMember::Function(method) => {
                 let mut symbols = HashMap::new();
                 add_module_symbols(module_symbols, &mut symbols);
+                add_module_symbols(&class_consts, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
                     VarType::Scalar(TypeName::User(class_decl.name.clone())),
@@ -93,6 +96,7 @@ pub(super) fn validate_class(
             ClassMember::Iterator(method) => {
                 let mut symbols = HashMap::new();
                 add_module_symbols(module_symbols, &mut symbols);
+                add_module_symbols(&class_consts, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
                     VarType::Scalar(TypeName::User(class_decl.name.clone())),
@@ -133,6 +137,7 @@ pub(super) fn validate_class(
             ClassMember::Property(property) => {
                 let mut symbols = HashMap::new();
                 add_module_symbols(module_symbols, &mut symbols);
+                add_module_symbols(&class_consts, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
                     VarType::Scalar(TypeName::User(class_decl.name.clone())),
@@ -213,6 +218,20 @@ pub(super) fn validate_class(
     Ok(())
 }
 
+fn class_constant_symbols(class_decl: &crate::ClassDecl) -> HashMap<String, VarType> {
+    class_decl
+        .members
+        .iter()
+        .filter_map(|member| match member {
+            ClassMember::Const(const_decl) => Some((
+                key(&const_decl.name),
+                VarType::Const(const_decl.ty.clone().unwrap_or(TypeName::Variant)),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
 pub(super) fn validate_structure(
     type_decl: &crate::TypeDecl,
     types: &TypeRegistry,
@@ -223,6 +242,7 @@ pub(super) fn validate_structure(
         match member {
             ClassMember::Field(_)
             | ClassMember::Fields(_)
+            | ClassMember::Const(_)
             | ClassMember::Event(_)
             | ClassMember::Iterator(_) => {}
             ClassMember::Sub(method) => {

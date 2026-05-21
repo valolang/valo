@@ -80,17 +80,13 @@ impl ModuleLoader {
         }
 
         stack.push(canonical.clone());
-        let source_content = fs::read_to_string(&canonical).map_err(|err| {
-            Diagnostic::new(
-                DiagnosticCode::MODULE_NOT_FOUND,
-                format!("Module '{}' could not be read: {err}", canonical.display()),
-                None,
-            )
-        })?;
+        let source_content = read_source_file(&canonical)
+            .map_err(|message| Diagnostic::new(DiagnosticCode::MODULE_NOT_FOUND, message, None))?;
 
         let name = module_name(&canonical);
         let file_id = self.source_map.add(name.clone(), source_content.clone());
-        let program = parse_source_with_id(&source_content, file_id)?;
+        let program = parse_source_with_id(&source_content, file_id)
+            .map_err(|err| add_import_notes(err, &name, stack))?;
 
         let index = self.modules.len();
         self.by_path.insert(canonical.clone(), index);
@@ -132,6 +128,96 @@ impl ModuleLoader {
         stack.pop();
         Ok(index)
     }
+}
+
+fn add_import_notes(mut err: Diagnostic, module_name: &str, stack: &[PathBuf]) -> Diagnostic {
+    if stack.len() > 1 {
+        err = err.with_note(format!("while parsing imported module `{module_name}`"));
+        for importer in stack.iter().rev().skip(1) {
+            err = err.with_note(format!("imported from {}", importer.display()));
+        }
+    }
+    err
+}
+
+fn read_source_file(path: &Path) -> Result<String, String> {
+    let bytes = fs::read(path)
+        .map_err(|err| format!("Module '{}' could not be read: {err}", path.display()))?;
+    let decoded = decode_source_bytes(&bytes)
+        .ok_or_else(|| format!("Could not decode source file `{}`", path.display()))?;
+    Ok(normalize_line_endings(&decoded))
+}
+
+fn decode_source_bytes(bytes: &[u8]) -> Option<String> {
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8(bytes[3..].to_vec()).ok();
+    }
+    if bytes.starts_with(&[0xFF, 0xFE]) {
+        return decode_utf16(&bytes[2..], true);
+    }
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        return decode_utf16(&bytes[2..], false);
+    }
+    String::from_utf8(bytes.to_vec())
+        .ok()
+        .or_else(|| Some(decode_windows_1252(bytes)))
+}
+
+fn decode_utf16(bytes: &[u8], little_endian: bool) -> Option<String> {
+    let chunks = bytes.chunks_exact(2);
+    if !chunks.remainder().is_empty() {
+        return None;
+    }
+    let units: Vec<u16> = chunks
+        .map(|chunk| {
+            if little_endian {
+                u16::from_le_bytes([chunk[0], chunk[1]])
+            } else {
+                u16::from_be_bytes([chunk[0], chunk[1]])
+            }
+        })
+        .collect();
+    String::from_utf16(&units).ok()
+}
+
+fn decode_windows_1252(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| match *byte {
+            0x80 => '\u{20AC}',
+            0x82 => '\u{201A}',
+            0x83 => '\u{0192}',
+            0x84 => '\u{201E}',
+            0x85 => '\u{2026}',
+            0x86 => '\u{2020}',
+            0x87 => '\u{2021}',
+            0x88 => '\u{02C6}',
+            0x89 => '\u{2030}',
+            0x8A => '\u{0160}',
+            0x8B => '\u{2039}',
+            0x8C => '\u{0152}',
+            0x8E => '\u{017D}',
+            0x91 => '\u{2018}',
+            0x92 => '\u{2019}',
+            0x93 => '\u{201C}',
+            0x94 => '\u{201D}',
+            0x95 => '\u{2022}',
+            0x96 => '\u{2013}',
+            0x97 => '\u{2014}',
+            0x98 => '\u{02DC}',
+            0x99 => '\u{2122}',
+            0x9A => '\u{0161}',
+            0x9B => '\u{203A}',
+            0x9C => '\u{0153}',
+            0x9E => '\u{017E}',
+            0x9F => '\u{0178}',
+            byte => byte as char,
+        })
+        .collect()
+}
+
+fn normalize_line_endings(source: &str) -> String {
+    source.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 fn module_name(path: &Path) -> String {

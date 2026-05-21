@@ -145,7 +145,7 @@ impl Parser {
     }
 
     fn parse_factor(&mut self) -> Result<Expr, Diagnostic> {
-        let mut expr = self.parse_unary()?;
+        let mut expr = self.parse_power()?;
 
         loop {
             let op = if self.match_simple(&TokenKind::Star) {
@@ -164,7 +164,7 @@ impl Parser {
                 break;
             };
 
-            let right = self.parse_unary()?;
+            let right = self.parse_power()?;
             let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
@@ -176,6 +176,23 @@ impl Parser {
             };
         }
 
+        Ok(expr)
+    }
+
+    fn parse_power(&mut self) -> Result<Expr, Diagnostic> {
+        let expr = self.parse_unary()?;
+        if self.match_simple(&TokenKind::Caret) {
+            let right = self.parse_power()?;
+            let span = Span::new(self.file_id, expr.span.start, right.span.end);
+            return Ok(Expr {
+                kind: ExprKind::Binary {
+                    left: Box::new(expr),
+                    op: BinaryOp::Exponent,
+                    right: Box::new(right),
+                },
+                span,
+            });
+        }
         Ok(expr)
     }
 

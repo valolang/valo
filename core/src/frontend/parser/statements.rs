@@ -295,24 +295,23 @@ impl Parser {
     }
 
     fn parse_const_stmt(&mut self) -> Result<Stmt, Diagnostic> {
-        let start = self
-            .expect_simple(TokenKind::Const, "Expected 'Const'")?
-            .span;
-        let name = self.expect_identifier("Expected constant name")?;
-        let ty = if self.match_simple(&TokenKind::As) {
-            Some(self.parse_type_name()?)
+        let start = self.peek().span;
+        let consts = self.parse_const_declarators(Visibility::Private)?;
+        let end = consts.last().map(|decl| decl.span).unwrap_or(start);
+        if consts.len() == 1 {
+            let decl = consts.into_iter().next().expect("len checked");
+            Ok(Stmt::Const {
+                name: decl.name,
+                ty: decl.ty,
+                value: decl.value,
+                span: Span::new(self.file_id, start.start, end.end),
+            })
         } else {
-            None
-        };
-        self.expect_simple(TokenKind::Equal, "Expected '=' in Const declaration")?;
-        let value = self.parse_expression()?;
-        let end = value.span;
-        Ok(Stmt::Const {
-            name,
-            ty,
-            value,
-            span: Span::new(self.file_id, start.start, end.end),
-        })
+            Ok(Stmt::ConstMany {
+                consts,
+                span: Span::new(self.file_id, start.start, end.end),
+            })
+        }
     }
 
     fn parse_assignment(&mut self) -> Result<Stmt, Diagnostic> {
