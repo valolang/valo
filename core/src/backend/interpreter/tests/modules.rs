@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::run_file;
 use super::helpers::run_file_diagnostic;
+use crate::run_file;
 
 fn temp_project() -> PathBuf {
     let stamp = SystemTime::now()

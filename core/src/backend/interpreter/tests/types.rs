@@ -101,7 +101,9 @@ fn byte_square_bracket_array_syntax_is_rejected() {
             Dim data As Byte[]
         End Sub
     ";
-    let error = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap_err().to_string();
+    let error = Parser::parse_source(source, crate::runtime::FileId::default())
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("Square-bracket array type syntax is not supported"));
 }
 
