@@ -28,6 +28,9 @@
   <img src="https://img.shields.io/badge/status-experimental-blue" alt="Status">
 </p>
 
+> [!NOTE]
+> Note that Valo is [not ready for use](#project-status).
+
 ## What is Valo?
 
 **Valo** is a modern Basic-inspired programming language and runtime built in Rust.
