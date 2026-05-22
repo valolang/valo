@@ -45,16 +45,3 @@ pub fn run_file(path: impl AsRef<std::path::Path>) -> Result<Vec<String>, String
         .run_project(&project)
         .map_err(|err| err.render(&project.source_map))
 }
-
-#[cfg(test)]
-mod tests {
-    #[cfg(test)]
-    mod parser {
-        mod assignment_test;
-        mod implicit_variant_test;
-    }
-    #[cfg(test)]
-    mod runtime {
-        mod function_assignment;
-    }
-}

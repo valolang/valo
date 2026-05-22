@@ -33,3 +33,18 @@ End Sub
 
     assert_eq!(output, vec!["Valo"]);
 }
+
+#[test]
+fn test_runtime_function_assignment() {
+    let source = r#"
+        Function Soma(ByVal a As Long, ByVal b As Long) As Long
+            Soma = a + b
+        End Function
+
+        Sub Main()
+            Console.WriteLine(Soma(10, 20))
+        End Sub
+    "#;
+    let output = run_source(source);
+    assert_eq!(output, vec!["30"]);
+}
