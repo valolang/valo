@@ -19,7 +19,10 @@
 
 <p align="center">
   <a href="https://github.com/valolang/valo/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/valolang/valo/ci.yml?branch=main&label=CI" alt="CI Status">
+    <img src="https://github.com/valolang/valo/actions/workflows/ci.yml/badge.svg" alt="CI Status">
+  </a>
+  <a href="https://github.com/valolang/valo/actions/workflows/release.yml">
+    <img src="https://github.com/valolang/valo/actions/workflows/release.yml/badge.svg" alt="Release Status"/>
   </a>
   <a href="https://github.com/valolang/valo/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/valolang/valo" alt="License">
