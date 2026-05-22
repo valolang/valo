@@ -18,11 +18,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/uesleibros/valo/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/uesleibros/valo/ci.yml?branch=main&label=CI" alt="CI Status">
+  <a href="https://github.com/valolang/valo/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/valolang/valo/ci.yml?branch=main&label=CI" alt="CI Status">
   </a>
-  <a href="https://github.com/uesleibros/valo/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/uesleibros/valo" alt="License">
+  <a href="https://github.com/valolang/valo/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/valolang/valo" alt="License">
   </a>
   <img src="https://img.shields.io/badge/runtime-Rust-orange" alt="Runtime">
   <img src="https://img.shields.io/badge/status-experimental-blue" alt="Status">
@@ -362,7 +362,7 @@ Valo is currently built from source.
 You need Rust installed.
 
 ```sh
-git clone https://github.com/uesleibros/valo
+git clone https://github.com/valolang/valo
 cd valo
 cargo build --release
 ```

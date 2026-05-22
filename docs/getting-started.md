@@ -7,7 +7,7 @@ Ensure you have Rust installed (via [rustup](https://rustup.rs/)).
 
 ## 2. Building Valo
 ```bash
-git clone https://github.com/uesleibros/valo
+git clone https://github.com/valolang/valo
 cd valo
 cargo build --release
 ```
