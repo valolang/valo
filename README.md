@@ -2,7 +2,7 @@
   
   <img src="assets/valo-mascot.png" width="140" alt="Valo mascot">
 
-  # Valo
+  # The Valo Programming Language
   
   A modern Basic-inspired language and runtime with first-class VBA compatibility
 
@@ -28,6 +28,8 @@
   <img src="https://img.shields.io/badge/status-experimental-blue" alt="Status">
 </p>
 
+## What is Valo?
+
 **Valo** is a modern Basic-inspired programming language and runtime built in Rust.
 
 It is designed as a standalone evolution path for VBA-style development: familiar enough for VBA and Visual Basic developers, but with modern language features, a clean runtime, professional diagnostics, modules, a REPL, and a growing standard runtime surface.
@@ -40,6 +42,8 @@ Valo supports two complementary modes:
 Valo is not Office automation. It is a standalone language/runtime that gives Basic-style programming a modern foundation outside of Excel, Access, COM, and the VBA editor.
 
 ## Why build Valo?
+
+![Building with Valo](assets/building.png)
 
 VBA remains one of the most productive programming environments ever shipped. It is simple, readable, approachable, and deeply useful for automation and business logic.
 
