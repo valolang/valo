@@ -8,7 +8,7 @@ pub struct Token {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind {
-    Identifier(String),
+    Identifier(String, Option<crate::runtime::TypeName>),
     String(String),
     Integer(i64),
     Float(String),

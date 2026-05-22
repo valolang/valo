@@ -88,7 +88,7 @@ impl Value {
             Value::Date(_) => TypeName::Date,
             Value::Ptr(_) => TypeName::Ptr,
             Value::FuncPtr(_) => TypeName::FuncPtr,
-            Value::Array(_) => TypeName::Variant,
+            Value::Array(array) => TypeName::Array(Box::new(array.element_type.clone())),
             Value::Record(record) => TypeName::User(record.type_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
             Value::Error(_) => TypeName::Variant,

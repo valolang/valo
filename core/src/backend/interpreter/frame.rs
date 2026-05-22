@@ -512,6 +512,9 @@ impl Frame {
                     Some(span),
                 )),
             },
+            ExprKind::PassingModeOverride { expr: inner, .. } => {
+                self.simple_index_value(inner, span)
+            }
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::ARRAY,
                 "Array member assignment index must be an Integer literal or variable",

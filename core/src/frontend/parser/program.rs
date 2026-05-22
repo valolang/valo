@@ -18,7 +18,9 @@ impl Parser {
         let mut classes = Vec::new();
         let mut procedures = Vec::new();
         let mut functions = Vec::new();
+        let mut properties = Vec::new();
         let mut is_class_module = false;
+        let mut saw_declarations = false;
         self.skip_newlines();
 
         if self.check_simple(&TokenKind::Version) {
@@ -29,17 +31,7 @@ impl Parser {
         while !self.is_at_end() {
             match self.peek_kind() {
                 TokenKind::Option => {
-                    if !imports.is_empty()
-                        || !types.is_empty()
-                        || !enums.is_empty()
-                        || !module_vars.is_empty()
-                        || !module_consts.is_empty()
-                        || !declares.is_empty()
-                        || !interfaces.is_empty()
-                        || !classes.is_empty()
-                        || !procedures.is_empty()
-                        || !functions.is_empty()
-                    {
+                    if saw_declarations {
                         return Err(
                             self.error_here("Option statements must appear before declarations")
                         );
@@ -50,7 +42,6 @@ impl Parser {
                             return Err(self.error_here("Option Explicit is already declared"));
                         }
                         option_explicit = true;
-                        self.expect_statement_end("Expected newline after Option Explicit")?;
                     } else if self.match_simple(&TokenKind::Base) {
                         if saw_option_base {
                             return Err(self.error_here("Option Base is already declared"));
@@ -76,7 +67,6 @@ impl Parser {
                         }
                         option_base = value;
                         saw_option_base = true;
-                        self.expect_statement_end("Expected newline after Option Base")?;
                     } else if self.match_simple(&TokenKind::Compare) {
                         if saw_option_compare {
                             return Err(self.error_here("Option Compare is already declared"));
@@ -89,143 +79,142 @@ impl Parser {
                             return Err(self.error_here("Option Compare must be Binary or Text"));
                         }
                         saw_option_compare = true;
-                        self.expect_statement_end("Expected newline after Option Compare")?;
+                    } else if self.match_simple(&TokenKind::Private) {
+                        self.expect_identifier_with(
+                            "Module",
+                            "Expected 'Module' after 'Option Private'",
+                        )?;
                     } else {
                         return Err(self.error_here("Option must be Explicit, Base, or Compare"));
                     }
+                    self.expect_statement_end("Expected newline after Option statement")?;
                 }
                 TokenKind::Import => imports.push(self.parse_import_decl()?),
-                TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute") => {
+                TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute") => {
                     attributes.push(self.parse_attribute_decl()?);
                 }
-                TokenKind::Type | TokenKind::Structure => {
-                    types.push(self.parse_type_decl(Visibility::Public)?)
-                }
-                TokenKind::Enum => enums.push(self.parse_enum_decl(Visibility::Public)?),
-                TokenKind::Interface => {
-                    interfaces.push(self.parse_interface_decl(Visibility::Public)?)
-                }
-                _ if is_class_module => {
-                    let mut class_members = Vec::new();
-                    let mut class_attributes = Vec::new();
-                    while !self.is_at_end() {
-                        if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
-                        {
-                            let attribute = self.parse_attribute_decl()?;
-                            self.apply_class_attribute(&attribute, &mut class_members);
-                            class_attributes.push(attribute);
-                        } else {
-                            class_members.push(self.parse_class_member()?);
-                        }
-                        self.skip_newlines();
-                    }
-                    let name = attributes
-                        .iter()
-                        .find(|attr| {
-                            attr.target.is_empty() && attr.name.eq_ignore_ascii_case("VB_Name")
-                        })
-                        .map(|attr| attr.value.clone())
-                        .unwrap_or_else(|| "ClassModule".to_string());
-                    classes.push(ClassDecl {
-                        visibility: Visibility::Public,
-                        name,
-                        implements: Vec::new(),
-                        attributes: class_attributes,
-                        members: class_members,
-                        span: crate::runtime::Span::new(
-                            self.file_id,
-                            crate::runtime::SourcePos::new(1, 1),
-                            self.previous().span.end,
-                        ),
-                    });
-                }
-                TokenKind::Const => {
-                    module_consts.extend(self.parse_module_consts(Visibility::Private)?)
-                }
-                TokenKind::Declare => declares.push(self.parse_declare_decl(Visibility::Public)?),
-                TokenKind::Dim => {
-                    self.expect_simple(TokenKind::Dim, "Expected 'Dim'")?;
-                    module_vars.extend(self.parse_module_vars(Visibility::Private)?);
-                }
-                TokenKind::Class => classes.push(self.parse_class_decl(Visibility::Public)?),
-                TokenKind::Sub => procedures.push(self.parse_procedure(Visibility::Public)?),
-                TokenKind::Function => {
-                    functions.push(self.parse_function(Visibility::Public, false)?)
-                }
-                TokenKind::Iterator => {
-                    self.advance(); // consume Iterator
-                    if self.check_simple(&TokenKind::Function) {
-                        functions.push(self.parse_function(Visibility::Public, true)?);
-                    } else {
-                        return Err(self.error_here("Expected 'Function' after 'Iterator'"));
-                    }
-                }
-                TokenKind::Identifier(_) => {
-                    module_vars.extend(self.parse_module_vars(Visibility::Private)?);
-                }
-                TokenKind::Public | TokenKind::Private | TokenKind::Friend => {
-                    let visibility = self.parse_optional_visibility();
-                    let is_iterator = self.match_simple(&TokenKind::Iterator);
-                    if self.check_simple(&TokenKind::Enum) {
-                        if is_iterator {
-                            return Err(self.error_here("Iterator is not supported on Enum"));
-                        }
-                        enums.push(self.parse_enum_decl(visibility)?);
-                    } else if self.check_simple(&TokenKind::Const) {
-                        if is_iterator {
-                            return Err(self.error_here("Iterator is not supported on Const"));
-                        }
-                        module_consts.extend(self.parse_module_consts(visibility)?);
-                    } else if self.check_simple(&TokenKind::Declare) {
-                        if is_iterator {
-                            return Err(self.error_here("Iterator is not supported on Declare"));
-                        }
-                        declares.push(self.parse_declare_decl(visibility)?);
-                    } else if self.check_simple(&TokenKind::Type)
-                        || self.check_simple(&TokenKind::Structure)
-                    {
-                        if is_iterator {
-                            return Err(
-                                self.error_here("Iterator is not supported on Type/Structure")
-                            );
-                        }
-                        types.push(self.parse_type_decl(visibility)?);
-                    } else if self.check_simple(&TokenKind::Class) {
-                        if is_iterator {
-                            return Err(self.error_here("Iterator is not supported on Class"));
-                        }
-                        classes.push(self.parse_class_decl(visibility)?);
-                    } else if self.check_simple(&TokenKind::Interface) {
-                        if is_iterator {
-                            return Err(self.error_here("Iterator is not supported on Interface"));
-                        }
-                        interfaces.push(self.parse_interface_decl(visibility)?);
-                    } else if self.check_simple(&TokenKind::Sub) {
-                        if is_iterator {
-                            return Err(self.error_here("Iterator is not supported on Sub"));
-                        }
-                        procedures.push(self.parse_procedure(visibility)?);
-                    } else if self.check_simple(&TokenKind::Function) {
-                        functions.push(self.parse_function(visibility, is_iterator)?);
-                    } else if self.check_simple(&TokenKind::Dim) {
-                        if is_iterator {
-                            return Err(self.error_here("Iterator is not supported on Dim"));
-                        }
-                        self.expect_simple(TokenKind::Dim, "Expected 'Dim'")?;
-                        module_vars.extend(self.parse_module_vars(visibility)?);
-                    } else if matches!(self.peek_kind(), TokenKind::Identifier(_)) {
-                        if is_iterator {
-                            return Err(self.error_here("Expected 'Function' after 'Iterator'"));
-                        }
-                        module_vars.extend(self.parse_module_vars(visibility)?);
-                    } else {
-                        return Err(self.error_here(
-                            "Public/Private are only allowed for module declarations or inside Class",
-                        ));
-                    }
-                }
                 _ => {
-                    return Err(self.error_here("Expected declaration"));
+                    if is_class_module {
+                        let mut class_members = Vec::new();
+                        let mut class_attributes = Vec::new();
+                        while !self.is_at_end() {
+                            if matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute"))
+                            {
+                                let attribute = self.parse_attribute_decl()?;
+                                self.apply_class_attribute(&attribute, &mut class_members);
+                                class_attributes.push(attribute);
+                            } else {
+                                class_members.push(self.parse_class_member()?);
+                            }
+                            self.skip_newlines();
+                        }
+                        let name = attributes
+                            .iter()
+                            .find(|attr| {
+                                attr.target.is_empty() && attr.name.eq_ignore_ascii_case("VB_Name")
+                            })
+                            .map(|attr| attr.value.clone())
+                            .unwrap_or_else(|| "ClassModule".to_string());
+                        classes.push(ClassDecl {
+                            visibility: Visibility::Public,
+                            name,
+                            implements: Vec::new(),
+                            attributes: class_attributes,
+                            members: class_members,
+                            span: crate::runtime::Span::new(
+                                self.file_id,
+                                crate::runtime::SourcePos::new(1, 1),
+                                self.previous().span.end,
+                            ),
+                        });
+                        break;
+                    }
+
+                    saw_declarations = true;
+                    let explicit_visibility = self.parse_optional_visibility();
+                    let is_iterator = self.match_simple(&TokenKind::Iterator);
+
+                    match self.peek_kind() {
+                        TokenKind::Sub => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            if is_iterator {
+                                return Err(self.error_here("Iterator is not supported on Sub"));
+                            }
+                            procedures.push(self.parse_procedure(visibility)?);
+                        }
+                        TokenKind::Function => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            functions.push(self.parse_function(visibility, is_iterator)?);
+                        }
+                        TokenKind::Property => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            properties.push(self.parse_property(visibility, false, is_iterator)?);
+                        }
+                        TokenKind::Type | TokenKind::Structure => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            if is_iterator {
+                                return Err(
+                                    self.error_here("Iterator is not supported on Type/Structure")
+                                );
+                            }
+                            types.push(self.parse_type_decl(visibility)?);
+                        }
+                        TokenKind::Enum => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            if is_iterator {
+                                return Err(self.error_here("Iterator is not supported on Enum"));
+                            }
+                            enums.push(self.parse_enum_decl(visibility)?);
+                        }
+                        TokenKind::Interface => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            if is_iterator {
+                                return Err(
+                                    self.error_here("Iterator is not supported on Interface")
+                                );
+                            }
+                            interfaces.push(self.parse_interface_decl(visibility)?);
+                        }
+                        TokenKind::Declare => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            if is_iterator {
+                                return Err(self.error_here("Iterator is not supported on Declare"));
+                            }
+                            declares.push(self.parse_declare_decl(visibility)?);
+                        }
+                        TokenKind::Const => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            if is_iterator {
+                                return Err(self.error_here("Iterator is not supported on Const"));
+                            }
+                            module_consts.extend(self.parse_module_consts(visibility)?);
+                        }
+                        TokenKind::Class => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            if is_iterator {
+                                return Err(self.error_here("Iterator is not supported on Class"));
+                            }
+                            classes.push(self.parse_class_decl(visibility)?);
+                        }
+                        TokenKind::Dim => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Private);
+                            if is_iterator {
+                                return Err(self.error_here("Iterator is not supported on Dim"));
+                            }
+                            self.advance();
+                            module_vars.extend(self.parse_module_vars(visibility)?);
+                        }
+                        TokenKind::Identifier(_, _) => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Private);
+                            if is_iterator {
+                                return Err(self.error_here("Expected 'Function' after 'Iterator'"));
+                            }
+                            module_vars.extend(self.parse_module_vars(visibility)?);
+                        }
+                        _ => {
+                            return Err(self.error_here("Expected declaration"));
+                        }
+                    }
                 }
             }
             self.skip_newlines();
@@ -246,6 +235,7 @@ impl Parser {
             classes,
             procedures,
             functions,
+            properties,
         })
     }
 

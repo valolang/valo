@@ -25,7 +25,7 @@ impl Parser {
                 };
                 format!("-{value}")
             }
-            TokenKind::String(value) | TokenKind::Identifier(value) => value,
+            TokenKind::String(value) | TokenKind::Identifier(value, _) => value,
             TokenKind::True => "True".to_string(),
             TokenKind::False => "False".to_string(),
             _ => {
@@ -85,13 +85,13 @@ impl Parser {
                 }
             }
         }
-        self.expect_newline("Expected newline after Class declaration")?;
+        self.expect_statement_end("Expected newline after Class declaration")?;
 
         let mut members = Vec::new();
         let mut attributes = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndClass]) {
-            if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
+            if matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute"))
             {
                 let attribute = self.parse_attribute_decl()?;
                 self.apply_class_attribute(&attribute, &mut members);
@@ -126,7 +126,7 @@ impl Parser {
             .expect_simple(TokenKind::Interface, "Expected 'Interface'")?
             .span;
         let name = self.expect_identifier("Expected interface name after 'Interface'")?;
-        self.expect_newline("Expected newline after Interface declaration")?;
+        self.expect_statement_end("Expected newline after Interface declaration")?;
         let mut members = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndInterface]) {
@@ -147,7 +147,9 @@ impl Parser {
     }
 
     fn parse_interface_member(&mut self) -> Result<InterfaceMember, Diagnostic> {
-        let _visibility = self.parse_optional_visibility();
+        let _visibility = self
+            .parse_optional_visibility()
+            .unwrap_or(Visibility::Public);
         match self.peek_kind() {
             TokenKind::Sub => {
                 let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
@@ -229,7 +231,8 @@ impl Parser {
     }
 
     pub(super) fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
-        let visibility = self.parse_optional_visibility();
+        let explicit_visibility = self.parse_optional_visibility();
+        let visibility = explicit_visibility.unwrap_or(Visibility::Public);
         let is_shared = self.match_simple(&TokenKind::Shared);
         let with_events = self.match_simple(&TokenKind::WithEvents);
         let is_default = self.match_simple(&TokenKind::Default);
@@ -271,7 +274,7 @@ impl Parser {
                     }))
                 } else if matches!(
                     self.peek_next_kind(),
-                    Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Terminate")
+                    Some(TokenKind::Identifier(name, _)) if name.eq_ignore_ascii_case("Terminate")
                 ) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
@@ -303,17 +306,30 @@ impl Parser {
                 property.is_shared = is_shared;
                 Ok(ClassMember::Property(property))
             }
+            TokenKind::Type | TokenKind::Structure => {
+                self.parse_type_decl(visibility).map(ClassMember::Type)
+            }
+            TokenKind::Enum => self.parse_enum_decl(visibility).map(ClassMember::Enum),
+            TokenKind::Declare => self
+                .parse_declare_decl(visibility)
+                .map(ClassMember::Declare),
             _ if is_iterator => {
                 Err(self.error_here("Expected Function or Property after Iterator"))
             }
             _ if is_default => Err(self.error_here("Default is only supported on Property")),
-            TokenKind::Identifier(_) | TokenKind::Dim => {
+            TokenKind::Identifier(_, _) | TokenKind::Dim => {
                 if is_iterator {
                     return Err(self.error_here("Iterator is not supported on fields"));
                 }
-                if self.match_simple(&TokenKind::Dim) && with_events {
+                let has_dim = self.match_simple(&TokenKind::Dim);
+                if has_dim && with_events {
                     return Err(self.error_here("WithEvents is not supported with Dim fields"));
                 }
+                let visibility = explicit_visibility.unwrap_or(if has_dim {
+                    Visibility::Private
+                } else {
+                    Visibility::Public
+                });
                 let decls = self.parse_variable_declarators("field")?;
                 self.expect_statement_end("Expected newline after class field")?;
                 let fields = decls
@@ -383,7 +399,7 @@ impl Parser {
         })
     }
 
-    fn parse_property(
+    pub(super) fn parse_property(
         &mut self,
         visibility: Visibility,
         is_default: bool,
@@ -420,8 +436,8 @@ impl Parser {
             None
         };
         let implements = self.parse_optional_implements_clause()?;
-        self.expect_newline("Expected newline after property declaration")?;
-        while matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute"))
+        self.expect_statement_end("Expected newline after property declaration")?;
+        while matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute"))
         {
             let attribute = self.parse_attribute_decl()?;
             if attribute.target.eq_ignore_ascii_case(&name)
@@ -459,14 +475,15 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_optional_visibility(&mut self) -> Visibility {
+    pub(super) fn parse_optional_visibility(&mut self) -> Option<Visibility> {
         if self.match_simple(&TokenKind::Private) {
-            Visibility::Private
+            Some(Visibility::Private)
         } else if self.match_simple(&TokenKind::Friend) {
-            Visibility::Friend
+            Some(Visibility::Friend)
+        } else if self.match_simple(&TokenKind::Public) {
+            Some(Visibility::Public)
         } else {
-            self.match_simple(&TokenKind::Public);
-            Visibility::Public
+            None
         }
     }
 
@@ -531,11 +548,29 @@ impl Parser {
         let mut consts = Vec::new();
         loop {
             let item_start = self.peek().span;
-            let name = self.expect_identifier("Expected constant name")?;
+            let token = self.advance();
+            let (name, hint) = match token.kind {
+                TokenKind::Identifier(name, hint) => (name, hint),
+                _ => return Err(self.error_here("Expected constant name")),
+            };
             let ty = if self.match_simple(&TokenKind::As) {
-                Some(self.parse_type_name()?)
+                let as_ty = self.parse_type_name()?;
+                if let Some(ref h) = hint
+                    && !h.same_type(&as_ty)
+                {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!(
+                            "Type-declaration character implies {}, but As clause declares {}",
+                            h.display_name(),
+                            as_ty.display_name()
+                        ),
+                        Some(item_start),
+                    ));
+                }
+                Some(as_ty)
             } else {
-                None
+                hint
             };
             self.expect_simple(TokenKind::Equal, "Expected '=' in Const declaration")?;
             let value = self.parse_expression()?;
@@ -662,7 +697,7 @@ impl Parser {
             )
         };
         let name = self.expect_identifier(&format!("Expected type name after '{keyword}'"))?;
-        self.expect_newline(&format!("Expected newline after {keyword} declaration"))?;
+        self.expect_statement_end(&format!("Expected newline after {keyword} declaration"))?;
 
         let mut fields = Vec::new();
         let mut members = Vec::new();
@@ -679,7 +714,7 @@ impl Parser {
             if kind == TypeKind::Structure && self.structure_member_starts_non_field() {
                 members.push(self.parse_structure_member()?);
             } else {
-                let visibility = self.parse_optional_visibility();
+                let explicit_visibility = self.parse_optional_visibility();
                 if self.match_simple(&TokenKind::WithEvents) {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -687,9 +722,12 @@ impl Parser {
                         Some(self.previous().span),
                     ));
                 }
-                if self.match_simple(&TokenKind::Dim) {
-                    // Optional Dim is accepted for structure fields.
-                }
+                let has_dim = self.match_simple(&TokenKind::Dim);
+                let visibility = explicit_visibility.unwrap_or(if has_dim {
+                    Visibility::Private
+                } else {
+                    Visibility::Public
+                });
                 let decls = self.parse_variable_declarators("field")?;
                 self.expect_statement_end("Expected newline after field declaration")?;
                 for decl in decls {
@@ -789,7 +827,9 @@ impl Parser {
     }
 
     fn parse_structure_member(&mut self) -> Result<ClassMember, Diagnostic> {
-        let visibility = self.parse_optional_visibility();
+        let visibility = self
+            .parse_optional_visibility()
+            .unwrap_or(Visibility::Public);
         let is_default = self.match_simple(&TokenKind::Default);
         match self.peek_kind() {
             TokenKind::Event => Err(Diagnostic::new(
@@ -816,7 +856,7 @@ impl Parser {
                     }))
                 } else if matches!(
                     self.peek_next_kind(),
-                    Some(TokenKind::Identifier(name)) if name.eq_ignore_ascii_case("Constructor")
+                    Some(TokenKind::Identifier(name, _)) if name.eq_ignore_ascii_case("Constructor")
                 ) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
@@ -867,7 +907,7 @@ impl Parser {
             TokenKind::RightParen,
             "Expected ')' after procedure parameters",
         )?;
-        self.expect_newline("Expected newline after procedure declaration")?;
+        self.expect_statement_end("Expected newline after procedure declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndSub])?;
         self.expect_simple(TokenKind::End, "Expected 'End Sub'")?;
@@ -898,7 +938,7 @@ impl Parser {
             "Expected ')' after procedure parameters",
         )?;
         let implements = self.parse_optional_implements_clause()?;
-        self.expect_newline("Expected newline after procedure declaration")?;
+        self.expect_statement_end("Expected newline after procedure declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndSub])?;
         self.expect_simple(TokenKind::End, "Expected 'End Sub'")?;
@@ -928,7 +968,7 @@ impl Parser {
         let start_span = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
         let matched_name = if syntax_name.eq_ignore_ascii_case("New") {
             self.match_simple(&TokenKind::New)
-        } else if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case(syntax_name))
+        } else if matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case(syntax_name))
         {
             self.advance();
             true
@@ -951,7 +991,7 @@ impl Parser {
             TokenKind::RightParen,
             &format!("Expected ')' after {syntax_name} parameters"),
         )?;
-        self.expect_newline(&format!("Expected newline after {syntax_name} declaration"))?;
+        self.expect_statement_end(&format!("Expected newline after {syntax_name} declaration"))?;
 
         let body = self.parse_block_until(&[BlockEnd::EndSub])?;
         self.expect_simple(
@@ -987,12 +1027,19 @@ impl Parser {
             TokenKind::RightParen,
             "Expected ')' after function parameters",
         )?;
-        let return_type = if self.match_simple(&TokenKind::As) {
+        let mut return_type = if self.match_simple(&TokenKind::As) {
             self.parse_type_name()?
         } else {
             TypeName::Variant
         };
-        self.expect_newline("Expected newline after function declaration")?;
+        if self.match_simple(&TokenKind::LeftParen) {
+            self.expect_simple(
+                TokenKind::RightParen,
+                "Expected ')' after array return type",
+            )?;
+            return_type = TypeName::Array(Box::new(return_type));
+        }
+        self.expect_statement_end("Expected newline after function declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndFunction])?;
         self.expect_simple(TokenKind::End, "Expected 'End Function'")?;
@@ -1028,16 +1075,23 @@ impl Parser {
             TokenKind::RightParen,
             "Expected ')' after function parameters",
         )?;
-        let return_type = if self.match_simple(&TokenKind::As) {
+        let mut return_type = if self.match_simple(&TokenKind::As) {
             self.parse_type_name()?
         } else {
             TypeName::Variant
         };
+        if self.match_simple(&TokenKind::LeftParen) {
+            self.expect_simple(
+                TokenKind::RightParen,
+                "Expected ')' after array return type",
+            )?;
+            return_type = TypeName::Array(Box::new(return_type));
+        }
         let implements = self.parse_optional_implements_clause()?;
-        self.expect_newline("Expected newline after function declaration")?;
+        self.expect_statement_end("Expected newline after function declaration")?;
 
         let mut is_enumerator = false;
-        while matches!(self.peek_kind(), TokenKind::Identifier(attribute) if attribute.eq_ignore_ascii_case("Attribute"))
+        while matches!(self.peek_kind(), TokenKind::Identifier(attribute, _) if attribute.eq_ignore_ascii_case("Attribute"))
         {
             let attribute = self.parse_attribute_decl()?;
             if attribute.target.eq_ignore_ascii_case(&name)
@@ -1107,16 +1161,39 @@ impl Parser {
                     prefix_start.unwrap_or_else(|| self.peek().span),
                 )
             };
-            let name = self.expect_parameter_name("Expected parameter name")?;
+            let token = self.advance();
+            let (name, hint) = match token.kind {
+                TokenKind::Identifier(name, hint) => (name, hint),
+                TokenKind::Text => ("text".to_string(), None),
+                TokenKind::Compare => ("compare".to_string(), None),
+                TokenKind::Binary => ("binary".to_string(), None),
+                TokenKind::Base => ("base".to_string(), None),
+                TokenKind::Lib => ("lib".to_string(), None),
+                _ => return Err(self.error_here("Expected parameter name")),
+            };
             let mut array = false;
             if self.match_simple(&TokenKind::LeftParen) {
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after parameter array")?;
                 array = true;
             }
             let ty = if self.match_simple(&TokenKind::As) {
-                self.parse_type_name()?
+                let as_ty = self.parse_type_name()?;
+                if let Some(ref h) = hint
+                    && !h.same_type(&as_ty)
+                {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!(
+                            "Type-declaration character implies {}, but As clause declares {}",
+                            h.display_name(),
+                            as_ty.display_name()
+                        ),
+                        Some(token.span),
+                    ));
+                }
+                as_ty
             } else {
-                TypeName::Variant
+                hint.unwrap_or(TypeName::Variant)
             };
             let optional_default = if is_optional && self.match_simple(&TokenKind::Equal) {
                 Some(self.parse_expression()?)
@@ -1158,11 +1235,16 @@ impl Parser {
     pub(super) fn parse_type_name(&mut self) -> Result<TypeName, Diagnostic> {
         let token = self.advance();
         let ty = match token.kind {
-            TokenKind::StringType => Ok(TypeName::String),
+            TokenKind::StringType => {
+                if self.match_simple(&TokenKind::Star) {
+                    self.expect_simple(TokenKind::Integer(0), "Expected length after '*'")?;
+                }
+                Ok(TypeName::String)
+            }
             TokenKind::IntegerType => Ok(TypeName::Integer),
             TokenKind::BooleanType => Ok(TypeName::Boolean),
             TokenKind::VariantType => Ok(TypeName::Variant),
-            TokenKind::Identifier(mut name) => {
+            TokenKind::Identifier(mut name, _) => {
                 if name.eq_ignore_ascii_case("Byte") {
                     Ok(TypeName::Byte)
                 } else if name.eq_ignore_ascii_case("Long") {

@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::runtime::{ArrayValue, Diagnostic, EventBinding, ObjectValue, Span, TypeName, Value};
-use crate::{ArrayDecl, ClassMember, Expr, ExprKind, Function, Procedure, PropertyKind};
+use crate::{
+    ArrayDecl, AssignTarget, ClassMember, Expr, ExprKind, Function, Procedure, PropertyKind,
+};
 
 use super::arrays::{array_element_mut, read_array_element, redim_array, write_array_element};
 use super::frame::Variable;
@@ -387,6 +389,69 @@ impl Interpreter {
                 let target_value = self.eval_expr(target, frame)?;
                 self.assign_member_to_value(target_value, member, value, span)
             }
+        }
+    }
+
+    pub(crate) fn assign_member_element(
+        &mut self,
+        object: &Expr,
+        field: &str,
+        indices: Vec<Value>,
+        value: Value,
+        frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let object_val = self.eval_expr(object, frame)?;
+        match object_val {
+            Value::Object(instance) => {
+                let mut values = indices;
+                values.push(value);
+                self.call_property_set_values(Value::Object(instance), field, &values, span)
+            }
+            Value::Record(record) => {
+                let mut record = record.as_ref().clone();
+                let Some(slot) = record.fields.get_mut(&key(field)) else {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        format!("Type '{}' has no field '{}'", record.type_name, field),
+                        Some(span),
+                    ));
+                };
+                let mut dims = Vec::new();
+                for index_value in &indices {
+                    dims.push(match index_value {
+                        Value::Byte(v) => i64::from(*v),
+                        Value::Int16(v) => i64::from(*v),
+                        Value::Int32(v) => i64::from(*v),
+                        Value::Int64(v) => *v,
+                        _ => {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                "Array index must be Integer",
+                                Some(span),
+                            ));
+                        }
+                    });
+                }
+                let old = write_array_element(slot, &dims, value, span)?;
+                self.maybe_terminate(old, span)?;
+                // Records are CoW, so we need to write it back if it's in a variable
+                self.assign_target(
+                    &AssignTarget::Member {
+                        object: object.clone(),
+                        field: field.to_string(),
+                        span,
+                    },
+                    Value::Record(Rc::new(record)),
+                    frame,
+                    span,
+                )
+            }
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Member array assignment requires an Object or Record",
+                Some(span),
+            )),
         }
     }
 
@@ -827,6 +892,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                         PropertyKind::Set => property_entry.set = Some(accessor),
                     }
                 }
+                ClassMember::Type(_) | ClassMember::Declare(_) | ClassMember::Enum(_) => {}
             }
         }
         Self {

@@ -354,6 +354,7 @@ impl Interpreter {
                 let ptr = self.create_callback(name, expr.span)?;
                 Ok(Value::FuncPtr(ptr))
             }
+            ExprKind::PassingModeOverride { expr: inner, .. } => self.eval_expr(inner, frame),
             ExprKind::Binary { left, op, right } => {
                 let left_value = self.eval_expr(left, frame)?;
                 if matches!(left_value, Value::Missing) {

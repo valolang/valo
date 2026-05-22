@@ -813,7 +813,7 @@ impl Interpreter {
         })))
     }
 
-    fn assign_target(
+    pub(crate) fn assign_target(
         &mut self,
         target: &AssignTarget,
         value: Value,
@@ -904,6 +904,18 @@ impl Interpreter {
             }
             AssignTarget::Member { object, field, .. } => {
                 self.assign_member(object, field, value, frame, span)
+            }
+            AssignTarget::MemberArrayElement {
+                object,
+                field,
+                indices,
+                ..
+            } => {
+                let mut index_values = Vec::new();
+                for index_expr in indices {
+                    index_values.push(self.eval_expr(index_expr, frame)?);
+                }
+                self.assign_member_element(object, field, index_values, value, frame, span)
             }
         }
     }

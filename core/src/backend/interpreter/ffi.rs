@@ -682,7 +682,8 @@ fn callback_ffi_type(ty: &TypeName, span: Span) -> Result<FfiType, Diagnostic> {
         | TypeName::Variant
         | TypeName::Decimal
         | TypeName::Date
-        | TypeName::User(_) => Err(unsupported(
+        | TypeName::User(_)
+        | TypeName::Array(_) => Err(unsupported(
             format!(
                 "callback parameter type '{}' is not supported by AddressOf marshaling",
                 ty.display_name()
@@ -748,7 +749,8 @@ unsafe fn read_callback_value(slot: *const c_void, ty: &TypeName) -> ExprKind {
         | TypeName::Variant
         | TypeName::Decimal
         | TypeName::Date
-        | TypeName::User(_) => ExprKind::Empty,
+        | TypeName::User(_)
+        | TypeName::Array(_) => ExprKind::Empty,
     }
 }
 
@@ -773,7 +775,11 @@ fn write_callback_default(result: &mut c_void, return_type: &TypeName, is_sub: b
             TypeName::Ptr | TypeName::FuncPtr => {
                 *(result as *mut c_void as *mut *mut c_void) = std::ptr::null_mut();
             }
-            TypeName::String | TypeName::Decimal | TypeName::Date | TypeName::User(_) => {}
+            TypeName::String
+            | TypeName::Decimal
+            | TypeName::Date
+            | TypeName::User(_)
+            | TypeName::Array(_) => {}
         }
     }
 }
@@ -1375,7 +1381,7 @@ fn return_ffi_type(ty: &TypeName, is_sub: bool, span: Span) -> Result<FfiType, D
                 span,
             ));
         }
-        TypeName::Decimal | TypeName::Date | TypeName::User(_) => {
+        TypeName::Decimal | TypeName::Date | TypeName::User(_) | TypeName::Array(_) => {
             return Err(unsupported(
                 format!(
                     "return type '{}' is not supported by native marshaling",
@@ -1456,7 +1462,11 @@ fn call_return_value(
             unsafe { cif.call_return_into(code, args, Ret::new(&mut ret)) };
             Value::Currency(ret)
         }
-        TypeName::String | TypeName::Decimal | TypeName::Date | TypeName::User(_) => {
+        TypeName::String
+        | TypeName::Decimal
+        | TypeName::Date
+        | TypeName::User(_)
+        | TypeName::Array(_) => {
             return Err(unsupported(
                 format!(
                     "return type '{}' is not supported by native marshaling",

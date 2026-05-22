@@ -1264,6 +1264,9 @@ fn assign_target_uses_with_target(target: &AssignTarget) -> bool {
         AssignTarget::Variable { .. } => false,
         AssignTarget::ArrayElement { indices, .. } => indices.iter().any(expr_uses_with_target),
         AssignTarget::Member { object, .. } => expr_uses_with_target(object),
+        AssignTarget::MemberArrayElement {
+            object, indices, ..
+        } => expr_uses_with_target(object) || indices.iter().any(expr_uses_with_target),
     }
 }
 
@@ -1331,5 +1334,6 @@ fn expr_uses_with_target(expr: &Expr) -> bool {
         | ExprKind::Missing
         | ExprKind::Me
         | ExprKind::Variable(_) => false,
+        ExprKind::PassingModeOverride { expr, .. } => expr_uses_with_target(expr),
     }
 }

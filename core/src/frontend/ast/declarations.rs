@@ -18,6 +18,7 @@ pub struct Program {
     pub classes: Vec<ClassDecl>,
     pub procedures: Vec<Procedure>,
     pub functions: Vec<Function>,
+    pub properties: Vec<ClassProperty>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -189,6 +190,9 @@ pub enum ClassMember {
     Function(ClassFunction),
     Iterator(ClassIterator),
     Property(ClassProperty),
+    Type(TypeDecl),
+    Declare(DeclareDecl),
+    Enum(EnumDecl),
 }
 
 #[derive(Debug, Clone, PartialEq)]

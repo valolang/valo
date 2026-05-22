@@ -100,6 +100,164 @@ End Sub
 }
 
 #[test]
+fn visibility_defaults() {
+    let source = r#"
+Dim x As Integer
+Public y As Integer
+Private z As Integer
+Sub Sub1()
+End Sub
+Public Sub Sub2()
+End Sub
+Private Sub Sub3()
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    // Dim x defaults to Private
+    assert_eq!(
+        program
+            .module_vars
+            .iter()
+            .find(|v| v.name == "x")
+            .unwrap()
+            .visibility,
+        Visibility::Private
+    );
+    // Public y is Public
+    assert_eq!(
+        program
+            .module_vars
+            .iter()
+            .find(|v| v.name == "y")
+            .unwrap()
+            .visibility,
+        Visibility::Public
+    );
+    // Private z is Private
+    assert_eq!(
+        program
+            .module_vars
+            .iter()
+            .find(|v| v.name == "z")
+            .unwrap()
+            .visibility,
+        Visibility::Private
+    );
+
+    // Sub Sub1 defaults to Public
+    assert_eq!(
+        program
+            .procedures
+            .iter()
+            .find(|p| p.name == "Sub1")
+            .unwrap()
+            .visibility,
+        Visibility::Public
+    );
+    // Public Sub Sub2 is Public
+    assert_eq!(
+        program
+            .procedures
+            .iter()
+            .find(|p| p.name == "Sub2")
+            .unwrap()
+            .visibility,
+        Visibility::Public
+    );
+    // Private Sub Sub3 is Private
+    assert_eq!(
+        program
+            .procedures
+            .iter()
+            .find(|p| p.name == "Sub3")
+            .unwrap()
+            .visibility,
+        Visibility::Private
+    );
+}
+
+#[test]
+fn option_statement_position() {
+    let source = r#"
+Option Explicit
+Dim x As Integer
+"#;
+    assert!(Parser::parse_source(source, FileId::default()).is_ok());
+
+    let source = r#"
+Attribute VB_Name = "Module1"
+Option Explicit
+Dim x As Integer
+"#;
+    assert!(Parser::parse_source(source, FileId::default()).is_ok());
+
+    let source = r#"
+Dim x As Integer
+Option Explicit
+"#;
+    let result = Parser::parse_source(source, FileId::default());
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .message
+            .contains("Option statements must appear before declarations")
+    );
+}
+
+#[test]
+fn class_member_visibility_defaults() {
+    let source = r#"
+Class MyClass
+    Dim x As Integer
+    Public y As Integer
+    Private z As Integer
+    Sub Sub1()
+    End Sub
+    Public Sub Sub2()
+    End Sub
+    Private Sub Sub3()
+    End Sub
+End Class
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    let members = &program.classes[0].members;
+
+    fn find_field<'a>(members: &'a [ClassMember], name: &str) -> &'a ClassField {
+        for m in members {
+            if let ClassMember::Field(f) = m
+                && f.name == name
+            {
+                return f;
+            }
+        }
+        panic!("Field {} not found", name);
+    }
+
+    fn find_sub<'a>(members: &'a [ClassMember], name: &str) -> &'a ClassSub {
+        for m in members {
+            if let ClassMember::Sub(s) = m
+                && s.procedure.name == name
+            {
+                return s;
+            }
+        }
+        panic!("Sub {} not found", name);
+    }
+
+    assert_eq!(find_field(members, "x").visibility, Visibility::Private);
+    assert_eq!(find_field(members, "y").visibility, Visibility::Public);
+    assert_eq!(find_field(members, "z").visibility, Visibility::Private);
+
+    assert_eq!(find_sub(members, "Sub1").visibility, Visibility::Public);
+    assert_eq!(find_sub(members, "Sub2").visibility, Visibility::Public);
+    assert_eq!(find_sub(members, "Sub3").visibility, Visibility::Private);
+}
+
+#[test]
 fn rejects_missing_statement_newline() {
     let error = Parser::parse_source(
         r#"
@@ -263,4 +421,109 @@ fn test_implicit_variant_property() {
     "#;
     let program = Parser::parse_source(source, FileId::default());
     assert!(program.is_ok(), "Failed to parse: {:?}", program.err());
+}
+
+#[test]
+fn test_keyword_as_parameter_name() {
+    let source =
+        "Function Test(base As Double, text As String, compare As Integer) As Double\nEnd Function";
+    let program = Parser::parse_source(source, FileId::default());
+    assert!(program.is_ok(), "Failed to parse: {:?}", program.err());
+}
+
+#[test]
+fn test_option_private_module() {
+    let source = "Option Private Module\nSub Main()\nEnd Sub";
+    let program = Parser::parse_source(source, FileId::default());
+    assert!(program.is_ok(), "Failed to parse: {:?}", program.err());
+}
+#[test]
+fn test_module_level_property() {
+    let source = r#"
+        Private mValue As Integer
+
+        Public Property Get Value() As Integer
+            Value = mValue
+        End Property
+
+        Public Property Let Value(v As Integer)
+            mValue = v
+        End Property
+    "#;
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    assert_eq!(program.properties.len(), 2);
+    assert_eq!(program.properties[0].name, "Value");
+    assert_eq!(program.properties[0].kind, PropertyKind::Get);
+    assert_eq!(program.properties[1].kind, PropertyKind::Let);
+}
+
+#[test]
+fn test_module_level_visibility() {
+    let source = r#"
+        Public Sub PublicSub()
+        End Sub
+
+        Private Sub PrivateSub()
+        End Sub
+
+        Friend Sub FriendSub()
+        End Sub
+
+        Sub DefaultSub()
+        End Sub
+    "#;
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    assert_eq!(program.procedures.len(), 4);
+    assert_eq!(program.procedures[0].visibility, Visibility::Public);
+    assert_eq!(program.procedures[1].visibility, Visibility::Private);
+    assert_eq!(program.procedures[2].visibility, Visibility::Friend);
+    assert_eq!(program.procedures[3].visibility, Visibility::Public);
+}
+
+#[test]
+fn test_module_level_iterator() {
+    let source = r#"
+        Public Iterator Function MyIterator() As Integer
+            Yield 1
+            Yield 2
+        End Function
+    "#;
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    assert_eq!(program.functions.len(), 1);
+    assert!(program.functions[0].is_iterator);
+}
+
+#[test]
+fn test_option_order() {
+    let source = r#"
+        Option Explicit
+        Dim x As Integer
+        Option Base 1
+    "#;
+    let error = Parser::parse_source(source, FileId::default()).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Option statements must appear before declarations")
+    );
+}
+
+#[test]
+fn test_class_module_attributes() {
+    let source = r#"
+VERSION 1.0 CLASS
+BEGIN
+  MultiUse = -1  'True
+END
+Attribute VB_Name = "Class1"
+Option Explicit
+Private m_value As Integer
+Public Sub Foo()
+End Sub
+"#;
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    assert_eq!(program.classes.len(), 1);
+    assert_eq!(program.classes[0].name, "Class1");
+    assert!(program.option_explicit);
+    assert_eq!(program.classes[0].members.len(), 2); // m_value and Foo
 }

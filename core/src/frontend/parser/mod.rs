@@ -80,7 +80,7 @@ impl Parser {
     pub(super) fn expect_identifier(&mut self, message: &str) -> Result<String, Diagnostic> {
         let token = self.advance();
         match token.kind {
-            TokenKind::Identifier(name) => Ok(name),
+            TokenKind::Identifier(name, _) => Ok(name),
             TokenKind::Version => Ok("VERSION".to_string()),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
@@ -113,7 +113,7 @@ impl Parser {
     }
 
     pub(super) fn match_identifier(&mut self, expected: &str) -> bool {
-        if matches!(self.peek_kind(), TokenKind::Identifier(name) if name.eq_ignore_ascii_case(expected))
+        if matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case(expected))
         {
             self.advance();
             true
@@ -163,19 +163,15 @@ impl Parser {
         self.tokens.get(self.current + 1).map(|token| &token.kind)
     }
 
-    pub(super) fn expect_parameter_name(&mut self, message: &str) -> Result<String, Diagnostic> {
-        let token = self.advance();
-        match token.kind {
-            TokenKind::Identifier(name) => Ok(name),
-            TokenKind::Text => Ok("text".to_string()),
-            TokenKind::Compare => Ok("compare".to_string()),
-            TokenKind::Binary => Ok("binary".to_string()),
-            _ => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::GENERIC,
-                message,
-                Some(token.span),
-            )
-            .with_primary_label(message)),
+    pub(super) fn expect_identifier_with(
+        &mut self,
+        expected: &str,
+        message: &str,
+    ) -> Result<String, Diagnostic> {
+        if self.match_identifier(expected) {
+            Ok(expected.to_string())
+        } else {
+            Err(self.error_here(message))
         }
     }
 }

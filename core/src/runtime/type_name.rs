@@ -17,6 +17,7 @@ pub enum TypeName {
     Ptr,
     FuncPtr,
     User(String),
+    Array(Box<TypeName>),
 }
 
 impl TypeName {
@@ -39,12 +40,22 @@ impl TypeName {
             TypeName::Ptr => Some(crate::Value::Ptr(0)),
             TypeName::FuncPtr => Some(crate::Value::FuncPtr(0)),
             TypeName::User(_) => None,
+            TypeName::Array(inner) => Some(crate::Value::Array(std::rc::Rc::new(
+                crate::runtime::ArrayValue {
+                    element_type: (**inner).clone(),
+                    elements: Vec::new(),
+                    bounds: Vec::new(),
+                    allocated: false,
+                    dynamic: true,
+                },
+            ))),
         }
     }
 
     pub fn same_type(&self, other: &TypeName) -> bool {
         match (self, other) {
             (TypeName::User(left), TypeName::User(right)) => left.eq_ignore_ascii_case(right),
+            (TypeName::Array(left), TypeName::Array(right)) => left.same_type(right),
             _ => self == other,
         }
     }
@@ -68,6 +79,19 @@ impl TypeName {
             TypeName::Ptr => "Ptr".to_string(),
             TypeName::FuncPtr => "FuncPtr".to_string(),
             TypeName::User(name) => name.clone(),
+            TypeName::Array(inner) => format!("{}()", inner.display_name()),
+        }
+    }
+
+    pub fn vba_hint_char(&self) -> String {
+        match self {
+            TypeName::String => "$".to_string(),
+            TypeName::Integer => "%".to_string(),
+            TypeName::Long => "&".to_string(),
+            TypeName::Single => "!".to_string(),
+            TypeName::Double => "#".to_string(),
+            TypeName::Currency => "@".to_string(),
+            _ => String::new(),
         }
     }
 }

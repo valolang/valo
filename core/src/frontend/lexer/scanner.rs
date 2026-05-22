@@ -124,110 +124,127 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        let mut hint = None;
+        if let Some(ch) = self.peek() {
+            hint = match ch {
+                '%' => Some(crate::runtime::TypeName::Integer),
+                '&' => Some(crate::runtime::TypeName::Long),
+                '!' => Some(crate::runtime::TypeName::Single),
+                '#' => Some(crate::runtime::TypeName::Double),
+                '@' => Some(crate::runtime::TypeName::Currency),
+                '$' => Some(crate::runtime::TypeName::String),
+                _ => None,
+            };
+
+            if hint.is_some() {
+                self.advance();
+            }
+        }
+
         let lower = text.to_ascii_lowercase();
         let kind = match lower.as_str() {
-            "sub" => TokenKind::Sub,
-            "function" => TokenKind::Function,
-            "iterator" => TokenKind::Iterator,
-            "import" => TokenKind::Import,
-            "const" => TokenKind::Const,
-            "option" => TokenKind::Option,
-            "explicit" => TokenKind::Explicit,
-            "base" => TokenKind::Base,
-            "compare" => TokenKind::Compare,
-            "binary" => TokenKind::Binary,
-            "text" => TokenKind::Text,
-            "version" => TokenKind::Version,
-            "begin" => TokenKind::Begin,
-            "type" => TokenKind::Type,
-            "structure" => TokenKind::Structure,
-            "interface" => TokenKind::Interface,
-            "enum" => TokenKind::Enum,
-            "class" => TokenKind::Class,
-            "implements" => TokenKind::Implements,
-            "shared" => TokenKind::Shared,
-            "event" => TokenKind::Event,
-            "declare" => TokenKind::Declare,
-            "ptrsafe" => TokenKind::PtrSafe,
-            "lib" => TokenKind::Lib,
-            "alias" => TokenKind::Alias,
-            "any" => TokenKind::Any,
-            "raiseevent" => TokenKind::RaiseEvent,
-            "withevents" => TokenKind::WithEvents,
-            "property" => TokenKind::Property,
-            "default" => TokenKind::Default,
-            "get" => TokenKind::Get,
-            "let" => TokenKind::Let,
-            "call" => TokenKind::Call,
-            "set" => TokenKind::Set,
-            "nothing" => TokenKind::Nothing,
-            "addressof" => TokenKind::AddressOf,
-            "empty" => TokenKind::Empty,
-            "null" => TokenKind::Null,
-            "is" => TokenKind::Is,
-            "like" => TokenKind::Like,
-            "typeof" => TokenKind::TypeOf,
-            "new" => TokenKind::New,
-            "me" => TokenKind::Me,
-            "public" => TokenKind::Public,
-            "private" => TokenKind::Private,
-            "friend" => TokenKind::Friend,
-            "end" => TokenKind::End,
-            "dim" => TokenKind::Dim,
-            "as" => TokenKind::As,
-            "byval" => TokenKind::ByVal,
-            "byref" => TokenKind::ByRef,
-            "optional" => TokenKind::Optional,
-            "paramarray" => TokenKind::ParamArray,
-            "static" => TokenKind::Static,
-            "return" => TokenKind::Return,
-            "string" => TokenKind::StringType,
-            "integer" => TokenKind::IntegerType,
-            "boolean" => TokenKind::BooleanType,
-            "variant" => TokenKind::VariantType,
-            "true" => TokenKind::True,
-            "false" => TokenKind::False,
-            "if" => TokenKind::If,
-            "then" => TokenKind::Then,
-            "else" => TokenKind::Else,
-            "elseif" => TokenKind::ElseIf,
-            "select" => TokenKind::Select,
-            "case" => TokenKind::Case,
-            "while" => TokenKind::While,
-            "wend" => TokenKind::Wend,
-            "with" => TokenKind::With,
-            "using" => TokenKind::Using,
-            "do" => TokenKind::Do,
-            "loop" => TokenKind::Loop,
-            "until" => TokenKind::Until,
-            "for" => TokenKind::For,
-            "each" => TokenKind::Each,
-            "in" => TokenKind::In,
-            "goto" => TokenKind::GoTo,
-            "to" => TokenKind::To,
-            "step" => TokenKind::Step,
-            "next" => TokenKind::Next,
-            "exit" => TokenKind::Exit,
-            "on" => TokenKind::On,
-            "error" => TokenKind::Error,
-            "resume" => TokenKind::Resume,
-            "try" => TokenKind::Try,
-            "catch" => TokenKind::Catch,
-            "finally" => TokenKind::Finally,
-            "yield" => TokenKind::Yield,
-            "and" => TokenKind::And,
-            "or" => TokenKind::Or,
-            "xor" => TokenKind::Xor,
-            "eqv" => TokenKind::Eqv,
-            "imp" => TokenKind::Imp,
-            "not" => TokenKind::Not,
-            "mod" => TokenKind::Mod,
-            "redim" => TokenKind::ReDim,
-            "preserve" => TokenKind::Preserve,
-            "erase" => TokenKind::Erase,
-            "console" => TokenKind::Console,
-            "writeline" => TokenKind::WriteLine,
-            _ => TokenKind::Identifier(text),
+            "sub" if hint.is_none() => TokenKind::Sub,
+            "function" if hint.is_none() => TokenKind::Function,
+            "iterator" if hint.is_none() => TokenKind::Iterator,
+            "import" if hint.is_none() => TokenKind::Import,
+            "const" if hint.is_none() => TokenKind::Const,
+            "option" if hint.is_none() => TokenKind::Option,
+            "explicit" if hint.is_none() => TokenKind::Explicit,
+            "base" if hint.is_none() => TokenKind::Base,
+            "compare" if hint.is_none() => TokenKind::Compare,
+            "binary" if hint.is_none() => TokenKind::Binary,
+            "text" if hint.is_none() => TokenKind::Text,
+            "version" if hint.is_none() => TokenKind::Version,
+            "begin" if hint.is_none() => TokenKind::Begin,
+            "type" if hint.is_none() => TokenKind::Type,
+            "structure" if hint.is_none() => TokenKind::Structure,
+            "interface" if hint.is_none() => TokenKind::Interface,
+            "enum" if hint.is_none() => TokenKind::Enum,
+            "class" if hint.is_none() => TokenKind::Class,
+            "implements" if hint.is_none() => TokenKind::Implements,
+            "shared" if hint.is_none() => TokenKind::Shared,
+            "event" if hint.is_none() => TokenKind::Event,
+            "declare" if hint.is_none() => TokenKind::Declare,
+            "ptrsafe" if hint.is_none() => TokenKind::PtrSafe,
+            "lib" if hint.is_none() => TokenKind::Lib,
+            "alias" if hint.is_none() => TokenKind::Alias,
+            "any" if hint.is_none() => TokenKind::Any,
+            "raiseevent" if hint.is_none() => TokenKind::RaiseEvent,
+            "withevents" if hint.is_none() => TokenKind::WithEvents,
+            "property" if hint.is_none() => TokenKind::Property,
+            "default" if hint.is_none() => TokenKind::Default,
+            "get" if hint.is_none() => TokenKind::Get,
+            "let" if hint.is_none() => TokenKind::Let,
+            "call" if hint.is_none() => TokenKind::Call,
+            "set" if hint.is_none() => TokenKind::Set,
+            "nothing" if hint.is_none() => TokenKind::Nothing,
+            "addressof" if hint.is_none() => TokenKind::AddressOf,
+            "empty" if hint.is_none() => TokenKind::Empty,
+            "null" if hint.is_none() => TokenKind::Null,
+            "is" if hint.is_none() => TokenKind::Is,
+            "like" if hint.is_none() => TokenKind::Like,
+            "typeof" if hint.is_none() => TokenKind::TypeOf,
+            "new" if hint.is_none() => TokenKind::New,
+            "me" if hint.is_none() => TokenKind::Me,
+            "public" if hint.is_none() => TokenKind::Public,
+            "private" if hint.is_none() => TokenKind::Private,
+            "friend" if hint.is_none() => TokenKind::Friend,
+            "end" if hint.is_none() => TokenKind::End,
+            "dim" if hint.is_none() => TokenKind::Dim,
+            "as" if hint.is_none() => TokenKind::As,
+            "byval" if hint.is_none() => TokenKind::ByVal,
+            "byref" if hint.is_none() => TokenKind::ByRef,
+            "optional" if hint.is_none() => TokenKind::Optional,
+            "paramarray" if hint.is_none() => TokenKind::ParamArray,
+            "static" if hint.is_none() => TokenKind::Static,
+            "return" if hint.is_none() => TokenKind::Return,
+            "string" if hint.is_none() => TokenKind::StringType,
+            "integer" if hint.is_none() => TokenKind::IntegerType,
+            "boolean" if hint.is_none() => TokenKind::BooleanType,
+            "variant" if hint.is_none() => TokenKind::VariantType,
+            "true" if hint.is_none() => TokenKind::True,
+            "false" if hint.is_none() => TokenKind::False,
+            "if" if hint.is_none() => TokenKind::If,
+            "then" if hint.is_none() => TokenKind::Then,
+            "else" if hint.is_none() => TokenKind::Else,
+            "elseif" if hint.is_none() => TokenKind::ElseIf,
+            "select" if hint.is_none() => TokenKind::Select,
+            "case" if hint.is_none() => TokenKind::Case,
+            "while" if hint.is_none() => TokenKind::While,
+            "wend" if hint.is_none() => TokenKind::Wend,
+            "with" if hint.is_none() => TokenKind::With,
+            "using" if hint.is_none() => TokenKind::Using,
+            "do" if hint.is_none() => TokenKind::Do,
+            "loop" if hint.is_none() => TokenKind::Loop,
+            "until" if hint.is_none() => TokenKind::Until,
+            "for" if hint.is_none() => TokenKind::For,
+            "each" if hint.is_none() => TokenKind::Each,
+            "in" if hint.is_none() => TokenKind::In,
+            "goto" if hint.is_none() => TokenKind::GoTo,
+            "to" if hint.is_none() => TokenKind::To,
+            "step" if hint.is_none() => TokenKind::Step,
+            "next" if hint.is_none() => TokenKind::Next,
+            "exit" if hint.is_none() => TokenKind::Exit,
+            "on" if hint.is_none() => TokenKind::On,
+            "error" if hint.is_none() => TokenKind::Error,
+            "resume" if hint.is_none() => TokenKind::Resume,
+            "try" if hint.is_none() => TokenKind::Try,
+            "catch" if hint.is_none() => TokenKind::Catch,
+            "finally" if hint.is_none() => TokenKind::Finally,
+            "yield" if hint.is_none() => TokenKind::Yield,
+            "and" if hint.is_none() => TokenKind::And,
+            "or" if hint.is_none() => TokenKind::Or,
+            "xor" if hint.is_none() => TokenKind::Xor,
+            "eqv" if hint.is_none() => TokenKind::Eqv,
+            "imp" if hint.is_none() => TokenKind::Imp,
+            "not" if hint.is_none() => TokenKind::Not,
+            "mod" if hint.is_none() => TokenKind::Mod,
+            "redim" if hint.is_none() => TokenKind::ReDim,
+            "preserve" if hint.is_none() => TokenKind::Preserve,
+            "erase" if hint.is_none() => TokenKind::Erase,
+            "console" if hint.is_none() => TokenKind::Console,
+            "writeline" if hint.is_none() => TokenKind::WriteLine,
+            _ => TokenKind::Identifier(text, hint),
         };
 
         Token {
@@ -251,8 +268,26 @@ impl<'a> Lexer<'a> {
                         Some(Span::new(self.file_id, start, self.pos())),
                     ));
                 }
+
+                let mut hint = None;
+                if let Some(ch) = self.peek() {
+                    hint = match ch {
+                        '%' => Some(crate::runtime::TypeName::Integer),
+                        '&' => Some(crate::runtime::TypeName::Long),
+                        '!' => Some(crate::runtime::TypeName::Single),
+                        '#' => Some(crate::runtime::TypeName::Double),
+                        '@' => Some(crate::runtime::TypeName::Currency),
+                        '$' => Some(crate::runtime::TypeName::String),
+                        _ => None,
+                    };
+
+                    if hint.is_some() {
+                        self.advance();
+                    }
+                }
+
                 return Ok(Token {
-                    kind: TokenKind::Identifier(text),
+                    kind: TokenKind::Identifier(text, hint),
                     span: Span::new(self.file_id, start, self.pos()),
                 });
             }
@@ -424,6 +459,11 @@ impl<'a> Lexer<'a> {
         while let Some(ch) = self.peek() {
             if ch == '"' {
                 self.advance();
+                if let Some('"') = self.peek() {
+                    value.push('"');
+                    self.advance();
+                    continue;
+                }
                 return Ok(Token {
                     kind: TokenKind::String(value),
                     span: Span::new(self.file_id, start, self.pos()),
@@ -560,5 +600,22 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod scanner_tests {
+    use super::*;
+
+    #[test]
+    fn test_string_escaping() {
+        let tokens = Lexer::new("\"He said \"\"Hello\"\" to me\"")
+            .tokenize()
+            .unwrap();
+        if let TokenKind::String(value) = &tokens[0].kind {
+            assert_eq!(value, "He said \"Hello\" to me");
+        } else {
+            panic!("Expected string token");
+        }
     }
 }

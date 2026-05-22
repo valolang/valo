@@ -1,12 +1,34 @@
 use super::*;
-use crate::TypeKind;
 use crate::runtime::Span;
+use crate::{EnumDecl, TypeDecl, TypeKind};
 
 pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
     let mut types = HashMap::new();
     let mut enums = HashMap::new();
     let mut interfaces = HashMap::new();
     let mut classes = HashMap::new();
+
+    let all_types: Vec<&TypeDecl> = program
+        .types
+        .iter()
+        .chain(program.classes.iter().flat_map(|c| {
+            c.members.iter().filter_map(|m| match m {
+                ClassMember::Type(t) => Some(t),
+                _ => None,
+            })
+        }))
+        .collect();
+
+    let all_enums: Vec<&EnumDecl> = program
+        .enums
+        .iter()
+        .chain(program.classes.iter().flat_map(|c| {
+            c.members.iter().filter_map(|m| match m {
+                ClassMember::Enum(e) => Some(e),
+                _ => None,
+            })
+        }))
+        .collect();
 
     // Add built-in Error class
     classes.insert(
@@ -81,7 +103,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         },
     );
 
-    for type_decl in &program.types {
+    for type_decl in &all_types {
         let type_key = key(&type_decl.name);
         if types.contains_key(&type_key) {
             return Err(Diagnostic::new(
@@ -146,6 +168,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         Some(method.function.span),
                     ));
                 }
+                ClassMember::Type(_) | ClassMember::Declare(_) | ClassMember::Enum(_) => {}
                 ClassMember::Sub(method) => {
                     let method_key = key(&method.procedure.name);
                     if method_key == "terminate" || method_key == "class_terminate" {
@@ -315,7 +338,26 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         );
     }
 
-    for enum_decl in &program.enums {
+    let mut module_const_values = HashMap::new();
+    let mut pending_consts: Vec<_> = program.module_consts.iter().collect();
+    let mut progress = true;
+    while progress && !pending_consts.is_empty() {
+        progress = false;
+        let mut next_pending = Vec::new();
+        for const_decl in pending_consts {
+            if let Ok(value) =
+                eval_enum_const_expr(&const_decl.value, &HashMap::new(), &module_const_values)
+            {
+                module_const_values.insert(key(&const_decl.name), value);
+                progress = true;
+            } else {
+                next_pending.push(const_decl);
+            }
+        }
+        pending_consts = next_pending;
+    }
+
+    for enum_decl in &all_enums {
         let enum_key = key(&enum_decl.name);
         if types.contains_key(&enum_key) || enums.contains_key(&enum_key) {
             return Err(Diagnostic::new(
@@ -339,7 +381,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 ));
             }
             let value = if let Some(expr) = &member.value {
-                eval_enum_const_expr(expr, &members)?
+                eval_enum_const_expr(expr, &members, &module_const_values)?
             } else {
                 previous + 1
             };
@@ -888,6 +930,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         return_type: property.return_type.clone(),
                     });
                 }
+                ClassMember::Type(_) | ClassMember::Declare(_) | ClassMember::Enum(_) => {}
             }
         }
         classes.insert(
@@ -941,7 +984,10 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 | ClassMember::Fields(_)
                 | ClassMember::Const(_)
                 | ClassMember::Event(_)
-                | ClassMember::Iterator(_) => {}
+                | ClassMember::Iterator(_)
+                | ClassMember::Type(_)
+                | ClassMember::Declare(_)
+                | ClassMember::Enum(_) => {}
                 ClassMember::Sub(method) => {
                     for param in &method.procedure.params {
                         ensure_known_type(&param.ty, &registry, param.span)?;
@@ -1149,6 +1195,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         }
                     }
                 },
+                ClassMember::Type(_) | ClassMember::Declare(_) | ClassMember::Enum(_) => {}
             }
         }
     }
@@ -1227,8 +1274,15 @@ fn validate_withevents_handlers(
             let fields: Vec<&crate::ClassField> = match member {
                 ClassMember::Field(field) => vec![field],
                 ClassMember::Fields(fields) => fields.iter().collect(),
-                ClassMember::Const(_) => continue,
-                _ => continue,
+                ClassMember::Const(_)
+                | ClassMember::Event(_)
+                | ClassMember::Sub(_)
+                | ClassMember::Function(_)
+                | ClassMember::Iterator(_)
+                | ClassMember::Property(_)
+                | ClassMember::Type(_)
+                | ClassMember::Declare(_)
+                | ClassMember::Enum(_) => continue,
             };
             for field in fields {
                 let owner_field_sig = class_sig
@@ -1487,29 +1541,40 @@ fn validate_parameter_list(params: &[Parameter], types: &TypeRegistry) -> Result
     Ok(())
 }
 
-fn eval_enum_const_expr(expr: &Expr, members: &HashMap<String, i64>) -> Result<i64, Diagnostic> {
+fn eval_enum_const_expr(
+    expr: &Expr,
+    members: &HashMap<String, i64>,
+    module_consts: &HashMap<String, i64>,
+) -> Result<i64, Diagnostic> {
     match &expr.kind {
         ExprKind::Integer(value) => Ok(*value),
         ExprKind::Long(value) => Ok(*value as i64),
         ExprKind::LongLong(value) => Ok(*value),
-        ExprKind::Variable(name) => members.get(&key(name)).copied().ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Enum member '{}' is not defined", name),
-                Some(expr.span),
-            )
-        }),
+        ExprKind::Variable(name) => {
+            let name_key = key(name);
+            if let Some(&val) = members.get(&name_key) {
+                Ok(val)
+            } else if let Some(&val) = module_consts.get(&name_key) {
+                Ok(val)
+            } else {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Enum member '{}' is not defined", name),
+                    Some(expr.span),
+                ))
+            }
+        }
         ExprKind::Unary {
             op: UnaryOp::Negate,
             expr,
-        } => Ok(-eval_enum_const_expr(expr, members)?),
+        } => Ok(-eval_enum_const_expr(expr, members, module_consts)?),
         ExprKind::Unary {
             op: UnaryOp::Positive,
             expr,
-        } => eval_enum_const_expr(expr, members),
+        } => eval_enum_const_expr(expr, members, module_consts),
         ExprKind::Binary { left, op, right } => {
-            let left = eval_enum_const_expr(left, members)?;
-            let right = eval_enum_const_expr(right, members)?;
+            let left = eval_enum_const_expr(left, members, module_consts)?;
+            let right = eval_enum_const_expr(right, members, module_consts)?;
             match op {
                 BinaryOp::Add => Ok(left + right),
                 BinaryOp::Subtract => Ok(left - right),
@@ -1531,6 +1596,9 @@ fn eval_enum_const_expr(expr: &Expr, members: &HashMap<String, i64>) -> Result<i
                     Some(expr.span),
                 )),
             }
+        }
+        ExprKind::PassingModeOverride { expr, .. } => {
+            eval_enum_const_expr(expr, members, module_consts)
         }
         _ => Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -1660,6 +1728,7 @@ pub(super) fn ensure_const_expr(
             }
         }
         ExprKind::Unary { expr, .. } => ensure_const_expr(expr, symbols, types),
+        ExprKind::PassingModeOverride { expr, .. } => ensure_const_expr(expr, symbols, types),
         ExprKind::Binary { left, right, .. } => {
             ensure_const_expr(left, symbols, types)?;
             ensure_const_expr(right, symbols, types)

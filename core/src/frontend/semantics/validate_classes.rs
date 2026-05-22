@@ -10,7 +10,12 @@ pub(super) fn validate_class(
     let class_consts = class_constant_symbols(class_decl);
     for member in &class_decl.members {
         match member {
-            ClassMember::Field(_) | ClassMember::Fields(_) | ClassMember::Const(_) => {}
+            ClassMember::Field(_)
+            | ClassMember::Fields(_)
+            | ClassMember::Const(_)
+            | ClassMember::Type(_)
+            | ClassMember::Declare(_)
+            | ClassMember::Enum(_) => {}
             ClassMember::Event(_) => {}
             ClassMember::Sub(method) => {
                 let mut symbols = HashMap::new();
@@ -522,7 +527,16 @@ fn class_constant_symbols(class_decl: &crate::ClassDecl) -> HashMap<String, VarT
                 key(&const_decl.name),
                 VarType::Const(const_decl.ty.clone().unwrap_or(TypeName::Variant)),
             )),
-            _ => None,
+            ClassMember::Field(_)
+            | ClassMember::Fields(_)
+            | ClassMember::Event(_)
+            | ClassMember::Sub(_)
+            | ClassMember::Function(_)
+            | ClassMember::Iterator(_)
+            | ClassMember::Property(_)
+            | ClassMember::Type(_)
+            | ClassMember::Declare(_)
+            | ClassMember::Enum(_) => None,
         })
         .collect()
 }
@@ -539,7 +553,10 @@ pub(super) fn validate_structure(
             | ClassMember::Fields(_)
             | ClassMember::Const(_)
             | ClassMember::Event(_)
-            | ClassMember::Iterator(_) => {}
+            | ClassMember::Iterator(_)
+            | ClassMember::Type(_)
+            | ClassMember::Declare(_)
+            | ClassMember::Enum(_) => {}
             ClassMember::Sub(method) => {
                 let mut symbols = HashMap::new();
                 add_module_symbols(module_symbols, &mut symbols);

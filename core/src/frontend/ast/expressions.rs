@@ -68,6 +68,10 @@ pub enum ExprKind {
         expr: Box<Expr>,
     },
     AddressOf(Box<Expr>),
+    PassingModeOverride {
+        mode: crate::frontend::ast::PassingMode,
+        expr: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

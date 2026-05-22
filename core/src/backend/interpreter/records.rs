@@ -138,7 +138,16 @@ impl From<&TypeDecl> for RuntimeType {
                     ClassMember::Sub(method) => {
                         Some((key(&method.procedure.name), method.procedure.clone()))
                     }
-                    _ => None,
+                    ClassMember::Field(_)
+                    | ClassMember::Fields(_)
+                    | ClassMember::Const(_)
+                    | ClassMember::Event(_)
+                    | ClassMember::Function(_)
+                    | ClassMember::Iterator(_)
+                    | ClassMember::Property(_)
+                    | ClassMember::Type(_)
+                    | ClassMember::Declare(_)
+                    | ClassMember::Enum(_) => None,
                 })
                 .collect(),
             functions: value
@@ -148,8 +157,16 @@ impl From<&TypeDecl> for RuntimeType {
                     ClassMember::Function(method) => {
                         Some((key(&method.function.name), method.function.clone()))
                     }
-                    ClassMember::Const(_) => None,
-                    _ => None,
+                    ClassMember::Field(_)
+                    | ClassMember::Fields(_)
+                    | ClassMember::Const(_)
+                    | ClassMember::Event(_)
+                    | ClassMember::Sub(_)
+                    | ClassMember::Iterator(_)
+                    | ClassMember::Property(_)
+                    | ClassMember::Type(_)
+                    | ClassMember::Declare(_)
+                    | ClassMember::Enum(_) => None,
                 })
                 .collect(),
             properties: value
@@ -157,7 +174,16 @@ impl From<&TypeDecl> for RuntimeType {
                 .iter()
                 .filter_map(|member| match member {
                     ClassMember::Property(property) => Some(property),
-                    _ => None,
+                    ClassMember::Field(_)
+                    | ClassMember::Fields(_)
+                    | ClassMember::Const(_)
+                    | ClassMember::Event(_)
+                    | ClassMember::Sub(_)
+                    | ClassMember::Function(_)
+                    | ClassMember::Iterator(_)
+                    | ClassMember::Type(_)
+                    | ClassMember::Declare(_)
+                    | ClassMember::Enum(_) => None,
                 })
                 .fold(std::collections::HashMap::new(), |mut props, property| {
                     let entry = props.entry(key(&property.name)).or_insert(RuntimeProperty {

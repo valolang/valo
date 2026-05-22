@@ -551,15 +551,11 @@ impl<'a> ConstExprParser<'a> {
             ConstTokenKind::Identifier(name) if name.eq_ignore_ascii_case("false") => {
                 Ok(ConstValue::Boolean(false))
             }
-            ConstTokenKind::Identifier(name) => {
-                self.constants.get(&key(&name)).cloned().ok_or_else(|| {
-                    diagnostic(
-                        self.line,
-                        token.column,
-                        "Compile-time constant is not defined",
-                    )
-                })
-            }
+            ConstTokenKind::Identifier(name) => Ok(self
+                .constants
+                .get(&key(&name))
+                .cloned()
+                .unwrap_or(ConstValue::Integer(0))),
             ConstTokenKind::LeftParen => {
                 let value = self.parse_or()?;
                 if !self.match_token(ConstTokenKind::RightParen) {

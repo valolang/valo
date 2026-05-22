@@ -67,7 +67,7 @@ impl Parser {
             TokenKind::Console => self.parse_console_writeline(),
             TokenKind::Return => self.parse_return(),
             TokenKind::Yield => self.parse_yield(),
-            TokenKind::Identifier(name) if name.eq_ignore_ascii_case("Attribute") => {
+            TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute") => {
                 let _ = self.parse_attribute_decl()?;
                 // Return a dummy statement that does nothing
                 Ok(Stmt::Label {
@@ -75,7 +75,7 @@ impl Parser {
                     span: self.previous().span,
                 })
             }
-            TokenKind::Identifier(_) | TokenKind::Me | TokenKind::Dot => {
+            TokenKind::Identifier(_, _) | TokenKind::Me | TokenKind::Dot => {
                 self.parse_identifier_statement()
             }
             TokenKind::Public | TokenKind::Private => {
@@ -150,9 +150,20 @@ impl Parser {
         keyword: &str,
     ) -> Result<VariableDecl, Diagnostic> {
         let start = self.peek().span;
-        let name =
-            self.expect_identifier(&format!("Expected variable name after '{}'", keyword))?;
-        let type_char = self.parse_type_declaration_character();
+        let token = self.advance();
+        let (name, type_char) = match token.kind {
+            TokenKind::Identifier(name, hint) => (name, hint),
+            TokenKind::Version => ("VERSION".to_string(), None),
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    format!("Expected variable name after '{}'", keyword),
+                    Some(token.span),
+                )
+                .with_primary_label(format!("Expected variable name after '{}'", keyword)));
+            }
+        };
+
         let array = if self.match_simple(&TokenKind::LeftParen) {
             if self.match_simple(&TokenKind::RightParen) {
                 Some(ArrayDecl::Dynamic)
@@ -268,36 +279,6 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_type_declaration_character(&mut self) -> Option<crate::runtime::TypeName> {
-        match self.peek_kind() {
-            TokenKind::Percent => {
-                self.advance();
-                Some(crate::runtime::TypeName::Integer)
-            }
-            TokenKind::Ampersand => {
-                self.advance();
-                Some(crate::runtime::TypeName::Long)
-            }
-            TokenKind::Exclamation => {
-                self.advance();
-                Some(crate::runtime::TypeName::Single)
-            }
-            TokenKind::Hash => {
-                self.advance();
-                Some(crate::runtime::TypeName::Double)
-            }
-            TokenKind::At => {
-                self.advance();
-                Some(crate::runtime::TypeName::Currency)
-            }
-            TokenKind::Dollar => {
-                self.advance();
-                Some(crate::runtime::TypeName::String)
-            }
-            _ => None,
-        }
-    }
-
     fn parse_const_stmt(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.peek().span;
         let consts = self.parse_const_declarators(Visibility::Private)?;
@@ -361,11 +342,11 @@ impl Parser {
     }
 
     fn parse_identifier_statement(&mut self) -> Result<Stmt, Diagnostic> {
-        if matches!(self.peek_kind(), TokenKind::Identifier(_))
+        if matches!(self.peek_kind(), TokenKind::Identifier(_, _))
             && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
         {
             let token = self.advance();
-            let TokenKind::Identifier(name) = token.kind else {
+            let TokenKind::Identifier(name, _) = token.kind else {
                 unreachable!("peek checked");
             };
             let colon = self.expect_simple(TokenKind::Colon, "Expected ':' after label")?;
@@ -431,7 +412,7 @@ impl Parser {
     fn parse_call_statement_target(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.peek().span;
         let base = match self.advance().kind {
-            TokenKind::Identifier(name) => {
+            TokenKind::Identifier(name, _) => {
                 if self.check_simple(&TokenKind::Dot) {
                     Expr {
                         kind: ExprKind::Variable(name),
@@ -608,6 +589,20 @@ impl Parser {
             }
         };
         if let Some(args) = args {
+            if self.match_simple(&TokenKind::Equal) {
+                let expr = self.parse_expression()?;
+                let end = expr.span;
+                return Ok(Stmt::Assign {
+                    target: AssignTarget::MemberArrayElement {
+                        object: *object,
+                        field,
+                        indices: args,
+                        span: target_span,
+                    },
+                    expr,
+                    span: Span::new(self.file_id, target_span.start, end.end),
+                });
+            }
             return Ok(Stmt::MemberSubCall {
                 object: *object,
                 method: field,
@@ -662,6 +657,21 @@ impl Parser {
                 field,
                 span,
             }),
+            ExprKind::MemberCall {
+                object,
+                method,
+                args,
+            } => Ok(AssignTarget::MemberArrayElement {
+                object: *object,
+                field: method,
+                indices: args,
+                span,
+            }),
+            ExprKind::PassingModeOverride { .. } => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT,
+                "Passing mode override is not allowed in assignment targets",
+                Some(span),
+            )),
             ExprKind::Me => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT,
                 "Me is not assignable",
@@ -846,7 +856,7 @@ impl Parser {
         let start = self
             .expect_simple(TokenKind::Using, "Expected 'Using'")?
             .span;
-        let resource = if matches!(self.peek_kind(), TokenKind::Identifier(_))
+        let resource = if matches!(self.peek_kind(), TokenKind::Identifier(_, _))
             && matches!(self.peek_next_kind(), Some(TokenKind::As))
         {
             UsingResource::Declaration(self.parse_variable_declarator("Using")?)
@@ -1079,9 +1089,9 @@ impl Parser {
         let body = self.parse_block_until(&[BlockEnd::Next])?;
         let next = self.expect_simple(TokenKind::Next, "Expected 'Next'")?;
         let next_variable = match self.peek_kind() {
-            TokenKind::Identifier(_) => {
+            TokenKind::Identifier(_, _) => {
                 let token = self.advance();
-                let TokenKind::Identifier(name) = token.kind else {
+                let TokenKind::Identifier(name, _) = token.kind else {
                     unreachable!("peek checked");
                 };
                 Some((name, token.span))
@@ -1113,9 +1123,9 @@ impl Parser {
         let body = self.parse_block_until(&[BlockEnd::Next])?;
         let next = self.expect_simple(TokenKind::Next, "Expected 'Next'")?;
         let next_variable = match self.peek_kind() {
-            TokenKind::Identifier(_) => {
+            TokenKind::Identifier(_, _) => {
                 let token = self.advance();
-                let TokenKind::Identifier(name) = token.kind else {
+                let TokenKind::Identifier(name, _) = token.kind else {
                     unreachable!("peek checked");
                 };
                 Some((name, token.span))
@@ -1222,7 +1232,7 @@ impl Parser {
         let start = self.expect_simple(TokenKind::GoTo, "Expected 'GoTo'")?.span;
         let token = self.advance();
         let label = match token.kind {
-            TokenKind::Identifier(label) => label,
+            TokenKind::Identifier(label, _) => label,
             TokenKind::Integer(number) => number.to_string(),
             _ => {
                 return Err(Diagnostic::new(
@@ -1261,7 +1271,7 @@ impl Parser {
                     }
                 }
                 TokenKind::Integer(number) => OnErrorMode::GoToLabel(number.to_string()),
-                TokenKind::Identifier(label) => OnErrorMode::GoToLabel(label),
+                TokenKind::Identifier(label, _) => OnErrorMode::GoToLabel(label),
                 _ => {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -1294,9 +1304,9 @@ impl Parser {
                     span: Span::new(self.file_id, start.start, next.span.end),
                 });
             }
-            TokenKind::Identifier(_) => {
+            TokenKind::Identifier(_, _) => {
                 let token = self.advance();
-                let TokenKind::Identifier(label) = token.kind else {
+                let TokenKind::Identifier(label, _) = token.kind else {
                     unreachable!("peek checked");
                 };
                 return Ok(Stmt::Resume {
@@ -1331,14 +1341,14 @@ impl Parser {
 
         let catch_block = if self.match_simple(&TokenKind::Catch) {
             let catch_start = self.previous().span;
-            let variable = if matches!(self.peek_kind(), TokenKind::Identifier(_)) {
+            let variable = if matches!(self.peek_kind(), TokenKind::Identifier(_, _)) {
                 let name = self.expect_identifier("Expected catch variable name")?;
                 self.expect_simple(TokenKind::As, "Expected 'As' after catch variable")?;
                 let ty_token = self.advance();
                 match ty_token.kind {
                     TokenKind::Error => {}
-                    TokenKind::Identifier(ref ty_name) if ty_name.eq_ignore_ascii_case("Error") => {
-                    }
+                    TokenKind::Identifier(ref ty_name, _)
+                        if ty_name.eq_ignore_ascii_case("Error") => {}
                     _ => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::TYPE_MISMATCH,

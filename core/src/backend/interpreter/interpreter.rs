@@ -243,12 +243,34 @@ impl Interpreter {
             self.types
                 .insert(key(&type_decl.name), RuntimeType::from(type_decl));
         }
+
+        let mut module_const_values = HashMap::new();
+        let mut pending_consts: Vec<_> = program.module_consts.iter().collect();
+        let mut progress = true;
+        while progress && !pending_consts.is_empty() {
+            progress = false;
+            let mut next_pending = Vec::new();
+            for const_decl in pending_consts {
+                if let Ok(value) = self.eval_enum_const_expr(
+                    &const_decl.value,
+                    &HashMap::new(),
+                    &module_const_values,
+                ) {
+                    module_const_values.insert(key(&const_decl.name), value);
+                    progress = true;
+                } else {
+                    next_pending.push(const_decl);
+                }
+            }
+            pending_consts = next_pending;
+        }
+
         for enum_decl in &program.enums {
             let mut members = HashMap::new();
             let mut previous = -1;
             for member in &enum_decl.members {
                 let value = if let Some(expr) = &member.value {
-                    self.eval_enum_const_expr(expr, &members)?
+                    self.eval_enum_const_expr(expr, &members, &module_const_values)?
                 } else {
                     previous + 1
                 };
@@ -372,12 +394,34 @@ impl Interpreter {
             self.types
                 .insert(key(&type_decl.name), RuntimeType::from(type_decl));
         }
+
+        let mut module_const_values = HashMap::new();
+        let mut pending_consts: Vec<_> = program.module_consts.iter().collect();
+        let mut progress = true;
+        while progress && !pending_consts.is_empty() {
+            progress = false;
+            let mut next_pending = Vec::new();
+            for const_decl in pending_consts {
+                if let Ok(value) = self.eval_enum_const_expr(
+                    &const_decl.value,
+                    &HashMap::new(),
+                    &module_const_values,
+                ) {
+                    module_const_values.insert(key(&const_decl.name), value);
+                    progress = true;
+                } else {
+                    next_pending.push(const_decl);
+                }
+            }
+            pending_consts = next_pending;
+        }
+
         for enum_decl in &program.enums {
             let mut members = HashMap::new();
             let mut previous = -1;
             for member in &enum_decl.members {
                 let value = if let Some(expr) = &member.value {
-                    self.eval_enum_const_expr(expr, &members)?
+                    self.eval_enum_const_expr(expr, &members, &module_const_values)?
                 } else {
                     previous + 1
                 };
@@ -554,6 +598,28 @@ impl Interpreter {
             self.option_base = module.program.option_base;
             self.option_compare = module.program.option_compare;
             let module_key = super::values::key(&module.name);
+
+            let mut module_const_values = HashMap::new();
+            let mut pending_consts: Vec<_> = module.program.module_consts.iter().collect();
+            let mut progress = true;
+            while progress && !pending_consts.is_empty() {
+                progress = false;
+                let mut next_pending = Vec::new();
+                for const_decl in pending_consts {
+                    if let Ok(value) = self.eval_enum_const_expr(
+                        &const_decl.value,
+                        &HashMap::new(),
+                        &module_const_values,
+                    ) {
+                        module_const_values.insert(super::values::key(&const_decl.name), value);
+                        progress = true;
+                    } else {
+                        next_pending.push(const_decl);
+                    }
+                }
+                pending_consts = next_pending;
+            }
+
             for type_decl in &module.program.types {
                 let qualified = qualified_symbol_key(&module_key, &type_decl.name);
                 let mut runtime_type = RuntimeType::from(type_decl);
@@ -578,7 +644,7 @@ impl Interpreter {
                 let mut previous = -1;
                 for member in &enum_decl.members {
                     let value = if let Some(expr) = &member.value {
-                        self.eval_enum_const_expr(expr, &members)?
+                        self.eval_enum_const_expr(expr, &members, &module_const_values)?
                     } else {
                         previous + 1
                     };
@@ -869,35 +935,46 @@ impl Interpreter {
         &self,
         expr: &crate::Expr,
         members: &HashMap<String, i64>,
+        module_consts: &HashMap<String, i64>,
     ) -> Result<i64, Diagnostic> {
         use crate::{BinaryOp, ExprKind, UnaryOp};
         match &expr.kind {
             ExprKind::Integer(value) => Ok(*value),
             ExprKind::Long(value) => Ok(*value as i64),
             ExprKind::LongLong(value) => Ok(*value),
-            ExprKind::Variable(name) => members.get(&key(name)).copied().ok_or_else(|| {
-                Diagnostic::new(
-                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                    format!("Enum member '{}' is not defined", name),
-                    Some(expr.span),
-                )
-            }),
+            ExprKind::Variable(name) => {
+                let name_key = key(name);
+                if let Some(&val) = members.get(&name_key) {
+                    Ok(val)
+                } else if let Some(&val) = module_consts.get(&name_key) {
+                    Ok(val)
+                } else {
+                    Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Enum member '{}' is not defined", name),
+                        Some(expr.span),
+                    ))
+                }
+            }
             ExprKind::Unary {
                 op: UnaryOp::Negate,
                 expr,
-            } => Ok(-self.eval_enum_const_expr(expr, members)?),
+            } => Ok(-self.eval_enum_const_expr(expr, members, module_consts)?),
             ExprKind::Unary {
                 op: UnaryOp::Positive,
                 expr,
-            } => self.eval_enum_const_expr(expr, members),
+            } => self.eval_enum_const_expr(expr, members, module_consts),
             ExprKind::AddressOf(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "AddressOf is not allowed in constant expressions",
                 Some(expr.span),
             )),
+            ExprKind::PassingModeOverride { expr: inner, .. } => {
+                self.eval_enum_const_expr(inner, members, module_consts)
+            }
             ExprKind::Binary { left, op, right } => {
-                let left = self.eval_enum_const_expr(left, members)?;
-                let right = self.eval_enum_const_expr(right, members)?;
+                let left = self.eval_enum_const_expr(left, members, module_consts)?;
+                let right = self.eval_enum_const_expr(right, members, module_consts)?;
                 match op {
                     BinaryOp::Add => Ok(left + right),
                     BinaryOp::Subtract => Ok(left - right),

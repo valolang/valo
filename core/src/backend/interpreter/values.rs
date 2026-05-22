@@ -88,6 +88,7 @@ fn eval_const_default(
             "AddressOf is not allowed in constant expressions",
             Some(expr.span),
         )),
+        ExprKind::PassingModeOverride { expr: inner, .. } => eval_const_default(inner, enums, span),
         ExprKind::Binary { left, op, right } => {
             let left = eval_const_default(left, enums, span)?;
             let right = eval_const_default(right, enums, span)?;

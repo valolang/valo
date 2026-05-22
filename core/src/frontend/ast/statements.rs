@@ -213,6 +213,12 @@ pub enum AssignTarget {
         field: String,
         span: Span,
     },
+    MemberArrayElement {
+        object: Expr,
+        field: String,
+        indices: Vec<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -259,7 +265,8 @@ impl AssignTarget {
         match self {
             AssignTarget::Variable { span, .. }
             | AssignTarget::ArrayElement { span, .. }
-            | AssignTarget::Member { span, .. } => *span,
+            | AssignTarget::Member { span, .. }
+            | AssignTarget::MemberArrayElement { span, .. } => *span,
         }
     }
 }

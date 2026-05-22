@@ -153,6 +153,27 @@ pub(super) fn validate_assignment_target(
                 current_class.as_deref(),
             )
         }
+        AssignTarget::MemberArrayElement {
+            object,
+            field,
+            indices,
+            span,
+        } => {
+            let object_type = validate_expr(object, symbols, types, signatures)?;
+            for index in indices {
+                validate_expr(index, symbols, types, signatures)?;
+            }
+            let current_class = member_access_class(object, &object_type)
+                .or_else(|| context.current_class().map(str::to_string));
+            member_assignment_type(
+                &object_type,
+                field,
+                value_type,
+                types,
+                *span,
+                current_class.as_deref(),
+            )
+        }
     }
 }
 
@@ -836,6 +857,9 @@ pub(super) fn validate_expr(
         ExprKind::AddressOf(_) => {
             // Wait, AddressOf returns a FuncPtr or LongPtr!
             Ok(TypeName::FuncPtr)
+        }
+        ExprKind::PassingModeOverride { expr, .. } => {
+            validate_expr(expr, symbols, types, signatures)
         }
     }
 }
@@ -1892,6 +1916,7 @@ pub(super) fn ensure_known_type(
                 ))
             }
         }
+        TypeName::Array(inner) => ensure_known_type(inner, types, span),
     }
 }
 

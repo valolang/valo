@@ -290,6 +290,32 @@ impl Parser {
             });
         }
 
+        if self.match_simple(&TokenKind::ByVal) {
+            let start = self.previous().span;
+            let expr = self.parse_primary()?;
+            let span = Span::new(self.file_id, start.start, expr.span.end);
+            return Ok(Expr {
+                kind: ExprKind::PassingModeOverride {
+                    mode: crate::frontend::ast::PassingMode::ByVal,
+                    expr: Box::new(expr),
+                },
+                span,
+            });
+        }
+
+        if self.match_simple(&TokenKind::ByRef) {
+            let start = self.previous().span;
+            let expr = self.parse_primary()?;
+            let span = Span::new(self.file_id, start.start, expr.span.end);
+            return Ok(Expr {
+                kind: ExprKind::PassingModeOverride {
+                    mode: crate::frontend::ast::PassingMode::ByRef,
+                    expr: Box::new(expr),
+                },
+                span,
+            });
+        }
+
         self.parse_power()
     }
 
@@ -311,7 +337,7 @@ impl Parser {
             TokenKind::Dot => {
                 let field_token = self.advance();
                 let field = match field_token.kind {
-                    TokenKind::Identifier(field) => field,
+                    TokenKind::Identifier(field, _) => field,
                     TokenKind::Version => "VERSION".to_string(),
                     _ => {
                         return Err(Diagnostic::new(
@@ -361,7 +387,7 @@ impl Parser {
                 };
                 ExprKind::New { class_name, args }
             }
-            TokenKind::Identifier(name) => {
+            TokenKind::Identifier(name, _) => {
                 if name.eq_ignore_ascii_case("iif") && self.match_simple(&TokenKind::LeftParen) {
                     let condition = self.parse_expression()?;
                     self.expect_simple(TokenKind::Comma, "Expected ',' in IIf")?;
@@ -380,6 +406,26 @@ impl Parser {
                     });
                 }
 
+                if self.match_simple(&TokenKind::LeftParen) {
+                    let args = self.finish_call_arguments()?;
+                    ExprKind::Call { name, args }
+                } else {
+                    ExprKind::Variable(name)
+                }
+            }
+            TokenKind::Lib
+            | TokenKind::Base
+            | TokenKind::Text
+            | TokenKind::Compare
+            | TokenKind::Binary => {
+                let name = match token.kind {
+                    TokenKind::Lib => "lib".to_string(),
+                    TokenKind::Base => "base".to_string(),
+                    TokenKind::Text => "text".to_string(),
+                    TokenKind::Compare => "compare".to_string(),
+                    TokenKind::Binary => "binary".to_string(),
+                    _ => unreachable!(),
+                };
                 if self.match_simple(&TokenKind::LeftParen) {
                     let args = self.finish_call_arguments()?;
                     ExprKind::Call { name, args }
@@ -410,7 +456,7 @@ impl Parser {
             if self.match_simple(&TokenKind::Dot) {
                 let field_token = self.advance();
                 let field = match field_token.kind {
-                    TokenKind::Identifier(field) => field,
+                    TokenKind::Identifier(field, _) => field,
                     TokenKind::Version => "VERSION".to_string(),
                     TokenKind::WriteLine => "WriteLine".to_string(),
                     _ => {
@@ -492,11 +538,11 @@ impl Parser {
     }
 
     pub(super) fn parse_argument(&mut self) -> Result<Expr, Diagnostic> {
-        if matches!(self.peek_kind(), TokenKind::Identifier(_))
+        if matches!(self.peek_kind(), TokenKind::Identifier(_, _))
             && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
         {
             let name_token = self.advance();
-            let TokenKind::Identifier(name) = name_token.kind else {
+            let TokenKind::Identifier(name, _) = name_token.kind else {
                 unreachable!("peek checked");
             };
             self.expect_simple(TokenKind::Colon, "Expected ':' in named argument")?;
