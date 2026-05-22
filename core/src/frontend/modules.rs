@@ -69,9 +69,25 @@ impl ModuleLoader {
         })?;
 
         if stack.iter().any(|entry| entry == &canonical) {
+            let mut chain = String::new();
+            let mut found = false;
+            for entry in stack {
+                if entry == &canonical {
+                    found = true;
+                }
+                if found {
+                    if !chain.is_empty() {
+                        chain.push_str(" -> ");
+                    }
+                    chain.push_str(&module_name(entry));
+                }
+            }
+            chain.push_str(" -> ");
+            chain.push_str(&module_name(&canonical));
+
             return Err(Diagnostic::new(
                 DiagnosticCode::IMPORT_CYCLE,
-                format!("Import cycle detected at '{}'", canonical.display()),
+                format!("Import cycle detected:\n{}", chain),
                 None,
             ));
         }
@@ -227,39 +243,66 @@ fn module_name(path: &Path) -> String {
         .to_string()
 }
 
-fn resolve_import_path(current: &Path, import: &ImportDecl) -> Result<PathBuf, Diagnostic> {
-    let dir = current.parent().unwrap_or_else(|| Path::new("."));
-    let target_valo = format!("{}.valo", import.module).to_ascii_lowercase();
-    let target_bas = format!("{}.bas", import.module).to_ascii_lowercase();
-    let target_cls = format!("{}.cls", import.module).to_ascii_lowercase();
-    let mut matches = Vec::new();
-    for entry in fs::read_dir(dir).map_err(|err| {
-        Diagnostic::new(
-            DiagnosticCode::MODULE_NOT_FOUND,
-            format!(
-                "Module '{}' could not be found near '{}': {err}",
-                import.module,
-                dir.display()
-            ),
-            Some(import.span),
-        )
-    })? {
-        let entry = entry.map_err(|err| {
-            Diagnostic::new(
-                DiagnosticCode::MODULE_NOT_FOUND,
-                format!(
-                    "Module '{}' could not be found near '{}': {err}",
-                    import.module,
-                    dir.display()
-                ),
-                Some(import.span),
-            )
-        })?;
-        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-        if name == target_valo || name == target_bas || name == target_cls {
-            matches.push(entry.path());
+fn resolve_case_insensitive_path(
+    base_dir: &Path,
+    relative_path: &Path,
+) -> Result<Vec<PathBuf>, std::io::Error> {
+    let mut current_paths = vec![base_dir.to_path_buf()];
+
+    for component in relative_path.components() {
+        let std::path::Component::Normal(part) = component else {
+            for p in &mut current_paths {
+                p.push(component);
+            }
+            continue;
+        };
+
+        let part_lower = part.to_string_lossy().to_ascii_lowercase();
+        let mut next_paths = Vec::new();
+
+        for dir in current_paths {
+            if !dir.is_dir() {
+                continue;
+            }
+            if let Ok(entries) = fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    if name.to_string_lossy().to_ascii_lowercase() == part_lower {
+                        next_paths.push(entry.path());
+                    }
+                }
+            }
+        }
+        current_paths = next_paths;
+        if current_paths.is_empty() {
+            break;
         }
     }
+    Ok(current_paths)
+}
+
+fn resolve_import_path(current: &Path, import: &ImportDecl) -> Result<PathBuf, Diagnostic> {
+    let dir = current.parent().unwrap_or_else(|| Path::new("."));
+    let path_str = &import.module;
+    let mut candidates = Vec::new();
+
+    if path_str.ends_with(".valo") || path_str.ends_with(".bas") || path_str.ends_with(".cls") {
+        candidates.push(PathBuf::from(path_str));
+    } else {
+        let path = path_str.replace(".", "/");
+        candidates.push(PathBuf::from(format!("{}.valo", path)));
+        candidates.push(PathBuf::from(format!("{}.bas", path)));
+        candidates.push(PathBuf::from(format!("{}.cls", path)));
+        candidates.push(PathBuf::from(format!("{}/index.valo", path)));
+    }
+
+    let mut matches = Vec::new();
+    for candidate in candidates {
+        if let Ok(paths) = resolve_case_insensitive_path(dir, &candidate) {
+            matches.extend(paths);
+        }
+    }
+
     match matches.len() {
         0 => Err(Diagnostic::new(
             DiagnosticCode::MODULE_NOT_FOUND,

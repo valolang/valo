@@ -683,6 +683,7 @@ fn callback_ffi_type(ty: &TypeName, span: Span) -> Result<FfiType, Diagnostic> {
         | TypeName::Decimal
         | TypeName::Date
         | TypeName::User(_)
+        | TypeName::Enum(_)
         | TypeName::Array(_) => Err(unsupported(
             format!(
                 "callback parameter type '{}' is not supported by AddressOf marshaling",
@@ -750,6 +751,7 @@ unsafe fn read_callback_value(slot: *const c_void, ty: &TypeName) -> ExprKind {
         | TypeName::Decimal
         | TypeName::Date
         | TypeName::User(_)
+        | TypeName::Enum(_)
         | TypeName::Array(_) => ExprKind::Empty,
     }
 }
@@ -779,6 +781,7 @@ fn write_callback_default(result: &mut c_void, return_type: &TypeName, is_sub: b
             | TypeName::Decimal
             | TypeName::Date
             | TypeName::User(_)
+            | TypeName::Enum(_)
             | TypeName::Array(_) => {}
         }
     }
@@ -1381,7 +1384,11 @@ fn return_ffi_type(ty: &TypeName, is_sub: bool, span: Span) -> Result<FfiType, D
                 span,
             ));
         }
-        TypeName::Decimal | TypeName::Date | TypeName::User(_) | TypeName::Array(_) => {
+        TypeName::Decimal
+        | TypeName::Date
+        | TypeName::User(_)
+        | TypeName::Enum(_)
+        | TypeName::Array(_) => {
             return Err(unsupported(
                 format!(
                     "return type '{}' is not supported by native marshaling",
@@ -1466,6 +1473,7 @@ fn call_return_value(
         | TypeName::Decimal
         | TypeName::Date
         | TypeName::User(_)
+        | TypeName::Enum(_)
         | TypeName::Array(_) => {
             return Err(unsupported(
                 format!(

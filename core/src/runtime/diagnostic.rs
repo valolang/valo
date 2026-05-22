@@ -412,7 +412,7 @@ impl DiagnosticCode {
     pub const PREPROCESSOR: Self = Self("V0102");
     pub const UNKNOWN_NAME: Self = Self("V1001");
     pub const DUPLICATE_DECLARATION: Self = Self("V1002");
-    pub const PRIVATE_ACCESS: Self = Self("V1003");
+    pub const MEMBER_IS_PRIVATE: Self = Self("V1003");
     pub const TYPE_MISMATCH: Self = Self("V1100");
     pub const INVALID_ASSIGNMENT: Self = Self("V1101");
     pub const ARRAY: Self = Self("V1200");

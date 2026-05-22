@@ -16,11 +16,11 @@ pub(super) fn validate_assignment_target(
                 if let Some(class_sig) = types.get_class(owner_name)
                     && let Some(field_sig) = class_sig.fields.get(&key(name))
                 {
-                    VarType::Scalar(field_sig.ty.clone())
+                    VarType::Scalar(Visibility::Public, field_sig.ty.clone())
                 } else if let Some(type_sig) = types.get(owner_name)
                     && let Some(field_sig) = type_sig.fields.get(&key(name))
                 {
-                    VarType::Scalar(field_sig.ty.clone())
+                    VarType::Scalar(Visibility::Public, field_sig.ty.clone())
                 } else {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -63,9 +63,9 @@ pub(super) fn validate_assignment_target(
                     && let Some(field_sig) = class_sig.fields.get(&key(name))
                 {
                     if field_sig.array.is_some() {
-                        VarType::Array(field_sig.ty.clone())
+                        VarType::Array(Visibility::Public, field_sig.ty.clone())
                     } else if field_sig.ty.same_type(&TypeName::Variant) {
-                        VarType::Scalar(TypeName::Variant)
+                        VarType::Scalar(Visibility::Public, TypeName::Variant)
                     } else {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
@@ -77,9 +77,9 @@ pub(super) fn validate_assignment_target(
                     && let Some(field_sig) = type_sig.fields.get(&key(name))
                 {
                     if field_sig.array.is_some() {
-                        VarType::Array(field_sig.ty.clone())
+                        VarType::Array(Visibility::Public, field_sig.ty.clone())
                     } else if field_sig.ty.same_type(&TypeName::Variant) {
-                        VarType::Scalar(TypeName::Variant)
+                        VarType::Scalar(Visibility::Public, TypeName::Variant)
                     } else {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
@@ -102,10 +102,10 @@ pub(super) fn validate_assignment_target(
                 ));
             };
             let element_type = match var_type {
-                VarType::Array(ty) => ty,
-                VarType::Scalar(TypeName::User(class_name))
-                | VarType::Optional(TypeName::User(class_name))
-                | VarType::Const(TypeName::User(class_name))
+                VarType::Array(_, ty) => ty,
+                VarType::Scalar(_, TypeName::User(class_name))
+                | VarType::Optional(_, TypeName::User(class_name))
+                | VarType::Const(_, TypeName::User(class_name))
                     if types
                         .get_class(&class_name)
                         .and_then(|class| class.default_property.as_ref())
@@ -116,9 +116,16 @@ pub(super) fn validate_assignment_target(
                     }
                     return Ok(value_type.clone());
                 }
-                VarType::Scalar(TypeName::Variant)
-                | VarType::Optional(TypeName::Variant)
-                | VarType::Const(TypeName::Variant) => TypeName::Variant,
+                VarType::Scalar(_, TypeName::Variant)
+                | VarType::Optional(_, TypeName::Variant)
+                | VarType::Const(_, TypeName::Variant) => TypeName::Variant,
+                VarType::Module(alias) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        format!("Module '{}' cannot be indexed", alias),
+                        Some(*span),
+                    ));
+                }
                 _ => {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
@@ -235,9 +242,9 @@ pub(super) fn validate_expr(
             }
         }
         ExprKind::Me => match symbols.get("me").cloned() {
-            Some(VarType::Scalar(ty)) | Some(VarType::Optional(ty)) | Some(VarType::Const(ty)) => {
-                Ok(ty)
-            }
+            Some(VarType::Scalar(_, ty))
+            | Some(VarType::Optional(_, ty))
+            | Some(VarType::Const(_, ty)) => Ok(ty),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                 "Me is only valid inside class methods",
@@ -293,16 +300,23 @@ pub(super) fn validate_expr(
         ExprKind::Variable(name) => {
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
                 match var_type {
-                    VarType::Scalar(ty)
-                    | VarType::Optional(ty)
-                    | VarType::Const(ty)
+                    VarType::Scalar(_, ty)
+                    | VarType::Optional(_, ty)
+                    | VarType::Const(_, ty)
                     | VarType::FunctionReturn(ty) => {
                         return Ok(ty);
                     }
-                    VarType::Array(_) => {
+                    VarType::Array(_, _) => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
                             format!("Array variable '{}' cannot be used as a scalar", name),
+                            Some(expr.span),
+                        ));
+                    }
+                    VarType::Module(alias) => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            format!("Module '{}' cannot be used as an expression", alias),
                             Some(expr.span),
                         ));
                     }
@@ -362,7 +376,9 @@ pub(super) fn validate_expr(
                 )?;
                 return Ok(function.return_type.clone().expect("function return type"));
             }
-            if let Some(VarType::Scalar(TypeName::User(owner_name))) = symbols.get("me").cloned() {
+            if let Some(VarType::Scalar(Visibility::Public, TypeName::User(owner_name))) =
+                symbols.get("me").cloned()
+            {
                 if let Some(class_sig) = types.get_class(&owner_name)
                     && let Some(field_sig) = class_sig.fields.get(&key(name))
                 {
@@ -568,7 +584,7 @@ pub(super) fn validate_expr(
                     ));
                 };
                 return match symbols.get(&key(param_name)) {
-                    Some(VarType::Optional(_)) => Ok(TypeName::Boolean),
+                    Some(VarType::Optional(Visibility::Public, _)) => Ok(TypeName::Boolean),
                     Some(_) => Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::GENERIC,
                         "IsMissing is only valid for Optional parameters",
@@ -601,7 +617,7 @@ pub(super) fn validate_expr(
             }
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
                 match var_type {
-                    VarType::Array(element_type) => {
+                    VarType::Array(Visibility::Public, element_type) => {
                         for arg in args {
                             ensure_assignable(
                                 &TypeName::Integer,
@@ -611,9 +627,9 @@ pub(super) fn validate_expr(
                         }
                         return Ok(element_type);
                     }
-                    VarType::Scalar(TypeName::User(class_name))
-                    | VarType::Optional(TypeName::User(class_name))
-                    | VarType::Const(TypeName::User(class_name)) => {
+                    VarType::Scalar(Visibility::Public, TypeName::User(class_name))
+                    | VarType::Optional(Visibility::Public, TypeName::User(class_name))
+                    | VarType::Const(Visibility::Public, TypeName::User(class_name)) => {
                         if let Some(type_sig) = types.get(&class_name)
                             && type_sig.is_structure
                             && let Some(default_prop_name) = &type_sig.default_property
@@ -655,9 +671,9 @@ pub(super) fn validate_expr(
                             Some(expr.span),
                         ));
                     }
-                    VarType::Scalar(TypeName::Variant)
-                    | VarType::Optional(TypeName::Variant)
-                    | VarType::Const(TypeName::Variant) => {
+                    VarType::Scalar(Visibility::Public, TypeName::Variant)
+                    | VarType::Optional(Visibility::Public, TypeName::Variant)
+                    | VarType::Const(Visibility::Public, TypeName::Variant) => {
                         for arg in args {
                             validate_expr(arg, symbols, types, signatures)?;
                         }
@@ -672,7 +688,8 @@ pub(super) fn validate_expr(
                     }
                 }
             }
-            if let Some(VarType::Scalar(TypeName::User(class_name))) = symbols.get("me").cloned()
+            if let Some(VarType::Scalar(Visibility::Public, TypeName::User(class_name))) =
+                symbols.get("me").cloned()
                 && let Some(class_sig) = types.get_class(&class_name)
                 && let Some(field_sig) = class_sig.fields.get(&key(name))
             {
@@ -872,20 +889,29 @@ pub(super) fn validate_array_expr(
 ) -> Result<TypeName, Diagnostic> {
     match &expr.kind {
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
-            Some(VarType::Array(element_type)) => Ok(element_type),
-            Some(VarType::Scalar(TypeName::Variant))
-            | Some(VarType::Optional(TypeName::Variant))
-            | Some(VarType::Const(TypeName::Variant)) => Ok(TypeName::Variant),
-            Some(VarType::Scalar(_))
-            | Some(VarType::Optional(_))
-            | Some(VarType::Const(_))
-            | Some(VarType::FunctionReturn(_)) => Err(Diagnostic::new(
+            Some(VarType::Array(_, element_type)) => Ok(element_type),
+            Some(VarType::Scalar(_, TypeName::Variant))
+            | Some(VarType::Optional(_, TypeName::Variant))
+            | Some(VarType::Const(_, TypeName::Variant)) => Ok(TypeName::Variant),
+            Some(VarType::Scalar(_, _ty))
+            | Some(VarType::Optional(_, _ty))
+            | Some(VarType::Const(_, _ty)) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::ARRAY,
+                format!("Variable '{}' is not an array", name),
+                Some(expr.span),
+            )),
+            Some(VarType::Module(alias)) => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                format!("Module '{}' cannot be used as an array", alias),
+                Some(expr.span),
+            )),
+            Some(VarType::FunctionReturn(_)) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::ARRAY,
                 format!("Variable '{}' is not an array", name),
                 Some(expr.span),
             )),
             None => {
-                if let Some(VarType::Scalar(TypeName::User(class_name))) =
+                if let Some(VarType::Scalar(_, TypeName::User(class_name))) =
                     symbols.get("me").cloned()
                     && let Some(class_sig) = types.get_class(&class_name)
                     && let Some(field_sig) = class_sig.fields.get(&key(name))
@@ -948,7 +974,7 @@ fn validate_builtin_function(
         let arg = &args[0];
         if let ExprKind::Variable(name) = &arg.kind {
             if let Some(var_type) = symbols.get(&key(name))
-                && !matches!(var_type, VarType::Optional(_))
+                && !matches!(var_type, VarType::Optional(Visibility::Public, _))
             {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -1322,7 +1348,7 @@ fn validate_argument_value(
                             Some(arg.span),
                         ));
                     };
-                    let expected = VarType::Scalar(param.ty.clone());
+                    let expected = VarType::Scalar(Visibility::Public, param.ty.clone());
                     if !arg_type.same_var_type(&expected) {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::GENERIC,
@@ -1874,7 +1900,7 @@ fn ensure_visible(
         Ok(())
     } else {
         Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+            crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
             format!("Member '{}' is Private in Class '{}'", member, owner_class),
             Some(span),
         )
@@ -1912,6 +1938,17 @@ pub(super) fn ensure_known_type(
                 Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                     format!("Type '{}' is not defined", name),
+                    Some(span),
+                ))
+            }
+        }
+        TypeName::Enum(name) => {
+            if types.enums.contains_key(&key(name)) {
+                Ok(())
+            } else {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Enum '{}' is not defined", name),
                     Some(span),
                 ))
             }

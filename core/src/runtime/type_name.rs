@@ -17,6 +17,7 @@ pub enum TypeName {
     Ptr,
     FuncPtr,
     User(String),
+    Enum(String),
     Array(Box<TypeName>),
 }
 
@@ -40,6 +41,7 @@ impl TypeName {
             TypeName::Ptr => Some(crate::Value::Ptr(0)),
             TypeName::FuncPtr => Some(crate::Value::FuncPtr(0)),
             TypeName::User(_) => None,
+            TypeName::Enum(_) => None,
             TypeName::Array(inner) => Some(crate::Value::Array(std::rc::Rc::new(
                 crate::runtime::ArrayValue {
                     element_type: (**inner).clone(),
@@ -55,6 +57,7 @@ impl TypeName {
     pub fn same_type(&self, other: &TypeName) -> bool {
         match (self, other) {
             (TypeName::User(left), TypeName::User(right)) => left.eq_ignore_ascii_case(right),
+            (TypeName::Enum(left), TypeName::Enum(right)) => left.eq_ignore_ascii_case(right),
             (TypeName::Array(left), TypeName::Array(right)) => left.same_type(right),
             _ => self == other,
         }
@@ -79,6 +82,7 @@ impl TypeName {
             TypeName::Ptr => "Ptr".to_string(),
             TypeName::FuncPtr => "FuncPtr".to_string(),
             TypeName::User(name) => name.clone(),
+            TypeName::Enum(name) => name.clone(),
             TypeName::Array(inner) => format!("{}()", inner.display_name()),
         }
     }

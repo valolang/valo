@@ -151,7 +151,7 @@ impl Interpreter {
                             && !self.public_enums.contains(&enum_key)
                         {
                             return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                                crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
                                 format!("Enum '{}.{}' is Private", module_name, enum_name),
                                 Some(expr.span),
                             ));
@@ -195,7 +195,7 @@ impl Interpreter {
                             .is_some_and(|values| values.contains(&super::values::key(field)))
                     {
                         return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                            crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
                             format!("Module member '{}.{}' is Private", module_name, field),
                             Some(expr.span),
                         ));

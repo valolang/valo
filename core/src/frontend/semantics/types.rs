@@ -14,7 +14,9 @@ pub(super) struct FieldSig {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(super) struct TypeSig {
+    pub(super) visibility: Visibility,
     pub(super) name: String,
     pub(super) is_structure: bool,
     pub(super) fields: HashMap<String, FieldSig>,
@@ -24,6 +26,7 @@ pub(super) struct TypeSig {
     pub(super) default_property: Option<String>,
 }
 
+#[derive(Clone)]
 pub(super) struct TypeRegistry {
     pub(super) types: HashMap<String, TypeSig>,
     pub(super) enums: HashMap<String, EnumSig>,
@@ -31,6 +34,7 @@ pub(super) struct TypeRegistry {
     pub(super) classes: HashMap<String, ClassSig>,
 }
 
+#[allow(dead_code)]
 impl TypeRegistry {
     pub(super) fn contains(&self, name: &str) -> bool {
         self.types.contains_key(&key(name))
@@ -54,16 +58,46 @@ impl TypeRegistry {
     pub(super) fn get_interface(&self, name: &str) -> Option<&InterfaceSig> {
         self.interfaces.get(&key(name))
     }
+
+    pub(super) fn canonical_type_name(&self, ty: &TypeName) -> TypeName {
+        match ty {
+            TypeName::User(name) => {
+                if let Some(sig) = self.types.get(&key(name)) {
+                    return TypeName::User(sig.name.clone());
+                }
+                if let Some(sig) = self.classes.get(&key(name)) {
+                    return TypeName::User(sig.name.clone());
+                }
+                if let Some(sig) = self.enums.get(&key(name)) {
+                    return TypeName::User(sig.name.clone());
+                }
+                if let Some(sig) = self.interfaces.get(&key(name)) {
+                    return TypeName::User(sig.name.clone());
+                }
+                // Handle Object
+                if name.eq_ignore_ascii_case("Object") {
+                    return TypeName::User("Object".to_string());
+                }
+                TypeName::User(name.clone())
+            }
+            TypeName::Array(inner) => TypeName::Array(Box::new(self.canonical_type_name(inner))),
+            _ => ty.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(super) struct EnumSig {
+    pub(super) visibility: Visibility,
     pub(super) name: String,
     pub(super) members: HashMap<String, i64>,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(super) struct ClassSig {
+    pub(super) visibility: Visibility,
     pub(super) name: String,
     pub(super) fields: HashMap<String, ClassFieldSig>,
     pub(super) events: HashMap<String, ClassEventSig>,
@@ -76,7 +110,9 @@ pub(super) struct ClassSig {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(super) struct InterfaceSig {
+    pub(super) visibility: Visibility,
     pub(super) name: String,
     pub(super) subs: HashMap<String, ClassMethodSig>,
     pub(super) functions: HashMap<String, ClassMethodSig>,

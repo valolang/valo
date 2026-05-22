@@ -35,6 +35,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         key("Error"),
         ClassSig {
             name: "Error".to_string(),
+            visibility: Visibility::Public,
             fields: {
                 let mut f = HashMap::new();
                 f.insert(
@@ -328,6 +329,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             type_key,
             TypeSig {
                 name: type_decl.name.clone(),
+                visibility: type_decl.visibility,
                 is_structure: type_decl.kind == TypeKind::Structure,
                 fields,
                 subs,
@@ -392,6 +394,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             enum_key,
             EnumSig {
                 name: enum_decl.name.clone(),
+                visibility: enum_decl.visibility,
                 members,
             },
         );
@@ -552,6 +555,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             interface_key,
             InterfaceSig {
                 name: interface_decl.name.clone(),
+                visibility: interface_decl.visibility,
                 subs,
                 functions,
                 events,
@@ -937,6 +941,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             class_key,
             ClassSig {
                 name: class_decl.name.clone(),
+                visibility: class_decl.visibility,
                 fields,
                 events,
                 subs,
@@ -1100,7 +1105,10 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     }
                     symbols.insert(
                         key(&const_decl.name),
-                        VarType::Const(const_decl.ty.clone().unwrap_or(TypeName::Variant)),
+                        VarType::Const(
+                            Visibility::Public,
+                            const_decl.ty.clone().unwrap_or(TypeName::Variant),
+                        ),
                     );
                 }
                 ClassMember::Event(event) => {
@@ -1644,9 +1652,9 @@ pub(super) fn collect_module_symbols(
             ));
         }
         let var_type = if var.array.is_some() {
-            VarType::Array(ty)
+            VarType::Array(var.visibility, ty)
         } else {
-            VarType::Scalar(ty)
+            VarType::Scalar(var.visibility, ty)
         };
         symbols.insert(name_key, var_type);
     }
@@ -1674,7 +1682,7 @@ pub(super) fn collect_module_symbols(
                 Some(const_decl.span),
             ));
         }
-        symbols.insert(name_key, VarType::Const(const_type));
+        symbols.insert(name_key, VarType::Const(const_decl.visibility, const_type));
     }
 
     Ok(symbols)
@@ -1909,11 +1917,11 @@ pub(super) fn add_parameters(
             ));
         }
         let var_type = if param.is_param_array {
-            VarType::Array(param.ty.clone())
+            VarType::Array(Visibility::Public, param.ty.clone())
         } else if param.is_optional {
-            VarType::Optional(param.ty.clone())
+            VarType::Optional(Visibility::Public, param.ty.clone())
         } else {
-            VarType::Scalar(param.ty.clone())
+            VarType::Scalar(Visibility::Public, param.ty.clone())
         };
         symbols.insert(param_key, var_type);
     }

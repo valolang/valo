@@ -419,7 +419,7 @@ impl Interpreter {
                 && !crate::modules::is_public(declare.visibility)
             {
                 return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                    crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
                     format!("Function '{}.{}' is Private", qualifier, name),
                     Some(span),
                 ));
@@ -441,7 +441,7 @@ impl Interpreter {
             && !crate::modules::is_public(function.visibility)
         {
             return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
                 format!("Function '{}.{}' is Private", qualifier, name),
                 Some(span),
             ));
@@ -534,7 +534,7 @@ impl Interpreter {
                 && !crate::modules::is_public(declare.visibility)
             {
                 return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                    crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
                     format!("Sub '{}.{}' is Private", qualifier, name),
                     Some(span),
                 ));
@@ -552,7 +552,7 @@ impl Interpreter {
                 && !crate::modules::is_public(declare.visibility)
             {
                 return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                    crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
                     format!("Function '{}.{}' is Private", qualifier, name),
                     Some(span),
                 ));
@@ -575,7 +575,7 @@ impl Interpreter {
             && !crate::modules::is_public(procedure.visibility)
         {
             return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
                 format!("Sub '{}.{}' is Private", qualifier, name),
                 Some(span),
             ));

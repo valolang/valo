@@ -23,7 +23,7 @@ pub(super) fn validate_class(
                 add_module_symbols(&class_consts, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
-                    VarType::Scalar(TypeName::User(class_decl.name.clone())),
+                    VarType::Scalar(Visibility::Public, TypeName::User(class_decl.name.clone())),
                 );
                 add_parameters(&method.procedure.params, &mut symbols)?;
                 validate_statements(
@@ -44,7 +44,7 @@ pub(super) fn validate_class(
                 add_module_symbols(&class_consts, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
-                    VarType::Scalar(TypeName::User(class_decl.name.clone())),
+                    VarType::Scalar(Visibility::Public, TypeName::User(class_decl.name.clone())),
                 );
                 add_parameters(&method.function.params, &mut symbols)?;
                 symbols.insert(
@@ -106,7 +106,7 @@ pub(super) fn validate_class(
                 add_module_symbols(&class_consts, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
-                    VarType::Scalar(TypeName::User(class_decl.name.clone())),
+                    VarType::Scalar(Visibility::Public, TypeName::User(class_decl.name.clone())),
                 );
                 add_parameters(&method.function.params, &mut symbols)?;
                 symbols.insert(
@@ -148,7 +148,7 @@ pub(super) fn validate_class(
                 add_module_symbols(&class_consts, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
-                    VarType::Scalar(TypeName::User(class_decl.name.clone())),
+                    VarType::Scalar(Visibility::Public, TypeName::User(class_decl.name.clone())),
                 );
                 add_parameters(&property.params, &mut symbols)?;
                 match property.kind {
@@ -525,7 +525,10 @@ fn class_constant_symbols(class_decl: &crate::ClassDecl) -> HashMap<String, VarT
         .filter_map(|member| match member {
             ClassMember::Const(const_decl) => Some((
                 key(&const_decl.name),
-                VarType::Const(const_decl.ty.clone().unwrap_or(TypeName::Variant)),
+                VarType::Const(
+                    Visibility::Public,
+                    const_decl.ty.clone().unwrap_or(TypeName::Variant),
+                ),
             )),
             ClassMember::Field(_)
             | ClassMember::Fields(_)
@@ -562,7 +565,7 @@ pub(super) fn validate_structure(
                 add_module_symbols(module_symbols, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
-                    VarType::Scalar(TypeName::User(type_decl.name.clone())),
+                    VarType::Scalar(Visibility::Public, TypeName::User(type_decl.name.clone())),
                 );
                 add_parameters(&method.procedure.params, &mut symbols)?;
                 validate_statements(
@@ -582,7 +585,7 @@ pub(super) fn validate_structure(
                 add_module_symbols(module_symbols, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
-                    VarType::Scalar(TypeName::User(type_decl.name.clone())),
+                    VarType::Scalar(Visibility::Public, TypeName::User(type_decl.name.clone())),
                 );
                 add_parameters(&method.function.params, &mut symbols)?;
                 symbols.insert(
@@ -643,7 +646,7 @@ pub(super) fn validate_structure(
                 add_module_symbols(module_symbols, &mut symbols);
                 symbols.insert(
                     "me".to_string(),
-                    VarType::Scalar(TypeName::User(type_decl.name.clone())),
+                    VarType::Scalar(Visibility::Public, TypeName::User(type_decl.name.clone())),
                 );
                 add_parameters(&property.params, &mut symbols)?;
                 match property.kind {

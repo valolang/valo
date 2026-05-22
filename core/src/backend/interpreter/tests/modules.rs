@@ -192,7 +192,10 @@ End Sub
     );
 
     let error = run_file_diagnostic(dir.join("main.valo"));
-    assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
+    assert_eq!(
+        error.code,
+        crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE
+    );
 }
 
 #[test]
@@ -253,7 +256,10 @@ Private Declare PtrSafe Function HiddenLen Lib "{}" Alias "strlen" CDecl (ByVal 
     );
 
     let error = run_file_diagnostic(dir.join("main.valo"));
-    assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
+    assert_eq!(
+        error.code,
+        crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE
+    );
 }
 
 #[test]
@@ -323,7 +329,10 @@ End Sub
     );
 
     let error = run_file_diagnostic(dir.join("main.valo"));
-    assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
+    assert_eq!(
+        error.code,
+        crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE
+    );
 }
 
 #[test]
@@ -588,7 +597,10 @@ End Sub
     write(&dir, "Models.valo", "Private Class Hidden\nEnd Class\n");
 
     let error = run_file_diagnostic(dir.join("main.valo"));
-    assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
+    assert_eq!(
+        error.code,
+        crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE
+    );
 
     let dir = temp_project();
     write(
@@ -605,7 +617,10 @@ End Sub
     write(&dir, "Enums.valo", "Private Enum Secret\nValue\nEnd Enum\n");
 
     let error = run_file_diagnostic(dir.join("main.valo"));
-    assert_eq!(error.code, crate::runtime::DiagnosticCode::PRIVATE_ACCESS);
+    assert_eq!(
+        error.code,
+        crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE
+    );
 }
 
 #[test]

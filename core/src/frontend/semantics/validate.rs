@@ -64,7 +64,10 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
             .alias
             .clone()
             .unwrap_or_else(|| import.module.clone());
-        module_symbols.insert(key(&qualifier), VarType::Scalar(TypeName::Variant));
+        module_symbols.insert(
+            key(&qualifier),
+            VarType::Scalar(Visibility::Public, TypeName::Variant),
+        );
     }
     let Some(main) = program
         .procedures
@@ -123,7 +126,10 @@ fn validate_module(
     let signatures = collect_signatures(program, &types)?;
     let mut module_symbols = collect_module_symbols(program, &types, &signatures)?;
     for import in imports {
-        module_symbols.insert(key(&import.qualifier), VarType::Scalar(TypeName::Variant));
+        module_symbols.insert(
+            key(&import.qualifier),
+            VarType::Scalar(Visibility::Public, TypeName::Variant),
+        );
     }
 
     let main = program

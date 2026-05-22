@@ -924,7 +924,7 @@ impl Interpreter {
             Ok(())
         } else {
             Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
                 format!("Imported type '{}' is Private", name),
                 Some(span),
             ))

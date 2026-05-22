@@ -24,7 +24,7 @@ fn validate_const_decl(
             Some(span),
         ));
     }
-    symbols.insert(key, VarType::Const(const_type));
+    symbols.insert(key, VarType::Const(Visibility::Public, const_type));
     Ok(())
 }
 
@@ -97,9 +97,9 @@ pub(super) fn validate_statements(
                     ));
                 }
                 let var_type = if array.is_some() {
-                    VarType::Array(ty)
+                    VarType::Array(Visibility::Public, ty)
                 } else {
-                    VarType::Scalar(ty)
+                    VarType::Scalar(Visibility::Public, ty)
                 };
                 symbols.insert(key, var_type);
             }
@@ -157,9 +157,9 @@ pub(super) fn validate_statements(
                         ));
                     }
                     let var_type = if decl.array.is_some() {
-                        VarType::Array(ty)
+                        VarType::Array(Visibility::Public, ty)
                     } else {
-                        VarType::Scalar(ty)
+                        VarType::Scalar(Visibility::Public, ty)
                     };
                     symbols.insert(decl_key, var_type);
                 }
@@ -694,7 +694,7 @@ pub(super) fn validate_statements(
                         ));
                     }
                     let mut using_symbols = symbols.clone();
-                    using_symbols.insert(decl_key, VarType::Scalar(ty));
+                    using_symbols.insert(decl_key, VarType::Scalar(Visibility::Public, ty));
                     validate_statements(
                         body,
                         &mut using_symbols,
@@ -742,7 +742,10 @@ pub(super) fn validate_statements(
                     if let Some(var_name) = &catch.variable {
                         catch_symbols.insert(
                             key(var_name),
-                            VarType::Scalar(TypeName::User("Error".to_string())),
+                            VarType::Scalar(
+                                Visibility::Public,
+                                TypeName::User("Error".to_string()),
+                            ),
                         );
                     }
                     validate_statements(
@@ -1029,7 +1032,7 @@ fn redim_target_is_dynamic_array(
     match target {
         ReDimTarget::Variable { name, span } => {
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
-                return Ok(matches!(var_type, VarType::Array(_)));
+                return Ok(matches!(var_type, VarType::Array(Visibility::Public, _)));
             }
             let Some(class_name) = context.current_class() else {
                 return Err(Diagnostic::new(

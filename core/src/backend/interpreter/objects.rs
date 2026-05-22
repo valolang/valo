@@ -335,7 +335,7 @@ impl Interpreter {
                             .is_some_and(|values| values.contains(&key(member)))
                     {
                         return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::PRIVATE_ACCESS,
+                            crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
                             format!("Module member '{}.{}' is Private", name, member),
                             Some(span),
                         ));

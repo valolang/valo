@@ -53,7 +53,28 @@ impl Parser {
         let start = self
             .expect_simple(TokenKind::Import, "Expected 'Import'")?
             .span;
-        let module = self.expect_identifier("Expected module name after 'Import'")?;
+        let token = self.advance();
+        let module = match token.kind {
+            TokenKind::String(value) => value,
+            TokenKind::Identifier(name, _) => {
+                let mut path = name;
+                while self.match_simple(&TokenKind::Dot) {
+                    let next =
+                        self.expect_identifier("Expected identifier after '.' in import path")?;
+                    path.push('.');
+                    path.push_str(&next);
+                }
+                path
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected module name or string literal after 'Import'",
+                    Some(token.span),
+                ));
+            }
+        };
+
         let alias = if self.match_simple(&TokenKind::As) {
             Some(self.expect_identifier("Expected import alias after 'As'")?)
         } else {
