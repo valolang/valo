@@ -1,9 +1,9 @@
 <div align="center">
-  
+
   <img src="assets/valo-mascot.png" width="140" alt="Valo mascot">
 
   # The Valo Programming Language
-  
+
   A modern Basic-inspired language and runtime with first-class VBA compatibility
 
 </div>
@@ -22,7 +22,10 @@
     <img src="https://github.com/valolang/valo/actions/workflows/ci.yml/badge.svg" alt="CI Status">
   </a>
   <a href="https://github.com/valolang/valo/actions/workflows/release.yml">
-    <img src="https://github.com/valolang/valo/actions/workflows/release.yml/badge.svg" alt="Release Status"/>
+    <img src="https://github.com/valolang/valo/actions/workflows/release.yml/badge.svg" alt="Release Status">
+  </a>
+  <a href="https://github.com/valolang/valo/releases">
+    <img src="https://img.shields.io/github/v/release/valolang/valo?include_prereleases&label=release" alt="Release">
   </a>
   <a href="https://github.com/valolang/valo/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/valolang/valo" alt="License">
@@ -32,18 +35,24 @@
 </p>
 
 > [!NOTE]
-> Note that Valo is [not ready for use](#project-status).
+> Valo is experimental and not production-ready yet. APIs, syntax, runtime behavior, and compatibility details may change quickly.
 
 ## What is Valo?
 
 **Valo** is a modern Basic-inspired programming language and runtime built in Rust.
 
-It is designed as a standalone evolution path for VBA-style development: familiar enough for VBA and Visual Basic developers, but with modern language features, a clean runtime, professional diagnostics, modules, a REPL, and a growing standard runtime surface.
+The original idea behind Valo was simple: **what if VBA had its own Node.js moment?**
+
+JavaScript was once mostly tied to the browser. Node.js made it possible to use JavaScript almost anywhere: servers, CLIs, automation, tooling, desktop workflows, build systems, and more.
+
+Valo is exploring a similar direction for VBA-style programming.
+
+It is designed as a standalone evolution path for Basic/VBA-style development: familiar enough for VBA, VB6, and Visual Basic developers, but with modern language features, a clean runtime, professional diagnostics, modules, FFI, a REPL, release packaging, and a growing standard runtime surface.
 
 Valo supports two complementary modes:
 
-- **`.valo`**: native Valo syntax for modern development.
-- **`.bas` / `.cls`**: VBA compatibility mode for migrating and running existing Basic-style code.
+- **`.valo`**: native Valo syntax for modern Basic-style development.
+- **`.bas` / `.cls`**: VBA compatibility mode for migrating and running existing Basic-style modules and classes.
 
 Valo is not Office automation. It is a standalone language/runtime that gives Basic-style programming a modern foundation outside of Excel, Access, COM, and the VBA editor.
 
@@ -80,6 +89,10 @@ This is similar in spirit to successor language projects:
 
 Valo keeps the productivity and readability of Basic-style languages while building a runtime that can grow beyond the limitations of the original VBA environment.
 
+The long-term goal is simple:
+
+> Take the productivity of VBA out of Office and let it run anywhere.
+
 ## Language goals
 
 Valo is designed around the following goals:
@@ -90,9 +103,10 @@ Valo is designed around the following goals:
 - **Standalone runtime** independent of Office, COM, or the VBA editor.
 - **Professional diagnostics** with explicit diagnostic codes and source spans.
 - **Modular project structure** with imports and qualified symbols.
-- **Strong runtime foundations** for arrays, objects, variants, errors, and native types.
+- **Strong runtime foundations** for arrays, objects, variants, errors, structures, classes, and native types.
+- **Experimental native interop** through VBA-style `Declare`, `PtrSafe`, `LongPtr`, callbacks, and `AddressOf`.
 - **A practical migration path** from legacy automation code to a modern runtime.
-- **A clean implementation architecture** suitable for future tooling.
+- **A clean implementation architecture** suitable for future tooling, bytecode, and compiled targets.
 
 Valo is still experimental, but its direction is clear: a modern Basic-family language with compatibility as a bridge, not a cage.
 
@@ -100,7 +114,7 @@ Valo is still experimental, but its direction is clear: a modern Basic-family la
 
 Valo is currently an experimental language/runtime in active development.
 
-It already includes a substantial interpreter, parser, semantic validator, module loader, diagnostics engine, REPL, CLI, and compatibility runtime.
+It already includes a substantial interpreter, parser, semantic validator, module loader, diagnostics engine, REPL, CLI, compatibility runtime, native FFI layer, and cross-platform release packaging.
 
 Implemented today:
 
@@ -114,21 +128,33 @@ Implemented today:
 - native `Structure` value types with methods, properties, and constructors
 - VBA-compatible fields-only `Type`
 - default properties and indexer-style access
+- `Interface`, `Implements`, `Shared`, and `Friend`
+- classic VBA function return assignment semantics
+- modern `Return` syntax
 - native `Iterator Function` and `Yield`
 - `Try / Catch / Finally`
 - VBA `On Error`, `Err`, `Resume`, and `Erl`
-- advanced arrays, including multidimensional arrays
+- advanced arrays, including multidimensional and jagged patterns
 - `Array`, `Split`, `Join`, and `Filter`
 - native and VBA-compatible type system
 - `Variant`, `Object`, `Empty`, `Null`
+- VBA-compatible implicit `Variant` defaults
 - `CallByName`
 - `Debug.Print`
 - `VBA.` namespace fallback
+- experimental native FFI through `Declare`, `PtrSafe`, `LongPtr`, and `AddressOf`
+- callbacks and native function pointers
+- `VarPtr`, `StrPtr`, and `ObjPtr`
+- platform-aware native library loading
+- structure and array write-back for supported FFI cases
 - interactive REPL
 - professional diagnostics
+- release packaging for Linux, Windows, and macOS
 - clippy-clean Rust codebase
 
-Valo is not yet a full production compiler. There is currently no bytecode VM, package manager, LSP, formatter, FFI layer, or complete standard library.
+Valo is not yet a full production compiler. There is currently no bytecode VM, package manager, LSP, formatter, or complete standard library.
+
+Native FFI is already available experimentally through VBA-style `Declare`, `PtrSafe`, `LongPtr`, callbacks, `AddressOf`, and platform-aware native library loading.
 
 ## Native Valo and VBA compatibility
 
@@ -163,7 +189,7 @@ Public Structure Point
     Public X As Integer
     Public Y As Integer
 
-    Public Sub Constructor(ByVal x As Integer, ByVal y As Integer)
+    Public Sub New(ByVal x As Integer, ByVal y As Integer)
         X = x
         Y = y
     End Sub
@@ -251,6 +277,27 @@ Handler:
 End Sub
 ```
 
+### Classic and modern function returns
+
+```vb
+Function Add(ByVal a As Long, ByVal b As Long) As Long
+    Add = a + b
+End Function
+
+Function AddModern(ByVal a As Long, ByVal b As Long) As Long
+    Return a + b
+End Function
+```
+
+Object returns support classic `Set` semantics:
+
+```vb
+Function CreateUser() As User
+    Dim u As New User("Valo")
+    Set CreateUser = u
+End Function
+```
+
 ### Modules and imports
 
 ```vb
@@ -262,6 +309,54 @@ Sub Main()
 
     Dim user As New M.User("Valo")
     Console.WriteLine(user.Name)
+End Sub
+```
+
+### Interfaces, Implements, Shared, and Friend
+
+```vb
+Interface IUpdatable
+    Sub Update()
+End Interface
+
+Class Player Implements IUpdatable
+    Friend Shared Count As Long
+
+    Public Sub Update() Implements IUpdatable.Update
+        Count = Count + 1
+        Debug.Print "Updating player"
+    End Sub
+End Class
+
+Sub Main()
+    Dim p As New Player
+    p.Update()
+
+    Debug.Print Player.Count
+End Sub
+```
+
+### Structures with methods and constructors
+
+```vb
+Structure Vec2
+    X As Double
+    Y As Double
+
+    Public Sub New(ByVal x As Double, ByVal y As Double)
+        X = x
+        Y = y
+    End Sub
+
+    Public Function LengthSquared() As Double
+        Return (X * X) + (Y * Y)
+    End Function
+End Structure
+
+Sub Main()
+    Dim v As New Vec2(3#, 4#)
+
+    Debug.Print v.LengthSquared()
 End Sub
 ```
 
@@ -314,6 +409,43 @@ Sub Main()
 End Sub
 ```
 
+### Experimental native FFI
+
+Valo can call native libraries through VBA-style `Declare`.
+
+```vb
+Declare PtrSafe Function puts Lib "libc" CDecl (
+    ByVal value As String
+) As Long
+
+Declare PtrSafe Function strlen Lib "libc" CDecl (
+    ByVal value As String
+) As Long
+
+Private Sub Main()
+    puts("Hello from native Valo FFI!")
+
+    Debug.Print strlen("Valo")
+End Sub
+```
+
+On Windows, Valo can call Win32 APIs:
+
+```vb
+Declare PtrSafe Function MessageBoxA Lib "user32" Alias "MessageBoxA" StdCall (
+    ByVal hwnd As LongPtr,
+    ByVal text As String,
+    ByVal caption As String,
+    ByVal flags As Long
+) As Long
+
+Private Sub Main()
+    MessageBoxA(0, "Hello from Valo", "Valo Win32", 0)
+End Sub
+```
+
+FFI is experimental. Complex COM/OLE interop, full BSTR/SAFEARRAY ownership semantics, mutable string buffers, and Office automation are not currently implemented.
+
 ## Supported file types
 
 | Extension | Mode | Purpose |
@@ -352,7 +484,7 @@ valo check examples/modules/main.valo
 valo repl
 ```
 
-The REPL supports interactive experimentation with persistent state across snippets.
+The REPL currently supports interactive experimentation. Some declaration-heavy workflows are still evolving.
 
 ```txt
 valo> Dim x As Integer
@@ -363,7 +495,64 @@ valo> Console.WriteLine(x)
 
 ## Getting started
 
-Valo is currently built from source.
+Valo is currently experimental, but prebuilt releases are available for supported platforms.
+
+### Install with script
+
+On Linux and macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/valolang/valo/main/scripts/install.sh | bash
+```
+
+After installation, add Valo to your PATH if the installer asks you to:
+
+```sh
+export PATH="$HOME/.valo/bin:$PATH"
+```
+
+Then verify:
+
+```sh
+valo version
+valo help
+```
+
+### Install a specific version
+
+```sh
+VALO_VERSION="v0.1.0-2026.05.21" curl -fsSL https://raw.githubusercontent.com/valolang/valo/main/scripts/install.sh | bash
+```
+
+### Manual download
+
+You can also download prebuilt binaries from the releases page:
+
+```txt
+https://github.com/valolang/valo/releases
+```
+
+Available release assets may include:
+
+| Platform | Asset |
+|---|---|
+| Linux x64 | `valo-linux-x64.tar.gz` |
+| Linux x86 | `valo-linux-x86.tar.gz` |
+| macOS ARM64 | `valo-macos-arm64.tar.gz` |
+| macOS x64 | `valo-macos-x64.tar.gz` |
+| Windows x64 | `valo-windows-x64.zip` |
+| Windows x86 | `valo-windows-x86.zip` |
+
+Windows users can download the `.zip`, extract it, and run:
+
+```powershell
+.\valo.exe version
+.\valo.exe run examples\hello.valo
+```
+
+### Build from source
+
+You can also build Valo from source.
 
 You need Rust installed.
 
@@ -462,18 +651,15 @@ module loader
   ↓
 tree-walking interpreter
   ↓
-runtime values and builtins
+runtime values, builtins, and FFI
 ```
 
 Major components include:
 
-- `lexer`: tokenization
-- `parser`: recursive descent parser
-- `ast`: syntax tree structures
-- `semantics`: validation and name/type resolution
-- `modules`: multi-file project loading
-- `runtime`: values, diagnostics, spans, and runtime types
-- `interpreter`: execution engine
+- `frontend`: source processing, lexer, parser, AST, semantic validation, module loading
+- `runtime`: values, diagnostics, spans, type names, coercion, numeric operations, comparisons
+- `backend`: execution backends
+- `backend/interpreter`: current tree-walking interpreter
 - `builtins`: modular runtime builtins
 - `cli`: command-line interface and REPL
 
@@ -496,14 +682,35 @@ Valo supports a growing set of VBA-compatible features:
 - `Erl`
 - `Debug.Print`
 - `CallByName`
+- `Declare`, `PtrSafe`, `LongPtr`, `LongLong`
+- `AddressOf`
+- `VarPtr`, `StrPtr`, `ObjPtr`
 - `VBA.Join`, `VBA.Split`, `VBA.TypeName`, and other namespace fallbacks
 - `Variant`, `Object`, `Empty`, `Null`
+- implicit `Variant` defaults
+- classic function return assignment
 - `Array`, `Split`, `Join`, `Filter`
 - `LBound`, `UBound`, `ReDim`, `Erase`
 - `VarType`, `TypeName`, `IsObject`, `IsArray`, `IsEmpty`, `IsNull`
 
 Compatibility is pragmatic and growing. Valo is not a COM runtime and does not currently implement Office automation, IDispatch, or full COM interop.
-`Declare`/`PtrSafe` and native FFI remain future work.
+
+Experimental native FFI is supported through VBA-style `Declare`, `PtrSafe`, `LongPtr`, `AddressOf`, callbacks, and platform-aware library loading. Complex COM/OLE interop, full BSTR/SAFEARRAY ownership semantics, and Office automation are still outside the current scope.
+
+## Research directory
+
+The `research/` directory contains real-world VBA/VB-style modules, parser edge cases, runtime stress tests, FFI demos, interoperability experiments, and prototypes used during Valo development.
+
+These files are used to:
+
+- validate VBA compatibility
+- reproduce parser/runtime bugs
+- stress the interpreter and FFI layer
+- benchmark performance
+- explore future language features
+- prototype APIs and module-system behavior
+
+Files in this directory are experimental and may change frequently as the language evolves.
 
 ## Current limitations
 
@@ -519,17 +726,19 @@ Not implemented yet:
 - filesystem APIs
 - full Date/Time API
 - COM interop
-- native FFI
-- inheritance and interfaces
+- Office automation
+- inheritance
 - generics
 - full Collection / Dictionary runtime
 - async runtime
+- complete REPL declaration workflow
 
 Some compatibility areas are intentionally pragmatic today:
 
 - `Currency` and `Decimal` may use simplified mixed arithmetic paths.
 - `Rnd` does not yet perfectly replicate every VBA edge case.
 - `.cls` metadata is parsed for compatibility, but COM semantics are not implemented.
+- FFI intentionally rejects unsafe ownership cases such as mutable string buffers, complex COM/OLE Variant pointers, and nested non-blittable structure layouts.
 
 ## Roadmap
 
@@ -542,6 +751,8 @@ Near-term priorities:
 - compatibility-driven stabilization using real VBA modules
 - syntax highlighting
 - improved release packaging
+- stronger REPL workflows
+- import-system refinement
 
 Medium-term priorities:
 
@@ -552,11 +763,13 @@ Medium-term priorities:
 - benchmark suite
 - standard library organization
 - bytecode IR exploration
+- field/member dispatch optimization
 
 Long-term directions:
 
 - bytecode VM
-- FFI layer
+- deeper FFI stabilization
+- embedding API
 - WASM/native backend groundwork
 - editor integrations
 - migration tooling for VBA projects
@@ -567,16 +780,20 @@ Start here:
 
 - [Getting started](docs/getting-started.md)
 - [Language syntax](docs/language/syntax.md)
+- [Expressions](docs/language/expressions.md)
 - [Classes and objects](docs/language/classes.md)
 - [Modules and imports](docs/language/modules.md)
 - [Error handling](docs/language/error-handling.md)
 - [Types](docs/language/types.md)
 - [VBA compatibility](docs/language/vba-compat.md)
+- [FFI](docs/language/ffi.md)
 - [REPL](docs/repl.md)
 - [Examples](examples/README.md)
 
 Architecture docs:
 
+- [Frontend](docs/architecture/frontend.md)
+- [Backend](docs/architecture/backend.md)
 - [Runtime](docs/architecture/runtime.md)
 - [Parser](docs/architecture/parser.md)
 - [Diagnostics](docs/architecture/diagnostics.md)
@@ -596,6 +813,8 @@ Good areas to contribute:
 - standard library design
 - CLI and REPL improvements
 - runtime builtins
+- import-system design
+- real-world `.bas` / `.cls` compatibility cases
 
 Before submitting changes, run:
 
