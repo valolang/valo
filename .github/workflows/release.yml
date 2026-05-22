@@ -10,47 +10,57 @@ permissions:
 
 jobs:
   build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
     strategy:
+      fail-fast: false
       matrix:
         include:
-
-          # Linux x64
-          - os: ubuntu-latest
+          # Linux
+          - name: Linux x64
+            os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             archive: valo-linux-x64.tar.gz
             binary: valo
+            package: tar
 
-          # Linux x86
-          - os: ubuntu-latest
+          - name: Linux x86
+            os: ubuntu-latest
             target: i686-unknown-linux-gnu
             archive: valo-linux-x86.tar.gz
             binary: valo
+            package: tar
 
-          # Windows x64
-          - os: windows-latest
+          # Windows
+          - name: Windows x64
+            os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: valo-windows-x64.zip
             binary: valo.exe
+            package: zip
 
-          # Windows x86
-          - os: windows-latest
+          - name: Windows x86
+            os: windows-latest
             target: i686-pc-windows-msvc
             archive: valo-windows-x86.zip
             binary: valo.exe
+            package: zip
 
-          # macOS ARM64
-          - os: macos-latest
+          # macOS
+          - name: macOS ARM64
+            os: macos-15
             target: aarch64-apple-darwin
             archive: valo-macos-arm64.tar.gz
             binary: valo
+            package: tar
 
-          # macOS x64
-          - os: macos-latest
+          - name: macOS x64
+            os: macos-15-intel
             target: x86_64-apple-darwin
             archive: valo-macos-x64.tar.gz
             binary: valo
-
-    runs-on: ${{ matrix.os }}
+            package: tar
 
     steps:
       - name: Checkout
@@ -61,34 +71,75 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install Linux x86 dependencies
+        if: matrix.target == 'i686-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib libc6-dev-i386
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package Unix
-        if: runner.os != 'Windows'
+      - name: Prepare Unix package
+        if: matrix.package == 'tar'
         shell: bash
         run: |
-          mkdir release
+          set -e
 
-          cp target/${{ matrix.target }}/release/${{ matrix.binary }} release/${{ matrix.binary }}
+          rm -rf release
+          mkdir -p release/valo
 
-          tar -czf ${{ matrix.archive }} -C release ${{ matrix.binary }}
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} release/valo/${{ matrix.binary }}
+          chmod +x release/valo/${{ matrix.binary }}
 
-      - name: Package Windows
-        if: runner.os == 'Windows'
+          if [ -f README.md ]; then cp README.md release/valo/README.md; fi
+          if [ -f LICENSE ]; then cp LICENSE release/valo/LICENSE; fi
+          if [ -f LICENSE.md ]; then cp LICENSE.md release/valo/LICENSE.md; fi
+
+          tar -czf ${{ matrix.archive }} -C release valo
+
+      - name: Prepare Windows package
+        if: matrix.package == 'zip'
         shell: pwsh
         run: |
-          mkdir release
+          if (Test-Path release) {
+            Remove-Item release -Recurse -Force
+          }
 
-          copy target\${{ matrix.target }}\release\${{ matrix.binary }} release\${{ matrix.binary }}
+          New-Item -ItemType Directory -Path release\valo | Out-Null
+
+          Copy-Item target\${{ matrix.target }}\release\${{ matrix.binary }} release\valo\${{ matrix.binary }}
+
+          if (Test-Path README.md) {
+            Copy-Item README.md release\valo\README.md
+          }
+
+          if (Test-Path LICENSE) {
+            Copy-Item LICENSE release\valo\LICENSE
+          }
+
+          if (Test-Path LICENSE.md) {
+            Copy-Item LICENSE.md release\valo\LICENSE.md
+          }
 
           Compress-Archive `
-            -Path release\${{ matrix.binary }} `
-            -DestinationPath ${{ matrix.archive }}
+            -Path release\valo `
+            -DestinationPath ${{ matrix.archive }} `
+            -Force
+
+      - name: Generate checksum
+        shell: bash
+        run: |
+          if [ -f "${{ matrix.archive }}" ]; then
+            sha256sum "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256"
+          fi
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: true
           files: |
-            *.tar.gz
-            *.zip
+            ${{ matrix.archive }}
+            ${{ matrix.archive }}.sha256
