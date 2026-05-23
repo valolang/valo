@@ -1,6 +1,30 @@
 use super::*;
 use crate::runtime::Span;
 
+#[derive(Clone, Copy)]
+pub(super) struct ExprValidation<'a, 'ctx> {
+    pub(super) symbols: &'a HashMap<String, VarType>,
+    pub(super) types: &'a TypeRegistry,
+    pub(super) signatures: &'a Signatures,
+    pub(super) context: &'a Context<'ctx>,
+}
+
+impl<'a, 'ctx> ExprValidation<'a, 'ctx> {
+    pub(super) fn new(
+        symbols: &'a HashMap<String, VarType>,
+        types: &'a TypeRegistry,
+        signatures: &'a Signatures,
+        context: &'a Context<'ctx>,
+    ) -> Self {
+        Self {
+            symbols,
+            types,
+            signatures,
+            context,
+        }
+    }
+}
+
 pub(super) fn validate_assignment_target(
     target: &AssignTarget,
     value_type: &TypeName,
@@ -290,7 +314,11 @@ pub(super) fn validate_expr(
                 }
                 if let Some(init) = type_sig.subs.get("initialize") {
                     validate_arguments(
-                        "Sub", init, args, symbols, types, signatures, expr.span, context,
+                        "Sub",
+                        init,
+                        args,
+                        expr.span,
+                        ExprValidation::new(symbols, types, signatures, context),
                     )?;
                 } else if !args.is_empty() {
                     return Err(Diagnostic::new(
@@ -314,7 +342,11 @@ pub(super) fn validate_expr(
                 .or_else(|| class_sig.subs.get("class_initialize"))
             {
                 validate_arguments(
-                    "Sub", init, args, symbols, types, signatures, expr.span, context,
+                    "Sub",
+                    init,
+                    args,
+                    expr.span,
+                    ExprValidation::new(symbols, types, signatures, context),
                 )?;
             } else if !args.is_empty() {
                 return Err(Diagnostic::new(
@@ -397,11 +429,8 @@ pub(super) fn validate_expr(
                     "Function",
                     function,
                     &[],
-                    symbols,
-                    types,
-                    signatures,
                     expr.span,
-                    context,
+                    ExprValidation::new(symbols, types, signatures, context),
                 )?;
 
                 return Ok(function.return_type.clone().expect("function return type"));
@@ -409,62 +438,9 @@ pub(super) fn validate_expr(
             if let Some(owner_name) = context.current_class() {
                 if let Some(class_sig) = types.get_class(owner_name) {
                     let member_key = key(name);
-                    if let Some(field_sig) = class_sig.fields.get(&member_key) {
-                        if field_sig.is_shared || symbols.contains_key("me") {
-                            if field_sig.array.is_some() {
-                                return Err(Diagnostic::new(
-                                    crate::runtime::DiagnosticCode::ARRAY,
-                                    format!("Array variable '{}' cannot be used as a scalar", name),
-                                    Some(expr.span),
-                                ));
-                            }
-                            return Ok(field_sig.ty.clone());
-                        }
-                    }
-                    if let Some(func_sig) = class_sig.functions.get(&member_key) {
-                        if func_sig.is_shared || symbols.contains_key("me") {
-                            validate_arguments(
-                                "Function",
-                                func_sig,
-                                &[],
-                                symbols,
-                                types,
-                                signatures,
-                                expr.span,
-                                context,
-                            )?;
-                            return Ok(func_sig.return_type.clone().expect("function return type"));
-                        }
-                    }
-                    if let Some(prop_sig) = class_sig.properties.get(&member_key) {
-                        if (prop_sig.is_shared || symbols.contains_key("me"))
-                            && let Some(get) = &prop_sig.get
-                        {
-                            let callable = CallableSig {
-                                visibility: Visibility::Public,
-                                name: prop_sig.name.clone(),
-                                is_shared: prop_sig.is_shared,
-                                _is_iterator: get.is_iterator,
-                                is_declare: false,
-                                params: get.params.clone(),
-                                return_type: get.return_type.clone(),
-                            };
-                            validate_arguments(
-                                "Property",
-                                &callable,
-                                &[],
-                                symbols,
-                                types,
-                                signatures,
-                                expr.span,
-                                context,
-                            )?;
-                            return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
-                        }
-                    }
-                }
-                if let Some(type_sig) = types.get(owner_name) {
-                    if let Some(field_sig) = type_sig.fields.get(&key(name)) {
+                    if let Some(field_sig) = class_sig.fields.get(&member_key)
+                        && (field_sig.is_shared || symbols.contains_key("me"))
+                    {
                         if field_sig.array.is_some() {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::ARRAY,
@@ -474,6 +450,52 @@ pub(super) fn validate_expr(
                         }
                         return Ok(field_sig.ty.clone());
                     }
+                    if let Some(func_sig) = class_sig.functions.get(&member_key)
+                        && (func_sig.is_shared || symbols.contains_key("me"))
+                    {
+                        validate_arguments(
+                            "Function",
+                            func_sig,
+                            &[],
+                            expr.span,
+                            ExprValidation::new(symbols, types, signatures, context),
+                        )?;
+                        return Ok(func_sig.return_type.clone().expect("function return type"));
+                    }
+                    if let Some(prop_sig) = class_sig.properties.get(&member_key)
+                        && (prop_sig.is_shared || symbols.contains_key("me"))
+                        && let Some(get) = &prop_sig.get
+                    {
+                        let callable = CallableSig {
+                            visibility: Visibility::Public,
+                            name: prop_sig.name.clone(),
+                            is_shared: prop_sig.is_shared,
+                            _is_iterator: get.is_iterator,
+                            is_declare: false,
+                            params: get.params.clone(),
+                            return_type: get.return_type.clone(),
+                        };
+                        validate_arguments(
+                            "Property",
+                            &callable,
+                            &[],
+                            expr.span,
+                            ExprValidation::new(symbols, types, signatures, context),
+                        )?;
+                        return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
+                    }
+                }
+                if let Some(type_sig) = types.get(owner_name)
+                    && let Some(field_sig) = type_sig.fields.get(&key(name))
+                {
+                    if field_sig.array.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            format!("Array variable '{}' cannot be used as a scalar", name),
+                            Some(expr.span),
+                        ));
+                    }
+                    return Ok(field_sig.ty.clone());
                 }
             }
             if enum_member_value_type(name, types).is_some() {
@@ -592,7 +614,11 @@ pub(super) fn validate_expr(
             {
                 if let Some(function) = class_sig.functions.get(&key(method)) {
                     validate_arguments(
-                        "Function", function, args, symbols, types, signatures, expr.span, context,
+                        "Function",
+                        function,
+                        args,
+                        expr.span,
+                        ExprValidation::new(symbols, types, signatures, context),
                     )?;
                     return Ok(function.return_type.clone().unwrap_or(TypeName::Variant));
                 }
@@ -609,7 +635,11 @@ pub(super) fn validate_expr(
                         return_type: get.return_type.clone(),
                     };
                     validate_arguments(
-                        "Property", &callable, args, symbols, types, signatures, expr.span, context,
+                        "Property",
+                        &callable,
+                        args,
+                        expr.span,
+                        ExprValidation::new(symbols, types, signatures, context),
                     )?;
                     return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
                 }
@@ -788,30 +818,28 @@ pub(super) fn validate_expr(
             }
 
             let mut function = signatures.functions.get(&key(name)).cloned();
-            if function.is_none() {
-                if let Some(owner_name) = context.current_class() {
-                    if let Some(class_sig) = types.get_class(owner_name) {
-                        let member_key = key(name);
-                        if let Some(func_sig) = class_sig.functions.get(&member_key) {
-                            if func_sig.is_shared || symbols.contains_key("me") {
-                                function = Some(func_sig.clone());
-                            }
-                        } else if let Some(prop_sig) = class_sig.properties.get(&member_key)
-                            && let Some(get) = &prop_sig.get
-                        {
-                            if prop_sig.is_shared || symbols.contains_key("me") {
-                                function = Some(CallableSig {
-                                    visibility: Visibility::Public,
-                                    name: prop_sig.name.clone(),
-                                    is_shared: prop_sig.is_shared,
-                                    _is_iterator: get.is_iterator,
-                                    is_declare: false,
-                                    params: get.params.clone(),
-                                    return_type: get.return_type.clone(),
-                                });
-                            }
-                        }
+            if function.is_none()
+                && let Some(owner_name) = context.current_class()
+                && let Some(class_sig) = types.get_class(owner_name)
+            {
+                let member_key = key(name);
+                if let Some(func_sig) = class_sig.functions.get(&member_key) {
+                    if func_sig.is_shared || symbols.contains_key("me") {
+                        function = Some(func_sig.clone());
                     }
+                } else if let Some(prop_sig) = class_sig.properties.get(&member_key)
+                    && let Some(get) = &prop_sig.get
+                    && (prop_sig.is_shared || symbols.contains_key("me"))
+                {
+                    function = Some(CallableSig {
+                        visibility: Visibility::Public,
+                        name: prop_sig.name.clone(),
+                        is_shared: prop_sig.is_shared,
+                        _is_iterator: get.is_iterator,
+                        is_declare: false,
+                        params: get.params.clone(),
+                        return_type: get.return_type.clone(),
+                    });
                 }
             }
 
@@ -831,7 +859,11 @@ pub(super) fn validate_expr(
             };
 
             validate_arguments(
-                "Function", &function, args, symbols, types, signatures, expr.span, context,
+                "Function",
+                &function,
+                args,
+                expr.span,
+                ExprValidation::new(symbols, types, signatures, context),
             )?;
             Ok(function.return_type.clone().expect("function return type"))
         }
@@ -1330,11 +1362,8 @@ pub(super) fn validate_arguments(
     kind: &str,
     callable: &CallableSig,
     args: &[Expr],
-    symbols: &HashMap<String, VarType>,
-    types: &TypeRegistry,
-    signatures: &Signatures,
     span: Span,
-    context: &Context<'_>,
+    validation: ExprValidation<'_, '_>,
 ) -> Result<(), Diagnostic> {
     let has_param_array = callable
         .params
@@ -1376,7 +1405,7 @@ pub(super) fn validate_arguments(
                     Some(arg.span),
                 ));
             }
-            validate_argument_value(param, value, symbols, types, signatures, context)?;
+            validate_argument_value(param, value, validation)?;
             assigned[index] = true;
             continue;
         }
@@ -1404,7 +1433,7 @@ pub(super) fn validate_arguments(
                 Some(span),
             ));
         };
-        validate_argument_value(param, arg, symbols, types, signatures, context)?;
+        validate_argument_value(param, arg, validation)?;
         if !param.is_param_array {
             assigned[positional_index] = true;
             positional_index += 1;
@@ -1436,24 +1465,45 @@ pub(super) fn validate_arguments(
 fn validate_argument_value(
     param: &ParamSig,
     arg: &Expr,
-    symbols: &HashMap<String, VarType>,
-    types: &TypeRegistry,
-    signatures: &Signatures,
-    context: &Context<'_>,
+    validation: ExprValidation<'_, '_>,
 ) -> Result<(), Diagnostic> {
     if param.is_param_array {
-        let arg_type = validate_expr(arg, symbols, types, signatures, context)?;
-        ensure_assignable_expr(&TypeName::Variant, &arg_type, arg, types, arg.span)?;
+        let arg_type = validate_expr(
+            arg,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+        )?;
+        ensure_assignable_expr(
+            &TypeName::Variant,
+            &arg_type,
+            arg,
+            validation.types,
+            arg.span,
+        )?;
         return Ok(());
     }
     match param.mode {
         PassingMode::ByVal => {
-            let arg_type = validate_expr(arg, symbols, types, signatures, context)?;
-            ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)
+            let arg_type = validate_expr(
+                arg,
+                validation.symbols,
+                validation.types,
+                validation.signatures,
+                validation.context,
+            )?;
+            ensure_assignable_expr(&param.ty, &arg_type, arg, validation.types, arg.span)
         }
         PassingMode::ByRef => {
-            let arg_type = validate_expr(arg, symbols, types, signatures, context)?;
-            ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)
+            let arg_type = validate_expr(
+                arg,
+                validation.symbols,
+                validation.types,
+                validation.signatures,
+                validation.context,
+            )?;
+            ensure_assignable_expr(&param.ty, &arg_type, arg, validation.types, arg.span)
         }
     }
 }
@@ -1506,7 +1556,11 @@ pub(super) fn validate_method_call(
                 span,
             )?;
             validate_arguments(
-                "Function", method_sig, args, symbols, types, signatures, span, context,
+                "Function",
+                method_sig,
+                args,
+                span,
+                ExprValidation::new(symbols, types, signatures, context),
             )?;
             return Ok(method_sig.return_type.clone().expect("function return"));
         }
@@ -1531,7 +1585,11 @@ pub(super) fn validate_method_call(
                     return_type: Some(return_type.clone()),
                 };
                 if validate_arguments(
-                    "Property", &dummy_sig, args, symbols, types, signatures, span, context,
+                    "Property",
+                    &dummy_sig,
+                    args,
+                    span,
+                    ExprValidation::new(symbols, types, signatures, context),
                 )
                 .is_ok()
                 {
@@ -1595,7 +1653,11 @@ pub(super) fn validate_method_call(
                 span,
             )?;
             validate_arguments(
-                "Sub", method_sig, args, symbols, types, signatures, span, context,
+                "Sub",
+                method_sig,
+                args,
+                span,
+                ExprValidation::new(symbols, types, signatures, context),
             )?;
             return Ok(TypeName::Variant);
         }
@@ -1669,7 +1731,11 @@ fn validate_structure_method_call(
                 span,
             )?;
             validate_arguments(
-                "Function", method_sig, args, symbols, types, signatures, span, context,
+                "Function",
+                method_sig,
+                args,
+                span,
+                ExprValidation::new(symbols, types, signatures, context),
             )?;
             return Ok(method_sig.return_type.clone().expect("function return"));
         }
@@ -1690,7 +1756,11 @@ fn validate_structure_method_call(
                 return_type: Some(return_type.clone()),
             };
             validate_arguments(
-                "Property", &dummy_sig, args, symbols, types, signatures, span, context,
+                "Property",
+                &dummy_sig,
+                args,
+                span,
+                ExprValidation::new(symbols, types, signatures, context),
             )?;
             return Ok(return_type);
         }
@@ -1726,7 +1796,11 @@ fn validate_structure_method_call(
                 span,
             )?;
             validate_arguments(
-                "Sub", method_sig, args, symbols, types, signatures, span, context,
+                "Sub",
+                method_sig,
+                args,
+                span,
+                ExprValidation::new(symbols, types, signatures, context),
             )?;
             return Ok(TypeName::Variant);
         }

@@ -209,15 +209,15 @@ impl Interpreter {
                     return Ok(flow);
                 }
 
-                if let Ok(me) = frame.get("me", *span) {
-                    if let Value::Object(ref obj) = me {
-                        let class_name = obj.borrow().class_name.clone();
-                        if let Some(class) = self.classes.get(&super::values::key(&class_name)) {
-                            if class.subs.contains_key(&super::values::key(name)) {
-                                self.call_method_sub(me, name, args, frame, *span)?;
-                                return Ok(ControlFlow::Continue);
-                            }
-                        }
+                if let Ok(me) = frame.get("me", *span)
+                    && let Value::Object(ref obj) = me
+                {
+                    let class_name = obj.borrow().class_name.clone();
+                    if let Some(class) = self.classes.get(&super::values::key(&class_name))
+                        && class.subs.contains_key(&super::values::key(name))
+                    {
+                        self.call_method_sub(me, name, args, frame, *span)?;
+                        return Ok(ControlFlow::Continue);
                     }
                 }
 

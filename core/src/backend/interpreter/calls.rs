@@ -1524,10 +1524,10 @@ impl Interpreter {
                                         }
                                     };
                                     let mut can_alias = false;
-                                    if let Value::Array(array) = &*array_val {
-                                        if array.element_type.same_type(&param_ty) {
-                                            can_alias = true;
-                                        }
+                                    if let Value::Array(array) = &*array_val
+                                        && array.element_type.same_type(&param_ty)
+                                    {
+                                        can_alias = true;
                                     }
 
                                     if can_alias {
@@ -1594,20 +1594,16 @@ impl Interpreter {
                                 let obj_variable = caller_frame.variable(obj_name, object.span)?;
                                 if let VariableCell::Direct(obj_cell) = &obj_variable.cell {
                                     let mut can_alias = false;
-                                    if let Value::Record(record) = &*obj_cell.borrow() {
-                                        if let Some(type_sig) =
+                                    if let Value::Record(record) = &*obj_cell.borrow()
+                                        && let Some(type_sig) =
                                             self.types.get(&key(&record.type_name))
-                                        {
-                                            if let Some(field_sig) = type_sig
-                                                .fields
-                                                .iter()
-                                                .find(|f| key(&f.name) == key(field))
-                                            {
-                                                if field_sig.ty.same_type(&param_ty) {
-                                                    can_alias = true;
-                                                }
-                                            }
-                                        }
+                                        && let Some(field_sig) = type_sig
+                                            .fields
+                                            .iter()
+                                            .find(|f| key(&f.name) == key(field))
+                                        && field_sig.ty.same_type(&param_ty)
+                                    {
+                                        can_alias = true;
                                     }
 
                                     if can_alias {

@@ -317,35 +317,34 @@ impl Interpreter {
                     }
                 }
                 if let Ok(me) = frame.get("me", expr.span) {
-                    if let Ok(field_value) = self.read_member(&me, name, frame, expr.span) {
-                        if matches!(field_value, Value::Array(_)) {
-                            let mut dims = Vec::new();
-                            for arg in args {
-                                dims.push(self.eval_integer_expr(
-                                    arg,
-                                    frame,
-                                    "Array index must be Integer",
-                                )?);
-                            }
-                            return self
-                                .read_bare_class_field_array_element(me, name, &dims, expr.span);
+                    if let Ok(field_value) = self.read_member(&me, name, frame, expr.span)
+                        && matches!(field_value, Value::Array(_))
+                    {
+                        let mut dims = Vec::new();
+                        for arg in args {
+                            dims.push(self.eval_integer_expr(
+                                arg,
+                                frame,
+                                "Array index must be Integer",
+                            )?);
                         }
+                        return self
+                            .read_bare_class_field_array_element(me, name, &dims, expr.span);
                     }
 
                     if let Value::Object(ref obj) = me {
                         let class_name = obj.borrow().class_name.clone();
-                        if let Some(class) = self.classes.get(&super::values::key(&class_name)) {
-                            if class.functions.contains_key(&super::values::key(name))
-                                || class.properties.contains_key(&super::values::key(name))
-                            {
-                                return self.call_method_function(
-                                    me.clone(),
-                                    name,
-                                    args,
-                                    frame,
-                                    expr.span,
-                                );
-                            }
+                        if let Some(class) = self.classes.get(&super::values::key(&class_name))
+                            && (class.functions.contains_key(&super::values::key(name))
+                                || class.properties.contains_key(&super::values::key(name)))
+                        {
+                            return self.call_method_function(
+                                me.clone(),
+                                name,
+                                args,
+                                frame,
+                                expr.span,
+                            );
                         }
                     }
                 }

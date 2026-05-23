@@ -332,13 +332,13 @@ impl Interpreter {
         value: Value,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let class_name = self.resolve_user_type_name(class_name, &mut Frame::default(), span)?;
-        if let Some(fields) = self.shared_class_fields.get_mut(&key(&class_name)) {
-            if let Some(slot) = fields.get_mut(&key(member)) {
-                let ty = slot.type_name();
-                *slot = coerce_assignment(&ty, value, span)?;
-                return Ok(());
-            }
+        let class_name = self.resolve_user_type_name(class_name, &Frame::default(), span)?;
+        if let Some(fields) = self.shared_class_fields.get_mut(&key(&class_name))
+            && let Some(slot) = fields.get_mut(&key(member))
+        {
+            let ty = slot.type_name();
+            *slot = coerce_assignment(&ty, value, span)?;
+            return Ok(());
         }
         Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::MEMBER_ACCESS,

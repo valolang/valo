@@ -7,26 +7,28 @@ fn validate_const_decl(
     ty: &Option<TypeName>,
     value: &Expr,
     span: crate::runtime::Span,
-    symbols: &mut HashMap<String, VarType>,
-    types: &TypeRegistry,
-    signatures: &Signatures,
-    context: &Context<'_>,
-) -> Result<(), Diagnostic> {
-    ensure_const_expr(value, symbols, types)?;
-    let value_type = validate_expr(value, symbols, types, signatures, &context)?;
+    validation: ExprValidation<'_, '_>,
+) -> Result<(String, VarType), Diagnostic> {
+    ensure_const_expr(value, validation.symbols, validation.types)?;
+    let value_type = validate_expr(
+        value,
+        validation.symbols,
+        validation.types,
+        validation.signatures,
+        validation.context,
+    )?;
     let const_type = ty.clone().unwrap_or(value_type.clone());
-    ensure_known_type(&const_type, types, span)?;
-    ensure_assignable_expr(&const_type, &value_type, value, types, span)?;
+    ensure_known_type(&const_type, validation.types, span)?;
+    ensure_assignable_expr(&const_type, &value_type, value, validation.types, span)?;
     let key = key(name);
-    if symbols.contains_key(&key) {
+    if validation.symbols.contains_key(&key) {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
             format!("Variable '{}' is already declared", name),
             Some(span),
         ));
     }
-    symbols.insert(key, VarType::Const(Visibility::Public, const_type));
-    Ok(())
+    Ok((key, VarType::Const(Visibility::Public, const_type)))
 }
 
 pub(super) fn validate_statements(
@@ -79,7 +81,11 @@ pub(super) fn validate_statements(
                 )?;
                 ensure_known_type(&ty, types, *span)?;
                 validate_as_new(
-                    *as_new, &ty, new_args, symbols, types, signatures, *span, &context,
+                    *as_new,
+                    &ty,
+                    new_args,
+                    *span,
+                    ExprValidation::new(symbols, types, signatures, &context),
                 )?;
                 if let Some(initializer) = initializer {
                     if array.is_some() {
@@ -139,11 +145,8 @@ pub(super) fn validate_statements(
                         decl.as_new,
                         &ty,
                         &decl.new_args,
-                        symbols,
-                        types,
-                        signatures,
                         decl.span,
-                        &context,
+                        ExprValidation::new(symbols, types, signatures, &context),
                     )?;
                     if let Some(initializer) = &decl.initializer {
                         if decl.array.is_some() {
@@ -184,20 +187,25 @@ pub(super) fn validate_statements(
                 value,
                 span,
             } => {
-                validate_const_decl(name, ty, value, *span, symbols, types, signatures, &context)?;
+                let (const_key, const_type) = validate_const_decl(
+                    name,
+                    ty,
+                    value,
+                    *span,
+                    ExprValidation::new(symbols, types, signatures, &context),
+                )?;
+                symbols.insert(const_key, const_type);
             }
             Stmt::ConstMany { consts, .. } => {
                 for const_decl in consts {
-                    validate_const_decl(
+                    let (const_key, const_type) = validate_const_decl(
                         &const_decl.name,
                         &const_decl.ty,
                         &const_decl.value,
                         const_decl.span,
-                        symbols,
-                        types,
-                        signatures,
-                        &context,
+                        ExprValidation::new(symbols, types, signatures, &context),
                     )?;
+                    symbols.insert(const_key, const_type);
                 }
             }
             Stmt::Assign { target, expr, span } => {
@@ -313,7 +321,11 @@ pub(super) fn validate_statements(
                     ));
                 };
                 validate_arguments(
-                    "Event", event_sig, args, symbols, types, signatures, *span, &context,
+                    "Event",
+                    event_sig,
+                    args,
+                    *span,
+                    ExprValidation::new(symbols, types, signatures, &context),
                 )?;
             }
             Stmt::Return { expr, span } => {
@@ -714,11 +726,8 @@ pub(super) fn validate_statements(
                         decl.as_new,
                         &ty,
                         &decl.new_args,
-                        symbols,
-                        types,
-                        signatures,
                         decl.span,
-                        &context,
+                        ExprValidation::new(symbols, types, signatures, &context),
                     )?;
                     if let Some(initializer) = &decl.initializer {
                         let source_type =
@@ -830,7 +839,7 @@ fn declared_variable_type(
         return Ok(ty.clone());
     }
     if let Some(initializer) = initializer {
-        return validate_expr(initializer, symbols, types, signatures, &context);
+        return validate_expr(initializer, symbols, types, signatures, context);
     }
     let _ = span;
     Ok(TypeName::Variant)
@@ -840,11 +849,8 @@ fn validate_as_new(
     as_new: bool,
     ty: &TypeName,
     args: &[Expr],
-    symbols: &HashMap<String, VarType>,
-    types: &TypeRegistry,
-    signatures: &Signatures,
     span: crate::runtime::Span,
-    context: &Context<'_>,
+    validation: ExprValidation<'_, '_>,
 ) -> Result<(), Diagnostic> {
     if !as_new {
         return Ok(());
@@ -863,7 +869,14 @@ fn validate_as_new(
         },
         span,
     };
-    validate_expr(&expr, symbols, types, signatures, &context).map(|_| ())
+    validate_expr(
+        &expr,
+        validation.symbols,
+        validation.types,
+        validation.signatures,
+        validation.context,
+    )
+    .map(|_| ())
 }
 
 fn validate_using_disposable(
@@ -991,22 +1004,21 @@ fn validate_sub_call(
         .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
     {
         for arg in args {
-            validate_expr(arg, symbols, types, signatures, &context)?;
+            validate_expr(arg, symbols, types, signatures, context)?;
         }
         return Ok(());
     }
 
     let mut sub = signatures.subs.get(&key(effective_name)).cloned();
-    if sub.is_none() {
-        if let Some(owner_name) = context.current_class() {
-            if let Some(class_sig) = types.get_class(owner_name) {
-                let member_key = key(effective_name);
-                if let Some(sub_sig) = class_sig.subs.get(&member_key) {
-                    if sub_sig.is_shared || symbols.contains_key("me") {
-                        sub = Some(sub_sig.clone());
-                    }
-                }
-            }
+    if sub.is_none()
+        && let Some(owner_name) = context.current_class()
+        && let Some(class_sig) = types.get_class(owner_name)
+    {
+        let member_key = key(effective_name);
+        if let Some(sub_sig) = class_sig.subs.get(&member_key)
+            && (sub_sig.is_shared || symbols.contains_key("me"))
+        {
+            sub = Some(sub_sig.clone());
         }
     }
 
@@ -1023,7 +1035,11 @@ fn validate_sub_call(
                 ));
             }
             validate_arguments(
-                "Function", func, args, symbols, types, signatures, span, context,
+                "Function",
+                func,
+                args,
+                span,
+                ExprValidation::new(symbols, types, signatures, context),
             )?;
         } else {
             return Err(Diagnostic::new(
@@ -1036,7 +1052,11 @@ fn validate_sub_call(
     };
 
     validate_arguments(
-        "Sub", &sub, args, symbols, types, signatures, span, &context,
+        "Sub",
+        &sub,
+        args,
+        span,
+        ExprValidation::new(symbols, types, signatures, context),
     )
 }
 
@@ -1117,7 +1137,7 @@ fn redim_target_is_dynamic_array(
             field,
             span,
         } => {
-            let object_type = validate_expr(object, symbols, types, signatures, &context)?;
+            let object_type = validate_expr(object, symbols, types, signatures, context)?;
             let member_type =
                 member_read_type(&object_type, field, types, *span, context.current_class())?;
             if let TypeName::User(class_name) = &object_type
@@ -1324,7 +1344,7 @@ fn validate_for_each_iterable_expr(
         return Ok(element_type);
     }
 
-    let iterable_type = validate_expr(expr, symbols, types, signatures, &context)?;
+    let iterable_type = validate_expr(expr, symbols, types, signatures, context)?;
     match iterable_type {
         TypeName::Variant => Ok(TypeName::Variant),
         TypeName::User(class_name) => {
