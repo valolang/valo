@@ -89,6 +89,7 @@ impl<'a> Lexer<'a> {
                 '#' => tokens.push(self.single_char(TokenKind::Hash)),
                 '@' => tokens.push(self.single_char(TokenKind::At)),
                 '$' => tokens.push(self.single_char(TokenKind::Dollar)),
+                ';' => tokens.push(self.single_char(TokenKind::Semicolon)),
                 '=' => tokens.push(self.single_char(TokenKind::Equal)),
                 '<' => tokens.push(self.less_or_not_equal()),
                 '>' => tokens.push(self.greater_or_equal()),

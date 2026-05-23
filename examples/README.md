@@ -48,6 +48,16 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 *   **[VBA Syntax](vba_syntax.valo):** Legacy Basic constructs supported by Valo.
 *   **[Exported .cls](exported_class.cls):** Compatibility with files exported from VBA.
 *   **[VBA Compat](vba_compat.valo):** Demonstrating the bridge between native and legacy features.
+*   **[VBA Constants](vba_constants.valo):** Generic VBA runtime constants such as `vbCrLf`, `vbTab`, `vbTrue`, and `vbString`.
+*   **[VBA String Functions](vba_string_functions.valo):** Safe VBA string/runtime functions such as `Len`, `Left$`, `Mid$`, `Replace`, `InStr`, `Chr$`, `Hex$`, and `Oct$`.
+*   **[VBA File I/O](vba_file_io.valo):** Classic file-number I/O using `FreeFile`, `Open`, `Print #`, `Line Input #`, `EOF`, `Close`, and `Kill`.
+*   **[VBA Dir](vba_dir.valo):** Basic wildcard enumeration with `Dir(pattern)` and repeated `Dir()` calls.
+
+Run an example with:
+
+```sh
+valo run examples/vba_file_io.valo
+```
 
 ## Advanced Features
 

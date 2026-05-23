@@ -1,0 +1,22 @@
+Sub Main()
+    Dim f As Integer
+    Dim first As String
+    Dim second As String
+
+    f = FreeFile
+    Open "valo-dir-demo-a.txt" For Output As #f
+    Print #f, "A"
+    Close #f
+
+    Open "valo-dir-demo-b.txt" For Output As #f
+    Print #f, "B"
+    Close #f
+
+    first = Dir("valo-dir-demo-*.txt")
+    second = Dir()
+    Debug.Print first
+    Debug.Print second
+
+    Kill "valo-dir-demo-a.txt"
+    Kill "valo-dir-demo-b.txt"
+End Sub

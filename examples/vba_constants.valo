@@ -1,0 +1,7 @@
+Sub Main()
+    Debug.Print Len(vbNullString)
+    Debug.Print "A" & vbCrLf & "B"
+    Debug.Print vbTab & "tabbed"
+    Debug.Print vbTrue
+    Debug.Print VarType("hello") = vbString
+End Sub

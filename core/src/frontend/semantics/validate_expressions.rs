@@ -388,6 +388,9 @@ pub(super) fn validate_expr(
             if name.eq_ignore_ascii_case("Erl") {
                 return Ok(TypeName::Integer);
             }
+            if name.eq_ignore_ascii_case("FreeFile") {
+                return Ok(TypeName::Integer);
+            }
             if name.eq_ignore_ascii_case("Console") {
                 return Ok(TypeName::Variant);
             }
@@ -1136,10 +1139,52 @@ fn validate_builtin_function(
         || effective_name.eq_ignore_ascii_case("LenB")
         || effective_name.eq_ignore_ascii_case("Asc")
         || effective_name.eq_ignore_ascii_case("AscW")
+        || effective_name.eq_ignore_ascii_case("FreeFile")
+        || effective_name.eq_ignore_ascii_case("LOF")
+        || effective_name.eq_ignore_ascii_case("Seek")
+        || effective_name.eq_ignore_ascii_case("FileLen")
     {
+        let expected = if effective_name.eq_ignore_ascii_case("FreeFile") {
+            0
+        } else {
+            1
+        };
+        validate_arg_count(effective_name, args, expected, span)?;
+        if expected == 1 {
+            validate_expr(&args[0], symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::Integer));
+    }
+    if effective_name.eq_ignore_ascii_case("EOF") {
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures, context)?;
-        return Ok(Some(TypeName::Integer));
+        return Ok(Some(TypeName::Boolean));
+    }
+    if effective_name.eq_ignore_ascii_case("Dir") {
+        if args.len() > 2 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Dir expects 0 to 2 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("CurDir") {
+        if args.len() > 1 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "CurDir expects 0 to 1 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::String));
     }
     if effective_name.eq_ignore_ascii_case("VarPtr")
         || effective_name.eq_ignore_ascii_case("StrPtr")

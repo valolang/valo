@@ -146,6 +146,33 @@ pub(crate) fn dispatch_function(
         }
     }
 
+    if matches!(
+        effective_name.to_ascii_lowercase().as_str(),
+        "freefile" | "eof" | "lof" | "seek" | "dir" | "filelen" | "curdir"
+    ) {
+        let mut values = Vec::with_capacity(args.len());
+        for arg in args {
+            values.push(interpreter.eval_expr(arg, frame)?);
+        }
+        return dispatch_file_function(interpreter, effective_name, &values, span);
+    }
+
+    if matches!(
+        effective_name.to_ascii_lowercase().as_str(),
+        "kill" | "mkdir" | "rmdir" | "chdir"
+    ) {
+        expect_arg_count(effective_name, args, 1, span)?;
+        let path = interpreter.eval_expr(&args[0], frame)?.to_output_string();
+        match effective_name.to_ascii_lowercase().as_str() {
+            "kill" => interpreter.kill_path(&path, span)?,
+            "mkdir" => interpreter.mkdir_path(&path, span)?,
+            "rmdir" => interpreter.rmdir_path(&path, span)?,
+            "chdir" => interpreter.chdir_path(&path, span)?,
+            _ => unreachable!(),
+        }
+        return Ok(Some(Value::Empty));
+    }
+
     if !is_builtin_function(effective_name) {
         return Ok(None);
     }
@@ -239,8 +266,128 @@ fn is_builtin_function(name: &str) -> bool {
             | "str"
             | "hex"
             | "oct"
+            | "freefile"
+            | "eof"
+            | "lof"
+            | "seek"
+            | "dir"
+            | "filelen"
+            | "curdir"
+            | "kill"
+            | "mkdir"
+            | "rmdir"
+            | "chdir"
             | "ismissing"
     )
+}
+
+fn dispatch_file_function(
+    interpreter: &mut Interpreter,
+    name: &str,
+    args: &[Value],
+    span: crate::runtime::Span,
+) -> Result<Option<Value>, Diagnostic> {
+    match name.to_ascii_lowercase().as_str() {
+        "freefile" => {
+            if !args.is_empty() {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "FreeFile expects no arguments",
+                    Some(span),
+                ));
+            }
+            Ok(Some(Value::Int64(i64::from(
+                interpreter.free_file_number(),
+            ))))
+        }
+        "eof" => {
+            expect_value_count(name, args, 1, span)?;
+            let number = file_number_arg(name, &args[0], span)?;
+            Ok(Some(Value::Boolean(interpreter.eof_file(number, span)?)))
+        }
+        "lof" => {
+            expect_value_count(name, args, 1, span)?;
+            let number = file_number_arg(name, &args[0], span)?;
+            Ok(Some(Value::Int64(interpreter.lof_file(number, span)?)))
+        }
+        "seek" => {
+            expect_value_count(name, args, 1, span)?;
+            let number = file_number_arg(name, &args[0], span)?;
+            Ok(Some(Value::Int64(
+                interpreter.seek_file_position(number, span)?,
+            )))
+        }
+        "dir" => Ok(Some(Value::String(interpreter.dir(args, span)?))),
+        "filelen" => {
+            expect_value_count(name, args, 1, span)?;
+            let path = args[0].to_output_string();
+            let len = std::fs::metadata(&path).map_err(|error| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    format!("Unable to get FileLen for '{}': {}", path, error),
+                    Some(span),
+                )
+            })?;
+            Ok(Some(Value::Int64(len.len() as i64)))
+        }
+        "curdir" => {
+            if args.len() > 1 {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "CurDir expects 0 to 1 arguments",
+                    Some(span),
+                ));
+            }
+            let cwd = std::env::current_dir().map_err(|error| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    format!("Unable to get current directory: {}", error),
+                    Some(span),
+                )
+            })?;
+            Ok(Some(Value::String(cwd.display().to_string())))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn expect_value_count(
+    name: &str,
+    args: &[Value],
+    expected: usize,
+    span: crate::runtime::Span,
+) -> Result<(), Diagnostic> {
+    if args.len() == expected {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::GENERIC,
+            format!("{name} expects exactly {expected} argument(s)"),
+            Some(span),
+        ))
+    }
+}
+
+fn file_number_arg(
+    name: &str,
+    value: &Value,
+    span: crate::runtime::Span,
+) -> Result<i32, Diagnostic> {
+    let number = crate::runtime::numeric::value_to_i64(value).ok_or_else(|| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!("{name} file number must be Integer"),
+            Some(span),
+        )
+    })?;
+    if !(1..=511).contains(&number) {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "File number must be between 1 and 511",
+            Some(span),
+        ));
+    }
+    Ok(number as i32)
 }
 
 fn dispatch_callbyname(

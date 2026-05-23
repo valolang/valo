@@ -1,0 +1,18 @@
+Sub Main()
+    Dim f As Integer
+    Dim line As String
+
+    f = FreeFile
+
+    Open "valo-demo.txt" For Output As #f
+    Print #f, "Hello from Valo"
+    Close #f
+
+    Open "valo-demo.txt" For Input As #f
+    Line Input #f, line
+    Debug.Print EOF(f)
+    Close #f
+
+    Debug.Print line
+    Kill "valo-demo.txt"
+End Sub

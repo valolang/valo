@@ -82,6 +82,8 @@ impl Interpreter {
             ExprKind::Variable(name) => {
                 if name.eq_ignore_ascii_case("Erl") {
                     Ok(Value::Int64(self.erl))
+                } else if name.eq_ignore_ascii_case("FreeFile") {
+                    Ok(Value::Int64(i64::from(self.free_file_number())))
                 } else if name.eq_ignore_ascii_case("VBA")
                     || name.eq_ignore_ascii_case("Console")
                     || name.eq_ignore_ascii_case("Err")

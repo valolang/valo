@@ -48,6 +48,7 @@ pub struct Interpreter {
     pub(crate) public_enums: HashSet<String>,
     pub(crate) public_values: HashMap<String, HashSet<String>>,
     pub(crate) rng: Pcg64,
+    pub(crate) file_io: super::file_io::FileIoState,
     pub(crate) terminated: bool,
 }
 
@@ -90,6 +91,7 @@ impl Default for Interpreter {
             public_enums: HashSet::new(),
             public_values: HashMap::new(),
             rng: Pcg64::from_entropy(),
+            file_io: super::file_io::FileIoState::default(),
             terminated: false,
         }
     }

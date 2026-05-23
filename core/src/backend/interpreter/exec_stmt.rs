@@ -590,6 +590,63 @@ impl Interpreter {
                 self.output.push(parts.join("\t"));
                 Ok(ControlFlow::Continue)
             }
+            Stmt::OpenFile {
+                path,
+                mode,
+                number,
+                span,
+            } => {
+                self.open_file(path, *mode, number, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::CloseFile { numbers, .. } => {
+                self.close_files(numbers, frame)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::LineInput {
+                number,
+                target,
+                span,
+            } => {
+                self.line_input_file(number, target, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::InputFile {
+                number,
+                targets,
+                span,
+            } => {
+                self.input_file(number, targets, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::PrintFile {
+                number,
+                items,
+                span,
+            } => {
+                self.print_file(number, items, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::WriteFile { number, args, span } => {
+                self.write_file(number, args, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::SeekFile {
+                number,
+                position,
+                span,
+            } => {
+                self.seek_file_statement(number, position, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::NameFile {
+                old_path,
+                new_path,
+                span,
+            } => {
+                self.name_file(old_path, new_path, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
         }
     }
 
@@ -1095,6 +1152,14 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::Exit { span, .. }
         | Stmt::TryCatch { span, .. }
         | Stmt::DebugPrint { span, .. }
+        | Stmt::OpenFile { span, .. }
+        | Stmt::CloseFile { span, .. }
+        | Stmt::LineInput { span, .. }
+        | Stmt::InputFile { span, .. }
+        | Stmt::PrintFile { span, .. }
+        | Stmt::WriteFile { span, .. }
+        | Stmt::SeekFile { span, .. }
+        | Stmt::NameFile { span, .. }
         | Stmt::Yield { span, .. }
         | Stmt::End { span } => *span,
     }

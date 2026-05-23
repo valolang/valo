@@ -76,6 +76,52 @@ impl Parser {
                     span: self.previous().span,
                 })
             }
+            TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Open") => {
+                self.parse_open_file()
+            }
+            TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Close") => {
+                self.parse_close_file()
+            }
+            TokenKind::Identifier(name, _)
+                if name.eq_ignore_ascii_case("Line")
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Identifier(next, _)) if next.eq_ignore_ascii_case("Input")) =>
+            {
+                self.parse_line_input()
+            }
+            TokenKind::Identifier(name, _)
+                if name.eq_ignore_ascii_case("Input")
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Hash)) =>
+            {
+                self.parse_input_file()
+            }
+            TokenKind::Identifier(name, _)
+                if name.eq_ignore_ascii_case("Print")
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Hash)) =>
+            {
+                self.parse_print_file()
+            }
+            TokenKind::Identifier(name, _)
+                if name.eq_ignore_ascii_case("Write")
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Hash)) =>
+            {
+                self.parse_write_file()
+            }
+            TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Seek") => {
+                if matches!(self.peek_next_kind(), Some(TokenKind::Hash)) {
+                    self.parse_seek_file()
+                } else {
+                    self.parse_identifier_statement()
+                }
+            }
+            TokenKind::Identifier(name, _)
+                if name.eq_ignore_ascii_case("Name")
+                    && !matches!(
+                        self.peek_next_kind(),
+                        Some(TokenKind::Equal | TokenKind::LeftParen | TokenKind::Dot)
+                    ) =>
+            {
+                self.parse_name_file()
+            }
             TokenKind::Identifier(_, _) | TokenKind::Me | TokenKind::Dot => {
                 self.parse_identifier_statement()
             }
@@ -298,6 +344,202 @@ impl Parser {
                 span: Span::new(self.file_id, start.start, end.end),
             })
         }
+    }
+
+    fn parse_open_file(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Open'")?;
+        let start_span = self.previous().span;
+        debug_assert!(start.eq_ignore_ascii_case("Open"));
+        let path = self.parse_expression()?;
+        self.expect_simple(TokenKind::For, "Expected 'For' in Open statement")?;
+        let mode_token = self.advance();
+        let mode = match mode_token.kind {
+            TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Input") => OpenMode::Input,
+            TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Output") => {
+                OpenMode::Output
+            }
+            TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Append") => {
+                OpenMode::Append
+            }
+            TokenKind::Binary => OpenMode::Binary,
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Unsupported Open mode; supported modes are Input, Output, Append, and Binary",
+                    Some(mode_token.span),
+                ));
+            }
+        };
+        self.expect_simple(TokenKind::As, "Expected 'As' in Open statement")?;
+        let number = self.parse_file_number_expr()?;
+        let end = number.span;
+        Ok(Stmt::OpenFile {
+            path,
+            mode,
+            number,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_close_file(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Close'")?;
+        let start_span = self.previous().span;
+        debug_assert!(start.eq_ignore_ascii_case("Close"));
+        let mut numbers = Vec::new();
+        if !self.at_statement_separator() {
+            loop {
+                numbers.push(self.parse_file_number_expr()?);
+                if !self.match_simple(&TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        let end = numbers.last().map(|expr| expr.span).unwrap_or(start_span);
+        Ok(Stmt::CloseFile {
+            numbers,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_line_input(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Line'")?;
+        let start_span = self.previous().span;
+        debug_assert!(start.eq_ignore_ascii_case("Line"));
+        let input = self.expect_identifier("Expected 'Input' after 'Line'")?;
+        if !input.eq_ignore_ascii_case("Input") {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                "Expected 'Input' after 'Line'",
+                Some(self.previous().span),
+            ));
+        }
+        let number = self.parse_file_number_expr()?;
+        self.expect_simple(TokenKind::Comma, "Expected ',' after file number")?;
+        let target = self.parse_assignment_target()?;
+        let end = target.span();
+        Ok(Stmt::LineInput {
+            number,
+            target,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_input_file(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Input'")?;
+        let start_span = self.previous().span;
+        debug_assert!(start.eq_ignore_ascii_case("Input"));
+        let number = self.parse_file_number_expr()?;
+        self.expect_simple(TokenKind::Comma, "Expected ',' after file number")?;
+        let mut targets = Vec::new();
+        loop {
+            targets.push(self.parse_assignment_target()?);
+            if !self.match_simple(&TokenKind::Comma) {
+                break;
+            }
+        }
+        let end = targets
+            .last()
+            .map(AssignTarget::span)
+            .unwrap_or(number.span);
+        Ok(Stmt::InputFile {
+            number,
+            targets,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_print_file(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Print'")?;
+        let start_span = self.previous().span;
+        debug_assert!(start.eq_ignore_ascii_case("Print"));
+        let number = self.parse_file_number_expr()?;
+        let mut items = Vec::new();
+        if self.match_simple(&TokenKind::Comma) && !self.at_statement_separator() {
+            let mut separator = PrintSeparator::None;
+            loop {
+                let expr = self.parse_expression()?;
+                items.push(PrintItem { separator, expr });
+                if self.match_simple(&TokenKind::Comma) {
+                    if self.at_statement_separator() {
+                        break;
+                    }
+                    separator = PrintSeparator::Comma;
+                } else if self.match_simple(&TokenKind::Semicolon) {
+                    if self.at_statement_separator() {
+                        break;
+                    }
+                    separator = PrintSeparator::Semicolon;
+                } else {
+                    break;
+                }
+            }
+        }
+        let end = items
+            .last()
+            .map(|item| item.expr.span)
+            .unwrap_or(number.span);
+        Ok(Stmt::PrintFile {
+            number,
+            items,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_write_file(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Write'")?;
+        let start_span = self.previous().span;
+        debug_assert!(start.eq_ignore_ascii_case("Write"));
+        let number = self.parse_file_number_expr()?;
+        let mut args = Vec::new();
+        if self.match_simple(&TokenKind::Comma) && !self.at_statement_separator() {
+            loop {
+                args.push(self.parse_expression()?);
+                if !self.match_simple(&TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        let end = args.last().map(|arg| arg.span).unwrap_or(number.span);
+        Ok(Stmt::WriteFile {
+            number,
+            args,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_seek_file(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Seek'")?;
+        let start_span = self.previous().span;
+        debug_assert!(start.eq_ignore_ascii_case("Seek"));
+        let number = self.parse_file_number_expr()?;
+        self.expect_simple(TokenKind::Comma, "Expected ',' after file number")?;
+        let position = self.parse_expression()?;
+        let end = position.span;
+        Ok(Stmt::SeekFile {
+            number,
+            position,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_name_file(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Name'")?;
+        let start_span = self.previous().span;
+        debug_assert!(start.eq_ignore_ascii_case("Name"));
+        let old_path = self.parse_expression()?;
+        self.expect_simple(TokenKind::As, "Expected 'As' in Name statement")?;
+        let new_path = self.parse_expression()?;
+        let end = new_path.span;
+        Ok(Stmt::NameFile {
+            old_path,
+            new_path,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_file_number_expr(&mut self) -> Result<Expr, Diagnostic> {
+        self.expect_simple(TokenKind::Hash, "Expected '#' before file number")?;
+        self.parse_expression()
     }
 
     fn parse_assignment(&mut self) -> Result<Stmt, Diagnostic> {

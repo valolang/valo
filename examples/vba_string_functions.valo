@@ -1,0 +1,12 @@
+Sub Main()
+    Debug.Print Len("Valo")
+    Debug.Print Left$("abcdef", 2)
+    Debug.Print Right$("abcdef", 3)
+    Debug.Print Mid$("abcdef", 2, 3)
+    Debug.Print Trim$("  text  ")
+    Debug.Print Replace("a-b-a", "a", "x")
+    Debug.Print InStr("alphabet", "ph")
+    Debug.Print UCase$("valo") & " " & LCase$("BASIC")
+    Debug.Print Chr$(65) & " " & Asc("A")
+    Debug.Print Hex$(255) & " " & Oct$(8)
+End Sub

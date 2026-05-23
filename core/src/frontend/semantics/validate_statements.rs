@@ -239,6 +239,65 @@ pub(super) fn validate_statements(
                     validate_expr(arg, symbols, types, signatures, &context)?;
                 }
             }
+            Stmt::OpenFile { path, number, .. } => {
+                validate_expr(path, symbols, types, signatures, &context)?;
+                validate_expr(number, symbols, types, signatures, &context)?;
+            }
+            Stmt::CloseFile { numbers, .. } => {
+                for number in numbers {
+                    validate_expr(number, symbols, types, signatures, &context)?;
+                }
+            }
+            Stmt::LineInput { number, target, .. } => {
+                validate_expr(number, symbols, types, signatures, &context)?;
+                validate_assignment_target(
+                    target,
+                    &TypeName::String,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                )?;
+            }
+            Stmt::InputFile {
+                number, targets, ..
+            } => {
+                validate_expr(number, symbols, types, signatures, &context)?;
+                for target in targets {
+                    validate_assignment_target(
+                        target,
+                        &TypeName::Variant,
+                        symbols,
+                        types,
+                        signatures,
+                        &context,
+                    )?;
+                }
+            }
+            Stmt::PrintFile { number, items, .. } => {
+                validate_expr(number, symbols, types, signatures, &context)?;
+                for item in items {
+                    validate_expr(&item.expr, symbols, types, signatures, &context)?;
+                }
+            }
+            Stmt::WriteFile { number, args, .. } => {
+                validate_expr(number, symbols, types, signatures, &context)?;
+                for arg in args {
+                    validate_expr(arg, symbols, types, signatures, &context)?;
+                }
+            }
+            Stmt::SeekFile {
+                number, position, ..
+            } => {
+                validate_expr(number, symbols, types, signatures, &context)?;
+                validate_expr(position, symbols, types, signatures, &context)?;
+            }
+            Stmt::NameFile {
+                old_path, new_path, ..
+            } => {
+                validate_expr(old_path, symbols, types, signatures, &context)?;
+                validate_expr(new_path, symbols, types, signatures, &context)?;
+            }
             Stmt::End { .. } => {}
             Stmt::SubCall { name, args, span } => {
                 validate_sub_call(name, args, *span, symbols, types, signatures, &context)?;
@@ -998,7 +1057,7 @@ fn validate_sub_call(
         name
     };
 
-    let builtin_subs = ["Randomize", "CallByName"];
+    let builtin_subs = ["Randomize", "CallByName", "Kill", "MkDir", "RmDir", "ChDir"];
     if builtin_subs
         .iter()
         .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
@@ -1184,6 +1243,14 @@ fn stmt_span(stmt: &Stmt, _context: &Context<'_>) -> crate::runtime::Span {
         | Stmt::Exit { span, .. }
         | Stmt::TryCatch { span, .. }
         | Stmt::DebugPrint { span, .. }
+        | Stmt::OpenFile { span, .. }
+        | Stmt::CloseFile { span, .. }
+        | Stmt::LineInput { span, .. }
+        | Stmt::InputFile { span, .. }
+        | Stmt::PrintFile { span, .. }
+        | Stmt::WriteFile { span, .. }
+        | Stmt::SeekFile { span, .. }
+        | Stmt::NameFile { span, .. }
         | Stmt::Yield { span, .. }
         | Stmt::End { span } => *span,
     }
@@ -1207,6 +1274,40 @@ fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
         | Stmt::DebugPrint { args, .. } => {
             args.iter().any(|arg| expr_uses_with_target(arg, _context))
         }
+        Stmt::OpenFile { path, number, .. } => {
+            expr_uses_with_target(path, _context) || expr_uses_with_target(number, _context)
+        }
+        Stmt::CloseFile { numbers, .. } => numbers
+            .iter()
+            .any(|number| expr_uses_with_target(number, _context)),
+        Stmt::LineInput { number, target, .. } => {
+            expr_uses_with_target(number, _context)
+                || assign_target_uses_with_target(target, _context)
+        }
+        Stmt::InputFile {
+            number, targets, ..
+        } => {
+            expr_uses_with_target(number, _context)
+                || targets
+                    .iter()
+                    .any(|target| assign_target_uses_with_target(target, _context))
+        }
+        Stmt::PrintFile { number, items, .. } => {
+            expr_uses_with_target(number, _context)
+                || items
+                    .iter()
+                    .any(|item| expr_uses_with_target(&item.expr, _context))
+        }
+        Stmt::WriteFile { number, args, .. } => {
+            expr_uses_with_target(number, _context)
+                || args.iter().any(|arg| expr_uses_with_target(arg, _context))
+        }
+        Stmt::SeekFile {
+            number, position, ..
+        } => expr_uses_with_target(number, _context) || expr_uses_with_target(position, _context),
+        Stmt::NameFile {
+            old_path, new_path, ..
+        } => expr_uses_with_target(old_path, _context) || expr_uses_with_target(new_path, _context),
         Stmt::MemberSubCall { object, args, .. } => {
             expr_uses_with_target(object, _context)
                 || args.iter().any(|arg| expr_uses_with_target(arg, _context))

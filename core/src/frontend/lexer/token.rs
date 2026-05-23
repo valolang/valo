@@ -134,6 +134,7 @@ pub enum TokenKind {
     Hash,
     At,
     Dollar,
+    Semicolon,
     Equal,
     NotEqual,
     Less,

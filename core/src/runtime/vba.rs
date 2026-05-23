@@ -310,6 +310,66 @@ pub const VBA_CONSTANTS: &[VbaConstant] = &[
         value: VbaConstantValue::Integer(64),
     },
     VbaConstant {
+        name: "vbUpperCase",
+        value: VbaConstantValue::Integer(1),
+    },
+    VbaConstant {
+        name: "vbLowerCase",
+        value: VbaConstantValue::Integer(2),
+    },
+    VbaConstant {
+        name: "vbProperCase",
+        value: VbaConstantValue::Integer(3),
+    },
+    VbaConstant {
+        name: "vbWide",
+        value: VbaConstantValue::Integer(4),
+    },
+    VbaConstant {
+        name: "vbNarrow",
+        value: VbaConstantValue::Integer(8),
+    },
+    VbaConstant {
+        name: "vbKatakana",
+        value: VbaConstantValue::Integer(16),
+    },
+    VbaConstant {
+        name: "vbHiragana",
+        value: VbaConstantValue::Integer(32),
+    },
+    VbaConstant {
+        name: "vbUnicode",
+        value: VbaConstantValue::Integer(64),
+    },
+    VbaConstant {
+        name: "vbFromUnicode",
+        value: VbaConstantValue::Integer(128),
+    },
+    VbaConstant {
+        name: "vbHide",
+        value: VbaConstantValue::Integer(0),
+    },
+    VbaConstant {
+        name: "vbNormalFocus",
+        value: VbaConstantValue::Integer(1),
+    },
+    VbaConstant {
+        name: "vbMinimizedFocus",
+        value: VbaConstantValue::Integer(2),
+    },
+    VbaConstant {
+        name: "vbMaximizedFocus",
+        value: VbaConstantValue::Integer(3),
+    },
+    VbaConstant {
+        name: "vbNormalNoFocus",
+        value: VbaConstantValue::Integer(4),
+    },
+    VbaConstant {
+        name: "vbMinimizedNoFocus",
+        value: VbaConstantValue::Integer(6),
+    },
+    VbaConstant {
         name: "vbEmpty",
         value: VbaConstantValue::Integer(0),
     },

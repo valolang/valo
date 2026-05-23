@@ -166,10 +166,71 @@ pub enum Stmt {
         args: Vec<Expr>,
         span: Span,
     },
+    OpenFile {
+        path: Expr,
+        mode: OpenMode,
+        number: Expr,
+        span: Span,
+    },
+    CloseFile {
+        numbers: Vec<Expr>,
+        span: Span,
+    },
+    LineInput {
+        number: Expr,
+        target: AssignTarget,
+        span: Span,
+    },
+    InputFile {
+        number: Expr,
+        targets: Vec<AssignTarget>,
+        span: Span,
+    },
+    PrintFile {
+        number: Expr,
+        items: Vec<PrintItem>,
+        span: Span,
+    },
+    WriteFile {
+        number: Expr,
+        args: Vec<Expr>,
+        span: Span,
+    },
+    SeekFile {
+        number: Expr,
+        position: Expr,
+        span: Span,
+    },
+    NameFile {
+        old_path: Expr,
+        new_path: Expr,
+        span: Span,
+    },
     Yield {
         expr: Expr,
         span: Span,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenMode {
+    Input,
+    Output,
+    Append,
+    Binary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrintSeparator {
+    None,
+    Comma,
+    Semicolon,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrintItem {
+    pub separator: PrintSeparator,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
