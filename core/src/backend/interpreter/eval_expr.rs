@@ -87,28 +87,10 @@ impl Interpreter {
                     || name.eq_ignore_ascii_case("Err")
                 {
                     Ok(Value::Empty)
+                } else if let Some(constant) = crate::runtime::vba::vba_constant(name) {
+                    Ok(constant.value())
                 } else if let Some(value) = self.enum_members.get(&super::values::key(name)) {
                     Ok(Value::Int64(*value))
-                } else if name.eq_ignore_ascii_case("vbCrLf")
-                    || name.eq_ignore_ascii_case("vbNewLine")
-                {
-                    Ok(Value::String("\r\n".to_string()))
-                } else if name.eq_ignore_ascii_case("vbCr") {
-                    Ok(Value::String("\r".to_string()))
-                } else if name.eq_ignore_ascii_case("vbLf") {
-                    Ok(Value::String("\n".to_string()))
-                } else if name.eq_ignore_ascii_case("vbTab") {
-                    Ok(Value::String("\t".to_string()))
-                } else if name.eq_ignore_ascii_case("vbNullString") {
-                    Ok(Value::String(String::new()))
-                } else if name.eq_ignore_ascii_case("vbNullChar") {
-                    Ok(Value::String("\0".to_string()))
-                } else if name.eq_ignore_ascii_case("vbBack") {
-                    Ok(Value::String("\x08".to_string()))
-                } else if name.eq_ignore_ascii_case("vbFormFeed") {
-                    Ok(Value::String("\x0c".to_string()))
-                } else if name.eq_ignore_ascii_case("vbVerticalTab") {
-                    Ok(Value::String("\x0b".to_string()))
                 } else {
                     match frame.get(name, expr.span) {
                         Ok(value) => Ok(value),
@@ -145,10 +127,14 @@ impl Interpreter {
                     {
                         return Ok(val);
                     }
-                    if name.eq_ignore_ascii_case("VBA") || name.eq_ignore_ascii_case("Console") {
-                        // VBA doesn't have fields in our current builtin model, but we handle it here
-                        // to prevent it being treated as a potential module qualifier that might fail later.
-                        // Actually dispatch_function handles it for MemberCall.
+                    if name.eq_ignore_ascii_case("VBA")
+                        && let Some(constant) = crate::runtime::vba::vba_constant(field)
+                    {
+                        return Ok(constant.value());
+                    }
+                    if name.eq_ignore_ascii_case("Console") {
+                        // Console doesn't have fields in our current builtin model, but we handle it
+                        // here to prevent it being treated as a potential module qualifier.
                     }
                 }
                 if let ExprKind::Variable(enum_name) = &object.kind

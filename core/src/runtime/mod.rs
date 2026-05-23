@@ -12,6 +12,7 @@ pub mod numeric;
 pub mod ops;
 mod type_name;
 mod value;
+pub mod vba;
 
 pub use coerce::coerce_assignment;
 pub use diagnostic::{

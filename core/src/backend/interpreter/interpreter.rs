@@ -114,38 +114,10 @@ impl Interpreter {
     }
 
     fn add_vba_constants(&mut self) {
-        let constants = [
-            ("vbBinaryCompare", 0),
-            ("vbTextCompare", 1),
-            // VarType
-            ("vbEmpty", 0),
-            ("vbNull", 1),
-            ("vbInteger", 2),
-            ("vbLong", 3),
-            ("vbSingle", 4),
-            ("vbDouble", 5),
-            ("vbCurrency", 6),
-            ("vbDate", 7),
-            ("vbString", 8),
-            ("vbObject", 9),
-            ("vbError", 10),
-            ("vbBoolean", 11),
-            ("vbVariant", 12),
-            ("vbDataObject", 13),
-            ("vbDecimal", 14),
-            ("vbByte", 17),
-            ("vbLongLong", 20),
-            ("vbUserDefinedType", 36),
-            ("vbArray", 8192),
-            // CallByName
-            ("VbMethod", 1),
-            ("VbGet", 2),
-            ("VbLet", 4),
-            ("VbSet", 8),
-        ];
-
-        for (name, value) in constants {
-            self.enum_members.insert(key(name), value);
+        for constant in crate::runtime::vba::VBA_CONSTANTS {
+            if let crate::runtime::vba::VbaConstantValue::Integer(value) = constant.value {
+                self.enum_members.insert(key(constant.name), value);
+            }
         }
     }
 

@@ -108,6 +108,14 @@ pub(crate) fn eval_types(
             span,
         )?));
     }
+    if name.eq_ignore_ascii_case("CBool") {
+        expect_value_count(name, args, 1, span)?;
+        return Ok(Some(coerce_assignment(
+            &TypeName::Boolean,
+            args[0].clone(),
+            span,
+        )?));
+    }
 
     Ok(None)
 }

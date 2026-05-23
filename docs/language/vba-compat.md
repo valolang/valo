@@ -27,6 +27,8 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 - `Debug.Print`: Available in all file modes, outputs to the standard console. Supports multiple comma-separated arguments.
 - `Err` Object: Full support for `Err.Raise`, `Err.Number`, and `Err.Description` in all modes.
 - `Array Built-ins`: `Split`, `Join`, `Filter`, `LBound`, and `UBound` behave according to standard VBA semantics.
+- Generic VBA runtime constants: core `vb*` constants such as `vbNullString`, `vbCrLf`, `vbTab`, comparison constants, date/week constants, MsgBox constants, file attribute constants, VarType constants, `vbObjectError`, TriState constants, and `VbMethod`/`VbGet`/`VbLet`/`VbSet` are available case-insensitively, both unqualified and through the `VBA.` namespace.
+- Safe VBA runtime functions: common self-contained functions such as `Len`, `LenB`, `Left`, `Right`, `Mid`, `Trim`, `LTrim`, `RTrim`, `UCase`, `LCase`, `Replace`, `InStr`, `InStrRev`, `Space`, `String`, `Chr`, `ChrW`, `Asc`, `AscW`, `Val`, `Str`, `Hex`, `Oct`, `StrComp`, conversion functions, type-checking functions, random functions, and array functions are supported where they do not require Office, COM, or platform-specific behavior. VBA `$` string-returning spellings such as `Left$`, `Chr$`, `Hex$`, and `Trim$` parse and dispatch through the same runtime intrinsics.
 - `Multidimensional Arrays`: Fully supported with `ReDim Preserve` compatibility (last-dimension only resizing).
 - `New ClassName`: Parentheses are optional for zero-argument construction, matching VBA (`Set v = New Vec2`).
 - `Const`: Module, local, and class-scope constants are supported, including multi-Const declarations such as `Public Const PI = 3.14, E = 2.71`.
@@ -44,7 +46,7 @@ While Valo strives for high compatibility, it is not a "bug-for-bug" clone. Some
 
 1.  **Strict Validation:** Valo performs comprehensive semantic analysis before execution. Many errors that VBA only catches at runtime (like type mismatches in assignments) are caught during compilation in Valo.
 2.  **Explicit Scoping:** In modern `.valo` files, cross-module access requires explicit `Import` statements, whereas VBA modules share a global namespace.
-3.  **No COM Dependency:** Valo does not depend on the Component Object Model (COM). It uses a native object model designed for performance and portability.
+3.  **No COM Dependency:** Valo does not depend on the Component Object Model (COM). It uses a native object model designed for performance and portability. Office, Excel, Word, PowerPoint, Access, MSForms, and other application object-model constants are intentionally not part of Valo core; those belong in future optional compatibility packages or generated type-library bindings.
 4.  **Modern Keywords:** Keywords like `Return` are preferred for returning values from functions and properties, although name-based assignment is still supported for compatibility.
 5.  **Native Boundary Diagnostics:** VBA may crash or corrupt state on an invalid external declaration. Valo reports loader, symbol, ABI, pointer-safety, and marshaling failures as diagnostics where it can detect them.
 

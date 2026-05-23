@@ -394,35 +394,8 @@ pub(super) fn validate_expr(
             if name.eq_ignore_ascii_case("VBA") {
                 return Ok(TypeName::Variant);
             }
-            let builtins = [
-                "vbBinaryCompare",
-                "vbTextCompare",
-                "vbEmpty",
-                "vbNull",
-                "vbInteger",
-                "vbLong",
-                "vbSingle",
-                "vbDouble",
-                "vbCurrency",
-                "vbDate",
-                "vbString",
-                "vbObject",
-                "vbError",
-                "vbBoolean",
-                "vbVariant",
-                "vbDataObject",
-                "vbDecimal",
-                "vbByte",
-                "vbLongLong",
-                "vbUserDefinedType",
-                "vbArray",
-                "VbMethod",
-                "VbGet",
-                "VbLet",
-                "VbSet",
-            ];
-            if builtins.iter().any(|b| name.eq_ignore_ascii_case(b)) {
-                return Ok(TypeName::Integer);
+            if let Some(constant) = crate::runtime::vba::vba_constant(name) {
+                return Ok(constant.type_name());
             }
             if let Some(function) = signatures.functions.get(&key(name)) {
                 validate_arguments(
@@ -500,6 +473,21 @@ pub(super) fn validate_expr(
             }
             if enum_member_value_type(name, types).is_some() {
                 Ok(TypeName::Integer)
+            } else if name.to_ascii_lowercase().starts_with("vb") {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("VBA runtime constant '{}' is unknown or unsupported", name),
+                    Some(expr.span),
+                ))
+            } else if name.to_ascii_lowercase().starts_with("mso") {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!(
+                        "Office/COM constant '{}' is not part of Valo core runtime constants",
+                        name
+                    ),
+                    Some(expr.span),
+                ))
             } else {
                 Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -527,6 +515,18 @@ pub(super) fn validate_expr(
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                     format!("Err has no member '{}'", field),
+                    Some(expr.span),
+                ));
+            }
+            if let ExprKind::Variable(name) = &object.kind
+                && name.eq_ignore_ascii_case("VBA")
+            {
+                if let Some(constant) = crate::runtime::vba::vba_constant(field) {
+                    return Ok(constant.type_name());
+                }
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Module 'VBA' has no member '{}'", field),
                     Some(expr.span),
                 ));
             }
@@ -1132,6 +1132,10 @@ fn validate_builtin_function(
     if effective_name.eq_ignore_ascii_case("VarType")
         || effective_name.eq_ignore_ascii_case("Sgn")
         || effective_name.eq_ignore_ascii_case("Int")
+        || effective_name.eq_ignore_ascii_case("Len")
+        || effective_name.eq_ignore_ascii_case("LenB")
+        || effective_name.eq_ignore_ascii_case("Asc")
+        || effective_name.eq_ignore_ascii_case("AscW")
     {
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures, context)?;
@@ -1149,11 +1153,6 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::String));
-    }
-    if effective_name.eq_ignore_ascii_case("Len") {
-        validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures, context)?;
-        return Ok(Some(TypeName::Long));
     }
     if effective_name.eq_ignore_ascii_case("CStr") {
         validate_arg_count(effective_name, args, 1, span)?;
@@ -1206,6 +1205,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Date));
+    }
+    if effective_name.eq_ignore_ascii_case("CBool") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
+        return Ok(Some(TypeName::Boolean));
     }
     if effective_name.eq_ignore_ascii_case("Array") {
         for arg in args {
@@ -1286,6 +1290,83 @@ fn validate_builtin_function(
                 &validate_expr(&args[2], symbols, types, signatures, context)?,
                 args[2].span,
             )?;
+        }
+        return Ok(Some(TypeName::Integer));
+    }
+    let string_one_arg = [
+        "Trim", "LTrim", "RTrim", "UCase", "LCase", "Chr", "ChrW", "Str", "Hex", "Oct", "Val",
+    ];
+    if string_one_arg
+        .iter()
+        .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
+    {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
+        let return_type = if effective_name.eq_ignore_ascii_case("Val") {
+            TypeName::Double
+        } else {
+            TypeName::String
+        };
+        return Ok(Some(return_type));
+    }
+    let string_two_arg = ["Left", "Right", "Space", "String"];
+    if string_two_arg
+        .iter()
+        .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
+    {
+        validate_arg_count(
+            effective_name,
+            args,
+            if effective_name.eq_ignore_ascii_case("Space") {
+                1
+            } else {
+                2
+            },
+            span,
+        )?;
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("Mid") {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Mid expects 2 to 3 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("Replace") {
+        if args.len() < 3 || args.len() > 6 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Replace expects 3 to 6 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("InStr")
+        || effective_name.eq_ignore_ascii_case("InStrRev")
+    {
+        if args.len() < 2 || args.len() > 4 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                format!("{effective_name} expects 2 to 4 arguments"),
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::Integer));
     }

@@ -193,15 +193,132 @@ fn test_vba_constants() {
         Sub Main()
             Console.WriteLine(vbBinaryCompare)
             Console.WriteLine(vbTextCompare)
+            Console.WriteLine(vbUseCompareOption)
+            Console.WriteLine(vbDatabaseCompare)
             Console.WriteLine(vbString)
             Console.WriteLine(vbArray)
+            Console.WriteLine(vbLongPtr)
             Console.WriteLine(VbMethod)
+            Console.WriteLine(VbGet)
+            Console.WriteLine(VbLet)
+            Console.WriteLine(VbSet)
         End Sub
     ";
     let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
-    assert_eq!(output, vec!["0", "1", "8", "8192", "1"]);
+    assert_eq!(
+        output,
+        vec!["0", "1", "-1", "2", "8", "8192", "26", "1", "2", "4", "8"]
+    );
+}
+
+#[test]
+fn generic_vba_runtime_constants_have_vba_values() {
+    let source = r#"
+        Sub Main()
+            Console.WriteLine(Len(vbNullString))
+            Console.WriteLine(Asc(vbCr) & "," & Asc(vbLf) & "," & Len(vbCrLf))
+            Console.WriteLine(vbNewLine = vbCrLf)
+            Console.WriteLine(Asc(vbTab))
+            Console.WriteLine(Asc(vbBack) & "," & Asc(vbFormFeed) & "," & Asc(vbVerticalTab) & "," & Asc(vbNullChar))
+            Console.WriteLine(vbTrue & "," & vbFalse & "," & vbUseDefault)
+            Console.WriteLine(vbObjectError)
+            Console.WriteLine(vbGeneralDate & "," & vbLongDate & "," & vbShortDate & "," & vbLongTime & "," & vbShortTime)
+            Console.WriteLine(vbUseSystemDayOfWeek & "," & vbSunday & "," & vbMonday & "," & vbTuesday & "," & vbWednesday & "," & vbThursday & "," & vbFriday & "," & vbSaturday)
+            Console.WriteLine(vbUseSystem & "," & vbFirstJan1 & "," & vbFirstFourDays & "," & vbFirstFullWeek)
+            Console.WriteLine(vbNormal & "," & vbReadOnly & "," & vbHidden & "," & vbSystem & "," & vbVolume & "," & vbDirectory & "," & vbArchive & "," & vbAlias)
+            Console.WriteLine(vba.vbCrLf = VBCRLF)
+            Console.WriteLine(vbcrlf = VbCrLf)
+        End Sub
+    "#;
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(
+        output,
+        vec![
+            "0",
+            "13,10,2",
+            "True",
+            "9",
+            "8,12,11,0",
+            "-1,0,-2",
+            "-2147221504",
+            "0,1,2,3,4",
+            "0,1,2,3,4,5,6,7",
+            "0,1,2,3",
+            "0,1,2,4,8,16,32,64",
+            "True",
+            "True",
+        ]
+    );
+}
+
+#[test]
+fn msgbox_and_vartype_constants_have_vba_values() {
+    let source = "
+        Sub Main()
+            Console.WriteLine(vbOKOnly & \",\" & vbOKCancel & \",\" & vbAbortRetryIgnore & \",\" & vbYesNoCancel & \",\" & vbYesNo & \",\" & vbRetryCancel)
+            Console.WriteLine(vbCritical & \",\" & vbQuestion & \",\" & vbExclamation & \",\" & vbInformation)
+            Console.WriteLine(vbDefaultButton1 & \",\" & vbDefaultButton2 & \",\" & vbDefaultButton3 & \",\" & vbDefaultButton4)
+            Console.WriteLine(vbApplicationModal & \",\" & vbSystemModal & \",\" & vbMsgBoxHelpButton & \",\" & vbMsgBoxSetForeground & \",\" & vbMsgBoxRight & \",\" & vbMsgBoxRtlReading)
+            Console.WriteLine(vbOK & \",\" & vbCancel & \",\" & vbAbort & \",\" & vbRetry & \",\" & vbIgnore & \",\" & vbYes & \",\" & vbNo)
+            Console.WriteLine(vbEmpty & \",\" & vbNull & \",\" & vbInteger & \",\" & vbLong & \",\" & vbSingle & \",\" & vbDouble & \",\" & vbCurrency & \",\" & vbDate)
+            Console.WriteLine(vbString & \",\" & vbObject & \",\" & vbError & \",\" & vbBoolean & \",\" & vbVariant & \",\" & vbDataObject & \",\" & vbDecimal & \",\" & vbByte & \",\" & vbLongLong & \",\" & vbUserDefinedType & \",\" & vbArray)
+            Console.WriteLine(VarType(\"hello\") = vbString)
+        End Sub
+    ";
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(
+        output,
+        vec![
+            "0,1,2,3,4,5",
+            "16,32,48,64",
+            "0,256,512,768",
+            "0,4096,16384,65536,524288,1048576",
+            "1,2,3,4,5,6,7",
+            "0,1,2,3,4,5,6,7",
+            "8,9,10,11,12,13,14,17,20,36,8192",
+            "True",
+        ]
+    );
+}
+
+#[test]
+fn common_safe_vba_string_functions_work() {
+    let source = r#"
+        Sub Main()
+            Console.WriteLine(Left$("abcdef", 2) & "," & Right$("abcdef", 3) & "," & Mid$("abcdef", 2, 3))
+            Console.WriteLine(Trim$("  a  ") & "," & LTrim$("  b") & "," & RTrim$("c  "))
+            Console.WriteLine(UCase$("ab") & "," & LCase$("CD"))
+            Console.WriteLine(Replace("a-b-a", "a", "x"))
+            Console.WriteLine(InStr("alphabet", "ph") & "," & InStr(3, "alphabet", "a") & "," & InStrRev("one two one", "one"))
+            Console.WriteLine(Space$(3) & "x")
+            Console.WriteLine(String$(3, "A") & "," & Chr$(65) & "," & Asc("A"))
+            Console.WriteLine(Hex$(255) & "," & Oct$(8) & "," & Val("  -12.5x") & "," & Str(12))
+            Console.WriteLine(Len("é") & "," & LenB("é"))
+        End Sub
+    "#;
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(
+        output,
+        vec![
+            "ab,def,bcd",
+            "a,b,c",
+            "AB,cd",
+            "x-b-x",
+            "3,5,9",
+            "   x",
+            "AAA,A,65",
+            "FF,10,-12.5, 12",
+            "1,2",
+        ]
+    );
 }
 
 #[test]
