@@ -10,9 +10,10 @@ fn validate_const_decl(
     symbols: &mut HashMap<String, VarType>,
     types: &TypeRegistry,
     signatures: &Signatures,
+    context: &Context<'_>,
 ) -> Result<(), Diagnostic> {
     ensure_const_expr(value, symbols, types)?;
-    let value_type = validate_expr(value, symbols, types, signatures)?;
+    let value_type = validate_expr(value, symbols, types, signatures, &context)?;
     let const_type = ty.clone().unwrap_or(value_type.clone());
     ensure_known_type(&const_type, types, span)?;
     ensure_assignable_expr(&const_type, &value_type, value, types, span)?;
@@ -37,13 +38,13 @@ pub(super) fn validate_statements(
     loop_context: LoopContext,
     in_with: bool,
 ) -> Result<(), Diagnostic> {
-    validate_labels(statements)?;
+    validate_labels(statements, &context)?;
     for stmt in statements {
-        if !in_with && stmt_uses_with_target(stmt) {
+        if !in_with && stmt_uses_with_target(stmt, &context) {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "Dot member access requires an active With block",
-                Some(stmt_span(stmt)),
+                Some(stmt_span(stmt, &context)),
             ));
         }
         match stmt {
@@ -67,10 +68,19 @@ pub(super) fn validate_statements(
                 span,
                 ..
             } => {
-                let ty =
-                    declared_variable_type(ty, initializer, symbols, types, signatures, *span)?;
+                let ty = declared_variable_type(
+                    ty,
+                    initializer,
+                    symbols,
+                    types,
+                    signatures,
+                    *span,
+                    &context,
+                )?;
                 ensure_known_type(&ty, types, *span)?;
-                validate_as_new(*as_new, &ty, new_args, symbols, types, signatures, *span)?;
+                validate_as_new(
+                    *as_new, &ty, new_args, symbols, types, signatures, *span, &context,
+                )?;
                 if let Some(initializer) = initializer {
                     if array.is_some() {
                         return Err(Diagnostic::new(
@@ -79,7 +89,8 @@ pub(super) fn validate_statements(
                             Some(initializer.span),
                         ));
                     }
-                    let source_type = validate_expr(initializer, symbols, types, signatures)?;
+                    let source_type =
+                        validate_expr(initializer, symbols, types, signatures, &context)?;
                     ensure_assignable_expr(
                         &ty,
                         &source_type,
@@ -121,6 +132,7 @@ pub(super) fn validate_statements(
                         types,
                         signatures,
                         decl.span,
+                        &context,
                     )?;
                     ensure_known_type(&ty, types, decl.span)?;
                     validate_as_new(
@@ -131,6 +143,7 @@ pub(super) fn validate_statements(
                         types,
                         signatures,
                         decl.span,
+                        &context,
                     )?;
                     if let Some(initializer) = &decl.initializer {
                         if decl.array.is_some() {
@@ -140,7 +153,8 @@ pub(super) fn validate_statements(
                                 Some(initializer.span),
                             ));
                         }
-                        let source_type = validate_expr(initializer, symbols, types, signatures)?;
+                        let source_type =
+                            validate_expr(initializer, symbols, types, signatures, &context)?;
                         ensure_assignable_expr(
                             &ty,
                             &source_type,
@@ -170,7 +184,7 @@ pub(super) fn validate_statements(
                 value,
                 span,
             } => {
-                validate_const_decl(name, ty, value, *span, symbols, types, signatures)?;
+                validate_const_decl(name, ty, value, *span, symbols, types, signatures, &context)?;
             }
             Stmt::ConstMany { consts, .. } => {
                 for const_decl in consts {
@@ -182,13 +196,14 @@ pub(super) fn validate_statements(
                         symbols,
                         types,
                         signatures,
+                        &context,
                     )?;
                 }
             }
             Stmt::Assign { target, expr, span } => {
                 let expr_type = class_field_expr_type(expr, symbols, types, &context)
                     .map(Ok)
-                    .unwrap_or_else(|| validate_expr(expr, symbols, types, signatures))?;
+                    .unwrap_or_else(|| validate_expr(expr, symbols, types, signatures, &context))?;
                 let target_type = validate_assignment_target(
                     target, &expr_type, symbols, types, signatures, &context,
                 )?;
@@ -197,7 +212,7 @@ pub(super) fn validate_statements(
             Stmt::SetAssign { target, expr, span } => {
                 let expr_type = class_field_expr_type(expr, symbols, types, &context)
                     .map(Ok)
-                    .unwrap_or_else(|| validate_expr(expr, symbols, types, signatures))?;
+                    .unwrap_or_else(|| validate_expr(expr, symbols, types, signatures, &context))?;
                 let target_type = validate_assignment_target(
                     target, &expr_type, symbols, types, signatures, &context,
                 )?;
@@ -211,13 +226,14 @@ pub(super) fn validate_statements(
                 }
                 ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
             }
-            Stmt::ConsoleWriteLine { args, .. } => {
+            Stmt::ConsoleWriteLine { args, .. } | Stmt::DebugPrint { args, .. } => {
                 for arg in args {
-                    validate_expr(arg, symbols, types, signatures)?;
+                    validate_expr(arg, symbols, types, signatures, &context)?;
                 }
             }
+            Stmt::End { .. } => {}
             Stmt::SubCall { name, args, span } => {
-                validate_sub_call(name, args, *span, symbols, types, signatures)?;
+                validate_sub_call(name, args, *span, symbols, types, signatures, &context)?;
             }
             Stmt::MemberSubCall {
                 object,
@@ -228,7 +244,7 @@ pub(super) fn validate_statements(
                 if let ExprKind::Variable(name) = &object.kind
                     && name.eq_ignore_ascii_case("VBA")
                 {
-                    validate_sub_call(method, args, *span, symbols, types, signatures)?;
+                    validate_sub_call(method, args, *span, symbols, types, signatures, &context)?;
                     continue;
                 }
                 if let ExprKind::Variable(name) = &object.kind
@@ -250,6 +266,7 @@ pub(super) fn validate_statements(
                             symbols,
                             types,
                             signatures,
+                            &context,
                         )?;
                         continue;
                     }
@@ -261,7 +278,9 @@ pub(super) fn validate_statements(
                 }
                 let object_type = class_field_object_type(object, symbols, types, &context)
                     .map(Ok)
-                    .unwrap_or_else(|| validate_expr(object, symbols, types, signatures))?;
+                    .unwrap_or_else(|| {
+                        validate_expr(object, symbols, types, signatures, &context)
+                    })?;
                 validate_method_call(
                     &object_type,
                     method,
@@ -272,6 +291,7 @@ pub(super) fn validate_statements(
                     types,
                     signatures,
                     context.current_class(),
+                    &context,
                 )?;
             }
             Stmt::RaiseEvent { name, args, span } => {
@@ -292,77 +312,83 @@ pub(super) fn validate_statements(
                         Some(*span),
                     ));
                 };
-                validate_arguments("Event", event_sig, args, symbols, types, signatures, *span)?;
+                validate_arguments(
+                    "Event", event_sig, args, symbols, types, signatures, *span, &context,
+                )?;
             }
-            Stmt::Return { expr, span } => match &mut context {
-                Context::Sub | Context::MethodSub { .. } | Context::PropertyLetSet { .. } => {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                        "Return is only allowed inside Function or Property Get",
-                        Some(*span),
-                    ));
-                }
-                Context::Function {
-                    return_type,
-                    is_iterator,
-                    saw_return,
-                    ..
-                }
-                | Context::MethodFunction {
-                    return_type,
-                    is_iterator,
-                    saw_return,
-                    ..
-                }
-                | Context::PropertyGet {
-                    return_type,
-                    is_iterator,
-                    saw_return,
-                    ..
-                } => {
-                    if *is_iterator {
+            Stmt::Return { expr, span } => {
+                let expr_type = validate_expr(expr, symbols, types, signatures, &context)?;
+                match &mut context {
+                    Context::Sub | Context::MethodSub { .. } | Context::PropertyLetSet { .. } => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                            "Return is not allowed inside Iterator; use Yield or Exit Function",
+                            "Return is only allowed inside Function or Property Get",
                             Some(*span),
                         ));
                     }
-                    let expr_type = validate_expr(expr, symbols, types, signatures)?;
-                    ensure_assignable_expr(return_type, &expr_type, expr, types, *span)?;
-                    **saw_return = true;
+                    Context::Function {
+                        return_type,
+                        is_iterator,
+                        saw_return,
+                        ..
+                    }
+                    | Context::MethodFunction {
+                        return_type,
+                        is_iterator,
+                        saw_return,
+                        ..
+                    }
+                    | Context::PropertyGet {
+                        return_type,
+                        is_iterator,
+                        saw_return,
+                        ..
+                    } => {
+                        if *is_iterator {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                                "Return is not allowed inside Iterator; use Yield or Exit Function",
+                                Some(*span),
+                            ));
+                        }
+                        ensure_assignable_expr(return_type, &expr_type, expr, types, *span)?;
+                        **saw_return = true;
+                    }
                 }
-            },
-            Stmt::Yield { expr, span } => match &mut context {
-                Context::Function {
-                    return_type,
-                    is_iterator,
-                    saw_yield,
-                    ..
+            }
+            Stmt::Yield { expr, span } => {
+                let expr_type = validate_expr(expr, symbols, types, signatures, &context)?;
+                match &mut context {
+                    Context::Function {
+                        return_type,
+                        is_iterator,
+                        saw_yield,
+                        ..
+                    }
+                    | Context::MethodFunction {
+                        return_type,
+                        is_iterator,
+                        saw_yield,
+                        ..
+                    }
+                    | Context::PropertyGet {
+                        return_type,
+                        is_iterator,
+                        saw_yield,
+                        ..
+                    } if *is_iterator => {
+                        ensure_assignable_expr(return_type, &expr_type, expr, types, *span)?;
+                        **saw_yield = true;
+                    }
+                    _ => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Yield is only allowed inside Iterator functions",
+                            Some(*span),
+                        ));
+                    }
                 }
-                | Context::MethodFunction {
-                    return_type,
-                    is_iterator,
-                    saw_yield,
-                    ..
-                }
-                | Context::PropertyGet {
-                    return_type,
-                    is_iterator,
-                    saw_yield,
-                    ..
-                } if *is_iterator => {
-                    let expr_type = validate_expr(expr, symbols, types, signatures)?;
-                    ensure_assignable_expr(return_type, &expr_type, expr, types, *span)?;
-                    **saw_yield = true;
-                }
-                _ => {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                        "Yield is only allowed inside Iterator functions",
-                        Some(*span),
-                    ));
-                }
-            },
+            }
             Stmt::If {
                 condition,
                 then_body,
@@ -372,7 +398,7 @@ pub(super) fn validate_statements(
             } => {
                 ensure_assignable(
                     &TypeName::Boolean,
-                    &validate_expr(condition, symbols, types, signatures)?,
+                    &validate_expr(condition, symbols, types, signatures, &context)?,
                     condition.span,
                 )?;
                 validate_statements(
@@ -387,7 +413,7 @@ pub(super) fn validate_statements(
                 for branch in elseif_branches {
                     ensure_assignable(
                         &TypeName::Boolean,
-                        &validate_expr(&branch.condition, symbols, types, signatures)?,
+                        &validate_expr(&branch.condition, symbols, types, signatures, &context)?,
                         branch.condition.span,
                     )?;
                     validate_statements(
@@ -416,10 +442,17 @@ pub(super) fn validate_statements(
                 else_body,
                 ..
             } => {
-                let subject_type = validate_expr(subject, symbols, types, signatures)?;
+                let subject_type = validate_expr(subject, symbols, types, signatures, &context)?;
                 for branch in branches {
                     for item in &branch.items {
-                        validate_case_item(item, &subject_type, symbols, types, signatures)?;
+                        validate_case_item(
+                            item,
+                            &subject_type,
+                            symbols,
+                            types,
+                            signatures,
+                            &context,
+                        )?;
                     }
                     validate_statements(
                         &branch.body,
@@ -444,7 +477,7 @@ pub(super) fn validate_statements(
             Stmt::While {
                 condition, body, ..
             } => {
-                validate_expr(condition, symbols, types, signatures)?;
+                validate_expr(condition, symbols, types, signatures, &context)?;
                 validate_statements(
                     body,
                     symbols,
@@ -466,7 +499,7 @@ pub(super) fn validate_statements(
                     | DoLoopCondition::PostUntil(condition) => {
                         ensure_assignable(
                             &TypeName::Boolean,
-                            &validate_expr(condition, symbols, types, signatures)?,
+                            &validate_expr(condition, symbols, types, signatures, &context)?,
                             condition.span,
                         )?;
                     }
@@ -509,18 +542,18 @@ pub(super) fn validate_statements(
 
                 ensure_assignable(
                     &TypeName::Integer,
-                    &validate_expr(start, symbols, types, signatures)?,
+                    &validate_expr(start, symbols, types, signatures, &context)?,
                     start.span,
                 )?;
                 ensure_assignable(
                     &TypeName::Integer,
-                    &validate_expr(end, symbols, types, signatures)?,
+                    &validate_expr(end, symbols, types, signatures, &context)?,
                     end.span,
                 )?;
                 if let Some(step) = step {
                     ensure_assignable(
                         &TypeName::Integer,
-                        &validate_expr(step, symbols, types, signatures)?,
+                        &validate_expr(step, symbols, types, signatures, &context)?,
                         step.span,
                     )?;
                 }
@@ -567,8 +600,9 @@ pub(super) fn validate_statements(
                         Some(*span),
                     ));
                 };
-                let array_type =
-                    validate_for_each_iterable_expr(iterable, symbols, types, signatures)?;
+                let array_type = validate_for_each_iterable_expr(
+                    iterable, symbols, types, signatures, &context,
+                )?;
                 ensure_assignable(&loop_type, &array_type, *span)?;
                 if let Some((next_variable, next_span)) = next_variable
                     && !next_variable.eq_ignore_ascii_case(variable)
@@ -609,12 +643,16 @@ pub(super) fn validate_statements(
                 for (lower, upper) in dims {
                     let upper_type = class_field_expr_type(upper, symbols, types, &context)
                         .map(Ok)
-                        .unwrap_or_else(|| validate_expr(upper, symbols, types, signatures))?;
+                        .unwrap_or_else(|| {
+                            validate_expr(upper, symbols, types, signatures, &context)
+                        })?;
                     ensure_assignable(&TypeName::Integer, &upper_type, upper.span)?;
                     if let Some(lower) = lower {
                         let lower_type = class_field_expr_type(lower, symbols, types, &context)
                             .map(Ok)
-                            .unwrap_or_else(|| validate_expr(lower, symbols, types, signatures))?;
+                            .unwrap_or_else(|| {
+                                validate_expr(lower, symbols, types, signatures, &context)
+                            })?;
                         ensure_assignable(&TypeName::Integer, &lower_type, lower.span)?;
                     }
                 }
@@ -638,7 +676,7 @@ pub(super) fn validate_statements(
             Stmt::OnError { .. } => {}
             Stmt::Resume { .. } => {}
             Stmt::With { target, body, .. } => {
-                validate_expr(target, symbols, types, signatures)?;
+                validate_expr(target, symbols, types, signatures, &context)?;
                 validate_statements(
                     body,
                     symbols,
@@ -669,6 +707,7 @@ pub(super) fn validate_statements(
                         types,
                         signatures,
                         decl.span,
+                        &context,
                     )?;
                     ensure_known_type(&ty, types, decl.span)?;
                     validate_as_new(
@@ -679,9 +718,11 @@ pub(super) fn validate_statements(
                         types,
                         signatures,
                         decl.span,
+                        &context,
                     )?;
                     if let Some(initializer) = &decl.initializer {
-                        let source_type = validate_expr(initializer, symbols, types, signatures)?;
+                        let source_type =
+                            validate_expr(initializer, symbols, types, signatures, &context)?;
                         ensure_assignable_expr(&ty, &source_type, initializer, types, decl.span)?;
                     }
                     validate_using_disposable(&ty, types, decl.span)?;
@@ -706,7 +747,7 @@ pub(super) fn validate_statements(
                     )?;
                 }
                 UsingResource::Target(expr) => {
-                    let ty = validate_expr(expr, symbols, types, signatures)?;
+                    let ty = validate_expr(expr, symbols, types, signatures, &context)?;
                     validate_using_disposable(&ty, types, *span)?;
                     validate_statements(
                         body,
@@ -770,11 +811,6 @@ pub(super) fn validate_statements(
                     )?;
                 }
             }
-            Stmt::DebugPrint { args, .. } => {
-                for arg in args {
-                    validate_expr(arg, symbols, types, signatures)?;
-                }
-            }
         }
     }
 
@@ -788,12 +824,13 @@ fn declared_variable_type(
     types: &TypeRegistry,
     signatures: &Signatures,
     span: crate::runtime::Span,
+    context: &Context<'_>,
 ) -> Result<TypeName, Diagnostic> {
     if let Some(ty) = ty {
         return Ok(ty.clone());
     }
     if let Some(initializer) = initializer {
-        return validate_expr(initializer, symbols, types, signatures);
+        return validate_expr(initializer, symbols, types, signatures, &context);
     }
     let _ = span;
     Ok(TypeName::Variant)
@@ -807,6 +844,7 @@ fn validate_as_new(
     types: &TypeRegistry,
     signatures: &Signatures,
     span: crate::runtime::Span,
+    context: &Context<'_>,
 ) -> Result<(), Diagnostic> {
     if !as_new {
         return Ok(());
@@ -825,7 +863,7 @@ fn validate_as_new(
         },
         span,
     };
-    validate_expr(&expr, symbols, types, signatures).map(|_| ())
+    validate_expr(&expr, symbols, types, signatures, &context).map(|_| ())
 }
 
 fn validate_using_disposable(
@@ -894,7 +932,8 @@ fn validate_using_disposable(
     Ok(())
 }
 
-fn validate_labels(statements: &[Stmt]) -> Result<(), Diagnostic> {
+fn validate_labels(statements: &[Stmt], context: &Context<'_>) -> Result<(), Diagnostic> {
+    let _ = context;
     let mut labels = HashSet::new();
     for stmt in statements {
         if let Stmt::Label { name, span } = stmt {
@@ -938,6 +977,7 @@ fn validate_sub_call(
     symbols: &HashMap<String, VarType>,
     types: &TypeRegistry,
     signatures: &Signatures,
+    context: &Context<'_>,
 ) -> Result<(), Diagnostic> {
     let effective_name = if let Some(stripped) = name.strip_prefix("VBA.") {
         stripped
@@ -951,12 +991,26 @@ fn validate_sub_call(
         .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
     {
         for arg in args {
-            validate_expr(arg, symbols, types, signatures)?;
+            validate_expr(arg, symbols, types, signatures, &context)?;
         }
         return Ok(());
     }
 
-    let Some(sub) = signatures.subs.get(&key(effective_name)) else {
+    let mut sub = signatures.subs.get(&key(effective_name)).cloned();
+    if sub.is_none() {
+        if let Some(owner_name) = context.current_class() {
+            if let Some(class_sig) = types.get_class(owner_name) {
+                let member_key = key(effective_name);
+                if let Some(sub_sig) = class_sig.subs.get(&member_key) {
+                    if sub_sig.is_shared || symbols.contains_key("me") {
+                        sub = Some(sub_sig.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let Some(sub) = sub else {
         if let Some(func) = signatures.functions.get(&key(effective_name)) {
             if !func.is_declare {
                 return Err(Diagnostic::new(
@@ -968,7 +1022,9 @@ fn validate_sub_call(
                     Some(span),
                 ));
             }
-            validate_arguments("Function", func, args, symbols, types, signatures, span)?;
+            validate_arguments(
+                "Function", func, args, symbols, types, signatures, span, context,
+            )?;
         } else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -979,7 +1035,9 @@ fn validate_sub_call(
         return Ok(());
     };
 
-    validate_arguments("Sub", sub, args, symbols, types, signatures, span)
+    validate_arguments(
+        "Sub", &sub, args, symbols, types, signatures, span, &context,
+    )
 }
 
 fn class_field_object_type(
@@ -1059,7 +1117,7 @@ fn redim_target_is_dynamic_array(
             field,
             span,
         } => {
-            let object_type = validate_expr(object, symbols, types, signatures)?;
+            let object_type = validate_expr(object, symbols, types, signatures, &context)?;
             let member_type =
                 member_read_type(&object_type, field, types, *span, context.current_class())?;
             if let TypeName::User(class_name) = &object_type
@@ -1074,7 +1132,7 @@ fn redim_target_is_dynamic_array(
     }
 }
 
-fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
+fn stmt_span(stmt: &Stmt, _context: &Context<'_>) -> crate::runtime::Span {
     match stmt {
         Stmt::Dim { span, .. }
         | Stmt::DimMany { span, .. }
@@ -1106,28 +1164,36 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::Exit { span, .. }
         | Stmt::TryCatch { span, .. }
         | Stmt::DebugPrint { span, .. }
-        | Stmt::Yield { span, .. } => *span,
+        | Stmt::Yield { span, .. }
+        | Stmt::End { span } => *span,
     }
 }
 
-fn stmt_uses_with_target(stmt: &Stmt) -> bool {
+fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
     match stmt {
+        Stmt::End { .. } => false,
         Stmt::Const { value, .. } | Stmt::Return { expr: value, .. } => {
-            expr_uses_with_target(value)
+            expr_uses_with_target(value, _context)
         }
         Stmt::ConstMany { consts, .. } => consts
             .iter()
-            .any(|const_decl| expr_uses_with_target(&const_decl.value)),
+            .any(|const_decl| expr_uses_with_target(&const_decl.value, _context)),
         Stmt::Assign { target, expr, .. } | Stmt::SetAssign { target, expr, .. } => {
-            assign_target_uses_with_target(target) || expr_uses_with_target(expr)
+            assign_target_uses_with_target(target, _context)
+                || expr_uses_with_target(expr, _context)
         }
         Stmt::ConsoleWriteLine { args, .. }
         | Stmt::SubCall { args, .. }
-        | Stmt::DebugPrint { args, .. } => args.iter().any(expr_uses_with_target),
-        Stmt::MemberSubCall { object, args, .. } => {
-            expr_uses_with_target(object) || args.iter().any(expr_uses_with_target)
+        | Stmt::DebugPrint { args, .. } => {
+            args.iter().any(|arg| expr_uses_with_target(arg, _context))
         }
-        Stmt::RaiseEvent { args, .. } => args.iter().any(expr_uses_with_target),
+        Stmt::MemberSubCall { object, args, .. } => {
+            expr_uses_with_target(object, _context)
+                || args.iter().any(|arg| expr_uses_with_target(arg, _context))
+        }
+        Stmt::RaiseEvent { args, .. } => {
+            args.iter().any(|arg| expr_uses_with_target(arg, _context))
+        }
         Stmt::If {
             condition,
             then_body,
@@ -1135,13 +1201,16 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             else_body,
             ..
         } => {
-            expr_uses_with_target(condition)
-                || then_body.iter().any(stmt_uses_with_target)
+            expr_uses_with_target(condition, _context)
+                || then_body.iter().any(|s| stmt_uses_with_target(s, _context))
                 || elseif_branches.iter().any(|branch| {
-                    expr_uses_with_target(&branch.condition)
-                        || branch.body.iter().any(stmt_uses_with_target)
+                    expr_uses_with_target(&branch.condition, _context)
+                        || branch
+                            .body
+                            .iter()
+                            .any(|s| stmt_uses_with_target(s, _context))
                 })
-                || else_body.iter().any(stmt_uses_with_target)
+                || else_body.iter().any(|s| stmt_uses_with_target(s, _context))
         }
         Stmt::SelectCase {
             subject,
@@ -1149,19 +1218,31 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             else_body,
             ..
         } => {
-            expr_uses_with_target(subject)
+            expr_uses_with_target(subject, _context)
                 || branches.iter().any(|branch| {
-                    branch.items.iter().any(case_item_uses_with_target)
-                        || branch.body.iter().any(stmt_uses_with_target)
+                    branch
+                        .items
+                        .iter()
+                        .any(|item| case_item_uses_with_target(item, _context))
+                        || branch
+                            .body
+                            .iter()
+                            .any(|s| stmt_uses_with_target(s, _context))
                 })
-                || else_body.iter().any(stmt_uses_with_target)
+                || else_body.iter().any(|s| stmt_uses_with_target(s, _context))
         }
         Stmt::While {
             condition, body, ..
-        } => expr_uses_with_target(condition) || body.iter().any(stmt_uses_with_target),
+        } => {
+            expr_uses_with_target(condition, _context)
+                || body.iter().any(|s| stmt_uses_with_target(s, _context))
+        }
         Stmt::DoLoop {
             condition, body, ..
-        } => do_condition_uses_with_target(condition) || body.iter().any(stmt_uses_with_target),
+        } => {
+            do_condition_uses_with_target(condition, _context)
+                || body.iter().any(|s| stmt_uses_with_target(s, _context))
+        }
         Stmt::For {
             start,
             end,
@@ -1169,16 +1250,21 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             body,
             ..
         } => {
-            expr_uses_with_target(start)
-                || expr_uses_with_target(end)
-                || step.as_ref().is_some_and(expr_uses_with_target)
-                || body.iter().any(stmt_uses_with_target)
+            expr_uses_with_target(start, _context)
+                || expr_uses_with_target(end, _context)
+                || step
+                    .as_ref()
+                    .is_some_and(|arg| expr_uses_with_target(arg, _context))
+                || body.iter().any(|s| stmt_uses_with_target(s, _context))
         }
         Stmt::ForEach { iterable, body, .. } => {
-            expr_uses_with_target(iterable) || body.iter().any(stmt_uses_with_target)
+            expr_uses_with_target(iterable, _context)
+                || body.iter().any(|s| stmt_uses_with_target(s, _context))
         }
         Stmt::ReDim { dims, .. } => dims.iter().any(|(l, u)| {
-            l.as_ref().is_some_and(expr_uses_with_target) || expr_uses_with_target(u)
+            l.as_ref()
+                .is_some_and(|arg| expr_uses_with_target(arg, _context))
+                || expr_uses_with_target(u, _context)
         }),
         Stmt::TryCatch {
             try_body,
@@ -1186,37 +1272,44 @@ fn stmt_uses_with_target(stmt: &Stmt) -> bool {
             finally_body,
             ..
         } => {
-            try_body.iter().any(stmt_uses_with_target)
+            try_body.iter().any(|s| stmt_uses_with_target(s, _context))
                 || catch_block
                     .as_ref()
-                    .is_some_and(|c| c.body.iter().any(stmt_uses_with_target))
+                    .is_some_and(|c| c.body.iter().any(|s| stmt_uses_with_target(s, _context)))
                 || finally_body
                     .as_ref()
-                    .is_some_and(|f| f.iter().any(stmt_uses_with_target))
+                    .is_some_and(|f| f.iter().any(|s| stmt_uses_with_target(s, _context)))
         }
         Stmt::Erase { .. } => false,
         Stmt::Label { .. } | Stmt::GoTo { .. } | Stmt::OnError { .. } | Stmt::Resume { .. } => {
             false
         }
-        Stmt::With { target, .. } => expr_uses_with_target(target),
+        Stmt::With { target, .. } => expr_uses_with_target(target, _context),
         Stmt::Using { resource, body, .. } => {
             let resource_uses_with = match resource {
                 UsingResource::Declaration(decl) => {
-                    decl.initializer.as_ref().is_some_and(expr_uses_with_target)
-                        || decl.new_args.iter().any(expr_uses_with_target)
+                    decl.initializer
+                        .as_ref()
+                        .is_some_and(|arg| expr_uses_with_target(arg, _context))
+                        || decl
+                            .new_args
+                            .iter()
+                            .any(|arg| expr_uses_with_target(arg, _context))
                 }
-                UsingResource::Target(expr) => expr_uses_with_target(expr),
+                UsingResource::Target(expr) => expr_uses_with_target(expr, _context),
             };
-            resource_uses_with || body.iter().any(stmt_uses_with_target)
+            resource_uses_with || body.iter().any(|s| stmt_uses_with_target(s, _context))
         }
-        Stmt::Dim { initializer, .. } | Stmt::Static { initializer, .. } => {
-            initializer.as_ref().is_some_and(expr_uses_with_target)
-        }
-        Stmt::DimMany { decls, .. } | Stmt::StaticMany { decls, .. } => decls
-            .iter()
-            .any(|decl| decl.initializer.as_ref().is_some_and(expr_uses_with_target)),
+        Stmt::Dim { initializer, .. } | Stmt::Static { initializer, .. } => initializer
+            .as_ref()
+            .is_some_and(|arg| expr_uses_with_target(arg, _context)),
+        Stmt::DimMany { decls, .. } | Stmt::StaticMany { decls, .. } => decls.iter().any(|decl| {
+            decl.initializer
+                .as_ref()
+                .is_some_and(|arg| expr_uses_with_target(arg, _context))
+        }),
         Stmt::Exit { .. } => false,
-        Stmt::Yield { expr, .. } => expr_uses_with_target(expr),
+        Stmt::Yield { expr, .. } => expr_uses_with_target(expr, _context),
     }
 }
 
@@ -1225,12 +1318,13 @@ fn validate_for_each_iterable_expr(
     symbols: &HashMap<String, VarType>,
     types: &TypeRegistry,
     signatures: &Signatures,
+    context: &Context<'_>,
 ) -> Result<TypeName, Diagnostic> {
-    if let Ok(element_type) = validate_array_expr(expr, symbols, types, signatures) {
+    if let Ok(element_type) = validate_array_expr(expr, symbols, types, signatures, context) {
         return Ok(element_type);
     }
 
-    let iterable_type = validate_expr(expr, symbols, types, signatures)?;
+    let iterable_type = validate_expr(expr, symbols, types, signatures, &context)?;
     match iterable_type {
         TypeName::Variant => Ok(TypeName::Variant),
         TypeName::User(class_name) => {
@@ -1262,66 +1356,77 @@ fn validate_for_each_iterable_expr(
     }
 }
 
-fn assign_target_uses_with_target(target: &AssignTarget) -> bool {
+fn assign_target_uses_with_target(target: &AssignTarget, _context: &Context<'_>) -> bool {
     match target {
         AssignTarget::Variable { .. } => false,
-        AssignTarget::ArrayElement { indices, .. } => indices.iter().any(expr_uses_with_target),
-        AssignTarget::Member { object, .. } => expr_uses_with_target(object),
+        AssignTarget::ArrayElement { indices, .. } => indices
+            .iter()
+            .any(|arg| expr_uses_with_target(arg, _context)),
+        AssignTarget::Member { object, .. } => expr_uses_with_target(object, _context),
         AssignTarget::MemberArrayElement {
             object, indices, ..
-        } => expr_uses_with_target(object) || indices.iter().any(expr_uses_with_target),
-    }
-}
-
-fn case_item_uses_with_target(item: &CaseItem) -> bool {
-    match item {
-        CaseItem::Value(expr) | CaseItem::Compare { expr, .. } => expr_uses_with_target(expr),
-        CaseItem::Range { start, end } => {
-            expr_uses_with_target(start) || expr_uses_with_target(end)
+        } => {
+            expr_uses_with_target(object, _context)
+                || indices
+                    .iter()
+                    .any(|arg| expr_uses_with_target(arg, _context))
         }
     }
 }
 
-fn do_condition_uses_with_target(condition: &DoLoopCondition) -> bool {
+fn case_item_uses_with_target(item: &CaseItem, _context: &Context<'_>) -> bool {
+    match item {
+        CaseItem::Value(expr) | CaseItem::Compare { expr, .. } => {
+            expr_uses_with_target(expr, _context)
+        }
+        CaseItem::Range { start, end } => {
+            expr_uses_with_target(start, _context) || expr_uses_with_target(end, _context)
+        }
+    }
+}
+
+fn do_condition_uses_with_target(condition: &DoLoopCondition, _context: &Context<'_>) -> bool {
     match condition {
         DoLoopCondition::Infinite => false,
         DoLoopCondition::PreWhile(expr)
         | DoLoopCondition::PreUntil(expr)
         | DoLoopCondition::PostWhile(expr)
-        | DoLoopCondition::PostUntil(expr) => expr_uses_with_target(expr),
+        | DoLoopCondition::PostUntil(expr) => expr_uses_with_target(expr, _context),
     }
 }
 
-fn expr_uses_with_target(expr: &Expr) -> bool {
+fn expr_uses_with_target(expr: &Expr, _context: &Context<'_>) -> bool {
     match &expr.kind {
         ExprKind::WithTarget => true,
         ExprKind::New { args, .. } | ExprKind::Call { args, .. } => {
-            args.iter().any(expr_uses_with_target)
+            args.iter().any(|arg| expr_uses_with_target(arg, _context))
         }
         ExprKind::Index { target, args } => {
-            expr_uses_with_target(target) || args.iter().any(expr_uses_with_target)
+            expr_uses_with_target(target, _context)
+                || args.iter().any(|arg| expr_uses_with_target(arg, _context))
         }
         ExprKind::IIf {
             condition,
             true_expr,
             false_expr,
         } => {
-            expr_uses_with_target(condition)
-                || expr_uses_with_target(true_expr)
-                || expr_uses_with_target(false_expr)
+            expr_uses_with_target(condition, _context)
+                || expr_uses_with_target(true_expr, _context)
+                || expr_uses_with_target(false_expr, _context)
         }
         ExprKind::NamedArg { expr, .. } | ExprKind::TypeOfIs { expr, .. } => {
-            expr_uses_with_target(expr)
+            expr_uses_with_target(expr, _context)
         }
-        ExprKind::MemberAccess { object, .. } => expr_uses_with_target(object),
+        ExprKind::MemberAccess { object, .. } => expr_uses_with_target(object, _context),
         ExprKind::MemberCall { object, args, .. } => {
-            expr_uses_with_target(object) || args.iter().any(expr_uses_with_target)
+            expr_uses_with_target(object, _context)
+                || args.iter().any(|arg| expr_uses_with_target(arg, _context))
         }
         ExprKind::Binary { left, right, .. } => {
-            expr_uses_with_target(left) || expr_uses_with_target(right)
+            expr_uses_with_target(left, _context) || expr_uses_with_target(right, _context)
         }
-        ExprKind::Unary { expr, .. } => expr_uses_with_target(expr),
-        ExprKind::AddressOf(inner) => expr_uses_with_target(inner),
+        ExprKind::Unary { expr, .. } => expr_uses_with_target(expr, _context),
+        ExprKind::AddressOf(inner) => expr_uses_with_target(inner, _context),
         ExprKind::String(_)
         | ExprKind::Integer(_)
         | ExprKind::Long(_)
@@ -1337,6 +1442,6 @@ fn expr_uses_with_target(expr: &Expr) -> bool {
         | ExprKind::Missing
         | ExprKind::Me
         | ExprKind::Variable(_) => false,
-        ExprKind::PassingModeOverride { expr, .. } => expr_uses_with_target(expr),
+        ExprKind::PassingModeOverride { expr, .. } => expr_uses_with_target(expr, _context),
     }
 }

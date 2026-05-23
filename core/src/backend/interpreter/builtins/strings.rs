@@ -127,6 +127,18 @@ pub(crate) fn eval_strings(
         return Ok(Some(Value::String(args[0].to_output_string())));
     }
 
+    if name.eq_ignore_ascii_case("Len") {
+        if args.len() != 1 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Len expects exactly 1 argument",
+                Some(span),
+            ));
+        }
+        let s = args[0].to_output_string();
+        return Ok(Some(Value::Int64(s.len() as i64)));
+    }
+
     if name.eq_ignore_ascii_case("StrComp") {
         if args.len() < 2 || args.len() > 3 {
             return Err(Diagnostic::new(

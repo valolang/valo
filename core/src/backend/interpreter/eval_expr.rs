@@ -89,14 +89,43 @@ impl Interpreter {
                     Ok(Value::Empty)
                 } else if let Some(value) = self.enum_members.get(&super::values::key(name)) {
                     Ok(Value::Int64(*value))
+                } else if name.eq_ignore_ascii_case("vbCrLf")
+                    || name.eq_ignore_ascii_case("vbNewLine")
+                {
+                    Ok(Value::String("\r\n".to_string()))
+                } else if name.eq_ignore_ascii_case("vbCr") {
+                    Ok(Value::String("\r".to_string()))
+                } else if name.eq_ignore_ascii_case("vbLf") {
+                    Ok(Value::String("\n".to_string()))
+                } else if name.eq_ignore_ascii_case("vbTab") {
+                    Ok(Value::String("\t".to_string()))
+                } else if name.eq_ignore_ascii_case("vbNullString") {
+                    Ok(Value::String(String::new()))
+                } else if name.eq_ignore_ascii_case("vbNullChar") {
+                    Ok(Value::String("\0".to_string()))
+                } else if name.eq_ignore_ascii_case("vbBack") {
+                    Ok(Value::String("\x08".to_string()))
+                } else if name.eq_ignore_ascii_case("vbFormFeed") {
+                    Ok(Value::String("\x0c".to_string()))
+                } else if name.eq_ignore_ascii_case("vbVerticalTab") {
+                    Ok(Value::String("\x0b".to_string()))
                 } else {
                     match frame.get(name, expr.span) {
                         Ok(value) => Ok(value),
                         Err(error) => {
-                            if let Ok(me) = frame.get("me", expr.span)
-                                && let Ok(value) = self.read_member(&me, name, frame, expr.span)
-                            {
-                                return Ok(value);
+                            if let Ok(me) = frame.get("me", expr.span) {
+                                if let Ok(value) = self.read_member(&me, name, frame, expr.span) {
+                                    return Ok(value);
+                                }
+                                // Try shared members of the class me belongs to
+                                if let Value::Object(ref obj) = me {
+                                    let class_name = obj.borrow().class_name.clone();
+                                    if let Ok(value) =
+                                        self.read_shared_member(&class_name, name, frame, expr.span)
+                                    {
+                                        return Ok(value);
+                                    }
+                                }
                             }
                             if self.functions.contains_key(&super::values::key(name))
                                 || self.has_declared_function(name)
@@ -287,19 +316,38 @@ impl Interpreter {
                         }
                     }
                 }
-                if let Ok(me) = frame.get("me", expr.span)
-                    && let Ok(field_value) = self.read_member(&me, name, frame, expr.span)
-                    && matches!(field_value, Value::Array(_))
-                {
-                    let mut dims = Vec::new();
-                    for arg in args {
-                        dims.push(self.eval_integer_expr(
-                            arg,
-                            frame,
-                            "Array index must be Integer",
-                        )?);
+                if let Ok(me) = frame.get("me", expr.span) {
+                    if let Ok(field_value) = self.read_member(&me, name, frame, expr.span) {
+                        if matches!(field_value, Value::Array(_)) {
+                            let mut dims = Vec::new();
+                            for arg in args {
+                                dims.push(self.eval_integer_expr(
+                                    arg,
+                                    frame,
+                                    "Array index must be Integer",
+                                )?);
+                            }
+                            return self
+                                .read_bare_class_field_array_element(me, name, &dims, expr.span);
+                        }
                     }
-                    return self.read_bare_class_field_array_element(me, name, &dims, expr.span);
+
+                    if let Value::Object(ref obj) = me {
+                        let class_name = obj.borrow().class_name.clone();
+                        if let Some(class) = self.classes.get(&super::values::key(&class_name)) {
+                            if class.functions.contains_key(&super::values::key(name))
+                                || class.properties.contains_key(&super::values::key(name))
+                            {
+                                return self.call_method_function(
+                                    me.clone(),
+                                    name,
+                                    args,
+                                    frame,
+                                    expr.span,
+                                );
+                            }
+                        }
+                    }
                 }
                 self.call_function(name, args, frame, expr.span)
             }

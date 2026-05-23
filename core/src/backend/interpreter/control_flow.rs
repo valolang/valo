@@ -12,4 +12,5 @@ pub(crate) enum ControlFlow {
     ExitDo,
     GoTo(String),
     Resume(ResumeTarget),
+    Terminate,
 }

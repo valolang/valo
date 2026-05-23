@@ -78,6 +78,9 @@ impl Interpreter {
         stmt: &Stmt,
         frame: &mut Frame,
     ) -> Result<ControlFlow, Diagnostic> {
+        if self.terminated {
+            return Ok(ControlFlow::Terminate);
+        }
         match stmt {
             Stmt::Dim {
                 name,
@@ -195,12 +198,29 @@ impl Interpreter {
                 }
                 Ok(ControlFlow::Continue)
             }
+            Stmt::End { .. } => {
+                self.terminated = true;
+                Ok(ControlFlow::Terminate)
+            }
             Stmt::SubCall { name, args, span } => {
                 if let Some(flow) =
                     super::builtins::dispatch_stmt(self, "VBA", name, args, frame, *span)?
                 {
                     return Ok(flow);
                 }
+
+                if let Ok(me) = frame.get("me", *span) {
+                    if let Value::Object(ref obj) = me {
+                        let class_name = obj.borrow().class_name.clone();
+                        if let Some(class) = self.classes.get(&super::values::key(&class_name)) {
+                            if class.subs.contains_key(&super::values::key(name)) {
+                                self.call_method_sub(me, name, args, frame, *span)?;
+                                return Ok(ControlFlow::Continue);
+                            }
+                        }
+                    }
+                }
+
                 self.call_sub(name, args, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
@@ -1075,7 +1095,8 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::Exit { span, .. }
         | Stmt::TryCatch { span, .. }
         | Stmt::DebugPrint { span, .. }
-        | Stmt::Yield { span, .. } => *span,
+        | Stmt::Yield { span, .. }
+        | Stmt::End { span } => *span,
     }
 }
 

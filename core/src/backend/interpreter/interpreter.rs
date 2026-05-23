@@ -46,8 +46,9 @@ pub struct Interpreter {
     pub(crate) public_classes: HashSet<String>,
     pub(crate) public_types: HashSet<String>,
     pub(crate) public_enums: HashSet<String>,
-    pub(crate) public_values: HashMap<String, Vec<String>>,
+    pub(crate) public_values: HashMap<String, HashSet<String>>,
     pub(crate) rng: Pcg64,
+    pub(crate) terminated: bool,
 }
 
 impl Default for Interpreter {
@@ -89,6 +90,7 @@ impl Default for Interpreter {
             public_enums: HashSet::new(),
             public_values: HashMap::new(),
             rng: Pcg64::from_entropy(),
+            terminated: false,
         }
     }
 }
@@ -361,7 +363,8 @@ impl Interpreter {
         self.terminate_frame_variables(frame, main.span)?;
 
         match result? {
-            ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output),
+            ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output.clone()),
+            ControlFlow::Terminate => Ok(self.output.clone()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Return is only allowed inside Function",
@@ -552,7 +555,8 @@ impl Interpreter {
         }
 
         match result? {
-            ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output),
+            ControlFlow::Continue | ControlFlow::ExitSub => Ok(self.output.clone()),
+            ControlFlow::Terminate => Ok(self.output.clone()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Return is only allowed inside Function",
@@ -774,7 +778,8 @@ impl Interpreter {
                     &self.enums,
                 )?;
             }
-            self.public_values.insert(module_key.clone(), public_values);
+            self.public_values
+                .insert(module_key.clone(), public_values.into_iter().collect());
             self.module_frames.insert(module_key, frame);
         }
         Ok(())

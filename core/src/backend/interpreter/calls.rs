@@ -76,6 +76,7 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+            ControlFlow::Terminate => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Return is only allowed inside Function",
@@ -307,6 +308,7 @@ impl Interpreter {
                         frame.get(&function.name, function.span)
                     }
                 }
+                ControlFlow::Terminate => Ok(Value::Empty),
                 ControlFlow::ExitSub => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
                     "Exit Sub is only valid inside Sub",
@@ -371,6 +373,7 @@ impl Interpreter {
 
             let result = match self.exec_block(&procedure.body, &mut frame)? {
                 ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+                ControlFlow::Terminate => Ok(()),
                 ControlFlow::Return(_) => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
                     "Return is only allowed inside Function",
@@ -497,7 +500,7 @@ impl Interpreter {
                     frame.get(&function.name, function.span)
                 }
             }
-
+            ControlFlow::Terminate => Ok(Value::Empty),
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Sub is only valid inside Sub",
@@ -589,6 +592,7 @@ impl Interpreter {
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         match self.exec_block(&procedure.body, &mut frame)? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+            ControlFlow::Terminate => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Return is only allowed inside Function",
@@ -763,6 +767,7 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+            ControlFlow::Terminate => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Return is only allowed inside Function",
@@ -827,6 +832,7 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+            ControlFlow::Terminate => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Return is only allowed inside Function",
@@ -952,6 +958,7 @@ impl Interpreter {
                         frame.get(&function.name, function.span)
                     }
                 }
+                ControlFlow::Terminate => Ok(Value::Empty),
                 ControlFlow::ExitSub => Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::CONTROL_FLOW,
                     "Exit Sub is only valid inside Sub",
@@ -1123,6 +1130,7 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Continue | ControlFlow::ExitSub => Ok(()),
+            ControlFlow::Terminate => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Return is only allowed inside Function",
@@ -1218,6 +1226,7 @@ impl Interpreter {
                     frame.get(&function.name, function.span)
                 }
             }
+            ControlFlow::Terminate => Ok(Value::Empty),
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Sub is only valid inside Sub",
@@ -1398,12 +1407,26 @@ impl Interpreter {
                     match &arg.kind {
                         ExprKind::Variable(arg_name) => {
                             let variable = caller_frame.variable(arg_name, arg.span)?;
-                            callee_frame.declare_alias(
-                                &param.name,
-                                param_ty,
-                                variable,
-                                param.span,
-                            )?;
+                            if variable.ty.same_type(&param_ty) {
+                                callee_frame.declare_alias(
+                                    &param.name,
+                                    param_ty,
+                                    variable,
+                                    param.span,
+                                )?;
+                            } else {
+                                let value = self.eval_expr(arg, caller_frame)?;
+                                callee_frame.declare(
+                                    &param.name,
+                                    param_ty,
+                                    None,
+                                    self.option_base,
+                                    param.span,
+                                    &self.types,
+                                    &self.enums,
+                                )?;
+                                let _ = callee_frame.assign(&param.name, value, param.span)?;
+                            }
                         }
                         ExprKind::Call { name, args } if caller_frame.has_variable(name) => {
                             let array_variable = caller_frame.variable(name, arg.span)?;
@@ -1484,8 +1507,8 @@ impl Interpreter {
                                     );
                                 }
                                 if let VariableCell::Direct(array_cell) = &array_variable.cell {
+                                    let array_val = array_cell.borrow();
                                     let index = {
-                                        let array_val = array_cell.borrow();
                                         if let Value::Array(array) = &*array_val {
                                             super::arrays::calculate_index(
                                                 &indices,
@@ -1500,22 +1523,45 @@ impl Interpreter {
                                             ));
                                         }
                                     };
-                                    let variable = Variable {
-                                        ty: param_ty.clone(),
-                                        cell: VariableCell::ArrayElement {
-                                            array: array_cell.clone(),
-                                            index,
-                                        },
-                                        dynamic_array: false,
-                                        is_const: false,
-                                        module_level: false,
-                                    };
-                                    callee_frame.declare_alias(
-                                        &param.name,
-                                        param_ty,
-                                        variable,
-                                        param.span,
-                                    )?;
+                                    let mut can_alias = false;
+                                    if let Value::Array(array) = &*array_val {
+                                        if array.element_type.same_type(&param_ty) {
+                                            can_alias = true;
+                                        }
+                                    }
+
+                                    if can_alias {
+                                        let variable = Variable {
+                                            ty: param_ty.clone(),
+                                            cell: VariableCell::ArrayElement {
+                                                array: array_cell.clone(),
+                                                index,
+                                            },
+                                            dynamic_array: false,
+                                            is_const: false,
+                                            module_level: false,
+                                        };
+                                        callee_frame.declare_alias(
+                                            &param.name,
+                                            param_ty,
+                                            variable,
+                                            param.span,
+                                        )?;
+                                    } else {
+                                        drop(array_val);
+                                        let value = self.eval_expr(arg, caller_frame)?;
+                                        callee_frame.declare(
+                                            &param.name,
+                                            param_ty,
+                                            None,
+                                            self.option_base,
+                                            param.span,
+                                            &self.types,
+                                            &self.enums,
+                                        )?;
+                                        let _ =
+                                            callee_frame.assign(&param.name, value, param.span)?;
+                                    }
                                 } else {
                                     let value = self.eval_expr(arg, caller_frame)?;
                                     callee_frame.declare(
@@ -1547,22 +1593,54 @@ impl Interpreter {
                             if let ExprKind::Variable(obj_name) = &object.kind {
                                 let obj_variable = caller_frame.variable(obj_name, object.span)?;
                                 if let VariableCell::Direct(obj_cell) = &obj_variable.cell {
-                                    let variable = Variable {
-                                        ty: param_ty.clone(),
-                                        cell: VariableCell::Member {
-                                            object: obj_cell.clone(),
-                                            member: field.clone(),
-                                        },
-                                        dynamic_array: false,
-                                        is_const: false,
-                                        module_level: false,
-                                    };
-                                    callee_frame.declare_alias(
-                                        &param.name,
-                                        param_ty,
-                                        variable,
-                                        param.span,
-                                    )?;
+                                    let mut can_alias = false;
+                                    if let Value::Record(record) = &*obj_cell.borrow() {
+                                        if let Some(type_sig) =
+                                            self.types.get(&key(&record.type_name))
+                                        {
+                                            if let Some(field_sig) = type_sig
+                                                .fields
+                                                .iter()
+                                                .find(|f| key(&f.name) == key(field))
+                                            {
+                                                if field_sig.ty.same_type(&param_ty) {
+                                                    can_alias = true;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if can_alias {
+                                        let variable = Variable {
+                                            ty: param_ty.clone(),
+                                            cell: VariableCell::Member {
+                                                object: obj_cell.clone(),
+                                                member: field.clone(),
+                                            },
+                                            dynamic_array: false,
+                                            is_const: false,
+                                            module_level: false,
+                                        };
+                                        callee_frame.declare_alias(
+                                            &param.name,
+                                            param_ty,
+                                            variable,
+                                            param.span,
+                                        )?;
+                                    } else {
+                                        let value = self.eval_expr(arg, caller_frame)?;
+                                        callee_frame.declare(
+                                            &param.name,
+                                            param_ty,
+                                            None,
+                                            self.option_base,
+                                            param.span,
+                                            &self.types,
+                                            &self.enums,
+                                        )?;
+                                        let _ =
+                                            callee_frame.assign(&param.name, value, param.span)?;
+                                    }
                                 } else {
                                     let value = self.eval_expr(arg, caller_frame)?;
                                     callee_frame.declare(

@@ -123,6 +123,7 @@ pub(super) struct InterfaceSig {
 #[derive(Debug, Clone)]
 pub(super) struct ClassFieldSig {
     pub(super) visibility: Visibility,
+    pub(super) is_shared: bool,
     pub(super) with_events: bool,
     pub(super) ty: TypeName,
     pub(super) array: Option<ArrayDecl>,
@@ -134,6 +135,7 @@ pub(super) type ClassEventSig = crate::semantics::symbols::CallableSig;
 #[derive(Debug, Clone)]
 pub(super) struct ClassPropertySig {
     pub(super) name: String,
+    pub(super) is_shared: bool,
     pub(super) get: Option<PropertyAccessorSig>,
     pub(super) let_: Option<PropertyAccessorSig>,
     pub(super) set: Option<PropertyAccessorSig>,

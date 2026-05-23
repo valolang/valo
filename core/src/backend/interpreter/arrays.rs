@@ -325,16 +325,17 @@ pub(crate) fn calculate_index(
         if index < bound.lower || index > bound.upper {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::ARRAY,
-                format!(
-                    "Array index {} is out of bounds for dimension {} ({} to {})",
-                    index,
-                    i + 1,
-                    bound.lower,
-                    bound.upper
-                ),
+                "Array index out of bounds",
                 Some(span),
             )
-            .with_primary_label("array index is outside the valid bounds"));
+            .with_primary_label("array index is outside the valid bounds")
+            .with_note(format!(
+                "index {} is outside valid range {} To {} for dimension {}",
+                index,
+                bound.lower,
+                bound.upper,
+                i + 1
+            )));
         }
 
         flattened_index += (index - bound.lower) * multiplier;

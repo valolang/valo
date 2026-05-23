@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime::Span;
 
 pub(super) fn validate_assignment_target(
     target: &AssignTarget,
@@ -16,7 +17,18 @@ pub(super) fn validate_assignment_target(
                 if let Some(class_sig) = types.get_class(owner_name)
                     && let Some(field_sig) = class_sig.fields.get(&key(name))
                 {
-                    VarType::Scalar(Visibility::Public, field_sig.ty.clone())
+                    if field_sig.is_shared || symbols.contains_key("me") {
+                        VarType::Scalar(Visibility::Public, field_sig.ty.clone())
+                    } else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
+                                "Instance field '{}' cannot be accessed from a Shared method",
+                                name
+                            ),
+                            Some(*span),
+                        ));
+                    }
                 } else if let Some(type_sig) = types.get(owner_name)
                     && let Some(field_sig) = type_sig.fields.get(&key(name))
                 {
@@ -62,14 +74,25 @@ pub(super) fn validate_assignment_target(
                 if let Some(class_sig) = types.get_class(owner_name)
                     && let Some(field_sig) = class_sig.fields.get(&key(name))
                 {
-                    if field_sig.array.is_some() {
-                        VarType::Array(Visibility::Public, field_sig.ty.clone())
-                    } else if field_sig.ty.same_type(&TypeName::Variant) {
-                        VarType::Scalar(Visibility::Public, TypeName::Variant)
+                    if field_sig.is_shared || symbols.contains_key("me") {
+                        if field_sig.array.is_some() {
+                            VarType::Array(Visibility::Public, field_sig.ty.clone())
+                        } else if field_sig.ty.same_type(&TypeName::Variant) {
+                            VarType::Scalar(Visibility::Public, TypeName::Variant)
+                        } else {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                format!("Variable '{}' is not an array", name),
+                                Some(*span),
+                            ));
+                        }
                     } else {
                         return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::ARRAY,
-                            format!("Variable '{}' is not an array", name),
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
+                                "Instance array '{}' cannot be accessed from a Shared method",
+                                name
+                            ),
                             Some(*span),
                         ));
                     }
@@ -112,7 +135,7 @@ pub(super) fn validate_assignment_target(
                         .is_some() =>
                 {
                     for index in indices {
-                        validate_expr(index, symbols, types, signatures)?;
+                        validate_expr(index, symbols, types, signatures, context)?;
                     }
                     return Ok(value_type.clone());
                 }
@@ -137,7 +160,7 @@ pub(super) fn validate_assignment_target(
             for index in indices {
                 ensure_assignable(
                     &TypeName::Integer,
-                    &validate_expr(index, symbols, types, signatures)?,
+                    &validate_expr(index, symbols, types, signatures, context)?,
                     index.span,
                 )?;
             }
@@ -148,7 +171,7 @@ pub(super) fn validate_assignment_target(
             field,
             span,
         } => {
-            let object_type = validate_expr(object, symbols, types, signatures)?;
+            let object_type = validate_expr(object, symbols, types, signatures, context)?;
             let current_class = member_access_class(object, &object_type)
                 .or_else(|| context.current_class().map(str::to_string));
             member_assignment_type(
@@ -166,9 +189,9 @@ pub(super) fn validate_assignment_target(
             indices,
             span,
         } => {
-            let object_type = validate_expr(object, symbols, types, signatures)?;
+            let object_type = validate_expr(object, symbols, types, signatures, context)?;
             for index in indices {
-                validate_expr(index, symbols, types, signatures)?;
+                validate_expr(index, symbols, types, signatures, context)?;
             }
             let current_class = member_access_class(object, &object_type)
                 .or_else(|| context.current_class().map(str::to_string));
@@ -189,6 +212,7 @@ pub(super) fn validate_expr(
     symbols: &HashMap<String, VarType>,
     types: &TypeRegistry,
     signatures: &Signatures,
+    context: &Context<'_>,
 ) -> Result<TypeName, Diagnostic> {
     match &expr.kind {
         ExprKind::String(_) => Ok(TypeName::String),
@@ -227,7 +251,7 @@ pub(super) fn validate_expr(
                     Some(expr.span),
                 )
             })?;
-            let object_type = validate_expr(object, symbols, types, signatures)?;
+            let object_type = validate_expr(object, symbols, types, signatures, context)?;
             if is_object_reference_expr(object, &object_type, types) {
                 Ok(TypeName::Boolean)
             } else {
@@ -265,7 +289,9 @@ pub(super) fn validate_expr(
                     ));
                 }
                 if let Some(init) = type_sig.subs.get("initialize") {
-                    validate_arguments("Sub", init, args, symbols, types, signatures, expr.span)?;
+                    validate_arguments(
+                        "Sub", init, args, symbols, types, signatures, expr.span, context,
+                    )?;
                 } else if !args.is_empty() {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::GENERIC,
@@ -287,7 +313,9 @@ pub(super) fn validate_expr(
                 .get("initialize")
                 .or_else(|| class_sig.subs.get("class_initialize"))
             {
-                validate_arguments("Sub", init, args, symbols, types, signatures, expr.span)?;
+                validate_arguments(
+                    "Sub", init, args, symbols, types, signatures, expr.span, context,
+                )?;
             } else if !args.is_empty() {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::GENERIC,
@@ -373,35 +401,79 @@ pub(super) fn validate_expr(
                     types,
                     signatures,
                     expr.span,
+                    context,
                 )?;
+
                 return Ok(function.return_type.clone().expect("function return type"));
             }
-            if let Some(VarType::Scalar(Visibility::Public, TypeName::User(owner_name))) =
-                symbols.get("me").cloned()
-            {
-                if let Some(class_sig) = types.get_class(&owner_name)
-                    && let Some(field_sig) = class_sig.fields.get(&key(name))
-                {
-                    if field_sig.array.is_some() {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::ARRAY,
-                            format!("Array variable '{}' cannot be used as a scalar", name),
-                            Some(expr.span),
-                        ));
+            if let Some(owner_name) = context.current_class() {
+                if let Some(class_sig) = types.get_class(owner_name) {
+                    let member_key = key(name);
+                    if let Some(field_sig) = class_sig.fields.get(&member_key) {
+                        if field_sig.is_shared || symbols.contains_key("me") {
+                            if field_sig.array.is_some() {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::ARRAY,
+                                    format!("Array variable '{}' cannot be used as a scalar", name),
+                                    Some(expr.span),
+                                ));
+                            }
+                            return Ok(field_sig.ty.clone());
+                        }
                     }
-                    return Ok(field_sig.ty.clone());
+                    if let Some(func_sig) = class_sig.functions.get(&member_key) {
+                        if func_sig.is_shared || symbols.contains_key("me") {
+                            validate_arguments(
+                                "Function",
+                                func_sig,
+                                &[],
+                                symbols,
+                                types,
+                                signatures,
+                                expr.span,
+                                context,
+                            )?;
+                            return Ok(func_sig.return_type.clone().expect("function return type"));
+                        }
+                    }
+                    if let Some(prop_sig) = class_sig.properties.get(&member_key) {
+                        if (prop_sig.is_shared || symbols.contains_key("me"))
+                            && let Some(get) = &prop_sig.get
+                        {
+                            let callable = CallableSig {
+                                visibility: Visibility::Public,
+                                name: prop_sig.name.clone(),
+                                is_shared: prop_sig.is_shared,
+                                _is_iterator: get.is_iterator,
+                                is_declare: false,
+                                params: get.params.clone(),
+                                return_type: get.return_type.clone(),
+                            };
+                            validate_arguments(
+                                "Property",
+                                &callable,
+                                &[],
+                                symbols,
+                                types,
+                                signatures,
+                                expr.span,
+                                context,
+                            )?;
+                            return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
+                        }
+                    }
                 }
-                if let Some(type_sig) = types.get(&owner_name)
-                    && let Some(field_sig) = type_sig.fields.get(&key(name))
-                {
-                    if field_sig.array.is_some() {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::ARRAY,
-                            format!("Array variable '{}' cannot be used as a scalar", name),
-                            Some(expr.span),
-                        ));
+                if let Some(type_sig) = types.get(owner_name) {
+                    if let Some(field_sig) = type_sig.fields.get(&key(name)) {
+                        if field_sig.array.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                format!("Array variable '{}' cannot be used as a scalar", name),
+                                Some(expr.span),
+                            ));
+                        }
+                        return Ok(field_sig.ty.clone());
                     }
-                    return Ok(field_sig.ty.clone());
                 }
             }
             if enum_member_value_type(name, types).is_some() {
@@ -469,7 +541,7 @@ pub(super) fn validate_expr(
                     Some(expr.span),
                 ));
             }
-            let object_type = validate_expr(object, symbols, types, signatures)?;
+            let object_type = validate_expr(object, symbols, types, signatures, context)?;
             let current_class = member_access_class(object, &object_type);
             member_read_type(
                 &object_type,
@@ -487,9 +559,9 @@ pub(super) fn validate_expr(
             if let ExprKind::Variable(name) = &object.kind
                 && name.eq_ignore_ascii_case("VBA")
             {
-                if let Some(ty) =
-                    validate_builtin_function(method, args, symbols, types, signatures, expr.span)?
-                {
+                if let Some(ty) = validate_builtin_function(
+                    method, args, symbols, types, signatures, expr.span, context,
+                )? {
                     return Ok(ty);
                 }
                 return Err(Diagnostic::new(
@@ -505,7 +577,7 @@ pub(super) fn validate_expr(
                     return Ok(TypeName::Variant);
                 }
                 if method.eq_ignore_ascii_case("Raise") {
-                    validate_err_raise_args(args, symbols, types, signatures, expr.span)?;
+                    validate_err_raise_args(args, symbols, types, signatures, expr.span, context)?;
                     return Ok(TypeName::Variant);
                 }
                 return Err(Diagnostic::new(
@@ -520,7 +592,7 @@ pub(super) fn validate_expr(
             {
                 if let Some(function) = class_sig.functions.get(&key(method)) {
                     validate_arguments(
-                        "Function", function, args, symbols, types, signatures, expr.span,
+                        "Function", function, args, symbols, types, signatures, expr.span, context,
                     )?;
                     return Ok(function.return_type.clone().unwrap_or(TypeName::Variant));
                 }
@@ -530,13 +602,14 @@ pub(super) fn validate_expr(
                     let callable = CallableSig {
                         visibility: Visibility::Public,
                         name: property_sig.name.clone(),
+                        is_shared: property_sig.is_shared,
                         _is_iterator: get.is_iterator,
                         is_declare: false,
                         params: get.params.clone(),
                         return_type: get.return_type.clone(),
                     };
                     validate_arguments(
-                        "Property", &callable, args, symbols, types, signatures, expr.span,
+                        "Property", &callable, args, symbols, types, signatures, expr.span, context,
                     )?;
                     return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
                 }
@@ -549,7 +622,7 @@ pub(super) fn validate_expr(
                     Some(expr.span),
                 ));
             }
-            let object_type = validate_expr(object, symbols, types, signatures)?;
+            let object_type = validate_expr(object, symbols, types, signatures, context)?;
             validate_method_call(
                 &object_type,
                 method,
@@ -560,12 +633,13 @@ pub(super) fn validate_expr(
                 types,
                 signatures,
                 member_access_class(object, &object_type).as_deref(),
+                context,
             )
         }
         ExprKind::Call { name, args } => {
-            if let Some(ty) =
-                validate_builtin_function(name, args, symbols, types, signatures, expr.span)?
-            {
+            if let Some(ty) = validate_builtin_function(
+                name, args, symbols, types, signatures, expr.span, context,
+            )? {
                 return Ok(ty);
             }
             if name.eq_ignore_ascii_case("IsMissing") {
@@ -605,11 +679,11 @@ pub(super) fn validate_expr(
                         Some(expr.span),
                     ));
                 }
-                validate_array_expr(&args[0], symbols, types, signatures)?;
+                validate_array_expr(&args[0], symbols, types, signatures, context)?;
                 if args.len() == 2 {
                     ensure_assignable(
                         &TypeName::Integer,
-                        &validate_expr(&args[1], symbols, types, signatures)?,
+                        &validate_expr(&args[1], symbols, types, signatures, context)?,
                         args[1].span,
                     )?;
                 }
@@ -621,7 +695,7 @@ pub(super) fn validate_expr(
                         for arg in args {
                             ensure_assignable(
                                 &TypeName::Integer,
-                                &validate_expr(arg, symbols, types, signatures)?,
+                                &validate_expr(arg, symbols, types, signatures, context)?,
                                 arg.span,
                             )?;
                         }
@@ -644,6 +718,7 @@ pub(super) fn validate_expr(
                                 types,
                                 signatures,
                                 None,
+                                context,
                             );
                         }
                         if let Some(default_prop_name) = types
@@ -660,6 +735,7 @@ pub(super) fn validate_expr(
                                 types,
                                 signatures,
                                 None,
+                                context,
                             );
                         }
                         return Err(Diagnostic::new(
@@ -675,7 +751,7 @@ pub(super) fn validate_expr(
                     | VarType::Optional(Visibility::Public, TypeName::Variant)
                     | VarType::Const(Visibility::Public, TypeName::Variant) => {
                         for arg in args {
-                            validate_expr(arg, symbols, types, signatures)?;
+                            validate_expr(arg, symbols, types, signatures, context)?;
                         }
                         return Ok(TypeName::Variant);
                     }
@@ -697,7 +773,7 @@ pub(super) fn validate_expr(
                     for arg in args {
                         ensure_assignable(
                             &TypeName::Integer,
-                            &validate_expr(arg, symbols, types, signatures)?,
+                            &validate_expr(arg, symbols, types, signatures, context)?,
                             arg.span,
                         )?;
                     }
@@ -705,13 +781,41 @@ pub(super) fn validate_expr(
                 }
                 if field_sig.ty.same_type(&TypeName::Variant) {
                     for arg in args {
-                        validate_expr(arg, symbols, types, signatures)?;
+                        validate_expr(arg, symbols, types, signatures, context)?;
                     }
                     return Ok(TypeName::Variant);
                 }
             }
 
-            let Some(function) = signatures.functions.get(&key(name)) else {
+            let mut function = signatures.functions.get(&key(name)).cloned();
+            if function.is_none() {
+                if let Some(owner_name) = context.current_class() {
+                    if let Some(class_sig) = types.get_class(owner_name) {
+                        let member_key = key(name);
+                        if let Some(func_sig) = class_sig.functions.get(&member_key) {
+                            if func_sig.is_shared || symbols.contains_key("me") {
+                                function = Some(func_sig.clone());
+                            }
+                        } else if let Some(prop_sig) = class_sig.properties.get(&member_key)
+                            && let Some(get) = &prop_sig.get
+                        {
+                            if prop_sig.is_shared || symbols.contains_key("me") {
+                                function = Some(CallableSig {
+                                    visibility: Visibility::Public,
+                                    name: prop_sig.name.clone(),
+                                    is_shared: prop_sig.is_shared,
+                                    _is_iterator: get.is_iterator,
+                                    is_declare: false,
+                                    params: get.params.clone(),
+                                    return_type: get.return_type.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            let Some(function) = function else {
                 if signatures.subs.contains_key(&key(name)) {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::GENERIC,
@@ -727,14 +831,14 @@ pub(super) fn validate_expr(
             };
 
             validate_arguments(
-                "Function", function, args, symbols, types, signatures, expr.span,
+                "Function", &function, args, symbols, types, signatures, expr.span, context,
             )?;
             Ok(function.return_type.clone().expect("function return type"))
         }
         ExprKind::Index { target, args } => {
-            let _target_type = validate_expr(target, symbols, types, signatures)?;
+            let _target_type = validate_expr(target, symbols, types, signatures, context)?;
             for arg in args {
-                validate_expr(arg, symbols, types, signatures)?;
+                validate_expr(arg, symbols, types, signatures, context)?;
             }
             Ok(TypeName::Variant)
         }
@@ -743,9 +847,9 @@ pub(super) fn validate_expr(
             true_expr,
             false_expr,
         } => {
-            validate_expr(condition, symbols, types, signatures)?;
-            let true_type = validate_expr(true_expr, symbols, types, signatures)?;
-            let false_type = validate_expr(false_expr, symbols, types, signatures)?;
+            validate_expr(condition, symbols, types, signatures, context)?;
+            let true_type = validate_expr(true_expr, symbols, types, signatures, context)?;
+            let false_type = validate_expr(false_expr, symbols, types, signatures, context)?;
             if true_type.same_type(&false_type) {
                 Ok(true_type)
             } else {
@@ -753,8 +857,8 @@ pub(super) fn validate_expr(
             }
         }
         ExprKind::Binary { left, op, right } => {
-            let left_type = validate_expr(left, symbols, types, signatures)?;
-            let right_type = validate_expr(right, symbols, types, signatures)?;
+            let left_type = validate_expr(left, symbols, types, signatures, context)?;
+            let right_type = validate_expr(right, symbols, types, signatures, context)?;
             match op {
                 BinaryOp::Add
                 | BinaryOp::Subtract
@@ -844,7 +948,7 @@ pub(super) fn validate_expr(
         }
         ExprKind::Unary { op, expr: inner } => match op {
             UnaryOp::Positive | UnaryOp::Negate => {
-                let ty = validate_expr(inner, symbols, types, signatures)?;
+                let ty = validate_expr(inner, symbols, types, signatures, context)?;
                 if is_numeric_type(&ty) {
                     Ok(ty)
                 } else {
@@ -865,7 +969,7 @@ pub(super) fn validate_expr(
             UnaryOp::LogicalNot => {
                 ensure_assignable(
                     &TypeName::Boolean,
-                    &validate_expr(inner, symbols, types, signatures)?,
+                    &validate_expr(inner, symbols, types, signatures, context)?,
                     inner.span,
                 )?;
                 Ok(TypeName::Boolean)
@@ -876,7 +980,7 @@ pub(super) fn validate_expr(
             Ok(TypeName::FuncPtr)
         }
         ExprKind::PassingModeOverride { expr, .. } => {
-            validate_expr(expr, symbols, types, signatures)
+            validate_expr(expr, symbols, types, signatures, context)
         }
     }
 }
@@ -886,6 +990,7 @@ pub(super) fn validate_array_expr(
     symbols: &HashMap<String, VarType>,
     types: &TypeRegistry,
     _signatures: &Signatures,
+    _context: &Context<'_>,
 ) -> Result<TypeName, Diagnostic> {
     match &expr.kind {
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
@@ -945,6 +1050,7 @@ fn validate_builtin_function(
     types: &TypeRegistry,
     signatures: &Signatures,
     span: crate::runtime::Span,
+    context: &Context<'_>,
 ) -> Result<Option<TypeName>, Diagnostic> {
     // Handle VBA namespace fallback
     let effective_name = if let Some(stripped) = name.strip_prefix("VBA.") {
@@ -955,8 +1061,8 @@ fn validate_builtin_function(
 
     if effective_name.eq_ignore_ascii_case("IsArray") {
         validate_arg_count(effective_name, args, 1, span)?;
-        if validate_array_expr(&args[0], symbols, types, signatures).is_err() {
-            validate_expr(&args[0], symbols, types, signatures)?;
+        if validate_array_expr(&args[0], symbols, types, signatures, context).is_err() {
+            validate_expr(&args[0], symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::Boolean));
     }
@@ -966,7 +1072,7 @@ fn validate_builtin_function(
         .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
     {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Boolean));
     }
     if effective_name.eq_ignore_ascii_case("IsMissing") {
@@ -996,7 +1102,7 @@ fn validate_builtin_function(
         || effective_name.eq_ignore_ascii_case("Int")
     {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Integer));
     }
     if effective_name.eq_ignore_ascii_case("VarPtr")
@@ -1004,69 +1110,74 @@ fn validate_builtin_function(
         || effective_name.eq_ignore_ascii_case("ObjPtr")
     {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Ptr));
     }
     if effective_name.eq_ignore_ascii_case("TypeName") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("Len") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
+        return Ok(Some(TypeName::Long));
     }
     if effective_name.eq_ignore_ascii_case("CStr") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::String));
     }
     if effective_name.eq_ignore_ascii_case("CByte") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Byte));
     }
     if effective_name.eq_ignore_ascii_case("CInt") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Integer));
     }
     if effective_name.eq_ignore_ascii_case("CLng") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Long));
     }
     if effective_name.eq_ignore_ascii_case("CLngLng")
         || effective_name.eq_ignore_ascii_case("CInt64")
     {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Int64));
     }
     if effective_name.eq_ignore_ascii_case("CSng") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Single));
     }
     if effective_name.eq_ignore_ascii_case("CDbl") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Double));
     }
     if effective_name.eq_ignore_ascii_case("CDec") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Decimal));
     }
     if effective_name.eq_ignore_ascii_case("CCur") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Currency));
     }
     if effective_name.eq_ignore_ascii_case("CDate") {
         validate_arg_count(effective_name, args, 1, span)?;
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Date));
     }
     if effective_name.eq_ignore_ascii_case("Array") {
         for arg in args {
-            validate_expr(arg, symbols, types, signatures)?;
+            validate_expr(arg, symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::Variant));
     }
@@ -1078,9 +1189,9 @@ fn validate_builtin_function(
                 Some(span),
             ));
         }
-        validate_expr(&args[0], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
         if args.len() == 2 {
-            validate_expr(&args[1], symbols, types, signatures)?;
+            validate_expr(&args[1], symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::Variant));
     }
@@ -1092,9 +1203,9 @@ fn validate_builtin_function(
                 Some(span),
             ));
         }
-        validate_array_expr(&args[0], symbols, types, signatures)?;
+        validate_array_expr(&args[0], symbols, types, signatures, context)?;
         if args.len() == 2 {
-            validate_expr(&args[1], symbols, types, signatures)?;
+            validate_expr(&args[1], symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::String));
     }
@@ -1106,13 +1217,13 @@ fn validate_builtin_function(
                 Some(span),
             ));
         }
-        validate_array_expr(&args[0], symbols, types, signatures)?;
-        validate_expr(&args[1], symbols, types, signatures)?;
+        validate_array_expr(&args[0], symbols, types, signatures, context)?;
+        validate_expr(&args[1], symbols, types, signatures, context)?;
         if args.len() >= 3 {
-            validate_expr(&args[2], symbols, types, signatures)?;
+            validate_expr(&args[2], symbols, types, signatures, context)?;
         }
         if args.len() == 4 {
-            validate_expr(&args[3], symbols, types, signatures)?;
+            validate_expr(&args[3], symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::Variant));
     }
@@ -1120,11 +1231,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 3, span)?;
         ensure_assignable(
             &TypeName::Boolean,
-            &validate_expr(&args[0], symbols, types, signatures)?,
+            &validate_expr(&args[0], symbols, types, signatures, context)?,
             args[0].span,
         )?;
-        validate_expr(&args[1], symbols, types, signatures)?;
-        validate_expr(&args[2], symbols, types, signatures)?;
+        validate_expr(&args[1], symbols, types, signatures, context)?;
+        validate_expr(&args[2], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::Variant));
     }
     if effective_name.eq_ignore_ascii_case("StrComp") {
@@ -1135,12 +1246,12 @@ fn validate_builtin_function(
                 Some(span),
             ));
         }
-        validate_expr(&args[0], symbols, types, signatures)?;
-        validate_expr(&args[1], symbols, types, signatures)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
+        validate_expr(&args[1], symbols, types, signatures, context)?;
         if args.len() == 3 {
             ensure_assignable(
                 &TypeName::Integer,
-                &validate_expr(&args[2], symbols, types, signatures)?,
+                &validate_expr(&args[2], symbols, types, signatures, context)?,
                 args[2].span,
             )?;
         }
@@ -1155,7 +1266,7 @@ fn validate_builtin_function(
             ));
         }
         if !args.is_empty() {
-            validate_expr(&args[0], symbols, types, signatures)?;
+            validate_expr(&args[0], symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::Variant));
     }
@@ -1168,7 +1279,7 @@ fn validate_builtin_function(
             ));
         }
         if !args.is_empty() {
-            validate_expr(&args[0], symbols, types, signatures)?;
+            validate_expr(&args[0], symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::Double));
     }
@@ -1181,7 +1292,7 @@ fn validate_builtin_function(
             ));
         }
         for arg in args {
-            validate_expr(arg, symbols, types, signatures)?;
+            validate_expr(arg, symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::Variant));
     }
@@ -1222,7 +1333,8 @@ pub(super) fn validate_arguments(
     symbols: &HashMap<String, VarType>,
     types: &TypeRegistry,
     signatures: &Signatures,
-    span: crate::runtime::Span,
+    span: Span,
+    context: &Context<'_>,
 ) -> Result<(), Diagnostic> {
     let has_param_array = callable
         .params
@@ -1264,7 +1376,7 @@ pub(super) fn validate_arguments(
                     Some(arg.span),
                 ));
             }
-            validate_argument_value(param, value, symbols, types, signatures)?;
+            validate_argument_value(param, value, symbols, types, signatures, context)?;
             assigned[index] = true;
             continue;
         }
@@ -1292,7 +1404,7 @@ pub(super) fn validate_arguments(
                 Some(span),
             ));
         };
-        validate_argument_value(param, arg, symbols, types, signatures)?;
+        validate_argument_value(param, arg, symbols, types, signatures, context)?;
         if !param.is_param_array {
             assigned[positional_index] = true;
             positional_index += 1;
@@ -1327,53 +1439,21 @@ fn validate_argument_value(
     symbols: &HashMap<String, VarType>,
     types: &TypeRegistry,
     signatures: &Signatures,
+    context: &Context<'_>,
 ) -> Result<(), Diagnostic> {
     if param.is_param_array {
-        let arg_type = validate_expr(arg, symbols, types, signatures)?;
+        let arg_type = validate_expr(arg, symbols, types, signatures, context)?;
         ensure_assignable_expr(&TypeName::Variant, &arg_type, arg, types, arg.span)?;
         return Ok(());
     }
     match param.mode {
         PassingMode::ByVal => {
-            let arg_type = validate_expr(arg, symbols, types, signatures)?;
+            let arg_type = validate_expr(arg, symbols, types, signatures, context)?;
             ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)
         }
         PassingMode::ByRef => {
-            match &arg.kind {
-                ExprKind::Variable(name) => {
-                    let Some(arg_type) = symbols.get(&key(name)).cloned() else {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                            format!("Variable '{}' is not declared", name),
-                            Some(arg.span),
-                        ));
-                    };
-                    let expected = VarType::Scalar(Visibility::Public, param.ty.clone());
-                    if !arg_type.same_var_type(&expected) {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::GENERIC,
-                            format!(
-                                "ByRef argument type {} must match parameter type {}",
-                                arg_type.display_name(),
-                                expected.display_name()
-                            ),
-                            Some(arg.span),
-                        ));
-                    }
-                }
-                ExprKind::Call { .. } | ExprKind::MemberAccess { .. } | ExprKind::Index { .. } => {
-                    let arg_type = validate_expr(arg, symbols, types, signatures)?;
-                    ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)?;
-                }
-                _ => {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                        "ByRef argument must be a variable, array element, or field",
-                        Some(arg.span),
-                    ));
-                }
-            }
-            Ok(())
+            let arg_type = validate_expr(arg, symbols, types, signatures, context)?;
+            ensure_assignable_expr(&param.ty, &arg_type, arg, types, arg.span)
         }
     }
 }
@@ -1389,6 +1469,7 @@ pub(super) fn validate_method_call(
     types: &TypeRegistry,
     signatures: &Signatures,
     current_class: Option<&str>,
+    context: &Context<'_>,
 ) -> Result<TypeName, Diagnostic> {
     if object_type.same_type(&TypeName::Variant) {
         return Ok(TypeName::Variant);
@@ -1411,6 +1492,7 @@ pub(super) fn validate_method_call(
             types,
             signatures,
             current_class,
+            context,
         );
     };
 
@@ -1424,7 +1506,7 @@ pub(super) fn validate_method_call(
                 span,
             )?;
             validate_arguments(
-                "Function", method_sig, args, symbols, types, signatures, span,
+                "Function", method_sig, args, symbols, types, signatures, span, context,
             )?;
             return Ok(method_sig.return_type.clone().expect("function return"));
         }
@@ -1442,13 +1524,14 @@ pub(super) fn validate_method_call(
                 let dummy_sig = CallableSig {
                     visibility: get.visibility,
                     name: method.to_string(),
+                    is_shared: false,
                     _is_iterator: get.is_iterator,
                     is_declare: false,
                     params: get.params.clone(),
                     return_type: Some(return_type.clone()),
                 };
                 if validate_arguments(
-                    "Property", &dummy_sig, args, symbols, types, signatures, span,
+                    "Property", &dummy_sig, args, symbols, types, signatures, span, context,
                 )
                 .is_ok()
                 {
@@ -1476,6 +1559,7 @@ pub(super) fn validate_method_call(
                     types,
                     signatures,
                     None,
+                    context,
                 );
             }
         }
@@ -1510,7 +1594,9 @@ pub(super) fn validate_method_call(
                 current_class,
                 span,
             )?;
-            validate_arguments("Sub", method_sig, args, symbols, types, signatures, span)?;
+            validate_arguments(
+                "Sub", method_sig, args, symbols, types, signatures, span, context,
+            )?;
             return Ok(TypeName::Variant);
         }
         // Sub-style property call (e.g., obj.Prop = value or obj.Prop(idx) = value)
@@ -1554,6 +1640,7 @@ fn validate_structure_method_call(
     types: &TypeRegistry,
     signatures: &Signatures,
     current_type: Option<&str>,
+    context: &Context<'_>,
 ) -> Result<TypeName, Diagnostic> {
     let TypeName::User(type_name) = object_type else {
         unreachable!();
@@ -1582,7 +1669,7 @@ fn validate_structure_method_call(
                 span,
             )?;
             validate_arguments(
-                "Function", method_sig, args, symbols, types, signatures, span,
+                "Function", method_sig, args, symbols, types, signatures, span, context,
             )?;
             return Ok(method_sig.return_type.clone().expect("function return"));
         }
@@ -1596,13 +1683,14 @@ fn validate_structure_method_call(
             let dummy_sig = CallableSig {
                 visibility: get.visibility,
                 name: method.to_string(),
+                is_shared: false,
                 _is_iterator: get.is_iterator,
                 is_declare: false,
                 params: get.params.clone(),
                 return_type: Some(return_type.clone()),
             };
             validate_arguments(
-                "Property", &dummy_sig, args, symbols, types, signatures, span,
+                "Property", &dummy_sig, args, symbols, types, signatures, span, context,
             )?;
             return Ok(return_type);
         }
@@ -1637,7 +1725,9 @@ fn validate_structure_method_call(
                 current_type,
                 span,
             )?;
-            validate_arguments("Sub", method_sig, args, symbols, types, signatures, span)?;
+            validate_arguments(
+                "Sub", method_sig, args, symbols, types, signatures, span, context,
+            )?;
             return Ok(TypeName::Variant);
         }
         if type_sig.functions.contains_key(&key(method)) {
@@ -2046,21 +2136,22 @@ pub(super) fn validate_case_item(
     symbols: &HashMap<String, VarType>,
     types: &TypeRegistry,
     signatures: &Signatures,
+    context: &Context<'_>,
 ) -> Result<(), Diagnostic> {
     match item {
         CaseItem::Value(value) => {
-            let value_type = validate_expr(value, symbols, types, signatures)?;
+            let value_type = validate_expr(value, symbols, types, signatures, context)?;
             ensure_case_comparable(subject_type, &value_type, value.span)
         }
         CaseItem::Range { start, end } => {
-            let start_type = validate_expr(start, symbols, types, signatures)?;
-            let end_type = validate_expr(end, symbols, types, signatures)?;
+            let start_type = validate_expr(start, symbols, types, signatures, context)?;
+            let end_type = validate_expr(end, symbols, types, signatures, context)?;
             ensure_case_comparable(subject_type, &start_type, start.span)?;
             ensure_case_comparable(subject_type, &end_type, end.span)?;
             ensure_case_orderable(subject_type, start.span)
         }
         CaseItem::Compare { op, expr } => {
-            let expr_type = validate_expr(expr, symbols, types, signatures)?;
+            let expr_type = validate_expr(expr, symbols, types, signatures, context)?;
             ensure_case_comparable(subject_type, &expr_type, expr.span)?;
             if matches!(
                 op,
@@ -2214,6 +2305,7 @@ fn validate_err_raise_args(
     types: &TypeRegistry,
     signatures: &Signatures,
     span: crate::runtime::Span,
+    context: &Context<'_>,
 ) -> Result<(), Diagnostic> {
     if args.is_empty() || args.len() > 5 {
         return Err(Diagnostic::new(
@@ -2230,7 +2322,7 @@ fn validate_err_raise_args(
         TypeName::Integer,
     ];
     for (index, arg) in args.iter().enumerate() {
-        let actual = validate_expr(arg, symbols, types, signatures)?;
+        let actual = validate_expr(arg, symbols, types, signatures, context)?;
         ensure_assignable(&expected[index], &actual, arg.span)?;
     }
     Ok(())

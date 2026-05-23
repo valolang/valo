@@ -2,7 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::runtime::{ArrayValue, Diagnostic, EventBinding, ObjectValue, Span, TypeName, Value};
+use crate::runtime::{
+    ArrayValue, Diagnostic, EventBinding, ObjectValue, Span, TypeName, Value, coerce_assignment,
+};
 use crate::{
     ArrayDecl, AssignTarget, ClassMember, Expr, ExprKind, Function, Procedure, PropertyKind,
 };
@@ -261,6 +263,12 @@ impl Interpreter {
         if object_has_field(value, member) {
             return read_field_member(value, member, span);
         }
+        if let Value::Object(obj) = value {
+            let class_name = obj.borrow().class_name.clone();
+            if let Ok(val) = self.read_shared_member(&class_name, member, frame, span) {
+                return Ok(val);
+            }
+        }
         if matches!(value, Value::Nothing) {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -313,6 +321,28 @@ impl Interpreter {
         Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::MEMBER_ACCESS,
             format!("Class '{}' has no Shared field '{}'", class.name, member),
+            Some(span),
+        ))
+    }
+
+    pub(crate) fn write_shared_member(
+        &mut self,
+        class_name: &str,
+        member: &str,
+        value: Value,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let class_name = self.resolve_user_type_name(class_name, &mut Frame::default(), span)?;
+        if let Some(fields) = self.shared_class_fields.get_mut(&key(&class_name)) {
+            if let Some(slot) = fields.get_mut(&key(member)) {
+                let ty = slot.type_name();
+                *slot = coerce_assignment(&ty, value, span)?;
+                return Ok(());
+            }
+        }
+        Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            format!("Class '{}' has no Shared field '{}'", class_name, member),
             Some(span),
         ))
     }
@@ -501,6 +531,16 @@ impl Interpreter {
         value: Value,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        if let Value::Object(ref obj) = owner {
+            let class_name = obj.borrow().class_name.clone();
+            if self
+                .shared_class_fields
+                .get(&key(&class_name))
+                .is_some_and(|fields| fields.contains_key(&key(field)))
+            {
+                return self.write_shared_member(&class_name, field, value, span);
+            }
+        }
         let mut owner_value = owner;
         self.write_object_member(&mut owner_value, field, value, span)
     }
@@ -512,7 +552,20 @@ impl Interpreter {
         indices: &[i64],
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let field_value = read_field_member(&owner, field, span)?;
+        let field_value = if let Value::Object(ref obj) = owner {
+            let class_name = obj.borrow().class_name.clone();
+            if self
+                .shared_class_fields
+                .get(&key(&class_name))
+                .is_some_and(|fields| fields.contains_key(&key(field)))
+            {
+                self.read_shared_member(&class_name, field, &mut Frame::default(), span)?
+            } else {
+                read_field_member(&owner, field, span)?
+            }
+        } else {
+            read_field_member(&owner, field, span)?
+        };
         read_array_element(&field_value, indices, span)
     }
 
@@ -524,6 +577,20 @@ impl Interpreter {
         value: Value,
         span: Span,
     ) -> Result<Value, Diagnostic> {
+        if let Value::Object(ref obj) = owner {
+            let class_name = obj.borrow().class_name.clone();
+            if self
+                .shared_class_fields
+                .get(&key(&class_name))
+                .is_some_and(|fields| fields.contains_key(&key(field)))
+            {
+                let mut field_value =
+                    self.read_shared_member(&class_name, field, &mut Frame::default(), span)?;
+                let old = write_array_element(&mut field_value, indices, value, span)?;
+                self.write_shared_member(&class_name, field, field_value, span)?;
+                return Ok(old);
+            }
+        }
         let Value::Object(object) = owner else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,

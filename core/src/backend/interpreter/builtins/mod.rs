@@ -215,6 +215,7 @@ fn is_builtin_function(name: &str) -> bool {
             | "array"
             | "lbound"
             | "ubound"
+            | "len"
             | "ismissing"
     )
 }

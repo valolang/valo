@@ -404,6 +404,7 @@ fn find_explicit_sub_impl(
             return Ok(CallableSig {
                 visibility: method.visibility,
                 name: method.procedure.name.clone(),
+                is_shared: method.is_shared,
                 _is_iterator: false,
                 is_declare: false,
                 params: params_to_sigs(&method.procedure.params),
@@ -436,6 +437,7 @@ fn find_explicit_function_impl(
             return Ok(CallableSig {
                 visibility: method.visibility,
                 name: method.function.name.clone(),
+                is_shared: method.is_shared,
                 _is_iterator: method.function.is_iterator,
                 is_declare: false,
                 params: params_to_sigs(&method.function.params),
@@ -470,6 +472,7 @@ fn find_explicit_property_impl(
             return Ok(CallableSig {
                 visibility: property.visibility,
                 name: property.name.clone(),
+                is_shared: property.is_shared,
                 _is_iterator: property.is_iterator,
                 is_declare: false,
                 params: params_to_sigs(&property.params),

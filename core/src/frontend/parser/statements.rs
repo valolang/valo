@@ -65,6 +65,7 @@ impl Parser {
             TokenKind::Call => self.parse_call_statement(),
             TokenKind::Set => self.parse_set_assignment(),
             TokenKind::Console => self.parse_console_writeline(),
+            TokenKind::End => self.parse_end_statement(),
             TokenKind::Return => self.parse_return(),
             TokenKind::Yield => self.parse_yield(),
             TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute") => {
@@ -694,28 +695,36 @@ impl Parser {
             TokenKind::WriteLine,
             "Expected 'WriteLine' after 'Console.'",
         )?;
-        self.expect_simple(
-            TokenKind::LeftParen,
-            "Expected '(' after 'Console.WriteLine'",
-        )?;
 
-        let mut args = Vec::new();
-        if !self.check_simple(&TokenKind::RightParen) {
-            loop {
-                args.push(self.parse_expression()?);
-                if !self.match_simple(&TokenKind::Comma) {
-                    break;
+        let args = if self.match_simple(&TokenKind::LeftParen) {
+            let mut args = Vec::new();
+            if !self.check_simple(&TokenKind::RightParen) {
+                loop {
+                    args.push(self.parse_expression()?);
+                    if !self.match_simple(&TokenKind::Comma) {
+                        break;
+                    }
                 }
             }
-        }
+            self.expect_simple(TokenKind::RightParen, "Expected ')' after arguments")?;
+            args
+        } else {
+            self.parse_bare_call_arguments()?
+        };
 
-        let end = self
-            .expect_simple(TokenKind::RightParen, "Expected ')' after arguments")?
-            .span;
+        let end = self.previous().span;
         Ok(Stmt::ConsoleWriteLine {
             args,
             span: Span::new(self.file_id, start.start, end.end),
         })
+    }
+
+    fn parse_end_statement(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.advance().span;
+        if !self.at_statement_separator() && !self.is_at_end() {
+            return Err(self.error_here("Expected statement"));
+        }
+        Ok(Stmt::End { span: start })
     }
 
     fn parse_return(&mut self) -> Result<Stmt, Diagnostic> {

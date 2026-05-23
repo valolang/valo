@@ -42,6 +42,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     key("Number"),
                     ClassFieldSig {
                         visibility: Visibility::Public,
+                        is_shared: false,
                         with_events: false,
                         ty: TypeName::Integer,
                         array: None,
@@ -51,6 +52,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     key("Message"),
                     ClassFieldSig {
                         visibility: Visibility::Public,
+                        is_shared: false,
                         with_events: false,
                         ty: TypeName::String,
                         array: None,
@@ -60,6 +62,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     key("Description"),
                     ClassFieldSig {
                         visibility: Visibility::Public,
+                        is_shared: false,
                         with_events: false,
                         ty: TypeName::String,
                         array: None,
@@ -69,6 +72,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     key("Source"),
                     ClassFieldSig {
                         visibility: Visibility::Public,
+                        is_shared: false,
                         with_events: false,
                         ty: TypeName::String,
                         array: None,
@@ -78,6 +82,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     key("HelpFile"),
                     ClassFieldSig {
                         visibility: Visibility::Public,
+                        is_shared: false,
                         with_events: false,
                         ty: TypeName::String,
                         array: None,
@@ -87,6 +92,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     key("HelpContext"),
                     ClassFieldSig {
                         visibility: Visibility::Public,
+                        is_shared: false,
                         with_events: false,
                         ty: TypeName::Integer,
                         array: None,
@@ -218,6 +224,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.procedure.name.clone(),
+                            is_shared: method.is_shared,
                             _is_iterator: false,
                             is_declare: false,
                             params: params_to_sigs(&method.procedure.params),
@@ -253,6 +260,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.function.name.clone(),
+                            is_shared: method.is_shared,
                             _is_iterator: method.function.is_iterator,
                             is_declare: false,
                             params: params_to_sigs(&method.function.params),
@@ -296,6 +304,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             .entry(property_key)
                             .or_insert_with(|| ClassPropertySig {
                                 name: property.name.clone(),
+                                is_shared: property.is_shared,
                                 get: None,
                                 let_: None,
                                 set: None,
@@ -440,6 +449,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: Visibility::Public,
                             name: method.name.clone(),
+                            is_shared: false,
                             _is_iterator: false,
                             is_declare: false,
                             params: params_to_sigs(&method.params),
@@ -468,6 +478,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: Visibility::Public,
                             name: method.name.clone(),
+                            is_shared: false,
                             _is_iterator: false,
                             is_declare: false,
                             params: params_to_sigs(&method.params),
@@ -496,6 +507,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassEventSig {
                             visibility: Visibility::Public,
                             name: event.name.clone(),
+                            is_shared: false,
                             _is_iterator: false,
                             is_declare: false,
                             params: params_to_sigs(&event.params),
@@ -523,6 +535,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             .entry(property_key)
                             .or_insert_with(|| ClassPropertySig {
                                 name: property.name.clone(),
+                                is_shared: false,
                                 get: None,
                                 let_: None,
                                 set: None,
@@ -620,6 +633,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         const_key,
                         ClassFieldSig {
                             visibility: const_decl.visibility,
+                            is_shared: true,
                             with_events: false,
                             ty: const_decl.ty.clone().unwrap_or(TypeName::Variant),
                             array: None,
@@ -648,6 +662,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassEventSig {
                             visibility: event.visibility,
                             name: event.name.clone(),
+                            is_shared: event.is_shared,
                             _is_iterator: false,
                             is_declare: false,
                             params: params_to_sigs(&event.params),
@@ -709,6 +724,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.procedure.name.clone(),
+                            is_shared: method.is_shared,
                             _is_iterator: false,
                             is_declare: false,
                             params: params_to_sigs(&method.procedure.params),
@@ -749,6 +765,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         iterator = Some(ClassMethodSig {
                             visibility: method.visibility,
                             name: method.function.name.clone(),
+                            is_shared: method.is_shared,
                             _is_iterator: true,
                             is_declare: false,
                             params: vec![],
@@ -775,6 +792,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.function.name.clone(),
+                            is_shared: method.is_shared,
                             _is_iterator: method.function.is_iterator,
                             is_declare: false,
                             params: params_to_sigs(&method.function.params),
@@ -813,14 +831,16 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             Some(method.function.span),
                         ));
                     }
-                    iterator = Some(ClassMethodSig {
+                    let _sig = ClassMethodSig {
                         visibility: method.visibility,
                         name: method.function.name.clone(),
+                        is_shared: false,
                         _is_iterator: true,
                         is_declare: false,
                         params: params_to_sigs(&method.function.params),
                         return_type: Some(method.function.return_type.clone()),
-                    });
+                    };
+
                     default_iterator_span = Some(method.function.span);
                 }
                 ClassMember::Property(property) => {
@@ -882,6 +902,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         iterator = Some(ClassMethodSig {
                             visibility: property.visibility,
                             name: property.name.clone(),
+                            is_shared: false,
                             _is_iterator: true,
                             is_declare: false,
                             params: vec![],
@@ -908,6 +929,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             .entry(property_key)
                             .or_insert_with(|| ClassPropertySig {
                                 name: property.name.clone(),
+                                is_shared: property.is_shared,
                                 get: None,
                                 let_: None,
                                 set: None,
@@ -973,6 +995,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         subs: HashMap::new(),
                         functions: HashMap::new(),
                     },
+                    &Context::Sub,
                 )?;
                 ensure_assignable_expr(
                     &field.ty,
@@ -1237,6 +1260,7 @@ fn insert_class_field(
         field_key,
         ClassFieldSig {
             visibility: field.visibility,
+            is_shared: field.is_shared,
             with_events: field.with_events,
             ty: field.ty.clone().unwrap_or(TypeName::Variant),
             array: field.array.clone(),
@@ -1438,6 +1462,7 @@ pub(super) fn collect_signatures(
         let signature = CallableSig {
             visibility: declare.visibility,
             name: declare.name.clone(),
+            is_shared: false,
             _is_iterator: false,
             is_declare: true,
             params: params_to_sigs(&declare.params),
@@ -1473,6 +1498,7 @@ pub(super) fn collect_signatures(
             CallableSig {
                 visibility: Visibility::Public,
                 name: procedure.name.clone(),
+                is_shared: false,
                 _is_iterator: false,
                 is_declare: false,
                 params: params_to_sigs(&procedure.params),
@@ -1502,6 +1528,7 @@ pub(super) fn collect_signatures(
             CallableSig {
                 visibility: Visibility::Public,
                 name: function.name.clone(),
+                is_shared: false,
                 _is_iterator: function.is_iterator,
                 is_declare: false,
                 params: params_to_sigs(&function.params),
@@ -1628,7 +1655,7 @@ pub(super) fn collect_module_symbols(
             ensure_known_type(ty, types, var.span)?;
             ty.clone()
         } else if let Some(initializer) = &var.initializer {
-            validate_expr(initializer, &symbols, types, signatures)?
+            validate_expr(initializer, &symbols, types, signatures, &Context::Sub)?
         } else {
             TypeName::Variant
         };
@@ -1640,7 +1667,8 @@ pub(super) fn collect_module_symbols(
                     Some(initializer.span),
                 ));
             }
-            let source_type = validate_expr(initializer, &symbols, types, signatures)?;
+            let source_type =
+                validate_expr(initializer, &symbols, types, signatures, &Context::Sub)?;
             ensure_assignable_expr(&ty, &source_type, initializer, types, initializer.span)?;
         }
         let name_key = key(&var.name);
@@ -1661,7 +1689,13 @@ pub(super) fn collect_module_symbols(
 
     for const_decl in &program.module_consts {
         ensure_const_expr(&const_decl.value, &symbols, types)?;
-        let value_type = validate_expr(&const_decl.value, &symbols, types, signatures)?;
+        let value_type = validate_expr(
+            &const_decl.value,
+            &symbols,
+            types,
+            signatures,
+            &Context::Sub,
+        )?;
         let const_type = const_decl.ty.clone().unwrap_or(value_type.clone());
         ensure_known_type(&const_type, types, const_decl.span)?;
         ensure_assignable_expr(

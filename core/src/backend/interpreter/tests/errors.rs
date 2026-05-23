@@ -58,11 +58,12 @@ End Sub
 }
 
 #[test]
-fn reports_byref_literal_argument() {
-    let error = source_error(
+fn byref_literal_argument_works_as_copy() {
+    let output = run_source(
         r#"
 Sub Increment(ByRef value As Integer)
     value = value + 1
+    Debug.Print "value=" & value
 End Sub
 
 Sub Main()
@@ -71,26 +72,29 @@ End Sub
 "#,
     );
 
-    assert!(error.contains("ByRef argument must be a variable"));
+    assert!(output.contains(&"value=11".to_string()));
 }
 
 #[test]
-fn reports_byref_expression_argument() {
-    let error = source_error(
+fn byref_expression_argument_works_as_copy() {
+    let output = run_source(
         r#"
 Sub Increment(ByRef value As Integer)
     value = value + 1
+    Debug.Print "value=" & value
 End Sub
 
 Sub Main()
     Dim x As Integer
     x = 10
     Increment(x + 1)
+    Debug.Print "x=" & x
 End Sub
 "#,
     );
 
-    assert!(error.contains("ByRef argument must be a variable"));
+    assert!(output.contains(&"value=12".to_string()));
+    assert!(output.contains(&"x=10".to_string()));
 }
 
 #[test]

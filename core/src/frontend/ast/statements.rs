@@ -54,6 +54,9 @@ pub enum Stmt {
         args: Vec<Expr>,
         span: Span,
     },
+    End {
+        span: Span,
+    },
     SubCall {
         name: String,
         args: Vec<Expr>,

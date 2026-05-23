@@ -106,6 +106,7 @@ impl Interpreter {
                     frame.get(&accessor.name, accessor.span)
                 }
             }
+            ControlFlow::Terminate => Ok(Value::Empty),
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Sub is only valid inside Sub",
@@ -202,6 +203,7 @@ impl Interpreter {
         self.scope_stack.pop();
         match result? {
             ControlFlow::Continue => Ok(()),
+            ControlFlow::Terminate => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Return is only allowed inside Function or Property Get",
@@ -310,6 +312,7 @@ impl Interpreter {
                     frame.get(&accessor.name, accessor.span)
                 }
             }
+            ControlFlow::Terminate => Ok(Value::Empty),
             ControlFlow::ExitSub => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Sub is only valid inside Sub",
@@ -397,6 +400,7 @@ impl Interpreter {
         self.scope_stack.pop();
         let result = match result? {
             ControlFlow::Continue => Ok(()),
+            ControlFlow::Terminate => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Return is only allowed inside Function or Property Get",
