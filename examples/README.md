@@ -52,6 +52,11 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 *   **[VBA String Functions](vba_string_functions.valo):** Safe VBA string/runtime functions such as `Len`, `Left$`, `Mid$`, `Replace`, `InStr`, `Chr$`, `Hex$`, and `Oct$`.
 *   **[VBA File I/O](vba_file_io.valo):** Classic file-number I/O using `FreeFile`, `Open`, `Print #`, `Line Input #`, `EOF`, `Close`, and `Kill`.
 *   **[VBA Dir](vba_dir.valo):** Basic wildcard enumeration with `Dir(pattern)` and repeated `Dir()` calls.
+*   **[VBA Binary File I/O](vba_binary_file_io.valo):** `Open For Binary`, scalar `Put #`/`Get #`, `LOF`, `Close`, and cleanup.
+*   **[VBA Random File I/O](vba_random_file_io.valo):** Fixed-length `Open For Random Len =` records with `Put #` and `Get #`.
+*   **[VBA File Attributes](vba_file_attributes.valo):** `Dir` with `vbDirectory`, `FileLen`, `FileDateTime`, `CurDir`, `MkDir`, and `RmDir`.
+*   **[VBA Timer](vba_timer.valo):** `Timer`, `Now`, `DateSerial`, `Year`, `MonthName`, and `WeekdayName`.
+*   **[VBA Optional Arguments](vba_optional_arguments.valo):** Optional defaults and Optional Variant `IsMissing`.
 
 Run an example with:
 

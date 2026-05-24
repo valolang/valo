@@ -1,0 +1,21 @@
+Sub Main()
+    Dim b As Byte
+    Dim n As Long
+
+    b = 7
+    n = 123456
+
+    Open "valo-binary-demo.bin" For Binary As #1
+    Put #1, , b
+    Put #1, , n
+    Debug.Print LOF(1)
+
+    b = 0
+    n = 0
+    Get #1, 1, b
+    Get #1, 2, n
+    Close #1
+
+    Debug.Print b & " " & n
+    Kill "valo-binary-demo.bin"
+End Sub

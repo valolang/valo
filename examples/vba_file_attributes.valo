@@ -1,0 +1,15 @@
+Sub Main()
+    MkDir "valo-attrs-demo"
+
+    Open "valo-attrs-demo/sample.txt" For Output As #1
+    Print #1, "sample"
+    Close #1
+
+    Debug.Print Dir("valo-attrs-demo", vbDirectory)
+    Debug.Print FileLen("valo-attrs-demo/sample.txt")
+    Debug.Print TypeName(FileDateTime("valo-attrs-demo/sample.txt"))
+    Debug.Print CurDir()
+
+    Kill "valo-attrs-demo/sample.txt"
+    RmDir "valo-attrs-demo"
+End Sub

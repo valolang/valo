@@ -1,0 +1,18 @@
+Sub Main()
+    Debug.Print Label()
+    Debug.Print Label("provided")
+    Debug.Print OptionalVariant()
+    Debug.Print OptionalVariant(42)
+End Sub
+
+Function Label(Optional ByVal value As String = "default") As String
+    Label = value
+End Function
+
+Function OptionalVariant(Optional ByVal value As Variant) As String
+    If IsMissing(value) Then
+        OptionalVariant = "missing"
+    Else
+        OptionalVariant = CStr(value)
+    End If
+End Function

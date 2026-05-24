@@ -1,0 +1,17 @@
+Sub Main()
+    Dim recordText As String
+
+    Open "valo-random-demo.dat" For Random As #1 Len = 8
+    Put #1, 1, "first"
+    Put #1, 2, "second"
+
+    recordText = ""
+    Get #1, 1, recordText
+    Debug.Print recordText
+
+    Get #1, 2, recordText
+    Debug.Print recordText
+
+    Close #1
+    Kill "valo-random-demo.dat"
+End Sub

@@ -405,12 +405,29 @@ fn test_return_modernization() {
 }
 
 fn temp_test_path(name: &str) -> std::path::PathBuf {
+    fn sanitize_component(value: &str) -> String {
+        value
+            .chars()
+            .map(|ch| match ch {
+                ':' | '\\' | '/' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+                ch if ch.is_control() => '_',
+                ch => ch,
+            })
+            .collect()
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let thread_name = std::thread::current().name().unwrap_or("test").to_string();
     let mut path = std::env::temp_dir();
     path.push(format!(
-        "valo_{}_{}_{}",
-        name,
+        "valo_{}_{}_{}_{}",
+        sanitize_component(name),
         std::process::id(),
-        std::thread::current().name().unwrap_or("test")
+        sanitize_component(&thread_name),
+        stamp
     ));
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_dir_all(&path);
@@ -419,6 +436,15 @@ fn temp_test_path(name: &str) -> std::path::PathBuf {
 
 fn valo_string(path: &std::path::Path) -> String {
     path.display().to_string().replace('\\', "\\\\")
+}
+
+#[test]
+fn vba_test_temp_paths_are_windows_safe() {
+    let path = temp_test_path("bad:name\\with/slashes*and?quotes\"<>|.txt");
+    let name = path.file_name().unwrap().to_string_lossy();
+    for invalid in [':', '\\', '/', '*', '?', '"', '<', '>', '|'] {
+        assert!(!name.contains(invalid), "{name} contained {invalid}");
+    }
 }
 
 #[test]
@@ -461,6 +487,274 @@ End Sub
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["1", "False", "hello", "AB", "tail", "True"]);
     assert!(!path.exists());
+}
+
+#[test]
+fn vba_print_trailing_semicolon_and_comma_work() {
+    let path = temp_test_path("print_format.txt");
+    let source = format!(
+        r#"
+Sub Main()
+    Dim line As String
+    Open "{}" For Output As #1
+    Print #1, "A";
+    Print #1, "B"
+    Print #1,
+    Print #1, "C",
+    Print #1, "D"
+    Close #1
+    Open "{}" For Input As #1
+    Line Input #1, line
+    Console.WriteLine(line)
+    Line Input #1, line
+    Console.WriteLine(line)
+    Line Input #1, line
+    Console.WriteLine(line)
+    Close #1
+    Kill "{}"
+End Sub
+"#,
+        valo_string(&path),
+        valo_string(&path),
+        valo_string(&path)
+    );
+    let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(output, vec!["AB", "", "C\tD"]);
+    assert!(!path.exists());
+}
+
+#[test]
+fn vba_binary_get_put_scalars_work() {
+    let path = temp_test_path("binary_io.bin");
+    let source = format!(
+        r#"
+Sub Main()
+    Dim b As Byte
+    Dim n As Long
+    Dim d As Double
+    Dim flag As Boolean
+    b = 7
+    n = 123456
+    d = 1.5
+    flag = True
+    Open "{}" For Binary As #1
+    Put #1, , b
+    Put #1, , n
+    Put #1, , d
+    Put #1, , flag
+    Console.WriteLine(LOF(1))
+    b = 0
+    n = 0
+    d = 0
+    flag = False
+    Get #1, 1, b
+    Get #1, 2, n
+    Get #1, 6, d
+    Get #1, 14, flag
+    Console.WriteLine(b & "," & n & "," & d & "," & flag)
+    Close #1
+    Kill "{}"
+End Sub
+"#,
+        valo_string(&path),
+        valo_string(&path)
+    );
+    let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(output, vec!["15", "7,123456,1.5,True"]);
+    assert!(!path.exists());
+}
+
+#[test]
+fn vba_random_get_put_len_records_work() {
+    let path = temp_test_path("random_io.dat");
+    let source = format!(
+        r#"
+Sub Main()
+    Dim recordText As String
+    Open "{}" For Random As #1 Len = 6
+    Put #1, 2, "two"
+    Put #1, 1, "one"
+    recordText = ""
+    Get #1, 1, recordText
+    Console.WriteLine(recordText)
+    Get #1, 2, recordText
+    Console.WriteLine(recordText)
+    Console.WriteLine(LOF(1))
+    Close #1
+    Kill "{}"
+End Sub
+"#,
+        valo_string(&path),
+        valo_string(&path)
+    );
+    let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(output, vec!["one", "two", "12"]);
+    assert!(!path.exists());
+}
+
+#[test]
+fn vba_access_clauses_are_enforced_and_locks_parse() {
+    let path = temp_test_path("access_io.bin");
+    std::fs::write(&path, [1_u8]).unwrap();
+    let source = format!(
+        r#"
+Sub Main()
+    Dim b As Byte
+    b = 2
+    Open "{}" For Binary Access Read Lock Read Write As #1
+    Put #1, , b
+End Sub
+"#,
+        valo_string(&path)
+    );
+    let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let error = run(&program).unwrap_err().to_string();
+    assert!(error.contains("read-only"));
+    std::fs::remove_file(&path).unwrap();
+
+    let path = temp_test_path("access_write_io.bin");
+    let source = format!(
+        r#"
+Sub Main()
+    Dim b As Byte
+    Open "{}" For Binary Access Write Lock Write As #1
+    Get #1, , b
+End Sub
+"#,
+        valo_string(&path)
+    );
+    let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let error = run(&program).unwrap_err().to_string();
+    assert!(error.contains("write-only"));
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn vba_filedatetime_and_datetime_functions_work() {
+    let path = temp_test_path("datetime.txt");
+    std::fs::write(&path, "x").unwrap();
+    let source = format!(
+        r#"
+Sub Main()
+    Dim t As Double
+    t = Timer()
+    Console.WriteLine(t >= 0 And t < 86400)
+    Console.WriteLine(TypeName(FileDateTime("{}")))
+    Console.WriteLine(Year(DateSerial(2024, 2, 29)))
+    Console.WriteLine(Month(DateSerial(2024, 2, 29)))
+    Console.WriteLine(Day(DateSerial(2024, 2, 29)))
+    Console.WriteLine(Hour(TimeSerial(13, 14, 15)))
+    Console.WriteLine(Minute(TimeSerial(13, 14, 15)))
+    Console.WriteLine(Second(TimeSerial(13, 14, 15)))
+    Console.WriteLine(Weekday(DateSerial(2024, 2, 25)))
+    Console.WriteLine(MonthName(2, True))
+    Console.WriteLine(WeekdayName(1, True))
+End Sub
+"#,
+        valo_string(&path)
+    );
+    let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(
+        output,
+        vec![
+            "True", "Date", "2024", "2", "29", "13", "14", "15", "1", "Feb", "Sun"
+        ]
+    );
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn imported_bas_optional_and_callable_resolution_work() {
+    let dir = temp_test_path("import_optional");
+    std::fs::create_dir(&dir).unwrap();
+    let main = dir.join("main.valo");
+    let module = dir.join("Helpers.bas");
+    std::fs::write(
+        &main,
+        r#"
+Import Helpers
+
+Sub Main()
+    Console.WriteLine(AddDefault(5))
+    Console.WriteLine(AddDefault(5, 7))
+    SayValue
+End Sub
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &module,
+        r#"
+Public Function AddDefault(ByVal value As Integer, Optional ByVal extra As Integer = 10) As Integer
+    AddDefault = value + extra
+End Function
+
+Public Sub SayValue(Optional ByVal value As String = "ok")
+    Console.WriteLine(value)
+End Sub
+"#,
+    )
+    .unwrap();
+
+    let output = crate::run_file(&main).unwrap();
+    assert_eq!(output, vec!["15", "12", "ok"]);
+    std::fs::remove_file(main).unwrap();
+    std::fs::remove_file(module).unwrap();
+    std::fs::remove_dir(dir).unwrap();
+}
+
+#[test]
+fn imported_cls_method_can_call_same_class_method() {
+    let dir = temp_test_path("import_cls_calls");
+    std::fs::create_dir(&dir).unwrap();
+    let main = dir.join("main.valo");
+    let class = dir.join("Worker.cls");
+    std::fs::write(
+        &main,
+        r#"
+Import Worker
+
+Sub Main()
+    Dim w As New Worker
+    Console.WriteLine(w.Run())
+End Sub
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &class,
+        r#"
+VERSION 1.0 CLASS
+BEGIN
+END
+Attribute VB_Name = "Worker"
+
+Public Function Run() As String
+    Run = Helper()
+End Function
+
+Private Function Helper() As String
+    Helper = "called"
+End Function
+"#,
+    )
+    .unwrap();
+
+    let output = crate::run_file(&main).unwrap();
+    assert_eq!(output, vec!["called"]);
+    std::fs::remove_file(main).unwrap();
+    std::fs::remove_file(class).unwrap();
+    std::fs::remove_dir(dir).unwrap();
 }
 
 #[test]
@@ -514,9 +808,11 @@ fn vba_dir_and_directory_functions_work() {
     std::fs::create_dir(&dir).unwrap();
     let one = dir.join("one.txt");
     let two = dir.join("two.txt");
+    let hidden = dir.join(".hidden.txt");
     let bin = dir.join("skip.bin");
     std::fs::write(&one, "1").unwrap();
     std::fs::write(&two, "2").unwrap();
+    std::fs::write(&hidden, "h").unwrap();
     std::fs::write(&bin, "3").unwrap();
     let subdir = dir.join("child");
     let made = dir.join("made");
@@ -532,6 +828,7 @@ Sub Main()
     Console.WriteLine(Dir("{}"))
     MkDir "{}"
     Console.WriteLine(Dir("{}", vbDirectory) <> "")
+    Console.WriteLine(Dir("{}", vbHidden) <> "")
     RmDir "{}"
 End Sub
 "#,
@@ -539,14 +836,16 @@ End Sub
         valo_string(&dir.join("missing.txt")),
         valo_string(&made),
         valo_string(&made),
+        valo_string(&dir.join(".hidden.txt")),
         valo_string(&made)
     );
     let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
-    assert_eq!(output, vec!["True", "True", "", "True"]);
+    assert_eq!(output, vec!["True", "True", "", "True", "True"]);
     std::fs::remove_file(one).unwrap();
     std::fs::remove_file(two).unwrap();
+    std::fs::remove_file(hidden).unwrap();
     std::fs::remove_file(bin).unwrap();
     let _ = std::fs::remove_dir(subdir);
     std::fs::remove_dir(dir).unwrap();

@@ -106,6 +106,21 @@ impl Parser {
             {
                 self.parse_write_file()
             }
+            TokenKind::Identifier(name, _)
+                if name.eq_ignore_ascii_case("Get")
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Hash)) =>
+            {
+                self.parse_get_file()
+            }
+            TokenKind::Get if matches!(self.peek_next_kind(), Some(TokenKind::Hash)) => {
+                self.parse_get_file()
+            }
+            TokenKind::Identifier(name, _)
+                if name.eq_ignore_ascii_case("Put")
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Hash)) =>
+            {
+                self.parse_put_file()
+            }
             TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Seek") => {
                 if matches!(self.peek_next_kind(), Some(TokenKind::Hash)) {
                     self.parse_seek_file()
@@ -362,23 +377,77 @@ impl Parser {
                 OpenMode::Append
             }
             TokenKind::Binary => OpenMode::Binary,
+            TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Random") => {
+                OpenMode::Random
+            }
             _ => {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::PARSE,
-                    "Unsupported Open mode; supported modes are Input, Output, Append, and Binary",
+                    "Unsupported Open mode; supported modes are Input, Output, Append, Binary, and Random",
                     Some(mode_token.span),
                 ));
             }
         };
+        let mut access = None;
+        let mut lock = None;
+        loop {
+            if self.match_identifier("Access") {
+                access = Some(self.parse_file_access("Access")?);
+            } else if self.match_identifier("Lock") {
+                lock = Some(self.parse_file_lock()?);
+            } else {
+                break;
+            }
+        }
         self.expect_simple(TokenKind::As, "Expected 'As' in Open statement")?;
         let number = self.parse_file_number_expr()?;
-        let end = number.span;
+        let record_len = if self.match_identifier("Len") {
+            self.expect_simple(TokenKind::Equal, "Expected '=' after Open Len")?;
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        let end = record_len
+            .as_ref()
+            .map(|expr| expr.span)
+            .unwrap_or(number.span);
         Ok(Stmt::OpenFile {
             path,
             mode,
+            access,
+            lock,
             number,
+            record_len,
             span: Span::new(self.file_id, start_span.start, end.end),
         })
+    }
+
+    fn parse_file_access(&mut self, clause: &str) -> Result<FileAccess, Diagnostic> {
+        let first = self.expect_identifier(&format!("Expected access mode after '{clause}'"))?;
+        let first_span = self.previous().span;
+        if first.eq_ignore_ascii_case("Read") {
+            if self.match_identifier("Write") {
+                Ok(FileAccess::ReadWrite)
+            } else {
+                Ok(FileAccess::Read)
+            }
+        } else if first.eq_ignore_ascii_case("Write") {
+            Ok(FileAccess::Write)
+        } else {
+            Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                "Expected Read, Write, or Read Write",
+                Some(first_span),
+            ))
+        }
+    }
+
+    fn parse_file_lock(&mut self) -> Result<FileLock, Diagnostic> {
+        match self.parse_file_access("Lock")? {
+            FileAccess::Read => Ok(FileLock::Read),
+            FileAccess::Write => Ok(FileLock::Write),
+            FileAccess::ReadWrite => Ok(FileLock::ReadWrite),
+        }
     }
 
     fn parse_close_file(&mut self) -> Result<Stmt, Diagnostic> {
@@ -454,6 +523,7 @@ impl Parser {
         debug_assert!(start.eq_ignore_ascii_case("Print"));
         let number = self.parse_file_number_expr()?;
         let mut items = Vec::new();
+        let mut trailing = None;
         if self.match_simple(&TokenKind::Comma) && !self.at_statement_separator() {
             let mut separator = PrintSeparator::None;
             loop {
@@ -461,11 +531,13 @@ impl Parser {
                 items.push(PrintItem { separator, expr });
                 if self.match_simple(&TokenKind::Comma) {
                     if self.at_statement_separator() {
+                        trailing = Some(PrintSeparator::Comma);
                         break;
                     }
                     separator = PrintSeparator::Comma;
                 } else if self.match_simple(&TokenKind::Semicolon) {
                     if self.at_statement_separator() {
+                        trailing = Some(PrintSeparator::Semicolon);
                         break;
                     }
                     separator = PrintSeparator::Semicolon;
@@ -481,6 +553,7 @@ impl Parser {
         Ok(Stmt::PrintFile {
             number,
             items,
+            trailing,
             span: Span::new(self.file_id, start_span.start, end.end),
         })
     }
@@ -503,6 +576,53 @@ impl Parser {
         Ok(Stmt::WriteFile {
             number,
             args,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_get_file(&mut self) -> Result<Stmt, Diagnostic> {
+        let token = self.advance();
+        let start_span = self.previous().span;
+        debug_assert!(
+            matches!(token.kind, TokenKind::Get)
+                || matches!(token.kind, TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Get"))
+        );
+        let number = self.parse_file_number_expr()?;
+        self.expect_simple(TokenKind::Comma, "Expected ',' after file number")?;
+        let position = if self.check_simple(&TokenKind::Comma) {
+            None
+        } else {
+            Some(self.parse_expression()?)
+        };
+        self.expect_simple(TokenKind::Comma, "Expected ',' before Get target")?;
+        let target = self.parse_assignment_target()?;
+        let end = target.span();
+        Ok(Stmt::GetFile {
+            number,
+            position,
+            target,
+            span: Span::new(self.file_id, start_span.start, end.end),
+        })
+    }
+
+    fn parse_put_file(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_identifier("Expected 'Put'")?;
+        let start_span = self.previous().span;
+        debug_assert!(start.eq_ignore_ascii_case("Put"));
+        let number = self.parse_file_number_expr()?;
+        self.expect_simple(TokenKind::Comma, "Expected ',' after file number")?;
+        let position = if self.check_simple(&TokenKind::Comma) {
+            None
+        } else {
+            Some(self.parse_expression()?)
+        };
+        self.expect_simple(TokenKind::Comma, "Expected ',' before Put value")?;
+        let expr = self.parse_expression()?;
+        let end = expr.span;
+        Ok(Stmt::PutFile {
+            number,
+            position,
+            expr,
             span: Span::new(self.file_id, start_span.start, end.end),
         })
     }

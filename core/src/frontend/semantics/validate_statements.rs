@@ -239,9 +239,17 @@ pub(super) fn validate_statements(
                     validate_expr(arg, symbols, types, signatures, &context)?;
                 }
             }
-            Stmt::OpenFile { path, number, .. } => {
+            Stmt::OpenFile {
+                path,
+                number,
+                record_len,
+                ..
+            } => {
                 validate_expr(path, symbols, types, signatures, &context)?;
                 validate_expr(number, symbols, types, signatures, &context)?;
+                if let Some(record_len) = record_len {
+                    validate_expr(record_len, symbols, types, signatures, &context)?;
+                }
             }
             Stmt::CloseFile { numbers, .. } => {
                 for number in numbers {
@@ -285,6 +293,37 @@ pub(super) fn validate_statements(
                 for arg in args {
                     validate_expr(arg, symbols, types, signatures, &context)?;
                 }
+            }
+            Stmt::GetFile {
+                number,
+                position,
+                target,
+                ..
+            } => {
+                validate_expr(number, symbols, types, signatures, &context)?;
+                if let Some(position) = position {
+                    validate_expr(position, symbols, types, signatures, &context)?;
+                }
+                validate_assignment_target(
+                    target,
+                    &TypeName::Variant,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                )?;
+            }
+            Stmt::PutFile {
+                number,
+                position,
+                expr,
+                ..
+            } => {
+                validate_expr(number, symbols, types, signatures, &context)?;
+                if let Some(position) = position {
+                    validate_expr(position, symbols, types, signatures, &context)?;
+                }
+                validate_expr(expr, symbols, types, signatures, &context)?;
             }
             Stmt::SeekFile {
                 number, position, ..
@@ -1249,6 +1288,8 @@ fn stmt_span(stmt: &Stmt, _context: &Context<'_>) -> crate::runtime::Span {
         | Stmt::InputFile { span, .. }
         | Stmt::PrintFile { span, .. }
         | Stmt::WriteFile { span, .. }
+        | Stmt::GetFile { span, .. }
+        | Stmt::PutFile { span, .. }
         | Stmt::SeekFile { span, .. }
         | Stmt::NameFile { span, .. }
         | Stmt::Yield { span, .. }
@@ -1274,8 +1315,17 @@ fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
         | Stmt::DebugPrint { args, .. } => {
             args.iter().any(|arg| expr_uses_with_target(arg, _context))
         }
-        Stmt::OpenFile { path, number, .. } => {
-            expr_uses_with_target(path, _context) || expr_uses_with_target(number, _context)
+        Stmt::OpenFile {
+            path,
+            number,
+            record_len,
+            ..
+        } => {
+            expr_uses_with_target(path, _context)
+                || expr_uses_with_target(number, _context)
+                || record_len
+                    .as_ref()
+                    .is_some_and(|expr| expr_uses_with_target(expr, _context))
         }
         Stmt::CloseFile { numbers, .. } => numbers
             .iter()
@@ -1301,6 +1351,30 @@ fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
         Stmt::WriteFile { number, args, .. } => {
             expr_uses_with_target(number, _context)
                 || args.iter().any(|arg| expr_uses_with_target(arg, _context))
+        }
+        Stmt::GetFile {
+            number,
+            position,
+            target,
+            ..
+        } => {
+            expr_uses_with_target(number, _context)
+                || position
+                    .as_ref()
+                    .is_some_and(|expr| expr_uses_with_target(expr, _context))
+                || assign_target_uses_with_target(target, _context)
+        }
+        Stmt::PutFile {
+            number,
+            position,
+            expr,
+            ..
+        } => {
+            expr_uses_with_target(number, _context)
+                || position
+                    .as_ref()
+                    .is_some_and(|expr| expr_uses_with_target(expr, _context))
+                || expr_uses_with_target(expr, _context)
         }
         Stmt::SeekFile {
             number, position, ..

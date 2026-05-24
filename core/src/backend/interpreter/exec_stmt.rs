@@ -593,10 +593,24 @@ impl Interpreter {
             Stmt::OpenFile {
                 path,
                 mode,
+                access,
+                lock,
                 number,
+                record_len,
                 span,
             } => {
-                self.open_file(path, *mode, number, frame, *span)?;
+                self.open_file(
+                    super::file_io::OpenFileRequest {
+                        path,
+                        mode: *mode,
+                        access: *access,
+                        lock: *lock,
+                        number,
+                        record_len: record_len.as_ref(),
+                        span: *span,
+                    },
+                    frame,
+                )?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::CloseFile { numbers, .. } => {
@@ -622,13 +636,32 @@ impl Interpreter {
             Stmt::PrintFile {
                 number,
                 items,
+                trailing,
                 span,
             } => {
-                self.print_file(number, items, frame, *span)?;
+                self.print_file(number, items, *trailing, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::WriteFile { number, args, span } => {
                 self.write_file(number, args, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::GetFile {
+                number,
+                position,
+                target,
+                span,
+            } => {
+                self.get_file(number, position.as_ref(), target, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::PutFile {
+                number,
+                position,
+                expr,
+                span,
+            } => {
+                self.put_file(number, position.as_ref(), expr, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::SeekFile {
@@ -1158,6 +1191,8 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::InputFile { span, .. }
         | Stmt::PrintFile { span, .. }
         | Stmt::WriteFile { span, .. }
+        | Stmt::GetFile { span, .. }
+        | Stmt::PutFile { span, .. }
         | Stmt::SeekFile { span, .. }
         | Stmt::NameFile { span, .. }
         | Stmt::Yield { span, .. }

@@ -169,7 +169,10 @@ pub enum Stmt {
     OpenFile {
         path: Expr,
         mode: OpenMode,
+        access: Option<FileAccess>,
+        lock: Option<FileLock>,
         number: Expr,
+        record_len: Option<Expr>,
         span: Span,
     },
     CloseFile {
@@ -189,11 +192,24 @@ pub enum Stmt {
     PrintFile {
         number: Expr,
         items: Vec<PrintItem>,
+        trailing: Option<PrintSeparator>,
         span: Span,
     },
     WriteFile {
         number: Expr,
         args: Vec<Expr>,
+        span: Span,
+    },
+    GetFile {
+        number: Expr,
+        position: Option<Expr>,
+        target: AssignTarget,
+        span: Span,
+    },
+    PutFile {
+        number: Expr,
+        position: Option<Expr>,
+        expr: Expr,
         span: Span,
     },
     SeekFile {
@@ -218,6 +234,21 @@ pub enum OpenMode {
     Output,
     Append,
     Binary,
+    Random,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileAccess {
+    Read,
+    Write,
+    ReadWrite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileLock {
+    Read,
+    Write,
+    ReadWrite,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

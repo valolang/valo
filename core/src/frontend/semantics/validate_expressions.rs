@@ -1143,6 +1143,12 @@ fn validate_builtin_function(
         || effective_name.eq_ignore_ascii_case("LOF")
         || effective_name.eq_ignore_ascii_case("Seek")
         || effective_name.eq_ignore_ascii_case("FileLen")
+        || effective_name.eq_ignore_ascii_case("Year")
+        || effective_name.eq_ignore_ascii_case("Month")
+        || effective_name.eq_ignore_ascii_case("Day")
+        || effective_name.eq_ignore_ascii_case("Hour")
+        || effective_name.eq_ignore_ascii_case("Minute")
+        || effective_name.eq_ignore_ascii_case("Second")
     {
         let expected = if effective_name.eq_ignore_ascii_case("FreeFile") {
             0
@@ -1154,6 +1160,77 @@ fn validate_builtin_function(
             validate_expr(&args[0], symbols, types, signatures, context)?;
         }
         return Ok(Some(TypeName::Integer));
+    }
+    if effective_name.eq_ignore_ascii_case("Timer") {
+        validate_arg_count(effective_name, args, 0, span)?;
+        return Ok(Some(TypeName::Double));
+    }
+    if effective_name.eq_ignore_ascii_case("Now")
+        || effective_name.eq_ignore_ascii_case("Date")
+        || effective_name.eq_ignore_ascii_case("Time")
+    {
+        validate_arg_count(effective_name, args, 0, span)?;
+        return Ok(Some(TypeName::Date));
+    }
+    if effective_name.eq_ignore_ascii_case("DateSerial")
+        || effective_name.eq_ignore_ascii_case("TimeSerial")
+    {
+        validate_arg_count(effective_name, args, 3, span)?;
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::Date));
+    }
+    if effective_name.eq_ignore_ascii_case("DateValue")
+        || effective_name.eq_ignore_ascii_case("TimeValue")
+    {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
+        return Ok(Some(TypeName::Date));
+    }
+    if effective_name.eq_ignore_ascii_case("Weekday") {
+        if args.is_empty() || args.len() > 2 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Weekday expects 1 to 2 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::Integer));
+    }
+    if effective_name.eq_ignore_ascii_case("MonthName") {
+        if args.is_empty() || args.len() > 2 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "MonthName expects 1 to 2 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("WeekdayName") {
+        if args.is_empty() || args.len() > 3 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "WeekdayName expects 1 to 3 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("FileDateTime") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(&args[0], symbols, types, signatures, context)?;
+        return Ok(Some(TypeName::Date));
     }
     if effective_name.eq_ignore_ascii_case("EOF") {
         validate_arg_count(effective_name, args, 1, span)?;

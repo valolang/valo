@@ -1,0 +1,10 @@
+Sub Main()
+    Dim t As Double
+    t = Timer()
+
+    Debug.Print t >= 0 And t < 86400
+    Debug.Print TypeName(Now())
+    Debug.Print Year(DateSerial(2024, 2, 29))
+    Debug.Print MonthName(2, True)
+    Debug.Print WeekdayName(1, True)
+End Sub
