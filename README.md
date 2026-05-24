@@ -104,7 +104,7 @@ Valo is designed around the following goals:
 - **Professional diagnostics** with explicit diagnostic codes and source spans.
 - **Modular project structure** with imports and qualified symbols.
 - **Strong runtime foundations** for arrays, objects, variants, errors, structures, classes, and native types.
-- **Experimental native interop** through VBA-style `Declare`, `PtrSafe`, `LongPtr`, callbacks, and `AddressOf`.
+- **Experimental native interop** through VBA-style `Declare`, `PtrSafe`, `LongPtr`, callbacks, `AddressOf` and others.
 - **A practical migration path** from legacy automation code to a modern runtime.
 - **A clean implementation architecture** suitable for future tooling, bytecode, and compiled targets.
 
@@ -116,45 +116,7 @@ Valo is currently an experimental language/runtime in active development.
 
 It already includes a substantial interpreter, parser, semantic validator, module loader, diagnostics engine, REPL, CLI, compatibility runtime, native FFI layer, and cross-platform release packaging.
 
-Implemented today:
-
-- `.valo`, `.bas`, and `.cls` file support
-- exported VBA `.cls` compatibility
-- modules and imports
-- classes, properties, events, and object lifecycle
-- native `Sub New` / `Sub Terminate`
-- deterministic cleanup with `Sub Dispose` and `Using`
-- VBA `Class_Initialize` / `Class_Terminate`
-- native `Structure` value types with methods, properties, and constructors
-- VBA-compatible fields-only `Type`
-- default properties and indexer-style access
-- `Interface`, `Implements`, `Shared`, and `Friend`
-- classic VBA function return assignment semantics
-- modern `Return` syntax
-- native `Iterator Function` and `Yield`
-- `Try / Catch / Finally`
-- VBA `On Error`, `Err`, `Resume`, and `Erl`
-- advanced arrays, including multidimensional and jagged patterns
-- `Array`, `Split`, `Join`, and `Filter`
-- native and VBA-compatible type system
-- `Variant`, `Object`, `Empty`, `Null`
-- VBA-compatible implicit `Variant` defaults
-- `CallByName`
-- `Debug.Print`
-- `VBA.` namespace fallback
-- experimental native FFI through `Declare`, `PtrSafe`, `LongPtr`, and `AddressOf`
-- callbacks and native function pointers
-- `VarPtr`, `StrPtr`, and `ObjPtr`
-- platform-aware native library loading
-- structure and array write-back for supported FFI cases
-- interactive REPL
-- professional diagnostics
-- release packaging for Linux, Windows, and macOS
-- clippy-clean Rust codebase
-
 Valo is not yet a full production compiler. There is currently no bytecode VM, package manager, LSP, formatter, or complete standard library.
-
-Native FFI is already available experimentally through VBA-style `Declare`, `PtrSafe`, `LongPtr`, callbacks, `AddressOf`, and platform-aware native library loading.
 
 ## Native Valo and VBA compatibility
 
