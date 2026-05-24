@@ -1,0 +1,16 @@
+MustInherit Class Animal
+    Public MustOverride Sub Speak()
+    End Sub
+End Class
+
+Class Dog Inherits Animal
+    Public Overrides Sub Speak()
+        Console.WriteLine("Woof")
+    End Sub
+End Class
+
+Sub Main()
+    Dim a As Animal
+    Set a = New Dog()
+    a.Speak()
+End Sub

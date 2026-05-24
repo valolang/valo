@@ -134,12 +134,22 @@ pub struct FieldDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
     pub visibility: Visibility,
+    pub inheritance: ClassInheritance,
     pub name: String,
     pub type_params: Vec<String>,
+    pub base_class: Option<TypeName>,
     pub implements: Vec<TypeName>,
     pub attributes: Vec<AttributeDecl>,
     pub members: Vec<ClassMember>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClassInheritance {
+    #[default]
+    Normal,
+    MustInherit,
+    NotInheritable,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -222,6 +232,7 @@ pub struct ClassEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassSub {
     pub visibility: Visibility,
+    pub override_kind: OverrideKind,
     pub is_shared: bool,
     pub implements: Vec<ImplementsClause>,
     pub procedure: Procedure,
@@ -230,6 +241,7 @@ pub struct ClassSub {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassFunction {
     pub visibility: Visibility,
+    pub override_kind: OverrideKind,
     pub is_shared: bool,
     pub implements: Vec<ImplementsClause>,
     pub is_enumerator: bool,
@@ -245,6 +257,7 @@ pub struct ClassIterator {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassProperty {
     pub visibility: Visibility,
+    pub override_kind: OverrideKind,
     pub is_shared: bool,
     pub implements: Vec<ImplementsClause>,
     pub is_default: bool,
@@ -277,6 +290,18 @@ pub enum Visibility {
     Public,
     Private,
     Friend,
+    Protected,
+    ProtectedFriend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverrideKind {
+    #[default]
+    None,
+    Overridable,
+    Overrides,
+    MustOverride,
+    Shadows,
 }
 
 #[derive(Debug, Clone, PartialEq)]

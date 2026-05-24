@@ -43,6 +43,19 @@ text = Identity(Of String)("hello")
 
 The runtime keeps instantiated generic metadata and caches concrete class/structure layouts using the formatted type identity, such as `Box(Of String)`. This keeps the current interpreter VM-ready: future bytecode can reference canonical generic definitions plus concrete type arguments instead of relying on textual rewrites.
 
+Generic classes can be used as base classes:
+
+```vb
+Class Repository(Of T)
+    Public Current As T
+End Class
+
+Class UserRepository Inherits Repository(Of User)
+End Class
+```
+
+Inherited generic members keep their instantiated type arguments in the runtime layout.
+
 Constraint syntax is reserved for a future pass:
 
 ```vb

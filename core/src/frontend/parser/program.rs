@@ -117,8 +117,10 @@ impl Parser {
                             .unwrap_or_else(|| "ClassModule".to_string());
                         classes.push(ClassDecl {
                             visibility: Visibility::Public,
+                            inheritance: ClassInheritance::Normal,
                             name,
                             type_params: Vec::new(),
+                            base_class: None,
                             implements: Vec::new(),
                             attributes: class_attributes,
                             members: class_members,
@@ -132,6 +134,7 @@ impl Parser {
                     }
 
                     saw_declarations = true;
+                    let inheritance = self.parse_optional_class_inheritance();
                     let explicit_visibility = self.parse_optional_visibility();
                     let is_iterator = self.match_simple(&TokenKind::Iterator);
 
@@ -195,7 +198,7 @@ impl Parser {
                             if is_iterator {
                                 return Err(self.error_here("Iterator is not supported on Class"));
                             }
-                            classes.push(self.parse_class_decl(visibility)?);
+                            classes.push(self.parse_class_decl(visibility, inheritance)?);
                         }
                         TokenKind::Dim => {
                             let visibility = explicit_visibility.unwrap_or(Visibility::Private);

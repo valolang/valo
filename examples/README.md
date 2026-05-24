@@ -32,6 +32,12 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 ## Object-Oriented Programming
 
 *   **[Classes](classes.valo):** Class definitions, properties, and methods.
+*   **[Inheritance Basic](inheritance_basic.valo):** Inherited fields and methods.
+*   **[Inheritance Override](inheritance_override.valo):** `Overridable` and `Overrides` dispatch.
+*   **[Abstract Animals](abstract_animals.valo):** `MustInherit` and `MustOverride`.
+*   **[Protected Members](protected_members.valo):** `Protected` member access from derived classes.
+*   **[Generic Inheritance](generic_inheritance.valo):** Generic base classes.
+*   **[Interface Polymorphism](interface_polymorphism.valo):** Interface implementation dispatch.
 *   **[Properties](properties.valo):** Property Get/Let/Set accessors.
 *   **[Native Lifecycle](native_class_lifecycle.valo):** `Sub New` and `Sub Terminate` support.
 *   **[Using Dispose](using_dispose.valo):** Deterministic cleanup with `Using` and `Dispose`.

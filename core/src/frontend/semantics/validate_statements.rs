@@ -1640,6 +1640,8 @@ fn expr_uses_with_target(expr: &Expr, _context: &Context<'_>) -> bool {
         | ExprKind::Null
         | ExprKind::Missing
         | ExprKind::Me
+        | ExprKind::MyBase
+        | ExprKind::MyClass
         | ExprKind::Variable(_) => false,
         ExprKind::PassingModeOverride { expr, .. } => expr_uses_with_target(expr, _context),
     }

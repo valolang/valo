@@ -37,6 +37,8 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         ClassSig {
             name: "Error".to_string(),
             type_params: Vec::new(),
+            inheritance: crate::ClassInheritance::Normal,
+            base_class: None,
             visibility: Visibility::Public,
             fields: {
                 let mut f = HashMap::new();
@@ -988,6 +990,8 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             ClassSig {
                 name: class_decl.name.clone(),
                 type_params: class_decl.type_params.clone(),
+                inheritance: class_decl.inheritance,
+                base_class: class_decl.base_class.clone(),
                 visibility: class_decl.visibility,
                 fields,
                 events,
@@ -1011,13 +1015,15 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         }
     }
 
-    let registry = TypeRegistry {
+    let mut registry = TypeRegistry {
         types,
         enums,
         interfaces,
         classes,
         generic_params,
     };
+    apply_class_sig_inheritance(&mut registry)?;
+    validate_oop_semantics(program, &registry)?;
     for type_decl in &program.types {
         for field in &type_decl.fields {
             ensure_known_type(&field.ty, &registry, field.span)?;
@@ -1269,6 +1275,294 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     validate_withevents_handlers(program, &registry)?;
 
     Ok(registry)
+}
+
+fn validate_oop_semantics(program: &Program, registry: &TypeRegistry) -> Result<(), Diagnostic> {
+    let class_map = program
+        .classes
+        .iter()
+        .map(|class| (key(&class.name), class))
+        .collect::<HashMap<_, _>>();
+    for class_decl in &program.classes {
+        let mut required = HashMap::<String, Span>::new();
+        if let Some(TypeName::User(base_name)) = &class_decl.base_class {
+            collect_must_override_members(base_name, &class_map, &mut required)?;
+        }
+        for member in &class_decl.members {
+            let Some((member_name, override_kind, span, has_body)) = class_member_oop_info(member)
+            else {
+                continue;
+            };
+            if override_kind == crate::OverrideKind::MustOverride {
+                if class_decl.inheritance != crate::ClassInheritance::MustInherit {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!(
+                            "MustOverride member '{}' requires MustInherit class '{}'",
+                            member_name, class_decl.name
+                        ),
+                        Some(span),
+                    ));
+                }
+                if has_body {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!("MustOverride member '{}' cannot have a body", member_name),
+                        Some(span),
+                    ));
+                }
+            }
+            if override_kind == crate::OverrideKind::Overrides {
+                let Some(base_member) =
+                    find_base_member_info(class_decl, &member_name, &class_map, registry)?
+                else {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        format!(
+                            "Method '{}' cannot override because no base member is defined",
+                            member_name
+                        ),
+                        Some(span),
+                    ));
+                };
+                if !matches!(
+                    base_member,
+                    crate::OverrideKind::Overridable
+                        | crate::OverrideKind::Overrides
+                        | crate::OverrideKind::MustOverride
+                ) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        format!(
+                            "Method '{}' cannot override because the base member is not marked Overridable",
+                            member_name
+                        ),
+                        Some(span),
+                    ));
+                }
+                required.remove(&key(&member_name));
+            } else if override_kind == crate::OverrideKind::Shadows {
+                required.remove(&key(&member_name));
+            }
+        }
+        if class_decl.inheritance != crate::ClassInheritance::MustInherit
+            && let Some((name, span)) = required.into_iter().next()
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!(
+                    "Class '{}' must override inherited MustOverride member '{}'",
+                    class_decl.name, name
+                ),
+                Some(span),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn collect_must_override_members(
+    class_name: &str,
+    class_map: &HashMap<String, &crate::ClassDecl>,
+    required: &mut HashMap<String, Span>,
+) -> Result<(), Diagnostic> {
+    let Some(class_decl) = class_map.get(&key(class_name)).copied() else {
+        return Ok(());
+    };
+    if let Some(TypeName::User(base_name)) = &class_decl.base_class {
+        collect_must_override_members(base_name, class_map, required)?;
+    }
+    for member in &class_decl.members {
+        if let Some((name, kind, span, _)) = class_member_oop_info(member) {
+            if kind == crate::OverrideKind::MustOverride {
+                required.insert(key(&name), span);
+            } else if matches!(
+                kind,
+                crate::OverrideKind::Overrides | crate::OverrideKind::Shadows
+            ) {
+                required.remove(&key(&name));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn find_base_member_info(
+    class_decl: &crate::ClassDecl,
+    member_name: &str,
+    class_map: &HashMap<String, &crate::ClassDecl>,
+    _registry: &TypeRegistry,
+) -> Result<Option<crate::OverrideKind>, Diagnostic> {
+    let mut current = class_decl.base_class.clone();
+    while let Some(TypeName::User(base_name)) = current {
+        let Some(base_decl) = class_map.get(&key(&base_name)).copied() else {
+            return Ok(None);
+        };
+        for member in &base_decl.members {
+            if let Some((name, kind, _, _)) = class_member_oop_info(member)
+                && name.eq_ignore_ascii_case(member_name)
+            {
+                return Ok(Some(kind));
+            }
+        }
+        current = base_decl.base_class.clone();
+    }
+    Ok(None)
+}
+
+fn class_member_oop_info(
+    member: &ClassMember,
+) -> Option<(String, crate::OverrideKind, Span, bool)> {
+    match member {
+        ClassMember::Sub(method) => Some((
+            method.procedure.name.clone(),
+            method.override_kind,
+            method.procedure.span,
+            !method.procedure.body.is_empty(),
+        )),
+        ClassMember::Function(method) => Some((
+            method.function.name.clone(),
+            method.override_kind,
+            method.function.span,
+            !method.function.body.is_empty(),
+        )),
+        ClassMember::Property(property) => Some((
+            property.name.clone(),
+            property.override_kind,
+            property.span,
+            !property.body.is_empty(),
+        )),
+        _ => None,
+    }
+}
+
+fn apply_class_sig_inheritance(registry: &mut TypeRegistry) -> Result<(), Diagnostic> {
+    let class_keys = registry.classes.keys().cloned().collect::<Vec<_>>();
+    for class_key in class_keys {
+        let mut visiting = Vec::new();
+        let merged = resolve_class_sig_inheritance(registry, &class_key, &mut visiting)?;
+        registry.classes.insert(class_key, merged);
+    }
+    Ok(())
+}
+
+fn resolve_class_sig_inheritance(
+    registry: &TypeRegistry,
+    class_key: &str,
+    visiting: &mut Vec<String>,
+) -> Result<ClassSig, Diagnostic> {
+    if visiting.iter().any(|key| key == class_key) {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Class inheritance cycle detected",
+            None,
+        ));
+    }
+    let class = registry.classes.get(class_key).cloned().ok_or_else(|| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+            format!("Class '{}' is not defined", class_key),
+            None,
+        )
+    })?;
+    let Some(base_ty) = class.base_class.clone() else {
+        return Ok(class);
+    };
+    let (base_name, generic_args) = match base_ty {
+        TypeName::User(base_name) => (base_name, Vec::new()),
+        TypeName::GenericInstance { name, args } => (name, args),
+        _ => {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Inherits currently requires a class type name",
+                None,
+            ));
+        }
+    };
+    let base_key = key(&base_name);
+    let base = registry.classes.get(&base_key).cloned().ok_or_else(|| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+            format!("Base class '{}' is not defined", base_name),
+            None,
+        )
+    })?;
+    if base.inheritance == crate::ClassInheritance::NotInheritable {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
+                "Class '{}' cannot inherit NotInheritable class '{}'",
+                class.name, base.name
+            ),
+            None,
+        ));
+    }
+    visiting.push(class_key.to_string());
+    let mut merged = resolve_class_sig_inheritance(registry, &base_key, visiting)?;
+    visiting.pop();
+    let derived = class;
+    if !generic_args.is_empty() && merged.type_params.len() == generic_args.len() {
+        let bindings = merged
+            .type_params
+            .iter()
+            .cloned()
+            .zip(generic_args.iter().cloned())
+            .collect::<Vec<_>>();
+        substitute_class_sig_types(&mut merged, &bindings);
+    }
+    merged.fields.extend(derived.fields.clone());
+    merged.events.extend(derived.events.clone());
+    merged.subs.extend(derived.subs.clone());
+    merged.functions.extend(derived.functions.clone());
+    merged.properties.extend(derived.properties.clone());
+    if derived.iterator.is_some() {
+        merged.iterator = derived.iterator.clone();
+    }
+    if derived.enumerator.is_some() {
+        merged.enumerator = derived.enumerator.clone();
+    }
+    if derived.default_property.is_some() {
+        merged.default_property = derived.default_property.clone();
+    }
+    merged.name = derived.name;
+    merged.type_params = derived.type_params;
+    merged.visibility = derived.visibility;
+    merged.inheritance = derived.inheritance;
+    merged.base_class = derived.base_class;
+    Ok(merged)
+}
+
+fn substitute_class_sig_types(class_sig: &mut ClassSig, bindings: &[(String, TypeName)]) {
+    for field in class_sig.fields.values_mut() {
+        field.ty = field.ty.substitute_generics(bindings);
+    }
+    for method in class_sig
+        .subs
+        .values_mut()
+        .chain(class_sig.functions.values_mut())
+    {
+        for param in &mut method.params {
+            param.ty = param.ty.substitute_generics(bindings);
+        }
+        method.return_type = method
+            .return_type
+            .clone()
+            .map(|ty| ty.substitute_generics(bindings));
+    }
+    for property in class_sig.properties.values_mut() {
+        for accessor in [&mut property.get, &mut property.let_, &mut property.set]
+            .into_iter()
+            .flatten()
+        {
+            for param in &mut accessor.params {
+                param.ty = param.ty.substitute_generics(bindings);
+            }
+            accessor.return_type = accessor
+                .return_type
+                .clone()
+                .map(|ty| ty.substitute_generics(bindings));
+        }
+    }
 }
 
 fn insert_class_field(
@@ -1817,6 +2111,8 @@ pub(super) fn ensure_const_expr(
         ExprKind::Nothing
         | ExprKind::Missing
         | ExprKind::Me
+        | ExprKind::MyBase
+        | ExprKind::MyClass
         | ExprKind::WithTarget
         | ExprKind::New { .. }
         | ExprKind::Call { .. }

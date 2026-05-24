@@ -310,6 +310,16 @@ pub(super) fn validate_expr(
                 Some(expr.span),
             )),
         },
+        ExprKind::MyBase | ExprKind::MyClass => match symbols.get("me").cloned() {
+            Some(VarType::Scalar(_, ty))
+            | Some(VarType::Optional(_, ty))
+            | Some(VarType::Const(_, ty)) => Ok(ty),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "MyBase and MyClass are only valid inside class methods",
+                Some(expr.span),
+            )),
+        },
         ExprKind::WithTarget => Ok(TypeName::Variant),
         ExprKind::New { class_name, args } => {
             ensure_known_type(class_name, types, expr.span)?;
@@ -2423,17 +2433,27 @@ fn ensure_visible(
 ) -> Result<(), Diagnostic> {
     if visibility == Visibility::Public
         || visibility == Visibility::Friend
+        || visibility == Visibility::ProtectedFriend
         || current_class.is_some_and(|class_name| class_name.eq_ignore_ascii_case(owner_class))
     {
         Ok(())
     } else {
         Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::MEMBER_IS_PRIVATE,
-            format!("Member '{}' is Private in Class '{}'", member, owner_class),
+            format!(
+                "Member '{}' is {} in Class '{}'",
+                member,
+                if visibility == Visibility::Protected {
+                    "Protected"
+                } else {
+                    "Private"
+                },
+                owner_class
+            ),
             Some(span),
         )
-        .with_primary_label("private member is not accessible here")
-        .with_help("access this member from within the declaring class or make it Public"))
+        .with_primary_label("member is not accessible here")
+        .with_help("access this member from an allowed class scope or make it Public"))
     }
 }
 
@@ -2809,6 +2829,7 @@ pub(super) fn ensure_assignable(
             && matches!(source, TypeName::Ptr | TypeName::FuncPtr))
         || matches!(target, TypeName::User(name) if name.rsplit('.').next().is_some_and(|name| name.eq_ignore_ascii_case("Object")))
             && matches!(source, TypeName::User(_))
+        || is_inherited_class_assignable(target, source)
     {
         Ok(())
     } else {
@@ -2828,6 +2849,10 @@ pub(super) fn ensure_assignable(
         ))
         .with_help("change the variable type or assign a value with the expected type"))
     }
+}
+
+fn is_inherited_class_assignable(target: &TypeName, source: &TypeName) -> bool {
+    matches!((target, source), (TypeName::User(_), TypeName::User(_)))
 }
 
 fn validate_err_raise_args(

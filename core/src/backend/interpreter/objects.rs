@@ -362,6 +362,13 @@ impl Interpreter {
                     Some(span),
                 )
             })?;
+        if class.inheritance == crate::ClassInheritance::MustInherit {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!("Cannot instantiate MustInherit class '{}'", class.name),
+                Some(span),
+            ));
+        }
         let mut fields = HashMap::new();
         for field in &class.fields {
             let field_ty = self.resolve_type_name(&field.ty, caller_frame, span)?;
@@ -986,6 +993,8 @@ pub(crate) fn ensure_object(
 pub(crate) struct RuntimeClass {
     pub(crate) name: String,
     pub(crate) type_params: Vec<String>,
+    pub(crate) inheritance: crate::ClassInheritance,
+    pub(crate) base_class: Option<TypeName>,
     pub(crate) fields: Vec<RuntimeField>,
     pub(crate) shared_fields: Vec<RuntimeField>,
     pub(crate) constants: Vec<crate::ConstDecl>,
@@ -1129,6 +1138,8 @@ impl From<&crate::ClassDecl> for RuntimeClass {
         Self {
             name: value.name.clone(),
             type_params: value.type_params.clone(),
+            inheritance: value.inheritance,
+            base_class: value.base_class.clone(),
             fields,
             shared_fields,
             constants,
@@ -1161,6 +1172,137 @@ impl RuntimeClass {
 }
 
 impl Interpreter {
+    pub(crate) fn apply_class_inheritance(&mut self, span: Span) -> Result<(), Diagnostic> {
+        let base_types = self
+            .classes
+            .values()
+            .filter_map(|class| class.base_class.clone())
+            .collect::<Vec<_>>();
+        for base_ty in base_types {
+            self.instantiate_runtime_type(&base_ty, span)?;
+        }
+        let class_names = self.classes.keys().cloned().collect::<Vec<_>>();
+        for class_name in class_names {
+            let mut visiting = Vec::new();
+            let resolved =
+                self.resolve_inherited_runtime_class(&class_name, &mut visiting, span)?;
+            self.classes.insert(class_name, resolved);
+        }
+        Ok(())
+    }
+
+    fn resolve_inherited_runtime_class(
+        &self,
+        class_key: &str,
+        visiting: &mut Vec<String>,
+        span: Span,
+    ) -> Result<RuntimeClass, Diagnostic> {
+        if visiting.iter().any(|name| name == class_key) {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Class inheritance cycle detected",
+                Some(span),
+            ));
+        }
+        let class = self.classes.get(class_key).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Class '{}' is not defined", class_key),
+                Some(span),
+            )
+        })?;
+        let Some(base_ty) = class.base_class.clone() else {
+            return Ok(class);
+        };
+        let base_name = base_ty.display_name();
+        let base_key = key(&base_name);
+        let base = self.classes.get(&base_key).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Base class '{}' is not defined", base_name),
+                Some(span),
+            )
+        })?;
+        if base.inheritance == crate::ClassInheritance::NotInheritable {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!(
+                    "Class '{}' cannot inherit NotInheritable class '{}'",
+                    class.name, base.name
+                ),
+                Some(span),
+            ));
+        }
+        visiting.push(class_key.to_string());
+        let mut merged = self.resolve_inherited_runtime_class(&base_key, visiting, span)?;
+        visiting.pop();
+        let mut derived = class;
+        for field in derived.fields.drain(..) {
+            if let Some(existing) = merged
+                .fields
+                .iter_mut()
+                .find(|candidate| candidate.name.eq_ignore_ascii_case(&field.name))
+            {
+                *existing = field;
+            } else {
+                merged.fields.push(field);
+            }
+        }
+        for field in derived.shared_fields.drain(..) {
+            if let Some(existing) = merged
+                .shared_fields
+                .iter_mut()
+                .find(|candidate| candidate.name.eq_ignore_ascii_case(&field.name))
+            {
+                *existing = field;
+            } else {
+                merged.shared_fields.push(field);
+            }
+        }
+        merged.constants.extend(derived.constants);
+        merged.events.extend(derived.events);
+        merged.subs.extend(derived.subs);
+        merged.shared_subs.extend(derived.shared_subs);
+        merged.functions.extend(derived.functions);
+        merged.shared_functions.extend(derived.shared_functions);
+        merged.properties.extend(derived.properties);
+        if derived.iterator.is_some() {
+            merged.iterator = derived.iterator;
+        }
+        if derived.enumerator_member.is_some() {
+            merged.enumerator_member = derived.enumerator_member;
+        }
+        if derived.default_member.is_some() {
+            merged.default_member = derived.default_member;
+        }
+        merged.name = derived.name;
+        merged.type_params = derived.type_params;
+        merged.inheritance = derived.inheritance;
+        merged.base_class = derived.base_class;
+        Ok(merged)
+    }
+}
+
+impl Interpreter {
+    pub(crate) fn class_derives_from(&self, class_name: &str, target_name: &str) -> bool {
+        let mut current = Some(class_name.to_string());
+        while let Some(name) = current {
+            if name.eq_ignore_ascii_case(target_name)
+                || name
+                    .rsplit_once('.')
+                    .is_some_and(|(_, local)| local.eq_ignore_ascii_case(target_name))
+            {
+                return true;
+            }
+            current = self
+                .classes
+                .get(&key(&name))
+                .and_then(|class| class.base_class.as_ref())
+                .map(TypeName::display_name);
+        }
+        false
+    }
+
     pub(crate) fn rebind_withevents_field(
         &mut self,
         owner: Rc<RefCell<ObjectValue>>,

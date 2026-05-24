@@ -20,6 +20,30 @@ Public Class User
 End Class
 ```
 
+## Inheritance
+
+Classes can inherit one base class with `Inherits`. Inherited fields, methods, properties, and Shared members participate in normal member lookup.
+
+```vb
+Class Animal
+    Public Overridable Sub Speak()
+        Console.WriteLine("...")
+    End Sub
+End Class
+
+Class Dog Inherits Animal
+    Public Overrides Sub Speak()
+        Console.WriteLine("Woof")
+    End Sub
+End Class
+```
+
+`MustInherit` classes cannot be constructed directly. `MustOverride` members declare required behavior for concrete derived classes. `NotInheritable` prevents further inheritance.
+
+Use `Protected` for members intended for derived classes, and `Protected Friend` for members visible to derived classes and the current project/module boundary. `Shadows` declares intentional hiding; `Overrides` requires a matching overridable base member.
+
+`MyBase.Member()` calls the base implementation directly. `MyClass.Member()` is parsed as a current-class dispatch form for source compatibility.
+
 ## Lifecycle And Cleanup
 
 Valo supports both modern and legacy lifecycle methods.

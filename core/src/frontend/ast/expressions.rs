@@ -21,6 +21,8 @@ pub enum ExprKind {
     Empty,
     Null,
     Me,
+    MyBase,
+    MyClass,
     WithTarget,
     Missing,
     Variable(String),

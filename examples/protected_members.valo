@@ -1,0 +1,19 @@
+Class Character
+    Protected Health As Long
+
+    Public Sub SetHealth(ByVal value As Long)
+        Health = value
+    End Sub
+End Class
+
+Class Player Inherits Character
+    Public Sub PrintHealth()
+        Console.WriteLine(Health)
+    End Sub
+End Class
+
+Sub Main()
+    Dim p As New Player()
+    p.SetHealth(10)
+    p.PrintHealth()
+End Sub

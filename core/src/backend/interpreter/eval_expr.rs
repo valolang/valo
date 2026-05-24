@@ -48,17 +48,14 @@ impl Interpreter {
                 let result = match value {
                     Value::Object(object) => {
                         let object_class = object.borrow().class_name.clone();
-                        object_class.eq_ignore_ascii_case(class_name)
-                            || object_class
-                                .rsplit_once('.')
-                                .is_some_and(|(_, local)| local.eq_ignore_ascii_case(class_name))
+                        self.class_derives_from(&object_class, class_name)
                     }
                     Value::Nothing => false,
                     _ => false,
                 };
                 Ok(Value::Boolean(result))
             }
-            ExprKind::Me => frame.get("me", expr.span),
+            ExprKind::Me | ExprKind::MyBase | ExprKind::MyClass => frame.get("me", expr.span),
             ExprKind::WithTarget => frame.current_with_target(expr.span),
             ExprKind::New { class_name, args } => {
                 self.new_object(class_name, args, frame, expr.span)

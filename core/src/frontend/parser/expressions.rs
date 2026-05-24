@@ -396,6 +396,18 @@ impl Parser {
                 ExprKind::New { class_name, args }
             }
             TokenKind::Identifier(name, _) => {
+                if name.eq_ignore_ascii_case("MyBase") {
+                    return self.parse_member_access(Expr {
+                        kind: ExprKind::MyBase,
+                        span,
+                    });
+                }
+                if name.eq_ignore_ascii_case("MyClass") {
+                    return self.parse_member_access(Expr {
+                        kind: ExprKind::MyClass,
+                        span,
+                    });
+                }
                 if name.eq_ignore_ascii_case("iif") && self.match_simple(&TokenKind::LeftParen) {
                     let condition = self.parse_expression()?;
                     self.expect_simple(TokenKind::Comma, "Expected ',' in IIf")?;

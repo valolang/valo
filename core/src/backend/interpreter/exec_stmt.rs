@@ -265,6 +265,44 @@ impl Interpreter {
                     self.call_record_sub_variable(variable, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
                 }
+                if matches!(object.kind, crate::ExprKind::MyBase) {
+                    let object = self.eval_expr(object, frame)?;
+                    let Value::Object(instance) = object else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            "MyBase is only valid inside class methods",
+                            Some(*span),
+                        ));
+                    };
+                    let current_class = frame.current_class_name().ok_or_else(|| {
+                        Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            "MyBase is only valid inside class methods",
+                            Some(*span),
+                        )
+                    })?;
+                    let base_class = self
+                        .classes
+                        .get(&super::values::key(&current_class))
+                        .and_then(|class| class.base_class.as_ref())
+                        .map(crate::runtime::TypeName::display_name)
+                        .ok_or_else(|| {
+                            Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!("Class '{}' has no base class", current_class),
+                                Some(*span),
+                            )
+                        })?;
+                    self.call_method_sub_on_runtime_class(
+                        instance,
+                        &base_class,
+                        method,
+                        args,
+                        frame,
+                        *span,
+                    )?;
+                    return Ok(ControlFlow::Continue);
+                }
                 let object = self.eval_expr(object, frame)?;
                 self.call_method_sub(object, method, args, frame, *span)?;
                 Ok(ControlFlow::Continue)

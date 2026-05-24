@@ -92,12 +92,17 @@ impl Parser {
     pub(super) fn parse_class_decl(
         &mut self,
         visibility: Visibility,
+        inheritance: ClassInheritance,
     ) -> Result<ClassDecl, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Class, "Expected 'Class'")?
             .span;
         let name = self.expect_identifier("Expected class name after 'Class'")?;
         let type_params = self.parse_optional_type_params()?;
+        let mut base_class = None;
+        if self.match_simple(&TokenKind::Inherits) {
+            base_class = Some(self.parse_type_name()?);
+        }
         let mut implements = Vec::new();
         if self.match_simple(&TokenKind::Implements) {
             loop {
@@ -132,8 +137,10 @@ impl Parser {
 
         Ok(ClassDecl {
             visibility,
+            inheritance,
             name,
             type_params,
+            base_class,
             implements,
             attributes,
             members,
@@ -258,6 +265,7 @@ impl Parser {
     pub(super) fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
         let explicit_visibility = self.parse_optional_visibility();
         let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+        let override_kind = self.parse_optional_override_kind();
         let is_shared = self.match_simple(&TokenKind::Shared);
         let with_events = self.match_simple(&TokenKind::WithEvents);
         let is_default = self.match_simple(&TokenKind::Default);
@@ -289,6 +297,7 @@ impl Parser {
                 if matches!(self.peek_next_kind(), Some(TokenKind::New)) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        override_kind,
                         is_shared,
                         implements: Vec::new(),
                         procedure: self.parse_lifecycle_sub_procedure(
@@ -303,6 +312,7 @@ impl Parser {
                 ) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        override_kind,
                         is_shared,
                         implements: Vec::new(),
                         procedure: self.parse_lifecycle_sub_procedure(
@@ -315,6 +325,7 @@ impl Parser {
                     let (procedure, implements) = self.parse_class_procedure(visibility)?;
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        override_kind,
                         is_shared,
                         implements,
                         procedure,
@@ -323,11 +334,13 @@ impl Parser {
             }
             TokenKind::Function => {
                 let mut function = self.parse_class_function(visibility, is_iterator)?;
+                function.override_kind = override_kind;
                 function.is_shared = is_shared;
                 Ok(ClassMember::Function(function))
             }
             TokenKind::Property => {
                 let mut property = self.parse_property(visibility, is_default, is_iterator)?;
+                property.override_kind = override_kind;
                 property.is_shared = is_shared;
                 Ok(ClassMember::Property(property))
             }
@@ -486,6 +499,7 @@ impl Parser {
 
         Ok(ClassProperty {
             visibility,
+            override_kind: OverrideKind::None,
             is_shared: false,
             implements,
             is_default,
@@ -507,8 +521,38 @@ impl Parser {
             Some(Visibility::Friend)
         } else if self.match_simple(&TokenKind::Public) {
             Some(Visibility::Public)
+        } else if self.match_simple(&TokenKind::Protected) {
+            if self.match_simple(&TokenKind::Friend) {
+                Some(Visibility::ProtectedFriend)
+            } else {
+                Some(Visibility::Protected)
+            }
         } else {
             None
+        }
+    }
+
+    pub(super) fn parse_optional_class_inheritance(&mut self) -> ClassInheritance {
+        if self.match_simple(&TokenKind::MustInherit) {
+            ClassInheritance::MustInherit
+        } else if self.match_simple(&TokenKind::NotInheritable) {
+            ClassInheritance::NotInheritable
+        } else {
+            ClassInheritance::Normal
+        }
+    }
+
+    fn parse_optional_override_kind(&mut self) -> OverrideKind {
+        if self.match_simple(&TokenKind::Overridable) {
+            OverrideKind::Overridable
+        } else if self.match_simple(&TokenKind::Overrides) {
+            OverrideKind::Overrides
+        } else if self.match_simple(&TokenKind::MustOverride) {
+            OverrideKind::MustOverride
+        } else if self.match_simple(&TokenKind::Shadows) {
+            OverrideKind::Shadows
+        } else {
+            OverrideKind::None
         }
     }
 
@@ -873,6 +917,7 @@ impl Parser {
                 if matches!(self.peek_next_kind(), Some(TokenKind::New)) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        override_kind: OverrideKind::None,
                         is_shared: false,
                         implements: Vec::new(),
                         procedure: self.parse_lifecycle_sub_procedure(
@@ -887,6 +932,7 @@ impl Parser {
                 ) {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        override_kind: OverrideKind::None,
                         is_shared: false,
                         implements: Vec::new(),
                         procedure: self.parse_lifecycle_sub_procedure(
@@ -898,6 +944,7 @@ impl Parser {
                 } else {
                     Ok(ClassMember::Sub(ClassSub {
                         visibility,
+                        override_kind: OverrideKind::None,
                         is_shared: false,
                         implements: Vec::new(),
                         procedure: self.parse_procedure(visibility)?,
@@ -1147,6 +1194,7 @@ impl Parser {
 
         Ok(ClassFunction {
             visibility,
+            override_kind: OverrideKind::None,
             is_shared: false,
             implements,
             is_enumerator,

@@ -2,6 +2,128 @@ use crate::backend::interpreter::tests::helpers::*;
 use crate::runtime::SourceMap;
 
 #[test]
+fn class_inheritance_dispatches_inherited_and_overridden_members() {
+    let output = run_source(
+        r#"
+Class Animal
+    Public Name As String
+    Public Shared Count As Long
+
+    Public Overridable Sub Speak()
+        Console.WriteLine("...")
+    End Sub
+End Class
+
+Class Dog Inherits Animal
+    Public Overrides Sub Speak()
+        Console.WriteLine("Woof " & Name)
+    End Sub
+End Class
+
+Sub Main()
+    Dim a As Animal
+    Set a = New Dog()
+    a.Name = "Rex"
+    Dog.Count = 3
+    a.Speak()
+    Console.WriteLine(Dog.Count)
+    Console.WriteLine(TypeOf a Is Animal)
+    Console.WriteLine(TypeOf a Is Dog)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["Woof Rex", "3", "True", "True"]);
+}
+
+#[test]
+fn mustinherit_and_mustoverride_require_concrete_override() {
+    let error = source_error(
+        r#"
+MustInherit Class Animal
+    Public MustOverride Sub Speak()
+    End Sub
+End Class
+
+Class Dog Inherits Animal
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("must override inherited MustOverride member"));
+}
+
+#[test]
+fn notinheritable_class_cannot_be_inherited() {
+    let error = source_error(
+        r#"
+NotInheritable Class Utility
+End Class
+
+Class Child Inherits Utility
+End Class
+
+Sub Main()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("cannot inherit NotInheritable class"));
+}
+
+#[test]
+fn mybase_sub_call_bypasses_override_dispatch() {
+    let output = run_source(
+        r#"
+Class Animal
+    Public Overridable Sub Speak()
+        Console.WriteLine("base")
+    End Sub
+End Class
+
+Class Dog Inherits Animal
+    Public Overrides Sub Speak()
+        MyBase.Speak()
+        Console.WriteLine("dog")
+    End Sub
+End Class
+
+Sub Main()
+    Dim d As New Dog()
+    d.Speak()
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["base", "dog"]);
+}
+
+#[test]
+fn generic_base_class_members_are_inherited() {
+    let output = run_source(
+        r#"
+Class Box(Of T)
+    Public Value As T
+End Class
+
+Class StringBox Inherits Box(Of String)
+End Class
+
+Sub Main()
+    Dim box As New StringBox()
+    box.Value = "ok"
+    Console.WriteLine(box.Value)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["ok"]);
+}
+
+#[test]
 fn exported_class_attributes_default_member_as_new_and_class_initialize_work() {
     let output = run_source(
         r#"

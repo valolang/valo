@@ -1,0 +1,16 @@
+Class Animal
+    Public Name As String
+
+    Public Sub Describe()
+        Console.WriteLine("Animal: " & Name)
+    End Sub
+End Class
+
+Class Dog Inherits Animal
+End Class
+
+Sub Main()
+    Dim d As New Dog()
+    d.Name = "Rex"
+    d.Describe()
+End Sub

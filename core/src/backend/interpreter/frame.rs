@@ -111,6 +111,15 @@ impl Frame {
         self.module_key.as_deref()
     }
 
+    pub(crate) fn current_class_name(&self) -> Option<String> {
+        self.variables
+            .get("me")
+            .and_then(|variable| match &variable.ty {
+                TypeName::User(name) => Some(name.clone()),
+                _ => None,
+            })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn declare(
         &mut self,

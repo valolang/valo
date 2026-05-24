@@ -778,17 +778,32 @@ impl Interpreter {
     ) -> Result<(), Diagnostic> {
         let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
-        let class = self
-            .classes
-            .get(&key(&class_name))
-            .cloned()
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                    format!("Class '{}' is not defined", class_name),
-                    Some(span),
-                )
-            })?;
+        self.call_method_sub_on_runtime_class(
+            instance,
+            &class_name,
+            method,
+            args,
+            caller_frame,
+            span,
+        )
+    }
+
+    pub(crate) fn call_method_sub_on_runtime_class(
+        &mut self,
+        instance: std::rc::Rc<std::cell::RefCell<crate::runtime::ObjectValue>>,
+        class_name: &str,
+        method: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let class = self.classes.get(&key(class_name)).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Class '{}' is not defined", class_name),
+                Some(span),
+            )
+        })?;
         let procedure = class.subs.get(&key(method)).cloned().ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,

@@ -119,8 +119,10 @@ pub(super) struct EnumSig {
 #[allow(dead_code)]
 pub(super) struct ClassSig {
     pub(super) visibility: Visibility,
+    pub(super) inheritance: crate::ClassInheritance,
     pub(super) name: String,
     pub(super) type_params: Vec<String>,
+    pub(super) base_class: Option<TypeName>,
     pub(super) fields: HashMap<String, ClassFieldSig>,
     pub(super) events: HashMap<String, ClassEventSig>,
     pub(super) subs: HashMap<String, ClassMethodSig>,

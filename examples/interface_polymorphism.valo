@@ -1,0 +1,14 @@
+Interface IAnimal
+    Sub Speak()
+End Interface
+
+Class Dog Implements IAnimal
+    Public Sub Speak() Implements IAnimal.Speak
+        Console.WriteLine("Woof")
+    End Sub
+End Class
+
+Sub Main()
+    Dim d As New Dog()
+    d.Speak()
+End Sub

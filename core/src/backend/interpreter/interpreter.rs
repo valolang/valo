@@ -129,6 +129,8 @@ impl Interpreter {
             RuntimeClass {
                 name: "Error".to_string(),
                 type_params: Vec::new(),
+                inheritance: crate::ClassInheritance::Normal,
+                base_class: None,
                 fields: vec![
                     crate::interpreter::records::RuntimeField {
                         name: "Number".to_string(),
@@ -267,6 +269,9 @@ impl Interpreter {
             self.classes
                 .insert(key(&class_decl.name), RuntimeClass::from(class_decl));
         }
+        self.apply_class_inheritance(crate::runtime::Span::empty(
+            crate::runtime::FileId::default(),
+        ))?;
         self.initialize_shared_class_fields(crate::runtime::Span::empty(
             crate::runtime::FileId::default(),
         ))?;
@@ -672,6 +677,9 @@ impl Interpreter {
                     self.public_classes.insert(qualified);
                 }
             }
+            self.apply_class_inheritance(crate::runtime::Span::empty(
+                crate::runtime::FileId::default(),
+            ))?;
             for procedure in &module.program.procedures {
                 self.procedures.insert(
                     format!("{}::{}", module_key, super::values::key(&procedure.name)),
