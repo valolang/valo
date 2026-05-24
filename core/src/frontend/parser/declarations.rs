@@ -1368,9 +1368,9 @@ impl Parser {
                 } else if name.eq_ignore_ascii_case("Object") {
                     Ok(TypeName::User("Object".to_string()))
                 } else {
-                    if self.match_simple(&TokenKind::Dot) {
+                    while self.match_simple(&TokenKind::Dot) {
                         let member =
-                            self.expect_identifier("Expected type name after module qualifier")?;
+                            self.expect_identifier("Expected type or namespace name after '.'")?;
                         name.push('.');
                         name.push_str(&member);
                     }

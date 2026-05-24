@@ -6,6 +6,7 @@
 pub mod ast;
 pub mod lexer;
 pub mod modules;
+pub mod package;
 pub mod parser;
 pub mod preprocessor;
 pub mod semantics;

@@ -148,6 +148,7 @@ impl<'a> Lexer<'a> {
             "function" if hint.is_none() => TokenKind::Function,
             "iterator" if hint.is_none() => TokenKind::Iterator,
             "import" if hint.is_none() => TokenKind::Import,
+            "namespace" if hint.is_none() => TokenKind::Namespace,
             "const" if hint.is_none() => TokenKind::Const,
             "option" if hint.is_none() => TokenKind::Option,
             "explicit" if hint.is_none() => TokenKind::Explicit,

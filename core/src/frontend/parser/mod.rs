@@ -194,6 +194,7 @@ fn token_description(kind: &TokenKind) -> String {
         TokenKind::If => "'If'".to_string(),
         TokenKind::Then => "'Then'".to_string(),
         TokenKind::Import => "'Import'".to_string(),
+        TokenKind::Namespace => "'Namespace'".to_string(),
         TokenKind::As => "'As'".to_string(),
         other => format!("{other:?}"),
     }

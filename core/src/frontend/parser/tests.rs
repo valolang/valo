@@ -527,3 +527,19 @@ End Sub
     assert!(program.option_explicit);
     assert_eq!(program.classes[0].members.len(), 2); // m_value and Foo
 }
+
+#[test]
+fn parses_namespace_declaration() {
+    let source = r#"
+Namespace Game.Graphics
+
+Public Class Sprite
+End Class
+
+End Namespace
+"#;
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    assert_eq!(program.namespace.as_deref(), Some("Game.Graphics"));
+    assert_eq!(program.classes.len(), 1);
+    assert_eq!(program.classes[0].name, "Sprite");
+}

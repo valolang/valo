@@ -16,6 +16,7 @@ pub enum TokenKind {
     Function,
     Iterator,
     Import,
+    Namespace,
     Const,
     Option,
     Explicit,

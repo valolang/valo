@@ -4,12 +4,15 @@
 //! including the value system, type definitions, and diagnostics.
 //! It is designed to be independent of the execution backend.
 
+pub mod callable;
 mod coerce;
+pub mod com;
 pub mod compare;
 mod diagnostic;
 pub mod ffi_platform;
 pub mod numeric;
 pub mod ops;
+pub mod stdlib;
 mod type_name;
 mod value;
 pub mod vba;

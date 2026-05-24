@@ -9,6 +9,7 @@ impl Parser {
         let mut saw_option_compare = false;
         let mut attributes = Vec::new();
         let mut imports = Vec::new();
+        let mut namespace = None;
         let mut types = Vec::new();
         let mut enums = Vec::new();
         let mut module_vars = Vec::new();
@@ -30,6 +31,28 @@ impl Parser {
 
         while !self.is_at_end() {
             match self.peek_kind() {
+                TokenKind::Namespace => {
+                    if saw_declarations || namespace.is_some() {
+                        return Err(self.error_here(
+                            "Namespace must appear once before declarations in this file",
+                        ));
+                    }
+                    namespace = Some(self.parse_namespace_decl()?);
+                }
+                TokenKind::End if matches!(self.peek_next_kind(), Some(TokenKind::Namespace)) => {
+                    self.advance();
+                    self.advance();
+                    self.expect_statement_end("Expected newline after End Namespace")?;
+                    if !self.is_at_end() {
+                        self.skip_newlines();
+                        if !self.is_at_end() {
+                            return Err(self.error_here(
+                                "Declarations after End Namespace are not supported yet",
+                            ));
+                        }
+                    }
+                    break;
+                }
                 TokenKind::Option => {
                     if saw_declarations {
                         return Err(
@@ -225,6 +248,7 @@ impl Parser {
         }
 
         Ok(Program {
+            namespace,
             attributes,
             imports,
             option_explicit,
@@ -241,6 +265,20 @@ impl Parser {
             functions,
             properties,
         })
+    }
+
+    fn parse_namespace_decl(&mut self) -> Result<String, Diagnostic> {
+        self.expect_simple(TokenKind::Namespace, "Expected 'Namespace'")?;
+        let mut namespace = self.expect_identifier("Expected namespace name")?;
+        while self.match_simple(&TokenKind::Dot) {
+            namespace.push('.');
+            namespace.push_str(
+                self.expect_identifier("Expected namespace segment after '.'")?
+                    .as_str(),
+            );
+        }
+        self.expect_statement_end("Expected newline after Namespace declaration")?;
+        Ok(namespace)
     }
 
     pub(super) fn parse_cls_envelope(&mut self) -> Result<(), Diagnostic> {

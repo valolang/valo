@@ -32,3 +32,14 @@ The Backend is the execution engine that consumes the validated AST (or future i
 *   **Future Backends:** Potential WASM and Native compilation targets.
 
 Learn more in **[Backend Architecture](backend.md)**.
+
+## 4. Platform
+The Platform layer is the emerging project/package, namespace, tooling, standard-library, and interop architecture that turns Valo from a single-file language runtime into an ecosystem.
+
+*   **Package Identity:** `valo.toml` project roots and entrypoint resolution.
+*   **Semantic IDs/HIR:** Stable project-wide identities for tooling and future VM lowering.
+*   **Namespaces:** Logical API identity decoupled from filenames.
+*   **Runtime Services:** Standard-library boundaries shared by interpreter, VM, and embedders.
+*   **Interop:** COM/type-library architecture layered beside native FFI.
+
+Learn more in **[Platform Architecture](platform.md)**.

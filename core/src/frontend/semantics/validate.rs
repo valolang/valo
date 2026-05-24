@@ -109,6 +109,7 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
 }
 
 pub fn validate_project(project: &crate::modules::Project) -> Result<(), Diagnostic> {
+    let _project_index = crate::frontend::semantics::hir::build_project_index(project)?;
     for (index, module) in project.modules.iter().enumerate() {
         let require_main = index == project.entry;
         validate_module(&module.program, require_main, &module.imports)?;

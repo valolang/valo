@@ -21,6 +21,62 @@ fn write(dir: &std::path::Path, name: &str, source: &str) {
 }
 
 #[test]
+fn valo_toml_entrypoint_is_used_for_run_file() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "valo.toml",
+        r#"
+[package]
+name = "manifest-app"
+version = "0.1.0"
+entrypoint = "src/main.valo"
+authors = ["Valo"]
+compatibility = "mixed"
+target_platforms = ["linux"]
+"#,
+    );
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(
+        dir.join("src/main.valo"),
+        r#"
+Sub Main()
+    Console.WriteLine("manifest")
+End Sub
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(run_file(&dir).unwrap(), vec!["manifest"]);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn project_index_records_namespace_qualified_symbols() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Namespace Game.Graphics
+
+Public Class Sprite
+End Class
+
+Sub Main()
+End Sub
+
+End Namespace
+"#,
+    );
+
+    let project = crate::load_project(dir.join("main.valo")).unwrap();
+    let index = crate::build_project_index(&project).unwrap();
+    assert!(index.by_qualified_name.contains_key("game.graphics.sprite"));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn imports_same_directory_module_with_alias_and_state() {
     let dir = temp_project();
     write(

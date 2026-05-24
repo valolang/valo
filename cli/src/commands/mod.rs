@@ -49,6 +49,10 @@ pub fn check(mut args: impl Iterator<Item = String>, color: ColorChoice) -> Resu
     let Some(path) = args.next() else {
         return Err("usage: valo check <file>".to_string());
     };
+    let path = valo_core::resolve_entrypoint(&path).map_err(|err| {
+        let map = valo_core::SourceMap::new();
+        err.render_colored(&map, color.enabled())
+    })?;
 
     match valo_core::load_project(&path) {
         Ok(project) => {

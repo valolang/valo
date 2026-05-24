@@ -4,6 +4,7 @@ use super::Stmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
+    pub namespace: Option<String>,
     pub attributes: Vec<AttributeDecl>,
     pub imports: Vec<ImportDecl>,
     pub option_explicit: bool,
