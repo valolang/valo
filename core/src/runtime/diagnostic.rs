@@ -145,6 +145,38 @@ impl Diagnostic {
         self
     }
 
+    pub fn with_name_suggestion<'a>(
+        self,
+        misspelled: &str,
+        candidates: impl IntoIterator<Item = &'a str>,
+    ) -> Self {
+        if let Some(candidate) = suggest_name(misspelled, candidates) {
+            self.with_help(format!("did you mean '{candidate}'?"))
+        } else {
+            self
+        }
+    }
+
+    pub fn with_available_items<'a>(
+        mut self,
+        label: &str,
+        items: impl IntoIterator<Item = &'a str>,
+    ) -> Self {
+        let mut items: Vec<_> = items.into_iter().collect();
+        items.sort_unstable_by_key(|item| item.to_ascii_lowercase());
+        items.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        if !items.is_empty() {
+            let mut note = String::from(label);
+            note.push(':');
+            for item in items {
+                note.push_str("\n  - ");
+                note.push_str(item);
+            }
+            self.notes.push(note);
+        }
+        self
+    }
+
     pub fn with_related(mut self, diagnostic: Diagnostic) -> Self {
         self.related.push(diagnostic);
         self
@@ -228,6 +260,45 @@ impl Diagnostic {
             Severity::Help => "\x1b[32;1m",
         }
     }
+}
+
+pub fn suggest_name<'a>(
+    misspelled: &str,
+    candidates: impl IntoIterator<Item = &'a str>,
+) -> Option<String> {
+    let needle = misspelled.to_ascii_lowercase();
+    let max_distance = (needle.chars().count() / 3).clamp(2, 3);
+    candidates
+        .into_iter()
+        .filter(|candidate| !candidate.is_empty())
+        .map(|candidate| {
+            (
+                candidate,
+                edit_distance(&needle, &candidate.to_ascii_lowercase()),
+            )
+        })
+        .filter(|(_, distance)| *distance <= max_distance)
+        .min_by_key(|(candidate, distance)| (*distance, candidate.len()))
+        .map(|(candidate, _)| candidate.to_string())
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right_chars: Vec<char> = right.chars().collect();
+    let mut previous: Vec<usize> = (0..=right_chars.len()).collect();
+    let mut current = vec![0; right_chars.len() + 1];
+
+    for (left_index, left_ch) in left.chars().enumerate() {
+        current[0] = left_index + 1;
+        for (right_index, right_ch) in right_chars.iter().enumerate() {
+            let substitution_cost = usize::from(left_ch != *right_ch);
+            current[right_index + 1] = (previous[right_index + 1] + 1)
+                .min(current[right_index] + 1)
+                .min(previous[right_index] + substitution_cost);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+
+    previous[right_chars.len()]
 }
 
 pub fn terminal_supports_color() -> bool {

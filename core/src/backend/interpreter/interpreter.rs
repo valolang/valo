@@ -777,7 +777,14 @@ impl Interpreter {
         if self.call_stack.is_empty() {
             diagnostic
         } else {
-            diagnostic.with_note(format!("while executing {}", self.call_stack.join(" -> ")))
+            let mut trace = String::from("Stack trace:");
+            for frame in self.call_stack.iter().rev() {
+                trace.push_str("\n  at ");
+                trace.push_str(frame);
+            }
+            diagnostic
+                .with_note(format!("while executing {}", self.call_stack.join(" -> ")))
+                .with_note(trace)
         }
     }
 

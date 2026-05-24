@@ -128,11 +128,12 @@ impl Parser {
 
     pub(super) fn error_here(&self, message: &str) -> Diagnostic {
         Diagnostic::new(
-            crate::runtime::DiagnosticCode::GENERIC,
+            crate::runtime::DiagnosticCode::PARSE,
             message,
             Some(self.peek().span),
         )
         .with_primary_label(message)
+        .with_note(format!("found {}", token_description(self.peek_kind())))
     }
 
     pub(super) fn is_at_end(&self) -> bool {
@@ -173,6 +174,28 @@ impl Parser {
         } else {
             Err(self.error_here(message))
         }
+    }
+}
+
+fn token_description(kind: &TokenKind) -> String {
+    match kind {
+        TokenKind::Identifier(name, _) => format!("identifier '{name}'"),
+        TokenKind::String(_) => "string literal".to_string(),
+        TokenKind::Integer(_) => "integer literal".to_string(),
+        TokenKind::Float(_) => "number literal".to_string(),
+        TokenKind::Eof => "end of file".to_string(),
+        TokenKind::Newline => "newline".to_string(),
+        TokenKind::LeftParen => "'('".to_string(),
+        TokenKind::RightParen => "')'".to_string(),
+        TokenKind::Comma => "','".to_string(),
+        TokenKind::Dot => "'.'".to_string(),
+        TokenKind::Equal => "'='".to_string(),
+        TokenKind::End => "'End'".to_string(),
+        TokenKind::If => "'If'".to_string(),
+        TokenKind::Then => "'Then'".to_string(),
+        TokenKind::Import => "'Import'".to_string(),
+        TokenKind::As => "'As'".to_string(),
+        other => format!("{other:?}"),
     }
 }
 

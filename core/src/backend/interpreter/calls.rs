@@ -1453,6 +1453,7 @@ impl Interpreter {
                                     }
                                 };
                                 let variable = Variable {
+                                    name: param.name.clone(),
                                     ty: param_ty.clone(),
                                     cell: VariableCell::ArrayElement {
                                         array: array_cell.clone(),
@@ -1532,6 +1533,7 @@ impl Interpreter {
 
                                     if can_alias {
                                         let variable = Variable {
+                                            name: param.name.clone(),
                                             ty: param_ty.clone(),
                                             cell: VariableCell::ArrayElement {
                                                 array: array_cell.clone(),
@@ -1608,6 +1610,7 @@ impl Interpreter {
 
                                     if can_alias {
                                         let variable = Variable {
+                                            name: param.name.clone(),
                                             ty: param_ty.clone(),
                                             cell: VariableCell::Member {
                                                 object: obj_cell.clone(),

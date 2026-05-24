@@ -76,19 +76,24 @@ impl ModuleLoader {
                     found = true;
                 }
                 if found {
-                    if !chain.is_empty() {
-                        chain.push_str(" -> ");
+                    if chain.is_empty() {
+                        chain.push_str(&module_name(entry));
+                    } else {
+                        chain.push_str("\n  -> ");
+                        chain.push_str(&module_name(entry));
                     }
-                    chain.push_str(&module_name(entry));
                 }
             }
-            chain.push_str(" -> ");
+            chain.push_str("\n  -> ");
             chain.push_str(&module_name(&canonical));
 
             return Err(Diagnostic::new(
                 DiagnosticCode::IMPORT_CYCLE,
-                format!("Import cycle detected:\n{}", chain),
+                format!("Import cycle detected:\n\n{}", chain),
                 None,
+            )
+            .with_help(
+                "remove one import in the cycle or move shared declarations into a separate module",
             ));
         }
         if let Some(index) = self.by_path.get(&canonical).copied() {

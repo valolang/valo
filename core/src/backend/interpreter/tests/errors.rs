@@ -30,6 +30,30 @@ End Sub
 }
 
 #[test]
+fn unknown_variable_reports_nearby_symbol() {
+    let diagnostic = source_diagnostic(
+        r#"
+Sub Main()
+    Dim Count As Integer
+    Conut = 1
+End Sub
+"#,
+    );
+
+    assert!(
+        diagnostic
+            .message
+            .contains("Variable 'Conut' is not declared")
+    );
+    assert!(
+        diagnostic
+            .helps
+            .iter()
+            .any(|help| help.contains("did you mean 'count'?"))
+    );
+}
+
+#[test]
 fn reports_type_mismatch_errors() {
     let error = source_error(
         r#"

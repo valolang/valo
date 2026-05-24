@@ -168,6 +168,7 @@ impl Frame {
         self.variables.insert(
             key,
             Variable {
+                name: name.to_string(),
                 ty: ty.clone(),
                 cell: VariableCell::Direct(Rc::new(RefCell::new(value))),
                 dynamic_array,
@@ -216,6 +217,7 @@ impl Frame {
         self.variables.insert(
             key,
             Variable {
+                name: name.to_string(),
                 cell: VariableCell::Direct(Rc::new(RefCell::new(coerce_assignment(
                     &ty, value, span,
                 )?))),
@@ -309,6 +311,7 @@ impl Frame {
         self.variables.insert(
             key,
             Variable {
+                name: name.to_string(),
                 ty: TypeName::User(class_name.to_string()),
                 cell: VariableCell::Direct(Rc::new(RefCell::new(Value::Object(object)))),
                 dynamic_array: false,
@@ -325,15 +328,14 @@ impl Frame {
         value: Value,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Variable '{}' is not declared", name),
-                Some(span),
-            )
-            .with_primary_label("unknown variable")
-            .with_help("declare the variable before using it")
-        })?;
+        let variable_key = key(name);
+        if !self.variables.contains_key(&variable_key) {
+            return Err(self.unknown_variable(name, span));
+        }
+        let variable = self
+            .variables
+            .get_mut(&variable_key)
+            .expect("checked above");
         if variable.is_const {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT,
@@ -349,14 +351,31 @@ impl Frame {
         Ok(old)
     }
 
+    fn unknown_variable(&self, name: &str, span: Span) -> Diagnostic {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+            format!("Variable '{}' is not declared", name),
+            Some(span),
+        )
+        .with_primary_label("unknown variable")
+        .with_help("declare the variable before using it")
+        .with_name_suggestion(
+            name,
+            self.variables
+                .values()
+                .map(|variable| variable.name.as_str()),
+        )
+    }
+
     pub(crate) fn assign_missing(&mut self, name: &str, span: Span) -> Result<(), Diagnostic> {
-        let variable = self.variables.get_mut(&key(name)).ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Variable '{}' is not declared", name),
-                Some(span),
-            )
-        })?;
+        let variable_key = key(name);
+        if !self.variables.contains_key(&variable_key) {
+            return Err(self.unknown_variable(name, span));
+        }
+        let variable = self
+            .variables
+            .get_mut(&variable_key)
+            .expect("checked above");
         *variable.borrow_mut() = Value::Missing;
         Ok(())
     }
@@ -365,27 +384,14 @@ impl Frame {
         self.variables
             .get(&key(name))
             .map(|variable| variable.borrow().clone())
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                    format!("Variable '{}' is not declared", name),
-                    Some(span),
-                )
-                .with_primary_label("unknown variable")
-                .with_help("declare the variable before using it")
-            })
+            .ok_or_else(|| self.unknown_variable(name, span))
     }
 
     pub(crate) fn variable(&self, name: &str, span: Span) -> Result<Variable, Diagnostic> {
-        self.variables.get(&key(name)).cloned().ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Variable '{}' is not declared", name),
-                Some(span),
-            )
-            .with_primary_label("unknown variable")
-            .with_help("declare the variable before using it")
-        })
+        self.variables
+            .get(&key(name))
+            .cloned()
+            .ok_or_else(|| self.unknown_variable(name, span))
     }
 
     pub(crate) fn remove_variable(&mut self, name: &str) -> Option<Variable> {
@@ -563,6 +569,7 @@ impl Frame {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Variable {
+    pub(crate) name: String,
     pub(crate) ty: TypeName,
     pub(crate) cell: VariableCell,
     pub(crate) dynamic_array: bool,

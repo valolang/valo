@@ -58,18 +58,10 @@ pub(super) fn validate_assignment_target(
                 {
                     VarType::Scalar(Visibility::Public, field_sig.ty.clone())
                 } else {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                        format!("Variable '{}' is not declared", name),
-                        Some(*span),
-                    ));
+                    return Err(unknown_variable(name, *span, symbols));
                 }
             } else {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                    format!("Variable '{}' is not declared", name),
-                    Some(*span),
-                ));
+                return Err(unknown_variable(name, *span, symbols));
             };
             if target_type.is_const() {
                 return Err(Diagnostic::new(
@@ -229,6 +221,17 @@ pub(super) fn validate_assignment_target(
             )
         }
     }
+}
+
+fn unknown_variable(name: &str, span: Span, symbols: &HashMap<String, VarType>) -> Diagnostic {
+    Diagnostic::new(
+        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+        format!("Variable '{}' is not declared", name),
+        Some(span),
+    )
+    .with_primary_label("unknown variable")
+    .with_help("declare the variable before using it")
+    .with_name_suggestion(name, symbols.keys().map(String::as_str))
 }
 
 pub(super) fn validate_expr(
@@ -1838,14 +1841,7 @@ pub(super) fn validate_method_call(
                 Some(span),
             ));
         }
-        Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!(
-                "Class '{}' has no method or property '{}'",
-                class_sig.name, method
-            ),
-            Some(span),
-        ))
+        Err(unknown_class_member(class_sig, method, as_expression, span))
     } else {
         if let Some(method_sig) = class_sig.subs.get(&key(method)) {
             ensure_visible(
@@ -1886,12 +1882,42 @@ pub(super) fn validate_method_call(
                 Some(span),
             ));
         }
-        Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!("Class '{}' has no method '{}'", class_sig.name, method),
-            Some(span),
-        ))
+        Err(unknown_class_member(class_sig, method, as_expression, span))
     }
+}
+
+fn unknown_class_member(
+    class_sig: &ClassSig,
+    method: &str,
+    as_expression: bool,
+    span: Span,
+) -> Diagnostic {
+    let noun = if as_expression {
+        "method or property"
+    } else {
+        "method"
+    };
+    let candidates = class_member_names(class_sig);
+    Diagnostic::new(
+        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+        format!(
+            "Method or property '{}' was not found on type '{}'",
+            method, class_sig.name
+        ),
+        Some(span),
+    )
+    .with_primary_label(format!("unknown {noun}"))
+    .with_name_suggestion(method, candidates.iter().map(String::as_str))
+    .with_available_items("available members", candidates.iter().map(String::as_str))
+}
+
+fn class_member_names(class_sig: &ClassSig) -> Vec<String> {
+    let mut names = Vec::new();
+    names.extend(class_sig.subs.values().map(|sig| sig.name.clone()));
+    names.extend(class_sig.functions.values().map(|sig| sig.name.clone()));
+    names.extend(class_sig.properties.values().map(|sig| sig.name.clone()));
+    names.extend(class_sig.events.values().map(|sig| sig.name.clone()));
+    names
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1974,13 +2000,11 @@ fn validate_structure_method_call(
                 Some(span),
             ));
         }
-        Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!(
-                "Structure '{}' has no method or property '{}'",
-                type_sig.name, method
-            ),
-            Some(span),
+        Err(unknown_structure_member(
+            type_sig,
+            method,
+            as_expression,
+            span,
         ))
     } else {
         if method.eq_ignore_ascii_case("Constructor") || method.eq_ignore_ascii_case("Initialize") {
@@ -2017,12 +2041,46 @@ fn validate_structure_method_call(
                 Some(span),
             ));
         }
-        Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!("Structure '{}' has no method '{}'", type_sig.name, method),
-            Some(span),
+        Err(unknown_structure_member(
+            type_sig,
+            method,
+            as_expression,
+            span,
         ))
     }
+}
+
+fn unknown_structure_member(
+    type_sig: &TypeSig,
+    method: &str,
+    as_expression: bool,
+    span: Span,
+) -> Diagnostic {
+    let noun = if as_expression {
+        "method or property"
+    } else {
+        "method"
+    };
+    let candidates = structure_member_names(type_sig);
+    Diagnostic::new(
+        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+        format!(
+            "Method or property '{}' was not found on type '{}'",
+            method, type_sig.name
+        ),
+        Some(span),
+    )
+    .with_primary_label(format!("unknown {noun}"))
+    .with_name_suggestion(method, candidates.iter().map(String::as_str))
+    .with_available_items("available members", candidates.iter().map(String::as_str))
+}
+
+fn structure_member_names(type_sig: &TypeSig) -> Vec<String> {
+    let mut names = Vec::new();
+    names.extend(type_sig.subs.values().map(|sig| sig.name.clone()));
+    names.extend(type_sig.functions.values().map(|sig| sig.name.clone()));
+    names.extend(type_sig.properties.values().map(|sig| sig.name.clone()));
+    names
 }
 
 fn member_access_class(object: &Expr, object_type: &TypeName) -> Option<String> {

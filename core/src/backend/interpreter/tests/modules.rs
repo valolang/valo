@@ -691,4 +691,12 @@ fn import_cycle_is_reported() {
 
     let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::IMPORT_CYCLE);
+    assert!(error.message.contains("Import cycle detected"));
+    assert!(error.message.contains("main\n  -> A\n  -> main"));
+    assert!(
+        error
+            .helps
+            .iter()
+            .any(|help| help.contains("move shared declarations"))
+    );
 }

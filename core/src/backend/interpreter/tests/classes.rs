@@ -219,6 +219,8 @@ End Sub
 
     assert!(rendered.contains("error[V1200]"));
     assert!(rendered.contains("note: while executing Sub 'Boom'"));
+    assert!(rendered.contains("Stack trace:"));
+    assert!(rendered.contains("at Sub 'Boom'"));
 }
 
 #[test]
@@ -1259,6 +1261,43 @@ End Sub
     );
 
     assert!(error.contains("Object reference is Nothing"));
+}
+
+#[test]
+fn unknown_method_lists_available_members_and_suggestion() {
+    let diagnostic = source_diagnostic(
+        r#"
+Class Bag
+Public Sub Add()
+End Sub
+Public Function Count() As Integer
+    Count = 0
+End Function
+End Class
+
+Sub Main()
+    Dim bag As New Bag
+    bag.Cuont()
+End Sub
+"#,
+    );
+
+    assert_eq!(
+        diagnostic.code,
+        crate::runtime::DiagnosticCode::MEMBER_ACCESS
+    );
+    assert!(
+        diagnostic
+            .helps
+            .iter()
+            .any(|help| help.contains("did you mean 'Count'?"))
+    );
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("available members") && note.contains("Add"))
+    );
 }
 
 #[test]
