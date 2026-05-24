@@ -2,8 +2,9 @@
 //!
 //! Standard library functions and procedures.
 //!
-//! TODO: Decouple builtins from the Interpreter and Expr AST.
-//! Builtins should ideally take &[Value] and be backend-agnostic.
+//! Value-level builtins are kept backend-neutral where practical. A small
+//! dispatch layer still handles lazy/special forms that need AST or frame access
+//! (`IIf`, `CallByName`, pointer builtins, and host-owned services).
 
 use super::{ControlFlow, Frame, Interpreter};
 use crate::Expr;
@@ -35,9 +36,15 @@ pub(crate) fn dispatch_stmt(
         }
 
         if effective_object_name.eq_ignore_ascii_case("Console") {
-            return console::exec_console(interpreter, method, &values, span);
+            if let Some(line) = console::exec_console(method, &values, span)? {
+                interpreter.output.push(line);
+                return Ok(Some(ControlFlow::Continue));
+            }
         } else {
-            return debug::exec_debug(interpreter, method, &values, span);
+            if let Some(line) = debug::exec_debug(method, &values, span)? {
+                interpreter.output.push(line);
+                return Ok(Some(ControlFlow::Continue));
+            }
         }
     }
 
