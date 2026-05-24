@@ -592,68 +592,9 @@ error[V1100]: Cannot assign String value to Integer variable
 
 Diagnostics are designed to be actionable, stable, and suitable for future editor tooling.
 
-## Architecture
-
-Valo is implemented in Rust and organized around a clean language pipeline:
-
-```txt
-source
-  ↓
-preprocessor
-  ↓
-lexer
-  ↓
-parser
-  ↓
-AST
-  ↓
-semantic validation
-  ↓
-module loader
-  ↓
-tree-walking interpreter
-  ↓
-runtime values, builtins, and FFI
-```
-
-Major components include:
-
-- `frontend`: source processing, lexer, parser, AST, semantic validation, module loading
-- `runtime`: values, diagnostics, spans, type names, coercion, numeric operations, comparisons
-- `backend`: execution backends
-- `backend/interpreter`: current tree-walking interpreter
-- `builtins`: modular runtime builtins
-- `cli`: command-line interface and REPL
-
-The interpreter is currently AST-based. A bytecode VM is a future direction, not the current execution model.
-
 ## VBA compatibility
 
-Valo supports a growing set of VBA-compatible features:
-
-- `.bas` and `.cls` parsing
-- exported `.cls` envelopes
-- `Attribute VB_Name`
-- `Attribute VB_UserMemId = 0`
-- `Class_Initialize`
-- `Class_Terminate`
-- `Type / End Type`
-- `On Error`
-- `Err`
-- `Resume`
-- `Erl`
-- `Debug.Print`
-- `CallByName`
-- `Declare`, `PtrSafe`, `LongPtr`, `LongLong`
-- `AddressOf`
-- `VarPtr`, `StrPtr`, `ObjPtr`
-- `VBA.Join`, `VBA.Split`, `VBA.TypeName`, and other namespace fallbacks
-- `Variant`, `Object`, `Empty`, `Null`
-- implicit `Variant` defaults
-- classic function return assignment
-- `Array`, `Split`, `Join`, `Filter`
-- `LBound`, `UBound`, `ReDim`, `Erase`
-- `VarType`, `TypeName`, `IsObject`, `IsArray`, `IsEmpty`, `IsNull`
+Valo supports a growing set of VBA-compatible features.
 
 Compatibility is pragmatic and growing. Valo is not a COM runtime and does not currently implement Office automation, IDispatch, or full COM interop.
 
@@ -673,68 +614,6 @@ These files are used to:
 - prototype APIs and module-system behavior
 
 Files in this directory are experimental and may change frequently as the language evolves.
-
-## Current limitations
-
-Valo is still experimental.
-
-Not implemented yet:
-
-- package manager
-- bytecode VM
-- LSP
-- formatter
-- full standard library
-- filesystem APIs
-- full Date/Time API
-- COM interop
-- Office automation
-- inheritance
-- generics
-- full Collection / Dictionary runtime
-- async runtime
-- complete REPL declaration workflow
-
-Some compatibility areas are intentionally pragmatic today:
-
-- `Currency` and `Decimal` may use simplified mixed arithmetic paths.
-- `Rnd` does not yet perfectly replicate every VBA edge case.
-- `.cls` metadata is parsed for compatibility, but COM semantics are not implemented.
-- FFI intentionally rejects unsafe ownership cases such as mutable string buffers, complex COM/OLE Variant pointers, and nested non-blittable structure layouts.
-
-## Roadmap
-
-Near-term priorities:
-
-- Collection and Dictionary runtime types
-- Date and Time standard library
-- FileSystem APIs
-- richer string/runtime builtins
-- compatibility-driven stabilization using real VBA modules
-- syntax highlighting
-- improved release packaging
-- stronger REPL workflows
-- import-system refinement
-
-Medium-term priorities:
-
-- formatter
-- LSP
-- package manifest
-- project-level module configuration
-- benchmark suite
-- standard library organization
-- bytecode IR exploration
-- field/member dispatch optimization
-
-Long-term directions:
-
-- bytecode VM
-- deeper FFI stabilization
-- embedding API
-- WASM/native backend groundwork
-- editor integrations
-- migration tooling for VBA projects
 
 ## Documentation
 
