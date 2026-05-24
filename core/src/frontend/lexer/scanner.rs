@@ -629,4 +629,16 @@ mod scanner_tests {
             panic!("Expected string token");
         }
     }
+
+    #[test]
+    fn backslashes_are_literal_inside_strings() {
+        let tokens = Lexer::new("\"\\t\\nC:\\\\Temp\\\\file.txt\"")
+            .tokenize()
+            .unwrap();
+        if let TokenKind::String(value) = &tokens[0].kind {
+            assert_eq!(value, "\\t\\nC:\\\\Temp\\\\file.txt");
+        } else {
+            panic!("Expected string token");
+        }
+    }
 }

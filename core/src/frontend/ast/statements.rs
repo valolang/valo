@@ -171,6 +171,7 @@ pub enum Stmt {
         mode: OpenMode,
         access: Option<FileAccess>,
         lock: Option<FileLock>,
+        shared: bool,
         number: Expr,
         record_len: Option<Expr>,
         span: Span,

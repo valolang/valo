@@ -390,17 +390,33 @@ impl Parser {
         };
         let mut access = None;
         let mut lock = None;
+        let mut shared = false;
         loop {
             if self.match_identifier("Access") {
+                if access.is_some() {
+                    return Err(self.error_here("Open statement has duplicate Access clause"));
+                }
                 access = Some(self.parse_file_access("Access")?);
             } else if self.match_identifier("Lock") {
+                if lock.is_some() || shared {
+                    return Err(self.error_here(
+                        "Open statement can use either Shared or one Lock clause, not both",
+                    ));
+                }
                 lock = Some(self.parse_file_lock()?);
+            } else if self.match_open_shared() {
+                if lock.is_some() || shared {
+                    return Err(self.error_here(
+                        "Open statement can use either Shared or one Lock clause, not both",
+                    ));
+                }
+                shared = true;
             } else {
                 break;
             }
         }
         self.expect_simple(TokenKind::As, "Expected 'As' in Open statement")?;
-        let number = self.parse_file_number_expr()?;
+        let number = self.parse_open_file_number_expr()?;
         let record_len = if self.match_identifier("Len") {
             self.expect_simple(TokenKind::Equal, "Expected '=' after Open Len")?;
             Some(self.parse_expression()?)
@@ -416,10 +432,19 @@ impl Parser {
             mode,
             access,
             lock,
+            shared,
             number,
             record_len,
             span: Span::new(self.file_id, start_span.start, end.end),
         })
+    }
+
+    fn match_open_shared(&mut self) -> bool {
+        if self.match_simple(&TokenKind::Shared) {
+            true
+        } else {
+            self.match_identifier("Shared")
+        }
     }
 
     fn parse_file_access(&mut self, clause: &str) -> Result<FileAccess, Diagnostic> {
@@ -659,6 +684,11 @@ impl Parser {
 
     fn parse_file_number_expr(&mut self) -> Result<Expr, Diagnostic> {
         self.expect_simple(TokenKind::Hash, "Expected '#' before file number")?;
+        self.parse_expression()
+    }
+
+    fn parse_open_file_number_expr(&mut self) -> Result<Expr, Diagnostic> {
+        self.match_simple(&TokenKind::Hash);
         self.parse_expression()
     }
 

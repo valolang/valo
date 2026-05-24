@@ -380,6 +380,24 @@ fn common_safe_vba_string_functions_work() {
 }
 
 #[test]
+fn vba_string_literals_preserve_backslashes() {
+    let source = r#"
+        Sub Main()
+            Dim result As String
+            result = "a" & vbTab & "b"
+            result = Replace(result, vbTab, "\t")
+            Console.WriteLine(result)
+            Console.WriteLine("C:\Temp\payload.json")
+            Console.WriteLine("\n")
+        End Sub
+    "#;
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(output, vec!["a\\tb", "C:\\Temp\\payload.json", "\\n"]);
+}
+
+#[test]
 fn test_random() {
     let source = "
         Sub Main()
@@ -689,6 +707,90 @@ End Sub
     let error = run(&program).unwrap_err().to_string();
     assert!(error.contains("write-only"));
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn vba_open_statement_accepts_shared_and_optional_hash_file_number() {
+    let path = temp_test_path("open_shared_io.bin");
+    std::fs::write(&path, [7_u8]).unwrap();
+    let source = format!(
+        r#"
+Sub Main()
+    Dim fileNum As Integer
+    Dim b As Byte
+    fileNum = FreeFile()
+    Open "{}" For Binary Access Read Shared As fileNum
+    Get #fileNum, , b
+    Close #fileNum
+    Console.WriteLine(b)
+End Sub
+"#,
+        valo_string(&path)
+    );
+    let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(output, vec!["7"]);
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn vba_open_statement_accepts_common_clause_combinations() {
+    let path = temp_test_path("open_clause_matrix.bin");
+    std::fs::write(&path, [1_u8, 2_u8]).unwrap();
+    let source = format!(
+        r#"
+Sub Main()
+    Dim b As Byte
+    Open "{}" For Binary As #1
+    Close #1
+    Open "{}" For Binary Access Read As #1
+    Close #1
+    Open "{}" For Binary Access Write As #1
+    Close #1
+    Open "{}" For Binary Access Read Write As #1
+    Close #1
+    Open "{}" For Binary Shared As #1
+    Close #1
+    Open "{}" For Binary Access Read Shared As #1
+    Close #1
+    Open "{}" For Binary Access Read Lock Read As #1
+    Close #1
+    Open "{}" For Binary Access Read Lock Write As #1
+    Close #1
+    Open "{}" For Binary Access Read Write Shared As #1
+    Close #1
+    Console.WriteLine("ok")
+End Sub
+"#,
+        valo_string(&path),
+        valo_string(&path),
+        valo_string(&path),
+        valo_string(&path),
+        valo_string(&path),
+        valo_string(&path),
+        valo_string(&path),
+        valo_string(&path),
+        valo_string(&path)
+    );
+    let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(output, vec!["ok"]);
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn vba_open_statement_rejects_duplicate_locking_clauses_clearly() {
+    let source = r#"
+Sub Main()
+    Open "x.bin" For Binary Shared Lock Read As #1
+End Sub
+"#;
+    let error = Parser::parse_source(source, crate::runtime::FileId::default())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("either Shared or one Lock clause"));
 }
 
 #[test]
