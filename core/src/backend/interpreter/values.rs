@@ -17,22 +17,37 @@ pub(crate) fn default_value(
         return Ok(value);
     }
 
-    let TypeName::User(name) = ty else {
-        unreachable!("builtin types are handled above");
+    let (name, display_name, bindings) = match ty {
+        TypeName::User(name) => (name.clone(), name.clone(), Vec::new()),
+        TypeName::GenericInstance { name, args } => {
+            let params = types
+                .get(&key(name))
+                .map(|type_def| type_def.type_params.clone())
+                .unwrap_or_default();
+            (
+                name.clone(),
+                ty.display_name(),
+                params.into_iter().zip(args.iter().cloned()).collect(),
+            )
+        }
+        _ => unreachable!("builtin types are handled above"),
     };
     if name.eq_ignore_ascii_case("Object") {
         return Ok(Value::Nothing);
     }
-    if enums.contains_key(&key(name)) {
+    if enums.contains_key(&key(&name)) {
         return Ok(Value::Int64(0));
     }
-    let type_def = types.get(&key(name)).ok_or_else(|| {
-        Diagnostic::new(
-            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-            format!("Type '{}' is not defined", name),
-            Some(span),
-        )
-    });
+    let type_def = types
+        .get(&key(&display_name))
+        .or_else(|| types.get(&key(&name)))
+        .ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Type '{}' is not defined", display_name),
+                Some(span),
+            )
+        });
     let Ok(type_def) = type_def else {
         return Ok(Value::Nothing);
     };
@@ -41,15 +56,16 @@ pub(crate) fn default_value(
     for field in &type_def.fields {
         let value = if let Some(initializer) = &field.initializer {
             let value = eval_const_default(initializer, enums, span)?;
-            coerce_assignment(&field.ty, value, initializer.span)?
+            let field_ty = field.ty.substitute_generics(&bindings);
+            coerce_assignment(&field_ty, value, initializer.span)?
         } else {
-            default_value(&field.ty, types, enums, span)?
+            default_value(&field.ty.substitute_generics(&bindings), types, enums, span)?
         };
         fields.insert(key(&field.name), value);
     }
 
     Ok(Value::Record(Rc::new(RecordValue {
-        type_name: type_def.name.clone(),
+        type_name: display_name,
         fields,
     })))
 }

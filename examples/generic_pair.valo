@@ -1,0 +1,14 @@
+Structure Pair(Of A, B)
+    Public Left As A
+    Public Right As B
+End Structure
+
+Sub Main()
+    Dim pair As Pair(Of String, Long)
+
+    pair.Left = "count"
+    pair.Right = 42
+
+    Debug.Print pair.Left
+    Debug.Print pair.Right
+End Sub

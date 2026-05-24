@@ -1,4 +1,4 @@
-use crate::runtime::Span;
+use crate::runtime::{Span, TypeName};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {
@@ -33,11 +33,12 @@ pub enum ExprKind {
         class_name: String,
     },
     New {
-        class_name: String,
+        class_name: TypeName,
         args: Vec<Expr>,
     },
     Call {
         name: String,
+        type_args: Vec<TypeName>,
         args: Vec<Expr>,
     },
     Index {
@@ -56,6 +57,7 @@ pub enum ExprKind {
     MemberCall {
         object: Box<Expr>,
         method: String,
+        type_args: Vec<TypeName>,
         args: Vec<Expr>,
     },
     Binary {

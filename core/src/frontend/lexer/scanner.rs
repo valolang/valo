@@ -221,6 +221,7 @@ impl<'a> Lexer<'a> {
             "for" if hint.is_none() => TokenKind::For,
             "each" if hint.is_none() => TokenKind::Each,
             "in" if hint.is_none() => TokenKind::In,
+            "of" if hint.is_none() => TokenKind::Of,
             "goto" if hint.is_none() => TokenKind::GoTo,
             "to" if hint.is_none() => TokenKind::To,
             "step" if hint.is_none() => TokenKind::Step,

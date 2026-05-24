@@ -9,6 +9,7 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 *   **[Constants](consts.valo):** Global and module-level constants.
 *   **[Data Types](types.valo):** Native types and VBA-compatible User-Defined Types (UDT).
 *   **[Structures](structures.valo):** Native `Structure` value types.
+*   **Generics:** [Box](generic_box.valo), [Pair](generic_pair.valo), [Identity](generic_identity.valo), [Nested](generic_nested.valo), and [Runtime](generic_runtime.valo) examples.
 *   **[Enums](enums.valo):** Enumeration types and their usage.
 *   **[Arrays](arrays.valo):** Fixed and dynamic arrays.
 *   **[ReDim](redim.valo):** Dynamic memory management for arrays.

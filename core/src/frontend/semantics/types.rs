@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use crate::ArrayDecl;
 use crate::Visibility;
@@ -18,6 +19,7 @@ pub(super) struct FieldSig {
 pub(super) struct TypeSig {
     pub(super) visibility: Visibility,
     pub(super) name: String,
+    pub(super) type_params: Vec<String>,
     pub(super) is_structure: bool,
     pub(super) fields: HashMap<String, FieldSig>,
     pub(super) subs: HashMap<String, ClassMethodSig>,
@@ -32,6 +34,7 @@ pub(super) struct TypeRegistry {
     pub(super) enums: HashMap<String, EnumSig>,
     pub(super) interfaces: HashMap<String, InterfaceSig>,
     pub(super) classes: HashMap<String, ClassSig>,
+    pub(super) generic_params: HashSet<String>,
 }
 
 #[allow(dead_code)]
@@ -80,6 +83,24 @@ impl TypeRegistry {
                 }
                 TypeName::User(name.clone())
             }
+            TypeName::GenericInstance { name, args } => {
+                let canonical_name = if let Some(sig) = self.types.get(&key(name)) {
+                    sig.name.clone()
+                } else if let Some(sig) = self.classes.get(&key(name)) {
+                    sig.name.clone()
+                } else if let Some(sig) = self.interfaces.get(&key(name)) {
+                    sig.name.clone()
+                } else {
+                    name.clone()
+                };
+                TypeName::GenericInstance {
+                    name: canonical_name,
+                    args: args
+                        .iter()
+                        .map(|arg| self.canonical_type_name(arg))
+                        .collect(),
+                }
+            }
             TypeName::Array(inner) => TypeName::Array(Box::new(self.canonical_type_name(inner))),
             _ => ty.clone(),
         }
@@ -99,6 +120,7 @@ pub(super) struct EnumSig {
 pub(super) struct ClassSig {
     pub(super) visibility: Visibility,
     pub(super) name: String,
+    pub(super) type_params: Vec<String>,
     pub(super) fields: HashMap<String, ClassFieldSig>,
     pub(super) events: HashMap<String, ClassEventSig>,
     pub(super) subs: HashMap<String, ClassMethodSig>,
@@ -114,6 +136,7 @@ pub(super) struct ClassSig {
 pub(super) struct InterfaceSig {
     pub(super) visibility: Visibility,
     pub(super) name: String,
+    pub(super) type_params: Vec<String>,
     pub(super) subs: HashMap<String, ClassMethodSig>,
     pub(super) functions: HashMap<String, ClassMethodSig>,
     pub(super) events: HashMap<String, ClassEventSig>,

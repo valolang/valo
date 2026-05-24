@@ -1,0 +1,17 @@
+Class Slot(Of T)
+    Public Shared Created As Long
+    Public Value As T
+
+    Public Sub Initialize(ByVal value As T)
+        Me.Value = value
+        Slot.Created = Slot.Created + 1
+    End Sub
+End Class
+
+Sub Main()
+    Dim item As Slot(Of String)
+    Set item = New Slot(Of String)("runtime")
+
+    Debug.Print item.Value
+    Debug.Print Slot.Created
+End Sub

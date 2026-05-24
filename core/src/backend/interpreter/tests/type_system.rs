@@ -117,3 +117,103 @@ End Sub
 
     assert_eq!(output, vec!["6"]);
 }
+
+#[test]
+fn generic_class_field_uses_instantiated_type() {
+    let output = run_source(
+        r#"
+Class Box(Of T)
+    Public Value As T
+End Class
+
+Sub Main()
+    Dim x As Box(Of String)
+    Set x = New Box(Of String)()
+    x.Value = "hello"
+    Debug.Print x.Value
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["hello"]);
+}
+
+#[test]
+fn generic_class_rejects_wrong_field_assignment() {
+    let error = source_error(
+        r#"
+Class Box(Of T)
+    Public Value As T
+End Class
+
+Sub Main()
+    Dim x As Box(Of String)
+    Set x = New Box(Of String)()
+    x.Value = 123
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Cannot assign"));
+    assert!(error.contains("String"));
+}
+
+#[test]
+fn generic_structure_preserves_concrete_field_types() {
+    let output = run_source(
+        r#"
+Structure Pair(Of A, B)
+    Public Left As A
+    Public Right As B
+End Structure
+
+Sub Main()
+    Dim p As Pair(Of String, Long)
+    p.Left = "age"
+    p.Right = 42
+    Debug.Print p.Left
+    Debug.Print p.Right
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["age", "42"]);
+}
+
+#[test]
+fn generic_function_explicit_type_arguments() {
+    let output = run_source(
+        r#"
+Function Identity(Of T)(ByVal value As T) As T
+    Identity = value
+End Function
+
+Sub Main()
+    Debug.Print Identity(Of String)("hello")
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["hello"]);
+}
+
+#[test]
+fn nested_generic_type_names_parse_and_validate() {
+    let output = run_source(
+        r#"
+Class Box(Of T)
+    Public Value As T
+End Class
+
+Sub Main()
+    Dim x As Box(Of Box(Of String))
+    Set x = New Box(Of Box(Of String))()
+    Set x.Value = New Box(Of String)()
+    x.Value.Value = "nested"
+    Debug.Print x.Value.Value
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["nested"]);
+}

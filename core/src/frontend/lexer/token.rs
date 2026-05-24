@@ -90,6 +90,7 @@ pub enum TokenKind {
     GoTo,
     Each,
     In,
+    Of,
     To,
     Step,
     Next,

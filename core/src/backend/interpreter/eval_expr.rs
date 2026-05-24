@@ -114,7 +114,7 @@ impl Interpreter {
                             if self.functions.contains_key(&super::values::key(name))
                                 || self.has_declared_function(name)
                             {
-                                return self.call_function(name, &[], frame, expr.span);
+                                return self.call_function(name, &[], &[], frame, expr.span);
                             }
 
                             Err(error)
@@ -228,7 +228,11 @@ impl Interpreter {
                 let object = self.eval_expr(object, frame)?;
                 self.read_member(&object, field, frame, expr.span)
             }
-            ExprKind::Call { name, args } => {
+            ExprKind::Call {
+                name,
+                type_args,
+                args,
+            } => {
                 if let Some(value) =
                     super::builtins::dispatch_function(self, name, args, frame, expr.span)?
                 {
@@ -336,11 +340,12 @@ impl Interpreter {
                         }
                     }
                 }
-                self.call_function(name, args, frame, expr.span)
+                self.call_function(name, type_args, args, frame, expr.span)
             }
             ExprKind::MemberCall {
                 object,
                 method,
+                type_args: _,
                 args,
             } => {
                 if let ExprKind::Variable(module_name) = &object.kind

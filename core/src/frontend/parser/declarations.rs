@@ -97,6 +97,7 @@ impl Parser {
             .expect_simple(TokenKind::Class, "Expected 'Class'")?
             .span;
         let name = self.expect_identifier("Expected class name after 'Class'")?;
+        let type_params = self.parse_optional_type_params()?;
         let mut implements = Vec::new();
         if self.match_simple(&TokenKind::Implements) {
             loop {
@@ -132,6 +133,7 @@ impl Parser {
         Ok(ClassDecl {
             visibility,
             name,
+            type_params,
             implements,
             attributes,
             members,
@@ -147,6 +149,7 @@ impl Parser {
             .expect_simple(TokenKind::Interface, "Expected 'Interface'")?
             .span;
         let name = self.expect_identifier("Expected interface name after 'Interface'")?;
+        let type_params = self.parse_optional_type_params()?;
         self.expect_statement_end("Expected newline after Interface declaration")?;
         let mut members = Vec::new();
         self.skip_newlines();
@@ -162,6 +165,7 @@ impl Parser {
         Ok(InterfaceDecl {
             visibility,
             name,
+            type_params,
             members,
             span: Span::new(self.file_id, start.start, end.end),
         })
@@ -718,6 +722,7 @@ impl Parser {
             )
         };
         let name = self.expect_identifier(&format!("Expected type name after '{keyword}'"))?;
+        let type_params = self.parse_optional_type_params()?;
         self.expect_statement_end(&format!("Expected newline after {keyword} declaration"))?;
 
         let mut fields = Vec::new();
@@ -793,6 +798,7 @@ impl Parser {
             visibility,
             kind,
             name,
+            type_params,
             fields,
             members,
             span: Span::new(self.file_id, start.start, end.end),
@@ -922,6 +928,7 @@ impl Parser {
             ));
         }
         let name = self.expect_identifier("Expected procedure name after 'Sub'")?;
+        let type_params = self.parse_optional_type_params()?;
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after procedure name")?;
         let params = self.parse_parameters()?;
         self.expect_simple(
@@ -940,6 +947,7 @@ impl Parser {
         Ok(Procedure {
             visibility,
             name,
+            type_params,
             params,
             body,
             span: Span::new(self.file_id, start.start, end.end),
@@ -952,6 +960,7 @@ impl Parser {
     ) -> Result<(Procedure, Vec<ImplementsClause>), Diagnostic> {
         let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
         let name = self.expect_identifier("Expected procedure name after 'Sub'")?;
+        let type_params = self.parse_optional_type_params()?;
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after procedure name")?;
         let params = self.parse_parameters()?;
         self.expect_simple(
@@ -972,6 +981,7 @@ impl Parser {
             Procedure {
                 visibility,
                 name,
+                type_params,
                 params,
                 body,
                 span: Span::new(self.file_id, start.start, end.end),
@@ -1027,6 +1037,7 @@ impl Parser {
         Ok(Procedure {
             visibility,
             name: canonical_name.to_string(),
+            type_params: Vec::new(),
             params,
             body,
             span: Span::new(self.file_id, start_span.start, end.end),
@@ -1042,6 +1053,7 @@ impl Parser {
             .expect_simple(TokenKind::Function, "Expected 'Function'")?
             .span;
         let name = self.expect_identifier("Expected function name after 'Function'")?;
+        let type_params = self.parse_optional_type_params()?;
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after function name")?;
         let params = self.parse_parameters()?;
         self.expect_simple(
@@ -1073,6 +1085,7 @@ impl Parser {
             visibility,
             name,
             is_iterator,
+            type_params,
             params,
             return_type,
             return_slot: None,
@@ -1090,6 +1103,7 @@ impl Parser {
             .expect_simple(TokenKind::Function, "Expected 'Function'")?
             .span;
         let name = self.expect_identifier("Expected function name after 'Function'")?;
+        let type_params = self.parse_optional_type_params()?;
         self.expect_simple(TokenKind::LeftParen, "Expected '(' after function name")?;
         let params = self.parse_parameters()?;
         self.expect_simple(
@@ -1140,6 +1154,7 @@ impl Parser {
                 visibility,
                 name,
                 is_iterator,
+                type_params,
                 params,
                 return_type,
                 return_slot: None,
@@ -1301,7 +1316,14 @@ impl Parser {
                         name.push('.');
                         name.push_str(&member);
                     }
-                    Ok(TypeName::User(name))
+                    let ty = if self.check_simple(&TokenKind::LeftParen)
+                        && matches!(self.peek_next_kind(), Some(TokenKind::Of))
+                    {
+                        self.parse_generic_type_instance(name)?
+                    } else {
+                        TypeName::User(name)
+                    };
+                    Ok(ty)
                 }
             }
             TokenKind::Any => Ok(TypeName::Variant),
@@ -1319,6 +1341,70 @@ impl Parser {
             ));
         }
         Ok(ty)
+    }
+
+    pub(super) fn parse_optional_type_params(&mut self) -> Result<Vec<String>, Diagnostic> {
+        if !(self.check_simple(&TokenKind::LeftParen)
+            && matches!(self.peek_next_kind(), Some(TokenKind::Of)))
+        {
+            return Ok(Vec::new());
+        }
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' before type parameters")?;
+        self.expect_simple(TokenKind::Of, "Expected 'Of' in type parameter list")?;
+        let mut params = Vec::new();
+        loop {
+            let name = self.expect_identifier("Expected type parameter name")?;
+            if params
+                .iter()
+                .any(|param: &String| param.eq_ignore_ascii_case(&name))
+            {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                    format!("Type parameter '{}' is already declared", name),
+                    Some(self.previous().span),
+                ));
+            }
+            params.push(name);
+            if !self.match_simple(&TokenKind::Comma) {
+                break;
+            }
+        }
+        self.expect_simple(TokenKind::RightParen, "Expected ')' after type parameters")?;
+        Ok(params)
+    }
+
+    pub(super) fn parse_optional_type_args(&mut self) -> Result<Vec<TypeName>, Diagnostic> {
+        if !(self.check_simple(&TokenKind::LeftParen)
+            && matches!(self.peek_next_kind(), Some(TokenKind::Of)))
+        {
+            return Ok(Vec::new());
+        }
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' before type arguments")?;
+        self.expect_simple(TokenKind::Of, "Expected 'Of' in type argument list")?;
+        let args = self.parse_type_argument_tail()?;
+        Ok(args)
+    }
+
+    pub(super) fn parse_generic_type_instance(
+        &mut self,
+        name: String,
+    ) -> Result<TypeName, Diagnostic> {
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' before type arguments")?;
+        self.expect_simple(TokenKind::Of, "Expected 'Of' in generic type")?;
+        let args = self.parse_type_argument_tail()?;
+        Ok(TypeName::GenericInstance { name, args })
+    }
+
+    fn parse_type_argument_tail(&mut self) -> Result<Vec<TypeName>, Diagnostic> {
+        let mut args = Vec::new();
+        loop {
+            args.push(self.parse_type_name()?);
+            if !self.match_simple(&TokenKind::Comma) {
+                break;
+            }
+        }
+        self.expect_simple(TokenKind::RightParen, "Expected ')' after type arguments")?;
+        Ok(args)
     }
     pub(super) fn apply_class_attribute(
         &self,

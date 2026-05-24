@@ -118,6 +118,7 @@ impl Parser {
                         classes.push(ClassDecl {
                             visibility: Visibility::Public,
                             name,
+                            type_params: Vec::new(),
                             implements: Vec::new(),
                             attributes: class_attributes,
                             members: class_members,

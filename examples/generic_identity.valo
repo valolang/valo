@@ -1,0 +1,8 @@
+Function Identity(Of T)(ByVal value As T) As T
+    Identity = value
+End Function
+
+Sub Main()
+    Debug.Print Identity(Of String)("hello")
+    Debug.Print Identity(Of Long)(123)
+End Sub

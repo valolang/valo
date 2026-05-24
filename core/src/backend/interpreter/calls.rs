@@ -7,6 +7,47 @@ use super::frame::{Variable, VariableCell};
 use super::objects::ensure_object;
 use super::{ControlFlow, Frame, Interpreter, RuntimeClass};
 
+fn instantiate_function(
+    function: &mut Function,
+    type_args: &[TypeName],
+    span: Span,
+) -> Result<(), Diagnostic> {
+    if function.type_params.is_empty() {
+        if !type_args.is_empty() {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!("'{}' is not generic", function.name),
+                Some(span),
+            ));
+        }
+        return Ok(());
+    }
+    if function.type_params.len() != type_args.len() {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
+                "Type parameter count mismatch for {}. Expected {}, received {}",
+                function.name,
+                function.type_params.len(),
+                type_args.len()
+            ),
+            Some(span),
+        ));
+    }
+    let bindings = function
+        .type_params
+        .iter()
+        .cloned()
+        .zip(type_args.iter().cloned())
+        .collect::<Vec<_>>();
+    function.type_params.clear();
+    for param in &mut function.params {
+        param.ty = param.ty.substitute_generics(&bindings);
+    }
+    function.return_type = function.return_type.substitute_generics(&bindings);
+    Ok(())
+}
+
 impl Interpreter {
     fn bind_class_constants(
         &mut self,
@@ -211,6 +252,7 @@ impl Interpreter {
     pub(crate) fn call_function(
         &mut self,
         name: &str,
+        type_args: &[TypeName],
         args: &[Expr],
         caller_frame: &mut Frame,
         span: Span,
@@ -220,13 +262,14 @@ impl Interpreter {
         }
         let module_key = self.resolve_function_module(name, caller_frame, span)?;
         let lookup = qualified_key(module_key.as_deref(), name);
-        let function = self.functions.get(&lookup).cloned().ok_or_else(|| {
+        let mut function = self.functions.get(&lookup).cloned().ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                 format!("Function '{}' is not defined", name),
                 Some(span),
             )
         })?;
+        instantiate_function(&mut function, type_args, span)?;
 
         self.call_stack
             .push(format!("Function '{}'", function.name));
@@ -1428,7 +1471,7 @@ impl Interpreter {
                                 let _ = callee_frame.assign(&param.name, value, param.span)?;
                             }
                         }
-                        ExprKind::Call { name, args } if caller_frame.has_variable(name) => {
+                        ExprKind::Call { name, args, .. } if caller_frame.has_variable(name) => {
                             let array_variable = caller_frame.variable(name, arg.span)?;
                             let mut indices = Vec::new();
                             for index_expr in args {

@@ -101,6 +101,7 @@ pub(crate) fn write_member(
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeType {
     pub(crate) name: String,
+    pub(crate) type_params: Vec<String>,
     pub(crate) is_structure: bool,
     pub(crate) fields: Vec<RuntimeField>,
     pub(crate) subs: std::collections::HashMap<String, crate::Procedure>,
@@ -119,6 +120,7 @@ impl From<&TypeDecl> for RuntimeType {
     fn from(value: &TypeDecl) -> Self {
         Self {
             name: value.name.clone(),
+            type_params: value.type_params.clone(),
             is_structure: value.kind == TypeKind::Structure,
             fields: value
                 .fields
@@ -205,6 +207,16 @@ impl From<&TypeDecl> for RuntimeType {
                 }
                 _ => None,
             }),
+        }
+    }
+}
+
+impl RuntimeType {
+    pub(crate) fn generic_display_name(&self) -> String {
+        if self.type_params.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}(Of {})", self.name, self.type_params.join(", "))
         }
     }
 }

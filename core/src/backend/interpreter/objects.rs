@@ -16,7 +16,155 @@ use super::records::{RuntimeField, read_field_member, write_member};
 use super::values::{default_value, key};
 use super::{Frame, Interpreter};
 
+fn substitute_procedure_types(procedure: &mut Procedure, bindings: &[(String, TypeName)]) {
+    procedure.type_params.clear();
+    for param in &mut procedure.params {
+        param.ty = param.ty.substitute_generics(bindings);
+    }
+}
+
+fn substitute_function_types(function: &mut Function, bindings: &[(String, TypeName)]) {
+    function.type_params.clear();
+    for param in &mut function.params {
+        param.ty = param.ty.substitute_generics(bindings);
+    }
+    function.return_type = function.return_type.substitute_generics(bindings);
+}
+
+fn substitute_property_accessor_types(
+    accessor: &mut RuntimePropertyAccessor,
+    bindings: &[(String, TypeName)],
+) {
+    for param in &mut accessor.params {
+        param.ty = param.ty.substitute_generics(bindings);
+    }
+    accessor.return_type = accessor
+        .return_type
+        .clone()
+        .map(|ty| ty.substitute_generics(bindings));
+}
+
 impl Interpreter {
+    fn instantiate_runtime_type(&mut self, ty: &TypeName, span: Span) -> Result<(), Diagnostic> {
+        let TypeName::GenericInstance { name, args } = ty else {
+            return Ok(());
+        };
+        let display_name = ty.display_name();
+        if let Some(base) = self.classes.get(&key(name)).cloned() {
+            if base.fields.len() + base.shared_fields.len() == 0
+                && base.subs.is_empty()
+                && base.functions.is_empty()
+                && base.properties.is_empty()
+            {
+                return Ok(());
+            }
+            let bindings = base
+                .type_params
+                .iter()
+                .cloned()
+                .zip(args.iter().cloned())
+                .collect::<Vec<_>>();
+            if base.type_params.len() != args.len() {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Type parameter count mismatch. Expected {}, received {}",
+                        base.type_params.len(),
+                        args.len()
+                    ),
+                    Some(span),
+                )
+                .with_help(format!("expected {}", base.generic_display_name())));
+            }
+            let mut instance = base.clone();
+            instance.name = display_name;
+            instance.type_params.clear();
+            for field in instance
+                .fields
+                .iter_mut()
+                .chain(instance.shared_fields.iter_mut())
+            {
+                field.ty = field.ty.substitute_generics(&bindings);
+            }
+            for procedure in instance
+                .subs
+                .values_mut()
+                .chain(instance.shared_subs.values_mut())
+            {
+                substitute_procedure_types(procedure, &bindings);
+            }
+            for function in instance
+                .functions
+                .values_mut()
+                .chain(instance.shared_functions.values_mut())
+            {
+                substitute_function_types(function, &bindings);
+            }
+            if let Some(iterator) = &mut instance.iterator {
+                substitute_function_types(iterator, &bindings);
+            }
+            for property in instance.properties.values_mut() {
+                if let Some(get) = &mut property.get {
+                    substitute_property_accessor_types(get, &bindings);
+                }
+                if let Some(let_) = &mut property.let_ {
+                    substitute_property_accessor_types(let_, &bindings);
+                }
+                if let Some(set) = &mut property.set {
+                    substitute_property_accessor_types(set, &bindings);
+                }
+            }
+            self.classes.insert(key(&instance.name), instance);
+            return Ok(());
+        }
+        if let Some(base) = self.types.get(&key(name)).cloned() {
+            let bindings = base
+                .type_params
+                .iter()
+                .cloned()
+                .zip(args.iter().cloned())
+                .collect::<Vec<_>>();
+            if base.type_params.len() != args.len() {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Type parameter count mismatch. Expected {}, received {}",
+                        base.type_params.len(),
+                        args.len()
+                    ),
+                    Some(span),
+                )
+                .with_help(format!("expected {}", base.generic_display_name())));
+            }
+            let mut instance = base.clone();
+            instance.name = display_name;
+            instance.type_params.clear();
+            for field in &mut instance.fields {
+                field.ty = field.ty.substitute_generics(&bindings);
+            }
+            for procedure in instance.subs.values_mut() {
+                substitute_procedure_types(procedure, &bindings);
+            }
+            for function in instance.functions.values_mut() {
+                substitute_function_types(function, &bindings);
+            }
+            for property in instance.properties.values_mut() {
+                if let Some(get) = &mut property.get {
+                    substitute_property_accessor_types(get, &bindings);
+                }
+                if let Some(let_) = &mut property.let_ {
+                    substitute_property_accessor_types(let_, &bindings);
+                }
+                if let Some(set) = &mut property.set {
+                    substitute_property_accessor_types(set, &bindings);
+                }
+            }
+            self.types.insert(key(&instance.name), instance);
+            return Ok(());
+        }
+        Ok(())
+    }
+
     fn default_field_value(
         &self,
         ty: &TypeName,
@@ -112,12 +260,18 @@ impl Interpreter {
 
     pub(crate) fn new_object(
         &mut self,
-        class_name: &str,
+        class_ty: &TypeName,
         args: &[Expr],
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let class_name = self.resolve_user_type_name(class_name, caller_frame, span)?;
+        let class_ty = self.resolve_type_name(class_ty, caller_frame, span)?;
+        let class_name = class_ty.display_name();
+        if !self.classes.contains_key(&key(&class_name))
+            && !self.types.contains_key(&key(&class_name))
+        {
+            self.instantiate_runtime_type(&class_ty, span)?;
+        }
         if let Some(type_def) = self.types.get(&key(&class_name)).cloned() {
             if !type_def.is_structure {
                 return Err(Diagnostic::new(
@@ -381,6 +535,14 @@ impl Interpreter {
                     let old = module_frame.assign(member, value, span)?;
                     return self.maybe_terminate(old, span);
                 }
+                if frame.has_variable(name) {
+                    let variable = frame.variable(name, target.span)?;
+                    return self.assign_member_to_variable(variable, member, value, span);
+                }
+                if self.classes.contains_key(&key(name)) {
+                    self.write_shared_member(name, member, value, span)?;
+                    return Ok(());
+                }
                 let variable = frame.variable(name, target.span)?;
                 self.assign_member_to_variable(variable, member, value, span)
             }
@@ -388,7 +550,7 @@ impl Interpreter {
                 let variable = frame.variable("me", target.span)?;
                 self.assign_member_to_variable(variable, member, value, span)
             }
-            ExprKind::Call { name, args } => {
+            ExprKind::Call { name, args, .. } => {
                 let mut indices = Vec::new();
                 for arg in args {
                     indices.push(frame.simple_index_value(arg, span)?);
@@ -823,6 +985,7 @@ pub(crate) fn ensure_object(
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeClass {
     pub(crate) name: String,
+    pub(crate) type_params: Vec<String>,
     pub(crate) fields: Vec<RuntimeField>,
     pub(crate) shared_fields: Vec<RuntimeField>,
     pub(crate) constants: Vec<crate::ConstDecl>,
@@ -937,6 +1100,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                             visibility: property.visibility,
                             name: property.name.clone(),
                             is_iterator: true,
+                            type_params: Vec::new(),
                             params: property.params.clone(),
                             return_type: property.return_type.clone().expect("get returns"),
                             return_slot: None,
@@ -964,6 +1128,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
         }
         Self {
             name: value.name.clone(),
+            type_params: value.type_params.clone(),
             fields,
             shared_fields,
             constants,
@@ -983,6 +1148,16 @@ impl From<&crate::ClassDecl> for RuntimeClass {
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeEvent {
     pub(crate) name: String,
+}
+
+impl RuntimeClass {
+    pub(crate) fn generic_display_name(&self) -> String {
+        if self.type_params.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}(Of {})", self.name, self.type_params.join(", "))
+        }
+    }
 }
 
 impl Interpreter {

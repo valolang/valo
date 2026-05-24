@@ -128,6 +128,7 @@ impl Interpreter {
             key("Error"),
             RuntimeClass {
                 name: "Error".to_string(),
+                type_params: Vec::new(),
                 fields: vec![
                     crate::interpreter::records::RuntimeField {
                         name: "Number".to_string(),
@@ -795,7 +796,23 @@ impl Interpreter {
         span: crate::runtime::Span,
     ) -> Result<crate::runtime::TypeName, Diagnostic> {
         let crate::runtime::TypeName::User(name) = ty else {
-            return Ok(ty.clone());
+            return match ty {
+                crate::runtime::TypeName::GenericInstance { name, args } => {
+                    let resolved = self.resolve_user_type_name(name, frame, span)?;
+                    let args = args
+                        .iter()
+                        .map(|arg| self.resolve_type_name(arg, frame, span))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(crate::runtime::TypeName::GenericInstance {
+                        name: resolved,
+                        args,
+                    })
+                }
+                crate::runtime::TypeName::Array(inner) => Ok(crate::runtime::TypeName::Array(
+                    Box::new(self.resolve_type_name(inner, frame, span)?),
+                )),
+                _ => Ok(ty.clone()),
+            };
         };
         let resolved = self.resolve_user_type_name(name, frame, span)?;
         Ok(crate::runtime::TypeName::User(resolved))

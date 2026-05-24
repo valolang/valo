@@ -7,6 +7,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     let mut enums = HashMap::new();
     let mut interfaces = HashMap::new();
     let mut classes = HashMap::new();
+    let mut generic_params = std::collections::HashSet::new();
 
     let all_types: Vec<&TypeDecl> = program
         .types
@@ -35,6 +36,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         key("Error"),
         ClassSig {
             name: "Error".to_string(),
+            type_params: Vec::new(),
             visibility: Visibility::Public,
             fields: {
                 let mut f = HashMap::new();
@@ -111,6 +113,9 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     );
 
     for type_decl in &all_types {
+        for param in &type_decl.type_params {
+            generic_params.insert(key(param));
+        }
         let type_key = key(&type_decl.name);
         if types.contains_key(&type_key) {
             return Err(Diagnostic::new(
@@ -224,6 +229,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.procedure.name.clone(),
+                            type_params: method.procedure.type_params.clone(),
                             is_shared: method.is_shared,
                             _is_iterator: false,
                             is_declare: false,
@@ -260,6 +266,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.function.name.clone(),
+                            type_params: method.function.type_params.clone(),
                             is_shared: method.is_shared,
                             _is_iterator: method.function.is_iterator,
                             is_declare: false,
@@ -338,6 +345,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             type_key,
             TypeSig {
                 name: type_decl.name.clone(),
+                type_params: type_decl.type_params.clone(),
                 visibility: type_decl.visibility,
                 is_structure: type_decl.kind == TypeKind::Structure,
                 fields,
@@ -410,6 +418,9 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     }
 
     for interface_decl in &program.interfaces {
+        for param in &interface_decl.type_params {
+            generic_params.insert(key(param));
+        }
         let interface_key = key(&interface_decl.name);
         if types.contains_key(&interface_key)
             || enums.contains_key(&interface_key)
@@ -449,6 +460,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: Visibility::Public,
                             name: method.name.clone(),
+                            type_params: Vec::new(),
                             is_shared: false,
                             _is_iterator: false,
                             is_declare: false,
@@ -478,6 +490,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: Visibility::Public,
                             name: method.name.clone(),
+                            type_params: Vec::new(),
                             is_shared: false,
                             _is_iterator: false,
                             is_declare: false,
@@ -507,6 +520,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassEventSig {
                             visibility: Visibility::Public,
                             name: event.name.clone(),
+                            type_params: Vec::new(),
                             is_shared: false,
                             _is_iterator: false,
                             is_declare: false,
@@ -568,6 +582,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             interface_key,
             InterfaceSig {
                 name: interface_decl.name.clone(),
+                type_params: interface_decl.type_params.clone(),
                 visibility: interface_decl.visibility,
                 subs,
                 functions,
@@ -578,6 +593,9 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     }
 
     for class_decl in &program.classes {
+        for param in &class_decl.type_params {
+            generic_params.insert(key(param));
+        }
         let class_key = key(&class_decl.name);
         if types.contains_key(&class_key)
             || enums.contains_key(&class_key)
@@ -662,6 +680,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassEventSig {
                             visibility: event.visibility,
                             name: event.name.clone(),
+                            type_params: Vec::new(),
                             is_shared: event.is_shared,
                             _is_iterator: false,
                             is_declare: false,
@@ -724,6 +743,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.procedure.name.clone(),
+                            type_params: method.procedure.type_params.clone(),
                             is_shared: method.is_shared,
                             _is_iterator: false,
                             is_declare: false,
@@ -765,6 +785,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         iterator = Some(ClassMethodSig {
                             visibility: method.visibility,
                             name: method.function.name.clone(),
+                            type_params: method.function.type_params.clone(),
                             is_shared: method.is_shared,
                             _is_iterator: true,
                             is_declare: false,
@@ -792,6 +813,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         ClassMethodSig {
                             visibility: method.visibility,
                             name: method.function.name.clone(),
+                            type_params: method.function.type_params.clone(),
                             is_shared: method.is_shared,
                             _is_iterator: method.function.is_iterator,
                             is_declare: false,
@@ -834,6 +856,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     let _sig = ClassMethodSig {
                         visibility: method.visibility,
                         name: method.function.name.clone(),
+                        type_params: method.function.type_params.clone(),
                         is_shared: false,
                         _is_iterator: true,
                         is_declare: false,
@@ -902,6 +925,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         iterator = Some(ClassMethodSig {
                             visibility: property.visibility,
                             name: property.name.clone(),
+                            type_params: Vec::new(),
                             is_shared: false,
                             _is_iterator: true,
                             is_declare: false,
@@ -963,6 +987,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             class_key,
             ClassSig {
                 name: class_decl.name.clone(),
+                type_params: class_decl.type_params.clone(),
                 visibility: class_decl.visibility,
                 fields,
                 events,
@@ -975,12 +1000,23 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             },
         );
     }
+    for procedure in &program.procedures {
+        for param in &procedure.type_params {
+            generic_params.insert(key(param));
+        }
+    }
+    for function in &program.functions {
+        for param in &function.type_params {
+            generic_params.insert(key(param));
+        }
+    }
 
     let registry = TypeRegistry {
         types,
         enums,
         interfaces,
         classes,
+        generic_params,
     };
     for type_decl in &program.types {
         for field in &type_decl.fields {
@@ -1462,6 +1498,7 @@ pub(super) fn collect_signatures(
         let signature = CallableSig {
             visibility: declare.visibility,
             name: declare.name.clone(),
+            type_params: Vec::new(),
             is_shared: false,
             _is_iterator: false,
             is_declare: true,
@@ -1498,6 +1535,7 @@ pub(super) fn collect_signatures(
             CallableSig {
                 visibility: Visibility::Public,
                 name: procedure.name.clone(),
+                type_params: procedure.type_params.clone(),
                 is_shared: false,
                 _is_iterator: false,
                 is_declare: false,
@@ -1528,6 +1566,7 @@ pub(super) fn collect_signatures(
             CallableSig {
                 visibility: Visibility::Public,
                 name: function.name.clone(),
+                type_params: function.type_params.clone(),
                 is_shared: false,
                 _is_iterator: function.is_iterator,
                 is_declare: false,

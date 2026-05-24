@@ -109,6 +109,7 @@ pub struct TypeDecl {
     pub visibility: Visibility,
     pub kind: TypeKind,
     pub name: String,
+    pub type_params: Vec<String>,
     pub fields: Vec<FieldDecl>,
     pub members: Vec<ClassMember>,
     pub span: Span,
@@ -134,6 +135,7 @@ pub struct FieldDecl {
 pub struct ClassDecl {
     pub visibility: Visibility,
     pub name: String,
+    pub type_params: Vec<String>,
     pub implements: Vec<TypeName>,
     pub attributes: Vec<AttributeDecl>,
     pub members: Vec<ClassMember>,
@@ -144,6 +146,7 @@ pub struct ClassDecl {
 pub struct InterfaceDecl {
     pub visibility: Visibility,
     pub name: String,
+    pub type_params: Vec<String>,
     pub members: Vec<InterfaceMember>,
     pub span: Span,
 }
@@ -280,6 +283,7 @@ pub enum Visibility {
 pub struct Procedure {
     pub visibility: Visibility,
     pub name: String,
+    pub type_params: Vec<String>,
     pub params: Vec<Parameter>,
     pub body: Vec<Stmt>,
     pub span: Span,
@@ -290,6 +294,7 @@ pub struct Function {
     pub visibility: Visibility,
     pub name: String,
     pub is_iterator: bool,
+    pub type_params: Vec<String>,
     pub params: Vec<Parameter>,
     pub return_type: TypeName,
     pub return_slot: Option<String>,

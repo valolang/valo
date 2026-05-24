@@ -365,6 +365,7 @@ pub(super) fn validate_statements(
                                 kind: ExprKind::MemberCall {
                                     object: Box::new(object.clone()),
                                     method: method.clone(),
+                                    type_args: Vec::new(),
                                     args: args.clone(),
                                 },
                                 span: *span,
@@ -953,16 +954,19 @@ fn validate_as_new(
     if !as_new {
         return Ok(());
     }
-    let TypeName::User(class_name) = ty else {
-        return Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-            "As New requires a class type",
-            Some(span),
-        ));
+    let class_name = match ty {
+        TypeName::User(_) | TypeName::GenericInstance { .. } => ty.clone(),
+        _ => {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "As New requires a class type",
+                Some(span),
+            ));
+        }
     };
     let expr = Expr {
         kind: ExprKind::New {
-            class_name: class_name.clone(),
+            class_name,
             args: args.to_vec(),
         },
         span,

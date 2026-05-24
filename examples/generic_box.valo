@@ -1,0 +1,11 @@
+Class Box(Of T)
+    Public Value As T
+End Class
+
+Sub Main()
+    Dim box As Box(Of String)
+    Set box = New Box(Of String)()
+
+    box.Value = "hello"
+    Debug.Print box.Value
+End Sub

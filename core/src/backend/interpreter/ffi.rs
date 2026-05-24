@@ -395,7 +395,13 @@ impl Interpreter {
             let call_res = catch_unwind(AssertUnwindSafe(|| {
                 let valo_args = read_callback_args(args, &userdata.params, span)?;
                 let mut frame = Frame::default();
-                interpreter.call_function(&userdata.function_name, &valo_args, &mut frame, span)
+                interpreter.call_function(
+                    &userdata.function_name,
+                    &[],
+                    &valo_args,
+                    &mut frame,
+                    span,
+                )
             }));
 
             match call_res {
@@ -684,6 +690,7 @@ fn callback_ffi_type(ty: &TypeName, span: Span) -> Result<FfiType, Diagnostic> {
         | TypeName::Date
         | TypeName::User(_)
         | TypeName::Enum(_)
+        | TypeName::GenericInstance { .. }
         | TypeName::Array(_) => Err(unsupported(
             format!(
                 "callback parameter type '{}' is not supported by AddressOf marshaling",
@@ -752,6 +759,7 @@ unsafe fn read_callback_value(slot: *const c_void, ty: &TypeName) -> ExprKind {
         | TypeName::Date
         | TypeName::User(_)
         | TypeName::Enum(_)
+        | TypeName::GenericInstance { .. }
         | TypeName::Array(_) => ExprKind::Empty,
     }
 }
@@ -782,6 +790,7 @@ fn write_callback_default(result: &mut c_void, return_type: &TypeName, is_sub: b
             | TypeName::Date
             | TypeName::User(_)
             | TypeName::Enum(_)
+            | TypeName::GenericInstance { .. }
             | TypeName::Array(_) => {}
         }
     }
@@ -1388,6 +1397,7 @@ fn return_ffi_type(ty: &TypeName, is_sub: bool, span: Span) -> Result<FfiType, D
         | TypeName::Date
         | TypeName::User(_)
         | TypeName::Enum(_)
+        | TypeName::GenericInstance { .. }
         | TypeName::Array(_) => {
             return Err(unsupported(
                 format!(
@@ -1474,6 +1484,7 @@ fn call_return_value(
         | TypeName::Date
         | TypeName::User(_)
         | TypeName::Enum(_)
+        | TypeName::GenericInstance { .. }
         | TypeName::Array(_) => {
             return Err(unsupported(
                 format!(

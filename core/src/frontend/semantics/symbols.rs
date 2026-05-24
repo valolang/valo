@@ -85,6 +85,7 @@ pub(super) struct ParamSig {
 pub(super) struct CallableSig {
     pub(super) visibility: Visibility,
     pub(super) name: String,
+    pub(super) type_params: Vec<String>,
     pub(super) is_shared: bool,
     pub(super) _is_iterator: bool,
     pub(super) is_declare: bool,

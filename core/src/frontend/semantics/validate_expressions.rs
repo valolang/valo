@@ -187,6 +187,14 @@ pub(super) fn validate_assignment_target(
             field,
             span,
         } => {
+            if let ExprKind::Variable(class_name) = &object.kind
+                && !symbols.contains_key(&key(class_name))
+                && let Some(class_sig) = types.get_class(class_name)
+                && let Some(field_sig) = class_sig.fields.get(&key(field))
+                && field_sig.is_shared
+            {
+                return Ok(field_sig.ty.clone());
+            }
             let object_type = validate_expr(object, symbols, types, signatures, context)?;
             let current_class = member_access_class(object, &object_type)
                 .or_else(|| context.current_class().map(str::to_string));
@@ -304,7 +312,9 @@ pub(super) fn validate_expr(
         },
         ExprKind::WithTarget => Ok(TypeName::Variant),
         ExprKind::New { class_name, args } => {
-            if let Some(type_sig) = types.get(class_name) {
+            ensure_known_type(class_name, types, expr.span)?;
+            let (base_name, bindings) = generic_bindings_for_type(class_name, types);
+            if let Some(type_sig) = types.get(&base_name) {
                 if !type_sig.is_structure {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -330,12 +340,15 @@ pub(super) fn validate_expr(
                         Some(expr.span),
                     ));
                 }
-                return Ok(TypeName::User(type_sig.name.clone()));
+                return Ok(types.canonical_type_name(class_name));
             }
-            let class_sig = types.get_class(class_name).ok_or_else(|| {
+            let class_sig = types.get_class(&base_name).ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                    format!("Class or Structure '{}' is not defined", class_name),
+                    format!(
+                        "Class or Structure '{}' is not defined",
+                        class_name.display_name()
+                    ),
                     Some(expr.span),
                 )
             })?;
@@ -358,7 +371,8 @@ pub(super) fn validate_expr(
                     Some(expr.span),
                 ));
             }
-            Ok(TypeName::User(class_sig.name.clone()))
+            let _ = bindings;
+            Ok(types.canonical_type_name(class_name))
         }
         ExprKind::Variable(name) => {
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
@@ -448,6 +462,7 @@ pub(super) fn validate_expr(
                         let callable = CallableSig {
                             visibility: Visibility::Public,
                             name: prop_sig.name.clone(),
+                            type_params: Vec::new(),
                             is_shared: prop_sig.is_shared,
                             _is_iterator: get.is_iterator,
                             is_declare: false,
@@ -582,6 +597,7 @@ pub(super) fn validate_expr(
         ExprKind::MemberCall {
             object,
             method,
+            type_args: _,
             args,
         } => {
             if let ExprKind::Variable(name) = &object.kind
@@ -634,6 +650,7 @@ pub(super) fn validate_expr(
                     let callable = CallableSig {
                         visibility: Visibility::Public,
                         name: property_sig.name.clone(),
+                        type_params: Vec::new(),
                         is_shared: property_sig.is_shared,
                         _is_iterator: get.is_iterator,
                         is_declare: false,
@@ -672,7 +689,11 @@ pub(super) fn validate_expr(
                 context,
             )
         }
-        ExprKind::Call { name, args } => {
+        ExprKind::Call {
+            name,
+            type_args,
+            args,
+        } => {
             if let Some(ty) = validate_builtin_function(
                 name, args, symbols, types, signatures, expr.span, context,
             )? {
@@ -840,6 +861,7 @@ pub(super) fn validate_expr(
                     function = Some(CallableSig {
                         visibility: Visibility::Public,
                         name: prop_sig.name.clone(),
+                        type_params: Vec::new(),
                         is_shared: prop_sig.is_shared,
                         _is_iterator: get.is_iterator,
                         is_declare: false,
@@ -864,6 +886,7 @@ pub(super) fn validate_expr(
                 ));
             };
 
+            let function = instantiate_callable(&function, type_args, expr.span)?;
             validate_arguments(
                 "Function",
                 &function,
@@ -1714,6 +1737,50 @@ fn validate_argument_value(
     }
 }
 
+fn instantiate_callable(
+    callable: &CallableSig,
+    type_args: &[TypeName],
+    span: Span,
+) -> Result<CallableSig, Diagnostic> {
+    if callable.type_params.is_empty() {
+        if !type_args.is_empty() {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!("'{}' is not generic", callable.name),
+                Some(span),
+            ));
+        }
+        return Ok(callable.clone());
+    }
+    if callable.type_params.len() != type_args.len() {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!(
+                "Type parameter count mismatch for {}. Expected {}, received {}",
+                callable.name,
+                callable.type_params.len(),
+                type_args.len()
+            ),
+            Some(span),
+        ));
+    }
+    let bindings = callable
+        .type_params
+        .iter()
+        .cloned()
+        .zip(type_args.iter().cloned())
+        .collect::<Vec<_>>();
+    let mut instantiated = callable.clone();
+    instantiated.type_params.clear();
+    for param in &mut instantiated.params {
+        param.ty = param.ty.substitute_generics(&bindings);
+    }
+    instantiated.return_type = instantiated
+        .return_type
+        .map(|ty| ty.substitute_generics(&bindings));
+    Ok(instantiated)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn validate_method_call(
     object_type: &TypeName,
@@ -1730,14 +1797,18 @@ pub(super) fn validate_method_call(
     if object_type.same_type(&TypeName::Variant) {
         return Ok(TypeName::Variant);
     }
-    let TypeName::User(class_name) = object_type else {
+    let (class_name, bindings) = generic_bindings_for_type(object_type, types);
+    if !matches!(
+        object_type,
+        TypeName::User(_) | TypeName::GenericInstance { .. }
+    ) {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
             "Method call requires a class instance",
             Some(span),
         ));
-    };
-    let Some(class_sig) = types.get_class(class_name) else {
+    }
+    let Some(class_sig) = types.get_class(&class_name) else {
         return validate_structure_method_call(
             object_type,
             method,
@@ -1768,7 +1839,11 @@ pub(super) fn validate_method_call(
                 span,
                 ExprValidation::new(symbols, types, signatures, context),
             )?;
-            return Ok(method_sig.return_type.clone().expect("function return"));
+            return Ok(method_sig
+                .return_type
+                .clone()
+                .expect("function return")
+                .substitute_generics(&bindings));
         }
         if let Some(get) = class_sig
             .properties
@@ -1776,7 +1851,11 @@ pub(super) fn validate_method_call(
             .and_then(|p| p.get.as_ref())
         {
             ensure_visible(get.visibility, &class_sig.name, method, current_class, span)?;
-            let return_type = get.return_type.clone().expect("property return type");
+            let return_type = get
+                .return_type
+                .clone()
+                .expect("property return type")
+                .substitute_generics(&bindings);
 
             // Case 1: The property itself takes these arguments
             if get.params.len() == args.len() {
@@ -1784,6 +1863,7 @@ pub(super) fn validate_method_call(
                 let dummy_sig = CallableSig {
                     visibility: get.visibility,
                     name: method.to_string(),
+                    type_params: Vec::new(),
                     is_shared: false,
                     _is_iterator: get.is_iterator,
                     is_declare: false,
@@ -1933,10 +2013,8 @@ fn validate_structure_method_call(
     current_type: Option<&str>,
     context: &Context<'_>,
 ) -> Result<TypeName, Diagnostic> {
-    let TypeName::User(type_name) = object_type else {
-        unreachable!();
-    };
-    let type_sig = types.get(type_name).ok_or_else(|| {
+    let (type_name, bindings) = generic_bindings_for_type(object_type, types);
+    let type_sig = types.get(&type_name).ok_or_else(|| {
         Diagnostic::new(
             crate::runtime::DiagnosticCode::UNKNOWN_NAME,
             format!("Type '{}' is not defined", type_name),
@@ -1966,7 +2044,11 @@ fn validate_structure_method_call(
                 span,
                 ExprValidation::new(symbols, types, signatures, context),
             )?;
-            return Ok(method_sig.return_type.clone().expect("function return"));
+            return Ok(method_sig
+                .return_type
+                .clone()
+                .expect("function return")
+                .substitute_generics(&bindings));
         }
         if let Some(get) = type_sig
             .properties
@@ -1974,10 +2056,15 @@ fn validate_structure_method_call(
             .and_then(|p| p.get.as_ref())
         {
             ensure_visible(get.visibility, &type_sig.name, method, current_type, span)?;
-            let return_type = get.return_type.clone().expect("property return type");
+            let return_type = get
+                .return_type
+                .clone()
+                .expect("property return type")
+                .substitute_generics(&bindings);
             let dummy_sig = CallableSig {
                 visibility: get.visibility,
                 name: method.to_string(),
+                type_params: Vec::new(),
                 is_shared: false,
                 _is_iterator: get.is_iterator,
                 is_declare: false,
@@ -2102,15 +2189,19 @@ pub(super) fn member_read_type(
     if object_type.same_type(&TypeName::Variant) {
         return Ok(TypeName::Variant);
     }
-    let TypeName::User(type_name) = object_type else {
+    let (type_name, bindings) = generic_bindings_for_type(object_type, types);
+    if !matches!(
+        object_type,
+        TypeName::User(_) | TypeName::GenericInstance { .. }
+    ) {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
             "Member access requires a user-defined Type value",
             Some(span),
         ));
-    };
+    }
 
-    if let Some(type_sig) = types.get(type_name) {
+    if let Some(type_sig) = types.get(&type_name) {
         if let Some(field) = type_sig.fields.get(&key(member)) {
             ensure_visible(
                 field.visibility,
@@ -2119,7 +2210,7 @@ pub(super) fn member_read_type(
                 current_class,
                 span,
             )?;
-            return Ok(field.ty.clone());
+            return Ok(field.ty.substitute_generics(&bindings));
         }
         let Some(property_sig) = type_sig.properties.get(&key(member)) else {
             let message = if type_sig.is_structure {
@@ -2144,10 +2235,14 @@ pub(super) fn member_read_type(
             )
         })?;
         ensure_visible(get.visibility, &type_sig.name, member, current_class, span)?;
-        return Ok(get.return_type.clone().expect("get return type"));
+        return Ok(get
+            .return_type
+            .clone()
+            .expect("get return type")
+            .substitute_generics(&bindings));
     }
 
-    let class_sig = types.get_class(type_name).ok_or_else(|| {
+    let class_sig = types.get_class(&type_name).ok_or_else(|| {
         Diagnostic::new(
             crate::runtime::DiagnosticCode::UNKNOWN_NAME,
             format!("Type '{}' is not defined", type_name),
@@ -2162,7 +2257,7 @@ pub(super) fn member_read_type(
             current_class,
             span,
         )?;
-        return Ok(field_sig.ty.clone());
+        return Ok(field_sig.ty.substitute_generics(&bindings));
     }
 
     let property_sig = class_sig.properties.get(&key(member)).ok_or_else(|| {
@@ -2183,7 +2278,11 @@ pub(super) fn member_read_type(
         )
     })?;
     ensure_visible(get.visibility, &class_sig.name, member, current_class, span)?;
-    Ok(get.return_type.clone().expect("get return type"))
+    Ok(get
+        .return_type
+        .clone()
+        .expect("get return type")
+        .substitute_generics(&bindings))
 }
 
 fn member_assignment_type(
@@ -2197,15 +2296,19 @@ fn member_assignment_type(
     if object_type.same_type(&TypeName::Variant) {
         return Ok(value_type.clone());
     }
-    let TypeName::User(type_name) = object_type else {
+    let (type_name, bindings) = generic_bindings_for_type(object_type, types);
+    if !matches!(
+        object_type,
+        TypeName::User(_) | TypeName::GenericInstance { .. }
+    ) {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
             "Member assignment requires a user-defined Type value",
             Some(span),
         ));
-    };
+    }
 
-    if let Some(type_sig) = types.get(type_name) {
+    if let Some(type_sig) = types.get(&type_name) {
         if let Some(field) = type_sig.fields.get(&key(member)) {
             ensure_visible(
                 field.visibility,
@@ -2214,7 +2317,7 @@ fn member_assignment_type(
                 current_class,
                 span,
             )?;
-            return Ok(field.ty.clone());
+            return Ok(field.ty.substitute_generics(&bindings));
         }
         let property_sig = type_sig.properties.get(&key(member)).ok_or_else(|| {
             let message = if type_sig.is_structure {
@@ -2254,10 +2357,10 @@ fn member_assignment_type(
             current_class,
             span,
         )?;
-        return Ok(accessor.params[0].ty.clone());
+        return Ok(accessor.params[0].ty.substitute_generics(&bindings));
     }
 
-    let class_sig = types.get_class(type_name).ok_or_else(|| {
+    let class_sig = types.get_class(&type_name).ok_or_else(|| {
         Diagnostic::new(
             crate::runtime::DiagnosticCode::UNKNOWN_NAME,
             format!("Type '{}' is not defined", type_name),
@@ -2272,7 +2375,7 @@ fn member_assignment_type(
             current_class,
             span,
         )?;
-        return Ok(field_sig.ty.clone());
+        return Ok(field_sig.ty.substitute_generics(&bindings));
     }
 
     let property_sig = class_sig.properties.get(&key(member)).ok_or_else(|| {
@@ -2308,7 +2411,7 @@ fn member_assignment_type(
         current_class,
         span,
     )?;
-    Ok(accessor.params[0].ty.clone())
+    Ok(accessor.params[0].ty.substitute_generics(&bindings))
 }
 
 fn ensure_visible(
@@ -2357,7 +2460,33 @@ pub(super) fn ensure_known_type(
         | TypeName::Ptr
         | TypeName::FuncPtr => Ok(()),
         TypeName::User(name) => {
-            if name.eq_ignore_ascii_case("Object") || types.contains(name) {
+            if types.generic_params.contains(&key(name)) || name.eq_ignore_ascii_case("Object") {
+                Ok(())
+            } else if let Some(sig) = types.get(name)
+                && !sig.type_params.is_empty()
+            {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Generic type '{}' requires {} type argument(s)",
+                        sig.name,
+                        sig.type_params.len()
+                    ),
+                    Some(span),
+                ))
+            } else if let Some(sig) = types.get_class(name)
+                && !sig.type_params.is_empty()
+            {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Generic type '{}' requires {} type argument(s)",
+                        sig.name,
+                        sig.type_params.len()
+                    ),
+                    Some(span),
+                ))
+            } else if types.contains(name) {
                 Ok(())
             } else {
                 Err(Diagnostic::new(
@@ -2366,6 +2495,45 @@ pub(super) fn ensure_known_type(
                     Some(span),
                 ))
             }
+        }
+        TypeName::GenericInstance { name, args } => {
+            let expected = types
+                .get(name)
+                .map(|sig| (&sig.name, sig.type_params.len()))
+                .or_else(|| {
+                    types
+                        .get_class(name)
+                        .map(|sig| (&sig.name, sig.type_params.len()))
+                })
+                .or_else(|| {
+                    types
+                        .get_interface(name)
+                        .map(|sig| (&sig.name, sig.type_params.len()))
+                });
+            let Some((canonical, expected_count)) = expected else {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                    format!("Type '{}' is not defined", name),
+                    Some(span),
+                ));
+            };
+            if expected_count != args.len() {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Type parameter count mismatch for {}. Expected {}, received {}",
+                        canonical,
+                        expected_count,
+                        args.len()
+                    ),
+                    Some(span),
+                )
+                .with_help(format!("received {}", ty.display_name())));
+            }
+            for arg in args {
+                ensure_known_type(arg, types, span)?;
+            }
+            Ok(())
         }
         TypeName::Enum(name) => {
             if types.enums.contains_key(&key(name)) {
@@ -2379,6 +2547,28 @@ pub(super) fn ensure_known_type(
             }
         }
         TypeName::Array(inner) => ensure_known_type(inner, types, span),
+    }
+}
+
+fn generic_bindings_for_type(
+    ty: &TypeName,
+    types: &TypeRegistry,
+) -> (String, Vec<(String, TypeName)>) {
+    match ty {
+        TypeName::GenericInstance { name, args } => {
+            let params = types
+                .get(name)
+                .map(|sig| sig.type_params.clone())
+                .or_else(|| types.get_class(name).map(|sig| sig.type_params.clone()))
+                .or_else(|| types.get_interface(name).map(|sig| sig.type_params.clone()))
+                .unwrap_or_default();
+            (
+                name.clone(),
+                params.into_iter().zip(args.iter().cloned()).collect(),
+            )
+        }
+        TypeName::User(name) => (name.clone(), Vec::new()),
+        _ => (ty.display_name(), Vec::new()),
     }
 }
 
@@ -2435,7 +2625,13 @@ pub(super) fn is_object_reference_expr(expr: &Expr, ty: &TypeName, types: &TypeR
 }
 
 pub(super) fn is_class_type(ty: &TypeName, types: &TypeRegistry) -> bool {
-    matches!(ty, TypeName::User(name) if types.get_class(name).is_some() || name.eq_ignore_ascii_case("Object"))
+    match ty {
+        TypeName::User(name) => {
+            types.get_class(name).is_some() || name.eq_ignore_ascii_case("Object")
+        }
+        TypeName::GenericInstance { name, .. } => types.get_class(name).is_some(),
+        _ => false,
+    }
 }
 
 pub(super) fn is_enum_type(ty: &TypeName, types: &TypeRegistry) -> bool {

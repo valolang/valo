@@ -404,6 +404,7 @@ fn find_explicit_sub_impl(
             return Ok(CallableSig {
                 visibility: method.visibility,
                 name: method.procedure.name.clone(),
+                type_params: method.procedure.type_params.clone(),
                 is_shared: method.is_shared,
                 _is_iterator: false,
                 is_declare: false,
@@ -437,6 +438,7 @@ fn find_explicit_function_impl(
             return Ok(CallableSig {
                 visibility: method.visibility,
                 name: method.function.name.clone(),
+                type_params: method.function.type_params.clone(),
                 is_shared: method.is_shared,
                 _is_iterator: method.function.is_iterator,
                 is_declare: false,
@@ -472,6 +474,7 @@ fn find_explicit_property_impl(
             return Ok(CallableSig {
                 visibility: property.visibility,
                 name: property.name.clone(),
+                type_params: Vec::new(),
                 is_shared: property.is_shared,
                 _is_iterator: property.is_iterator,
                 is_declare: false,

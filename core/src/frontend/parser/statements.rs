@@ -734,7 +734,7 @@ impl Parser {
         let start = self.expect_simple(TokenKind::Call, "Expected 'Call'")?.span;
         let target = self.parse_call_statement_target()?;
         match target.kind {
-            ExprKind::Call { name, args } => Ok(Stmt::SubCall {
+            ExprKind::Call { name, args, .. } => Ok(Stmt::SubCall {
                 name,
                 args,
                 span: Span::new(self.file_id, start.start, target.span.end),
@@ -742,6 +742,7 @@ impl Parser {
             ExprKind::MemberCall {
                 object,
                 method,
+                type_args: _,
                 args,
             } => Ok(Stmt::MemberSubCall {
                 object: *object,
@@ -788,7 +789,11 @@ impl Parser {
                         Vec::new()
                     };
                     Expr {
-                        kind: ExprKind::Call { name, args },
+                        kind: ExprKind::Call {
+                            name,
+                            type_args: Vec::new(),
+                            args,
+                        },
                         span: Span::new(self.file_id, start.start, self.previous().span.end),
                     }
                 }
@@ -872,7 +877,11 @@ impl Parser {
 
         if self.check_simple(&TokenKind::Dot) {
             let target = self.parse_member_access(Expr {
-                kind: ExprKind::Call { name, args },
+                kind: ExprKind::Call {
+                    name,
+                    type_args: Vec::new(),
+                    args,
+                },
                 span: Span::new(self.file_id, start.start, self.previous().span.end),
             })?;
             let target_span = target.span;
@@ -924,6 +933,7 @@ impl Parser {
         if let ExprKind::MemberCall {
             object,
             method,
+            type_args: _,
             args,
         } = &target.kind
             && let ExprKind::Variable(name) = &object.kind
@@ -941,6 +951,7 @@ impl Parser {
             ExprKind::MemberCall {
                 object,
                 method,
+                type_args: _,
                 args,
             } => (object, method, Some(args)),
             _ => {
@@ -1010,7 +1021,7 @@ impl Parser {
         let span = expr.span;
         match expr.kind {
             ExprKind::Variable(name) => Ok(AssignTarget::Variable { name, span }),
-            ExprKind::Call { name, args } => Ok(AssignTarget::ArrayElement {
+            ExprKind::Call { name, args, .. } => Ok(AssignTarget::ArrayElement {
                 name,
                 indices: args,
                 span,
@@ -1023,6 +1034,7 @@ impl Parser {
             ExprKind::MemberCall {
                 object,
                 method,
+                type_args: _,
                 args,
             } => Ok(AssignTarget::MemberArrayElement {
                 object: *object,

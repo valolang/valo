@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::runtime::{Diagnostic, RuntimeErrorInfo, Value};
+use crate::runtime::{Diagnostic, RuntimeErrorInfo, TypeName, Value};
 use crate::{
     AssignTarget, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ReDimTarget, ResumeTarget,
     Stmt, UsingResource,
@@ -818,7 +818,7 @@ impl Interpreter {
                     Some(span),
                 ));
             };
-            let value = self.new_object(&class_name, new_args, frame, span)?;
+            let value = self.new_object(&TypeName::User(class_name), new_args, frame, span)?;
             let _ = frame.assign(name, value, span)?;
         }
         if let Some(value) = initial_value {

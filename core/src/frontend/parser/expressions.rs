@@ -359,6 +359,7 @@ impl Parser {
                         kind: ExprKind::MemberCall {
                             object: Box::new(object),
                             method: field,
+                            type_args: Vec::new(),
                             args,
                         },
                         span: Span::new(self.file_id, span.start, end.end),
@@ -380,6 +381,13 @@ impl Parser {
                     class_name.push('.');
                     class_name.push_str(&member);
                 }
+                let class_name = if self.check_simple(&TokenKind::LeftParen)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Of))
+                {
+                    self.parse_generic_type_instance(class_name)?
+                } else {
+                    crate::runtime::TypeName::User(class_name)
+                };
                 let args = if self.match_simple(&TokenKind::LeftParen) {
                     self.finish_call_arguments()?
                 } else {
@@ -406,9 +414,24 @@ impl Parser {
                     });
                 }
 
-                if self.match_simple(&TokenKind::LeftParen) {
+                if self.check_simple(&TokenKind::LeftParen)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Of))
+                {
+                    let type_args = self.parse_optional_type_args()?;
+                    self.expect_simple(TokenKind::LeftParen, "Expected '(' after type arguments")?;
                     let args = self.finish_call_arguments()?;
-                    ExprKind::Call { name, args }
+                    ExprKind::Call {
+                        name,
+                        type_args,
+                        args,
+                    }
+                } else if self.match_simple(&TokenKind::LeftParen) {
+                    let args = self.finish_call_arguments()?;
+                    ExprKind::Call {
+                        name,
+                        type_args: Vec::new(),
+                        args,
+                    }
                 } else {
                     ExprKind::Variable(name)
                 }
@@ -428,7 +451,11 @@ impl Parser {
                 };
                 if self.match_simple(&TokenKind::LeftParen) {
                     let args = self.finish_call_arguments()?;
-                    ExprKind::Call { name, args }
+                    ExprKind::Call {
+                        name,
+                        type_args: Vec::new(),
+                        args,
+                    }
                 } else {
                     ExprKind::Variable(name)
                 }
@@ -468,13 +495,30 @@ impl Parser {
                     }
                 };
                 let span = Span::new(self.file_id, expr.span.start, field_token.span.end);
-                if self.match_simple(&TokenKind::LeftParen) {
+                if self.check_simple(&TokenKind::LeftParen)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Of))
+                {
+                    let type_args = self.parse_optional_type_args()?;
+                    self.expect_simple(TokenKind::LeftParen, "Expected '(' after type arguments")?;
                     let args = self.finish_call_arguments()?;
                     let end = self.previous().span;
                     expr = Expr {
                         kind: ExprKind::MemberCall {
                             object: Box::new(expr),
                             method: field,
+                            type_args,
+                            args,
+                        },
+                        span: Span::new(self.file_id, span.start, end.end),
+                    };
+                } else if self.match_simple(&TokenKind::LeftParen) {
+                    let args = self.finish_call_arguments()?;
+                    let end = self.previous().span;
+                    expr = Expr {
+                        kind: ExprKind::MemberCall {
+                            object: Box::new(expr),
+                            method: field,
+                            type_args: Vec::new(),
                             args,
                         },
                         span: Span::new(self.file_id, span.start, end.end),
