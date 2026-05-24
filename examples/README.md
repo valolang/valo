@@ -58,6 +58,11 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 *   **[VBA Constants](vba_constants.valo):** Generic VBA runtime constants such as `vbCrLf`, `vbTab`, `vbTrue`, and `vbString`.
 *   **[VBA String Functions](vba_string_functions.valo):** Safe VBA string/runtime functions such as `Len`, `Left$`, `Mid$`, `Replace`, `InStr`, `Chr$`, `Hex$`, and `Oct$`.
 *   **[VBA File I/O](vba_file_io.valo):** Classic file-number I/O using `FreeFile`, `Open`, `Print #`, `Line Input #`, `EOF`, `Close`, and `Kill`.
+*   **[VBA Property Compatibility](vba_property_compat.valo):** Property Let without explicit `ByVal`.
+*   **[VBA StrPtr](vba_strptr.valo):** `StrPtr` with variables and temporary string expressions.
+*   **[VBA Optional Forwarding](vba_optional_forwarding.valo):** Omitted optional Variant handling with `IsMissing`.
+*   **[VBA Declare Strings](vba_declare_strings.valo):** Declare string argument temporaries.
+*   **[VBA Real-World Declares](vba_realworld_declares.valo):** Keyword-like parameter names in Declare signatures.
 *   **[VBA Dir](vba_dir.valo):** Basic wildcard enumeration with `Dir(pattern)` and repeated `Dir()` calls.
 *   **[VBA Binary File I/O](vba_binary_file_io.valo):** `Open For Binary`, scalar `Put #`/`Get #`, `LOF`, `Close`, and cleanup.
 *   **[VBA Random File I/O](vba_random_file_io.valo):** Fixed-length `Open For Random Len =` records with `Put #` and `Get #`.

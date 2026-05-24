@@ -39,7 +39,8 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 - `Const`: Module, local, and class-scope constants are supported, including multi-Const declarations such as `Public Const PI = 3.14, E = 2.71`.
 - `^` and unary signs: Exponent expressions are supported and evaluate through numeric promotion. Unary `+` and `-` accept all numeric literal suffixes and numeric expression forms; exponentiation binds tighter than unary sign, so `-2 ^ 2` evaluates as `-(2 ^ 2)`.
 - `Declare`/`PtrSafe`: `Declare Function` and `Declare Sub` are callable at runtime through the native FFI layer. Private declares are visible inside their module, public declares can be imported, and declare functions support expression calls, bare statement calls, and `Call`. `Lib`, `Alias`, `PtrSafe`, `LongPtr`, `LongLong`, `As Any`, ByVal/ByRef parameters, `StdCall`, and the `CDecl` extension are supported with clean diagnostics for unsupported marshaling.
-- Memory and Pointers: `VarPtr`, `StrPtr`, and `ObjPtr` are supported as builtins. `AddressOf` generates libffi closure trampolines, enabling robust, native callbacks.
+- Memory and Pointers: `VarPtr`, `StrPtr`, and `ObjPtr` are supported as builtins. `StrPtr` accepts string variables and temporary string expressions such as literals, `CStr(...)`, and `Left$(...)`; temporaries are owned by the interpreter for the statement call duration. `AddressOf` generates libffi closure trampolines, enabling robust, native callbacks.
+- Property procedures: `Property Let` and `Property Set` accept omitted `ByVal` on the value parameter for VBA import compatibility.
 - Source encodings: `.bas` and `.cls` imports accept UTF-8, UTF-8 BOM, UTF-16 LE/BE BOM, and Windows-1252/ANSI fallback, with normalized line endings for diagnostics.
 
 `Structure` is the native Valo value type and supports methods, properties, constructors, and copy semantics. `Type` remains the VBA-compatible fields-only record syntax.

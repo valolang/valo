@@ -13,7 +13,7 @@ pub(crate) fn exec_console(
             if matches!(value, Value::Missing) {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::GENERIC,
-                    "Missing optional argument cannot be used as a value",
+                    "Optional argument was omitted here and cannot be printed as a value",
                     None,
                 ));
             }

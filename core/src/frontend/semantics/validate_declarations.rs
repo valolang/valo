@@ -1099,16 +1099,6 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             ensure_known_type(&param.ty, &registry, param.span)?;
                         }
                         let last_param = property.params.last().unwrap();
-                        if last_param.mode != PassingMode::ByVal {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                                format!(
-                                    "Property {:?} '{}' value parameter must be ByVal",
-                                    property.kind, property.name
-                                ),
-                                Some(last_param.span),
-                            ));
-                        }
                         if property.kind == PropertyKind::Set
                             && !matches!(&last_param.ty, TypeName::User(name) if registry.get_class(name).is_some() || name.eq_ignore_ascii_case("Object"))
                         {
@@ -1232,16 +1222,6 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             ensure_known_type(&param.ty, &registry, param.span)?;
                         }
                         let last_param = property.params.last().unwrap();
-                        if last_param.mode != PassingMode::ByVal {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                                format!(
-                                    "Property {:?} '{}' value parameter must be ByVal",
-                                    property.kind, property.name
-                                ),
-                                Some(last_param.span),
-                            ));
-                        }
                         if property.kind == PropertyKind::Set
                             && !matches!(&last_param.ty, TypeName::User(name) if registry.get_class(name).is_some() || name.eq_ignore_ascii_case("Object"))
                         {

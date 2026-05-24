@@ -423,19 +423,16 @@ End Sub
 }
 
 #[test]
-fn strptr_requires_variable_to_avoid_temporary_pointer() {
-    let diagnostic = source_diagnostic(
+fn strptr_accepts_temporary_string_expressions() {
+    let output = run_source(
         r#"
 Sub Main()
-    Console.WriteLine(StrPtr("temporary"))
+    Console.WriteLine(StrPtr("temporary") <> 0)
+    Console.WriteLine(StrPtr(CStr(123)) <> 0)
+    Console.WriteLine(StrPtr(Left$("abc", 1)) <> 0)
 End Sub
 "#,
     );
 
-    assert_eq!(diagnostic.code.0, "V0001");
-    assert!(
-        diagnostic
-            .message
-            .contains("StrPtr requires a string variable")
-    );
+    assert_eq!(output, vec!["True", "True", "True"]);
 }

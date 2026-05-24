@@ -1,7 +1,61 @@
 use crate::backend::interpreter::run;
+use crate::backend::interpreter::tests::helpers::{parse_and_validate, run_source};
 use crate::frontend::parser::Parser;
 use crate::frontend::semantics::validate;
 use std::fs;
+
+#[test]
+fn property_let_allows_omitted_byval_like_vba() {
+    let output = run_source(
+        r#"
+Class User
+    Private m_Name As String
+
+    Public Property Let Name(value As String)
+        m_Name = value
+    End Property
+
+    Public Property Get Name() As String
+        Name = m_Name
+    End Property
+End Class
+
+Sub Main()
+    Dim u As New User()
+    u.Name = "Valo"
+    Console.WriteLine(u.Name)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["Valo"]);
+}
+
+#[test]
+fn declare_parameters_accept_vba_keyword_like_names() {
+    let program = parse_and_validate(
+        r#"
+Private Declare PtrSafe Function MFStartup Lib "mfplat" (
+    ByVal Version As Long,
+    ByVal dwFlags As Long
+) As Long
+
+Private Declare PtrSafe Function KeywordNames Lib "kernel32" (
+    ByVal String As Long,
+    ByVal Error As Long,
+    ByVal Lib As Long
+) As Long
+
+Sub Main()
+End Sub
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(program.declares.len(), 2);
+    assert_eq!(program.declares[0].params[0].name, "Version");
+    assert_eq!(program.declares[1].params[0].name, "String");
+}
 
 #[test]
 fn test_callbyname() {

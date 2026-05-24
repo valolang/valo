@@ -385,7 +385,7 @@ Sub Main()
 End Sub
 "#,
     );
-    assert!(direct_use.contains("Missing optional argument cannot be used as a value"));
+    assert!(direct_use.contains("Optional argument was omitted here"));
 }
 
 #[test]

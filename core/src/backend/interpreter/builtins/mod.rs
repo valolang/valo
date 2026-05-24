@@ -118,11 +118,20 @@ pub(crate) fn dispatch_function(
             }
             return Ok(Some(Value::Ptr(0)));
         }
-        return Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::GENERIC,
-            "StrPtr requires a string variable",
-            Some(arg.span),
-        ));
+        let value = interpreter.eval_expr(arg, frame)?;
+        let text = match value {
+            Value::String(text) => text,
+            Value::Empty => String::new(),
+            Value::Null | Value::Nothing | Value::Missing => return Ok(Some(Value::Ptr(0))),
+            other => other.to_output_string(),
+        };
+        interpreter.temporary_strings.push(text);
+        let ptr = interpreter
+            .temporary_strings
+            .last()
+            .map(|text| text.as_ptr() as usize)
+            .unwrap_or(0);
+        return Ok(Some(Value::Ptr(ptr)));
     }
 
     if effective_name.eq_ignore_ascii_case("ObjPtr") {

@@ -7,7 +7,7 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
     if matches!(value, Value::Missing) {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::GENERIC,
-            "Missing optional argument cannot be used as a value",
+            "Optional argument was omitted here and cannot be forwarded into a required value",
             Some(span),
         ));
     }

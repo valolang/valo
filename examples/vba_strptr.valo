@@ -1,0 +1,5 @@
+Sub Main()
+    Debug.Print StrPtr("hello") <> 0
+    Debug.Print StrPtr(CStr(123)) <> 0
+    Debug.Print StrPtr(Left$("abc", 1)) <> 0
+End Sub

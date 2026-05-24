@@ -1,0 +1,17 @@
+Class User
+    Private m_Name As String
+
+    Public Property Let Name(value As String)
+        m_Name = value
+    End Property
+
+    Public Property Get Name() As String
+        Name = m_Name
+    End Property
+End Class
+
+Sub Main()
+    Dim u As New User()
+    u.Name = "Valo"
+    Debug.Print u.Name
+End Sub

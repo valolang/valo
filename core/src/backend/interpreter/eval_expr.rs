@@ -397,7 +397,7 @@ impl Interpreter {
                 if matches!(left_value, Value::Missing) {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::GENERIC,
-                        "Missing optional argument cannot be used as a value",
+                        "Optional argument was omitted here and cannot be used in this expression",
                         Some(left.span),
                     ));
                 }
@@ -406,7 +406,7 @@ impl Interpreter {
                 if matches!(right_value, Value::Missing) {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::GENERIC,
-                        "Missing optional argument cannot be used as a value",
+                        "Optional argument was omitted here and cannot be used in this expression",
                         Some(right.span),
                     ));
                 }

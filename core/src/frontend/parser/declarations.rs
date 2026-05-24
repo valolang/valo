@@ -620,6 +620,7 @@ impl Parser {
             let token = self.advance();
             let (name, hint) = match token.kind {
                 TokenKind::Identifier(name, hint) => (name, hint),
+                TokenKind::Version => ("VERSION".to_string(), None),
                 _ => return Err(self.error_here("Expected constant name")),
             };
             let ty = if self.match_simple(&TokenKind::As) {
@@ -1246,15 +1247,8 @@ impl Parser {
                 )
             };
             let token = self.advance();
-            let (name, hint) = match token.kind {
-                TokenKind::Identifier(name, hint) => (name, hint),
-                TokenKind::Text => ("text".to_string(), None),
-                TokenKind::Compare => ("compare".to_string(), None),
-                TokenKind::Binary => ("binary".to_string(), None),
-                TokenKind::Base => ("base".to_string(), None),
-                TokenKind::Lib => ("lib".to_string(), None),
-                _ => return Err(self.error_here("Expected parameter name")),
-            };
+            let (name, hint) = Self::parameter_name_from_token(token.kind)
+                .ok_or_else(|| self.error_here("Expected parameter name"))?;
             let mut array = false;
             if self.match_simple(&TokenKind::LeftParen) {
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after parameter array")?;
@@ -1314,6 +1308,22 @@ impl Parser {
         }
 
         Ok(params)
+    }
+
+    fn parameter_name_from_token(kind: TokenKind) -> Option<(String, Option<TypeName>)> {
+        match kind {
+            TokenKind::Identifier(name, hint) => Some((name, hint)),
+            TokenKind::Version => Some(("Version".to_string(), None)),
+            TokenKind::StringType => Some(("String".to_string(), None)),
+            TokenKind::Type => Some(("Type".to_string(), None)),
+            TokenKind::Error => Some(("Error".to_string(), None)),
+            TokenKind::Text => Some(("Text".to_string(), None)),
+            TokenKind::Compare => Some(("Compare".to_string(), None)),
+            TokenKind::Binary => Some(("Binary".to_string(), None)),
+            TokenKind::Base => Some(("Base".to_string(), None)),
+            TokenKind::Lib => Some(("Lib".to_string(), None)),
+            _ => None,
+        }
     }
 
     pub(super) fn parse_type_name(&mut self) -> Result<TypeName, Diagnostic> {

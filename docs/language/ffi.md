@@ -62,7 +62,7 @@ Simple blittable arrays and structures are packed for native calls where practic
 
 Valo provides the `VarPtr`, `StrPtr`, and `ObjPtr` builtins for interfacing with raw memory pointers, as well as `AddressOf` for generating native function pointers for callbacks.
 
-`StrPtr` requires a string variable. It does not return pointers into temporary string expressions, because those addresses would become invalid immediately after evaluation.
+`StrPtr` accepts string variables and String-compatible temporary expressions. Temporary strings are stored by the interpreter until the current statement completes, matching common VBA BSTR temporary behavior without returning dangling pointers.
 
 ```vb
 Declare PtrSafe Function EnumWindows Lib "user32" (ByVal lpEnumFunc As LongPtr, ByVal lParam As LongPtr) As Long

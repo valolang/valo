@@ -6,7 +6,9 @@ Documentation for the Valo language features.
 *   **[Expressions](expressions.md):** Operators, precedence, and numeric expression behavior.
 *   **[Types](types.md):** Native structures, compatibility types, and byte arrays.
 *   **[Generics](generics.md):** VB.NET-style generic classes, structures, functions, nested generic types, and runtime strategy.
+*   **[Functions](functions.md):** Procedures, argument passing, temporaries, and optional arguments.
 *   **[Classes and Objects](classes.md):** Lifecycle, properties, events, and visibility.
+*   **[Properties](properties.md):** Property Get/Let/Set compatibility rules.
 *   **[Inheritance](inheritance.md):** Base classes, overrides, abstract members, and protected visibility.
 *   **[Modules and Imports](modules.md):** Project organization and dependency management.
 *   **[Error Handling](error-handling.md):** Robust runtime failure management.

@@ -1,0 +1,12 @@
+Sub PrintOptional(Optional value As Variant)
+    If IsMissing(value) Then
+        Debug.Print "missing"
+    Else
+        Debug.Print value
+    End If
+End Sub
+
+Sub Main()
+    PrintOptional
+    PrintOptional "present"
+End Sub
