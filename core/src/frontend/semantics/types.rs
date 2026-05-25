@@ -158,9 +158,12 @@ pub(super) type ClassMethodSig = crate::semantics::symbols::CallableSig;
 pub(super) type ClassEventSig = crate::semantics::symbols::CallableSig;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(super) struct ClassPropertySig {
     pub(super) name: String,
     pub(super) is_shared: bool,
+    pub(super) is_readonly: bool,
+    pub(super) is_writeonly: bool,
     pub(super) get: Option<PropertyAccessorSig>,
     pub(super) let_: Option<PropertyAccessorSig>,
     pub(super) set: Option<PropertyAccessorSig>,

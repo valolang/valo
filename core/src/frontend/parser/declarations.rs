@@ -505,6 +505,8 @@ impl Parser {
             is_default,
             is_enumerator,
             is_iterator,
+            is_readonly: false,
+            is_writeonly: false,
             name,
             kind,
             params,

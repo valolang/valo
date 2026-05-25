@@ -264,6 +264,8 @@ pub struct ClassProperty {
     pub is_default: bool,
     pub is_enumerator: bool,
     pub is_iterator: bool,
+    pub is_readonly: bool,
+    pub is_writeonly: bool,
     pub name: String,
     pub kind: PropertyKind,
     pub params: Vec<Parameter>,
