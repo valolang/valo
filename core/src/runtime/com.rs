@@ -235,8 +235,8 @@ fn value_to_variant(value: &Value) -> windows::core::VARIANT {
             let mut var = VARIANT::default();
             unsafe {
                 let raw = var.as_raw();
-                (*raw).anonymous1.anonymous0.vt = VT_DISPATCH.0 as u16;
-                (*raw).anonymous1.anonymous0.anonymous.pdispVal = std::ptr::null_mut();
+                (*raw).Anonymous.anonymous0.vt = VT_DISPATCH.0 as u16;
+                (*raw).Anonymous.anonymous0.Anonymous.pdispVal = std::ptr::null_mut();
             }
             var
         }
@@ -244,7 +244,7 @@ fn value_to_variant(value: &Value) -> windows::core::VARIANT {
             let mut var = VARIANT::default();
             unsafe {
                 let raw = var.as_raw();
-                (*raw).anonymous1.anonymous0.vt = VT_NULL.0 as u16;
+                (*raw).Anonymous.anonymous0.vt = VT_NULL.0 as u16;
             }
             var
         }
@@ -252,8 +252,8 @@ fn value_to_variant(value: &Value) -> windows::core::VARIANT {
             let mut var = VARIANT::default();
             unsafe {
                 let raw = var.as_raw();
-                (*raw).anonymous1.anonymous0.vt = VT_ERROR.0 as u16;
-                (*raw).anonymous1.anonymous0.anonymous.scode = 0x80020004; // DISP_E_PARAMNOTFOUND
+                (*raw).Anonymous.anonymous0.vt = VT_ERROR.0 as u16;
+                (*raw).Anonymous.anonymous0.anonymous.scode = 0x80020004; // DISP_E_PARAMNOTFOUND
             }
             var
         }
