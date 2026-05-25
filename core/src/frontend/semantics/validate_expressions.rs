@@ -145,6 +145,16 @@ pub(super) fn validate_assignment_target(
                 VarType::Scalar(_, TypeName::User(class_name))
                 | VarType::Optional(_, TypeName::User(class_name))
                 | VarType::Const(_, TypeName::User(class_name))
+                    if class_name.eq_ignore_ascii_case("Object") =>
+                {
+                    for index in indices {
+                        validate_expr(index, symbols, types, signatures, context)?;
+                    }
+                    return Ok(TypeName::Variant);
+                }
+                VarType::Scalar(_, TypeName::User(class_name))
+                | VarType::Optional(_, TypeName::User(class_name))
+                | VarType::Const(_, TypeName::User(class_name))
                     if types
                         .get_class(&class_name)
                         .and_then(|class| class.default_property.as_ref())

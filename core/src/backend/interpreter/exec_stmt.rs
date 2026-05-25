@@ -1008,25 +1008,11 @@ impl Interpreter {
                 }
             }
             AssignTarget::ArrayElement { name, indices, .. } => {
-                let mut dims = Vec::new();
                 let mut index_values = Vec::new();
                 for index_expr in indices {
-                    let index_value = self.eval_expr(index_expr, frame)?;
-                    dims.push(match &index_value {
-                        Value::Byte(value) => i64::from(*value),
-                        Value::Int16(value) => i64::from(*value),
-                        Value::Int32(value) => i64::from(*value),
-                        Value::Int64(value) => *value,
-                        _ => {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                                "Array index must be Integer",
-                                Some(index_expr.span),
-                            ));
-                        }
-                    });
-                    index_values.push(index_value);
+                    index_values.push(self.eval_expr(index_expr, frame)?);
                 }
+
                 let old = if frame.has_variable(name) {
                     let target = frame.get(name, span)?;
                     if let Value::Object(ref object) = target {
@@ -1046,8 +1032,48 @@ impl Interpreter {
                             return Ok(());
                         }
                     }
+                    if let Value::ComObject(ref com_obj) = target {
+                        let mut property_args = index_values;
+                        property_args.push(value);
+                        let _ = com_obj;
+                        self.call_property_set_values(target, "Item", &property_args, span)?;
+                        return Ok(());
+                    }
+
+                    let mut dims = Vec::new();
+                    for (index_expr, index_value) in indices.iter().zip(index_values.iter()) {
+                        dims.push(match index_value {
+                            Value::Byte(value) => i64::from(*value),
+                            Value::Int16(value) => i64::from(*value),
+                            Value::Int32(value) => i64::from(*value),
+                            Value::Int64(value) => *value,
+                            _ => {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                    "Array index must be Integer",
+                                    Some(index_expr.span),
+                                ));
+                            }
+                        });
+                    }
                     frame.assign_array_element(name, &dims, value, span)?
                 } else {
+                    let mut dims = Vec::new();
+                    for (index_expr, index_value) in indices.iter().zip(index_values.iter()) {
+                        dims.push(match index_value {
+                            Value::Byte(value) => i64::from(*value),
+                            Value::Int16(value) => i64::from(*value),
+                            Value::Int32(value) => i64::from(*value),
+                            Value::Int64(value) => *value,
+                            _ => {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                    "Array index must be Integer",
+                                    Some(index_expr.span),
+                                ));
+                            }
+                        });
+                    }
                     let owner = frame.get("me", span)?;
                     self.assign_bare_class_field_array_element(owner, name, &dims, value, span)?
                 };

@@ -934,6 +934,18 @@ End Sub
     validate(&program).unwrap();
 }
 
+#[test]
+fn object_default_property_assignment_accepts_string_index_semantically() {
+    let source = r#"
+Sub Main()
+    Dim obj As Object
+    obj("Name") = "Valo"
+End Sub
+"#;
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+}
+
 #[cfg(not(windows))]
 #[test]
 fn createobject_reports_clear_non_windows_runtime_error() {

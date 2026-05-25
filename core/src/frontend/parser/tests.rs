@@ -76,6 +76,24 @@ End Sub
 }
 
 #[test]
+fn parses_generic_class_header_without_newline_error() {
+    let source = r#"
+Class Box(Of T)
+    Public Value As T
+End Class
+
+Sub Main()
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.classes.len(), 1);
+    assert_eq!(program.classes[0].name, "Box");
+    assert_eq!(program.classes[0].type_params, vec!["T"]);
+}
+
+#[test]
 fn parses_vba_declare_frontend_metadata() {
     let source = r#"
 Private Declare PtrSafe Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As LongPtr, ByVal lpWindowName As Any) As LongLong
