@@ -130,10 +130,12 @@ impl Parser {
                         }
                         saw_option_compare = true;
                     } else if self.match_simple(&TokenKind::Private) {
-                        self.expect_identifier_with(
-                            "Module",
-                            "Expected 'Module' after 'Option Private'",
-                        )?;
+                        if !self.match_simple(&TokenKind::Module) {
+                            self.expect_identifier_with(
+                                "Module",
+                                "Expected 'Module' after 'Option Private'",
+                            )?;
+                        }
                     } else {
                         return Err(self.error_here("Option must be Explicit, Base, or Compare"));
                     }
@@ -250,6 +252,34 @@ impl Parser {
                             }
                             classes.push(self.parse_class_decl(visibility, inheritance)?);
                         }
+                        TokenKind::Module => {
+                            let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                            if visibility != Visibility::Public {
+                                return Err(self.error_here(
+                                    "Only Public Module declarations are supported at file scope",
+                                ));
+                            }
+                            if inheritance != ClassInheritance::Normal {
+                                return Err(self.error_here(
+                                    "Module declarations cannot use inheritance modifiers",
+                                ));
+                            }
+                            if is_iterator {
+                                return Err(self.error_here("Iterator is not supported on Module"));
+                            }
+                            self.parse_module_decl(
+                                &mut types,
+                                &mut enums,
+                                &mut module_vars,
+                                &mut module_consts,
+                                &mut declares,
+                                &mut interfaces,
+                                &mut classes,
+                                &mut procedures,
+                                &mut functions,
+                                &mut properties,
+                            )?;
+                        }
                         TokenKind::Dim => {
                             let visibility = explicit_visibility.unwrap_or(Visibility::Private);
                             if is_iterator {
@@ -306,6 +336,235 @@ impl Parser {
         }
         self.expect_statement_end("Expected newline after Namespace declaration")?;
         Ok(namespace)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn parse_module_decl(
+        &mut self,
+        types: &mut Vec<TypeDecl>,
+        enums: &mut Vec<EnumDecl>,
+        module_vars: &mut Vec<ModuleVarDecl>,
+        module_consts: &mut Vec<ConstDecl>,
+        declares: &mut Vec<DeclareDecl>,
+        interfaces: &mut Vec<InterfaceDecl>,
+        classes: &mut Vec<ClassDecl>,
+        procedures: &mut Vec<Procedure>,
+        functions: &mut Vec<Function>,
+        properties: &mut Vec<ClassProperty>,
+    ) -> Result<(), Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Module, "Expected 'Module'")?
+            .span;
+        let name = self.expect_identifier("Expected module name after 'Module'")?;
+        self.expect_statement_end("Expected newline after Module declaration")?;
+
+        let mut shared_members = Vec::new();
+        self.skip_newlines();
+        while !self.is_at_end()
+            && !matches!(
+                self.peek_kind(),
+                TokenKind::End if matches!(self.peek_next_kind(), Some(TokenKind::Module))
+            )
+        {
+            let inheritance = self.parse_optional_class_inheritance();
+            let explicit_visibility = self.parse_optional_visibility();
+            let is_iterator = self.match_simple(&TokenKind::Iterator);
+
+            match self.peek_kind() {
+                TokenKind::Sub => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(
+                            self.error_here("Sub declarations cannot use inheritance modifiers")
+                        );
+                    }
+                    if is_iterator {
+                        return Err(self.error_here("Iterator is not supported on Sub"));
+                    }
+                    let procedure = self.parse_procedure(visibility)?;
+                    shared_members.push(ClassMember::Sub(ClassSub {
+                        visibility,
+                        override_kind: OverrideKind::None,
+                        is_shared: true,
+                        implements: Vec::new(),
+                        procedure: procedure.clone(),
+                    }));
+                    procedures.push(procedure);
+                }
+                TokenKind::Function => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(self
+                            .error_here("Function declarations cannot use inheritance modifiers"));
+                    }
+                    let function = self.parse_function(visibility, is_iterator)?;
+                    shared_members.push(ClassMember::Function(ClassFunction {
+                        visibility,
+                        override_kind: OverrideKind::None,
+                        is_shared: true,
+                        implements: Vec::new(),
+                        is_enumerator: false,
+                        function: function.clone(),
+                    }));
+                    functions.push(function);
+                }
+                TokenKind::Property => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(self
+                            .error_here("Property declarations cannot use inheritance modifiers"));
+                    }
+                    let mut property = self.parse_property(visibility, false, is_iterator)?;
+                    property.is_shared = true;
+                    shared_members.push(ClassMember::Property(property.clone()));
+                    properties.push(property);
+                }
+                TokenKind::Type | TokenKind::Structure => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(
+                            self.error_here("Type declarations cannot use inheritance modifiers")
+                        );
+                    }
+                    if is_iterator {
+                        return Err(self.error_here("Iterator is not supported on Type/Structure"));
+                    }
+                    types.push(self.parse_type_decl(visibility)?);
+                }
+                TokenKind::Enum => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(
+                            self.error_here("Enum declarations cannot use inheritance modifiers")
+                        );
+                    }
+                    if is_iterator {
+                        return Err(self.error_here("Iterator is not supported on Enum"));
+                    }
+                    enums.push(self.parse_enum_decl(visibility)?);
+                }
+                TokenKind::Interface => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(self.error_here(
+                            "Interface declarations cannot use inheritance modifiers",
+                        ));
+                    }
+                    if is_iterator {
+                        return Err(self.error_here("Iterator is not supported on Interface"));
+                    }
+                    interfaces.push(self.parse_interface_decl(visibility)?);
+                }
+                TokenKind::Declare => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(self
+                            .error_here("Declare declarations cannot use inheritance modifiers"));
+                    }
+                    if is_iterator {
+                        return Err(self.error_here("Iterator is not supported on Declare"));
+                    }
+                    declares.push(self.parse_declare_decl(visibility)?);
+                }
+                TokenKind::Const => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(
+                            self.error_here("Const declarations cannot use inheritance modifiers")
+                        );
+                    }
+                    if is_iterator {
+                        return Err(self.error_here("Iterator is not supported on Const"));
+                    }
+                    module_consts.extend(self.parse_module_consts(visibility)?);
+                }
+                TokenKind::Class => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+                    if is_iterator {
+                        return Err(self.error_here("Iterator is not supported on Class"));
+                    }
+                    classes.push(self.parse_class_decl(visibility, inheritance)?);
+                }
+                TokenKind::Module => {
+                    return Err(self.error_here("Nested Module declarations are not supported"));
+                }
+                TokenKind::Namespace => {
+                    return Err(
+                        self.error_here("Namespace declarations are not supported inside Module")
+                    );
+                }
+                TokenKind::Dim => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Private);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(
+                            self.error_here("Dim declarations cannot use inheritance modifiers")
+                        );
+                    }
+                    if is_iterator {
+                        return Err(self.error_here("Iterator is not supported on Dim"));
+                    }
+                    self.advance();
+                    let vars = self.parse_module_vars(visibility)?;
+                    shared_members.extend(vars.iter().map(|var| {
+                        ClassMember::Field(ClassField {
+                            visibility: var.visibility,
+                            is_shared: true,
+                            with_events: false,
+                            name: var.name.clone(),
+                            ty: var.ty.clone(),
+                            array: var.array.clone(),
+                            initializer: var.initializer.clone(),
+                            span: var.span,
+                        })
+                    }));
+                    module_vars.extend(vars);
+                }
+                TokenKind::Identifier(_, _) => {
+                    let visibility = explicit_visibility.unwrap_or(Visibility::Private);
+                    if inheritance != ClassInheritance::Normal {
+                        return Err(self
+                            .error_here("Variable declarations cannot use inheritance modifiers"));
+                    }
+                    if is_iterator {
+                        return Err(self.error_here("Expected 'Function' after 'Iterator'"));
+                    }
+                    let vars = self.parse_module_vars(visibility)?;
+                    shared_members.extend(vars.iter().map(|var| {
+                        ClassMember::Field(ClassField {
+                            visibility: var.visibility,
+                            is_shared: true,
+                            with_events: false,
+                            name: var.name.clone(),
+                            ty: var.ty.clone(),
+                            array: var.array.clone(),
+                            initializer: var.initializer.clone(),
+                            span: var.span,
+                        })
+                    }));
+                    module_vars.extend(vars);
+                }
+                _ => return Err(self.error_here("Expected Module member declaration")),
+            }
+            self.skip_newlines();
+        }
+
+        self.expect_simple(TokenKind::End, "Expected 'End Module'")?;
+        let end = self
+            .expect_simple(TokenKind::Module, "Expected 'Module' after 'End'")?
+            .span;
+        self.consume_statement_end();
+        classes.push(ClassDecl {
+            visibility: Visibility::Public,
+            inheritance: ClassInheritance::NotInheritable,
+            name,
+            type_params: Vec::new(),
+            base_class: None,
+            implements: Vec::new(),
+            attributes: Vec::new(),
+            members: shared_members,
+            span: crate::runtime::Span::new(self.file_id, start.start, end.end),
+        });
+        Ok(())
     }
 
     pub(super) fn parse_cls_envelope(&mut self) -> Result<(), Diagnostic> {

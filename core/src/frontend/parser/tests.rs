@@ -561,3 +561,20 @@ End Namespace
     assert_eq!(program.classes.len(), 1);
     assert_eq!(program.classes[0].name, "Sprite");
 }
+
+#[test]
+fn parses_module_block_as_module_level_declarations() {
+    let source = r#"
+Public Module MathTools
+    Public Const Answer As Integer = 42
+
+    Public Function Add(ByVal left As Integer, ByVal right As Integer) As Integer
+        Add = left + right
+    End Function
+End Module
+"#;
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    assert_eq!(program.module_consts.len(), 1);
+    assert_eq!(program.functions.len(), 1);
+    assert_eq!(program.functions[0].name, "Add");
+}

@@ -6,6 +6,22 @@ Valo uses a structured module system to organize code and manage dependencies be
 
 In Valo, every `.valo`, `.bas`, or `.cls` file is treated as a module. The name of the module is derived from the file name (case-insensitively).
 
+VB.NET-style `Module` blocks are also accepted as module-level declaration containers:
+
+```vb
+Module MathTools
+    Public Function Add(ByVal left As Integer, ByVal right As Integer) As Integer
+        Add = left + right
+    End Function
+End Module
+
+Sub Main()
+    Console.WriteLine(MathTools.Add(2, 3))
+End Sub
+```
+
+Members declared inside a `Module` block are available as normal module-level declarations. Callable members and fields can also be accessed through the block name, matching the common VB.NET `ModuleName.Member` style.
+
 ## Importing Modules
 
 Use the `Import` keyword to make the public members of another module accessible.

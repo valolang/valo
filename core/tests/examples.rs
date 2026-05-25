@@ -26,8 +26,7 @@ fn test_official_examples() {
         let file_name = path.file_name().and_then(|s| s.to_str());
 
         if extension == Some("valo") || extension == Some("bas") {
-            #[cfg(not(windows))]
-            if file_name == Some("com_dictionary.valo") {
+            if should_skip_example(file_name) {
                 skipped += 1;
                 continue;
             }
@@ -62,4 +61,8 @@ fn test_official_examples() {
     }
 
     println!("Successfully ran {} examples ({} skipped).", count, skipped);
+}
+
+fn should_skip_example(file_name: Option<&str>) -> bool {
+    cfg!(not(windows)) && file_name == Some("com_dictionary.valo")
 }

@@ -258,3 +258,24 @@ End Sub
 
     assert_eq!(output, vec!["ok"]);
 }
+
+#[test]
+fn module_block_members_execute_as_module_level_declarations() {
+    let output = run_source(
+        r#"
+Module MathTools
+    Public Const Answer As Integer = 42
+
+    Public Function Add(ByVal left As Integer, ByVal right As Integer) As Integer
+        Add = left + right
+    End Function
+End Module
+
+Sub Main()
+    Debug.Print MathTools.Add(Answer, 8)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["50"]);
+}
