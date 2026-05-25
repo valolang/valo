@@ -111,6 +111,7 @@ pub struct TypeDecl {
     pub kind: TypeKind,
     pub name: String,
     pub type_params: Vec<String>,
+    pub generic_constraints: Vec<GenericParamConstraint>,
     pub fields: Vec<FieldDecl>,
     pub members: Vec<ClassMember>,
     pub span: Span,
@@ -138,6 +139,7 @@ pub struct ClassDecl {
     pub inheritance: ClassInheritance,
     pub name: String,
     pub type_params: Vec<String>,
+    pub generic_constraints: Vec<GenericParamConstraint>,
     pub base_class: Option<TypeName>,
     pub implements: Vec<TypeName>,
     pub attributes: Vec<AttributeDecl>,
@@ -158,8 +160,18 @@ pub struct InterfaceDecl {
     pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
+    pub generic_constraints: Vec<GenericParamConstraint>,
     pub members: Vec<InterfaceMember>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GenericParamConstraint {
+    pub name: String,
+    pub require_class: bool,
+    pub require_structure: bool,
+    pub require_new: bool,
+    pub bounds: Vec<TypeName>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -312,6 +324,7 @@ pub struct Procedure {
     pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
+    pub generic_constraints: Vec<GenericParamConstraint>,
     pub params: Vec<Parameter>,
     pub body: Vec<Stmt>,
     pub span: Span,
@@ -323,6 +336,7 @@ pub struct Function {
     pub name: String,
     pub is_iterator: bool,
     pub type_params: Vec<String>,
+    pub generic_constraints: Vec<GenericParamConstraint>,
     pub params: Vec<Parameter>,
     pub return_type: TypeName,
     pub return_slot: Option<String>,

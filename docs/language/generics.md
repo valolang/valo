@@ -57,8 +57,9 @@ End Class
 Inherited generic members keep their instantiated type arguments in the runtime layout.
 
 Valo accepts VB.NET-style variance markers and type parameter constraint syntax in generic
-declarations. Current runtime generic substitution uses the parameter names; constraints are
-parsed as declaration metadata and reserved for deeper compile-time enforcement.
+declarations. `Class`, `Structure`, `New`, and base-class constraints are checked when a
+generic type or function is instantiated. Interface constraint matching is reserved for deeper
+interface runtime work.
 
 ```vb
 Interface IProducer(Of Out T)
@@ -72,3 +73,6 @@ End Class
 
 Function Create(Of T)() As T Where T : Class, New
 ```
+
+Generic method type inference, generic delegates, lambdas, overload resolution parity, and
+LINQ-style collection APIs are still roadmap items.

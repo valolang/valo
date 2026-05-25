@@ -11,6 +11,7 @@ use crate::frontend::ast::*;
 use crate::frontend::lexer::{Lexer, Token, TokenKind};
 use crate::frontend::preprocessor::preprocess;
 use crate::runtime::{Diagnostic, FileId};
+use std::collections::HashMap;
 
 pub fn parse_source(source: &str) -> Result<Program, Diagnostic> {
     Parser::parse_source(source, FileId::default())
@@ -24,6 +25,7 @@ pub struct Parser {
     pub(super) file_id: FileId,
     pub(super) tokens: Vec<Token>,
     pub(super) current: usize,
+    pub(super) pending_generic_constraints: HashMap<String, GenericParamConstraint>,
 }
 
 impl Parser {
@@ -38,6 +40,7 @@ impl Parser {
             file_id,
             tokens,
             current: 0,
+            pending_generic_constraints: HashMap::new(),
         }
     }
 

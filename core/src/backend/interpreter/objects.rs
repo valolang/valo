@@ -1135,6 +1135,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                             name: property.name.clone(),
                             is_iterator: true,
                             type_params: Vec::new(),
+                            generic_constraints: Vec::new(),
                             params: property.params.clone(),
                             return_type: property.return_type.clone().expect("get returns"),
                             return_slot: None,

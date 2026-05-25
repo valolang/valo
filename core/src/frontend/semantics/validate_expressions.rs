@@ -493,6 +493,7 @@ pub(super) fn validate_expr(
                             visibility: Visibility::Public,
                             name: prop_sig.name.clone(),
                             type_params: Vec::new(),
+                            generic_constraints: Vec::new(),
                             is_shared: prop_sig.is_shared,
                             _is_iterator: get.is_iterator,
                             is_declare: false,
@@ -690,6 +691,7 @@ pub(super) fn validate_expr(
                         visibility: Visibility::Public,
                         name: property_sig.name.clone(),
                         type_params: Vec::new(),
+                        generic_constraints: Vec::new(),
                         is_shared: property_sig.is_shared,
                         _is_iterator: get.is_iterator,
                         is_declare: false,
@@ -907,6 +909,7 @@ pub(super) fn validate_expr(
                         visibility: Visibility::Public,
                         name: prop_sig.name.clone(),
                         type_params: Vec::new(),
+                        generic_constraints: Vec::new(),
                         is_shared: prop_sig.is_shared,
                         _is_iterator: get.is_iterator,
                         is_declare: false,
@@ -931,7 +934,7 @@ pub(super) fn validate_expr(
                 ));
             };
 
-            let function = instantiate_callable(&function, type_args, expr.span)?;
+            let function = instantiate_callable(&function, type_args, expr.span, types)?;
             validate_arguments(
                 "Function",
                 &function,
@@ -1799,6 +1802,7 @@ fn instantiate_callable(
     callable: &CallableSig,
     type_args: &[TypeName],
     span: Span,
+    types: &TypeRegistry,
 ) -> Result<CallableSig, Diagnostic> {
     if callable.type_params.is_empty() {
         if !type_args.is_empty() {
@@ -1822,6 +1826,14 @@ fn instantiate_callable(
             Some(span),
         ));
     }
+    validate_generic_constraints(
+        &callable.name,
+        &callable.type_params,
+        &callable.generic_constraints,
+        type_args,
+        types,
+        span,
+    )?;
     let bindings = callable
         .type_params
         .iter()
@@ -1922,6 +1934,7 @@ pub(super) fn validate_method_call(
                     visibility: get.visibility,
                     name: method.to_string(),
                     type_params: Vec::new(),
+                    generic_constraints: Vec::new(),
                     is_shared: false,
                     _is_iterator: get.is_iterator,
                     is_declare: false,
@@ -2123,6 +2136,7 @@ fn validate_structure_method_call(
                 visibility: get.visibility,
                 name: method.to_string(),
                 type_params: Vec::new(),
+                generic_constraints: Vec::new(),
                 is_shared: false,
                 _is_iterator: get.is_iterator,
                 is_declare: false,
@@ -2570,24 +2584,25 @@ pub(super) fn ensure_known_type(
         TypeName::GenericInstance { name, args } => {
             let expected = types
                 .get(name)
-                .map(|sig| (&sig.name, sig.type_params.len()))
+                .map(|sig| (&sig.name, &sig.type_params, &sig.generic_constraints))
                 .or_else(|| {
                     types
                         .get_class(name)
-                        .map(|sig| (&sig.name, sig.type_params.len()))
+                        .map(|sig| (&sig.name, &sig.type_params, &sig.generic_constraints))
                 })
                 .or_else(|| {
                     types
                         .get_interface(name)
-                        .map(|sig| (&sig.name, sig.type_params.len()))
+                        .map(|sig| (&sig.name, &sig.type_params, &sig.generic_constraints))
                 });
-            let Some((canonical, expected_count)) = expected else {
+            let Some((canonical, type_params, generic_constraints)) = expected else {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                     format!("Type '{}' is not defined", name),
                     Some(span),
                 ));
             };
+            let expected_count = type_params.len();
             if expected_count != args.len() {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -2604,6 +2619,14 @@ pub(super) fn ensure_known_type(
             for arg in args {
                 ensure_known_type(arg, types, span)?;
             }
+            validate_generic_constraints(
+                canonical,
+                type_params,
+                generic_constraints,
+                args,
+                types,
+                span,
+            )?;
             Ok(())
         }
         TypeName::Enum(name) => {
@@ -2619,6 +2642,192 @@ pub(super) fn ensure_known_type(
         }
         TypeName::Array(inner) => ensure_known_type(inner, types, span),
     }
+}
+
+fn validate_generic_constraints(
+    owner: &str,
+    type_params: &[String],
+    constraints: &[crate::GenericParamConstraint],
+    type_args: &[TypeName],
+    types: &TypeRegistry,
+    span: Span,
+) -> Result<(), Diagnostic> {
+    for constraint in constraints {
+        let Some(index) = type_params
+            .iter()
+            .position(|param| param.eq_ignore_ascii_case(&constraint.name))
+        else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!(
+                    "Generic constraint references unknown type parameter '{}'",
+                    constraint.name
+                ),
+                Some(span),
+            ));
+        };
+        let arg = &type_args[index];
+        if constraint.require_class && !is_reference_type(arg, types) {
+            return Err(generic_constraint_error(
+                owner,
+                &constraint.name,
+                arg,
+                "must be a reference type",
+                span,
+            ));
+        }
+        if constraint.require_structure && !is_value_type(arg, types) {
+            return Err(generic_constraint_error(
+                owner,
+                &constraint.name,
+                arg,
+                "must be a value type",
+                span,
+            ));
+        }
+        if constraint.require_new && !has_parameterless_constructor(arg, types) {
+            return Err(generic_constraint_error(
+                owner,
+                &constraint.name,
+                arg,
+                "must have a public parameterless constructor",
+                span,
+            ));
+        }
+        for bound in &constraint.bounds {
+            if !satisfies_type_bound(arg, bound, types) {
+                return Err(generic_constraint_error(
+                    owner,
+                    &constraint.name,
+                    arg,
+                    &format!("must inherit from or implement '{}'", bound.display_name()),
+                    span,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn generic_constraint_error(
+    owner: &str,
+    param: &str,
+    arg: &TypeName,
+    requirement: &str,
+    span: Span,
+) -> Diagnostic {
+    Diagnostic::new(
+        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+        format!(
+            "Type argument '{}' for '{}.{}' {}",
+            arg.display_name(),
+            owner,
+            param,
+            requirement
+        ),
+        Some(span),
+    )
+}
+
+fn is_reference_type(ty: &TypeName, types: &TypeRegistry) -> bool {
+    match ty {
+        TypeName::String | TypeName::Array(_) => true,
+        TypeName::User(name) => {
+            name.eq_ignore_ascii_case("Object")
+                || types.get_class(name).is_some()
+                || types.get_interface(name).is_some()
+        }
+        TypeName::GenericInstance { name, .. } => {
+            types.get_class(name).is_some() || types.get_interface(name).is_some()
+        }
+        _ => false,
+    }
+}
+
+fn is_value_type(ty: &TypeName, types: &TypeRegistry) -> bool {
+    match ty {
+        TypeName::Byte
+        | TypeName::Integer
+        | TypeName::Long
+        | TypeName::Int64
+        | TypeName::UInt32
+        | TypeName::UInt64
+        | TypeName::Single
+        | TypeName::Double
+        | TypeName::Currency
+        | TypeName::Decimal
+        | TypeName::Boolean
+        | TypeName::Date
+        | TypeName::Ptr
+        | TypeName::FuncPtr
+        | TypeName::Enum(_) => true,
+        TypeName::User(name) => {
+            types.get(name).is_some_and(|sig| sig.is_structure) || types.get_enum(name).is_some()
+        }
+        TypeName::GenericInstance { name, .. } => {
+            types.get(name).is_some_and(|sig| sig.is_structure)
+        }
+        TypeName::String | TypeName::Variant | TypeName::Array(_) => false,
+    }
+}
+
+fn has_parameterless_constructor(ty: &TypeName, types: &TypeRegistry) -> bool {
+    if is_value_type(ty, types) {
+        return true;
+    }
+    match ty {
+        TypeName::User(name) if name.eq_ignore_ascii_case("Object") => true,
+        TypeName::User(name) => types
+            .get_class(name)
+            .is_some_and(class_has_public_default_new),
+        TypeName::GenericInstance { name, .. } => types
+            .get_class(name)
+            .is_some_and(class_has_public_default_new),
+        _ => false,
+    }
+}
+
+fn class_has_public_default_new(class: &ClassSig) -> bool {
+    if class.inheritance == crate::ClassInheritance::MustInherit {
+        return false;
+    }
+    class
+        .subs
+        .get("initialize")
+        .is_none_or(|init| init.visibility == Visibility::Public && init.params.is_empty())
+}
+
+fn satisfies_type_bound(arg: &TypeName, bound: &TypeName, types: &TypeRegistry) -> bool {
+    if arg.same_type(bound) {
+        return true;
+    }
+    match (arg, bound) {
+        (_, TypeName::User(name)) if name.eq_ignore_ascii_case("Object") => {
+            is_reference_type(arg, types)
+        }
+        (TypeName::User(arg_name), TypeName::User(bound_name))
+        | (TypeName::GenericInstance { name: arg_name, .. }, TypeName::User(bound_name)) => {
+            class_inherits_from(arg_name, bound_name, types)
+        }
+        _ => false,
+    }
+}
+
+fn class_inherits_from(class_name: &str, bound_name: &str, types: &TypeRegistry) -> bool {
+    let Some(class) = types.get_class(class_name) else {
+        return false;
+    };
+    let Some(base) = &class.base_class else {
+        return false;
+    };
+    let (TypeName::User(base_name)
+    | TypeName::GenericInstance {
+        name: base_name, ..
+    }) = base
+    else {
+        return false;
+    };
+    base_name.eq_ignore_ascii_case(bound_name) || class_inherits_from(base_name, bound_name, types)
 }
 
 fn generic_bindings_for_type(

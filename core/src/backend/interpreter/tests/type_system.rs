@@ -260,6 +260,105 @@ End Sub
 }
 
 #[test]
+fn generic_class_constraint_rejects_value_type_arguments() {
+    let error = source_error(
+        r#"
+Class Box(Of T As Class)
+End Class
+
+Sub Main()
+    Dim box As Box(Of Long)
+End Sub
+"#,
+    );
+
+    assert!(error.contains("must be a reference type"));
+}
+
+#[test]
+fn generic_structure_constraint_rejects_reference_type_arguments() {
+    let error = source_error(
+        r#"
+Structure Pair(Of T As Structure)
+    Public Value As T
+End Structure
+
+Class User
+End Class
+
+Sub Main()
+    Dim pair As Pair(Of User)
+End Sub
+"#,
+    );
+
+    assert!(error.contains("must be a value type"));
+}
+
+#[test]
+fn generic_new_constraint_requires_public_parameterless_constructor() {
+    let ok = run_source(
+        r#"
+Class User
+End Class
+
+Function Marker(Of T)() As String Where T : Class, New
+    Marker = "ok"
+End Function
+
+Sub Main()
+    Debug.Print Marker(Of User)()
+End Sub
+"#,
+    );
+    assert_eq!(ok, vec!["ok"]);
+
+    let error = source_error(
+        r#"
+Class User
+    Public Sub New(ByVal name As String)
+    End Sub
+End Class
+
+Function Marker(Of T)() As String Where T : Class, New
+    Marker = "ok"
+End Function
+
+Sub Main()
+    Debug.Print Marker(Of User)()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("must have a public parameterless constructor"));
+}
+
+#[test]
+fn generic_base_class_constraint_allows_derived_arguments() {
+    let output = run_source(
+        r#"
+Class Animal
+End Class
+
+Class Dog Inherits Animal
+End Class
+
+Class Cage(Of T As Animal)
+    Public Occupant As T
+End Class
+
+Sub Main()
+    Dim cage As Cage(Of Dog)
+    Set cage = New Cage(Of Dog)()
+    Debug.Print "ok"
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["ok"]);
+}
+
+#[test]
 fn module_block_members_execute_as_module_level_declarations() {
     let output = run_source(
         r#"

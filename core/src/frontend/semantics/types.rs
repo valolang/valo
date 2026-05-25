@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::ArrayDecl;
+use crate::GenericParamConstraint;
 use crate::Visibility;
 use crate::runtime::TypeName;
 
@@ -20,6 +21,7 @@ pub(super) struct TypeSig {
     pub(super) visibility: Visibility,
     pub(super) name: String,
     pub(super) type_params: Vec<String>,
+    pub(super) generic_constraints: Vec<GenericParamConstraint>,
     pub(super) is_structure: bool,
     pub(super) fields: HashMap<String, FieldSig>,
     pub(super) subs: HashMap<String, ClassMethodSig>,
@@ -122,6 +124,7 @@ pub(super) struct ClassSig {
     pub(super) inheritance: crate::ClassInheritance,
     pub(super) name: String,
     pub(super) type_params: Vec<String>,
+    pub(super) generic_constraints: Vec<GenericParamConstraint>,
     pub(super) base_class: Option<TypeName>,
     pub(super) fields: HashMap<String, ClassFieldSig>,
     pub(super) events: HashMap<String, ClassEventSig>,
@@ -139,6 +142,7 @@ pub(super) struct InterfaceSig {
     pub(super) visibility: Visibility,
     pub(super) name: String,
     pub(super) type_params: Vec<String>,
+    pub(super) generic_constraints: Vec<GenericParamConstraint>,
     pub(super) subs: HashMap<String, ClassMethodSig>,
     pub(super) functions: HashMap<String, ClassMethodSig>,
     pub(super) events: HashMap<String, ClassEventSig>,

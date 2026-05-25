@@ -125,6 +125,7 @@ impl Parser {
             }
         }
         self.parse_optional_where_clauses()?;
+        let generic_constraints = self.take_generic_constraints();
         self.expect_statement_end("Expected newline after Class declaration")?;
 
         let mut members = Vec::new();
@@ -153,6 +154,7 @@ impl Parser {
             inheritance,
             name,
             type_params,
+            generic_constraints,
             base_class,
             implements,
             attributes,
@@ -171,6 +173,7 @@ impl Parser {
         let name = self.expect_identifier("Expected interface name after 'Interface'")?;
         let type_params = self.parse_optional_type_params()?;
         self.parse_optional_where_clauses()?;
+        let generic_constraints = self.take_generic_constraints();
         self.expect_statement_end("Expected newline after Interface declaration")?;
         let mut members = Vec::new();
         self.skip_newlines();
@@ -187,6 +190,7 @@ impl Parser {
             visibility,
             name,
             type_params,
+            generic_constraints,
             members,
             span: Span::new(self.file_id, start.start, end.end),
         })
@@ -1114,6 +1118,7 @@ impl Parser {
         let name = self.expect_identifier(&format!("Expected type name after '{keyword}'"))?;
         let type_params = self.parse_optional_type_params()?;
         self.parse_optional_where_clauses()?;
+        let generic_constraints = self.take_generic_constraints();
         self.expect_statement_end(&format!("Expected newline after {keyword} declaration"))?;
 
         let mut fields = Vec::new();
@@ -1204,6 +1209,7 @@ impl Parser {
             kind,
             name,
             type_params,
+            generic_constraints,
             fields,
             members,
             span: Span::new(self.file_id, start.start, end.end),
@@ -1329,6 +1335,7 @@ impl Parser {
             "Expected ')' after procedure parameters",
         )?;
         self.parse_optional_where_clauses()?;
+        let generic_constraints = self.take_generic_constraints();
         self.expect_statement_end("Expected newline after procedure declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndSub])?;
@@ -1342,6 +1349,7 @@ impl Parser {
             visibility,
             name,
             type_params,
+            generic_constraints,
             params,
             body,
             span: Span::new(self.file_id, start.start, end.end),
@@ -1363,6 +1371,7 @@ impl Parser {
         )?;
         let implements = self.parse_optional_implements_clause()?;
         self.parse_optional_where_clauses()?;
+        let generic_constraints = self.take_generic_constraints();
         self.expect_statement_end("Expected newline after procedure declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndSub])?;
@@ -1377,6 +1386,7 @@ impl Parser {
                 visibility,
                 name,
                 type_params,
+                generic_constraints,
                 params,
                 body,
                 span: Span::new(self.file_id, start.start, end.end),
@@ -1433,6 +1443,7 @@ impl Parser {
             visibility,
             name: canonical_name.to_string(),
             type_params: Vec::new(),
+            generic_constraints: Vec::new(),
             params,
             body,
             span: Span::new(self.file_id, start_span.start, end.end),
@@ -1468,6 +1479,7 @@ impl Parser {
             return_type = TypeName::Array(Box::new(return_type));
         }
         self.parse_optional_where_clauses()?;
+        let generic_constraints = self.take_generic_constraints();
         self.expect_statement_end("Expected newline after function declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndFunction])?;
@@ -1482,6 +1494,7 @@ impl Parser {
             name,
             is_iterator,
             type_params,
+            generic_constraints,
             params,
             return_type,
             return_slot: None,
@@ -1520,6 +1533,7 @@ impl Parser {
         }
         let implements = self.parse_optional_implements_clause()?;
         self.parse_optional_where_clauses()?;
+        let generic_constraints = self.take_generic_constraints();
         self.expect_statement_end("Expected newline after function declaration")?;
 
         let mut is_enumerator = false;
@@ -1553,6 +1567,7 @@ impl Parser {
                 name,
                 is_iterator,
                 type_params,
+                generic_constraints,
                 params,
                 return_type,
                 return_slot: None,
@@ -1751,6 +1766,7 @@ impl Parser {
     }
 
     pub(super) fn parse_optional_type_params(&mut self) -> Result<Vec<String>, Diagnostic> {
+        self.pending_generic_constraints.clear();
         if !(self.check_simple(&TokenKind::LeftParen)
             && matches!(self.peek_next_kind(), Some(TokenKind::Of)))
         {
@@ -1773,7 +1789,8 @@ impl Parser {
                 ));
             }
             if self.match_simple(&TokenKind::As) {
-                self.parse_type_param_constraint()?;
+                let constraint = self.parse_type_param_constraint(name.clone())?;
+                self.merge_generic_constraint(constraint);
             }
             params.push(name);
             if !self.match_simple(&TokenKind::Comma) {
@@ -1794,10 +1811,17 @@ impl Parser {
         }
     }
 
-    fn parse_type_param_constraint(&mut self) -> Result<(), Diagnostic> {
+    fn parse_type_param_constraint(
+        &mut self,
+        name: String,
+    ) -> Result<GenericParamConstraint, Diagnostic> {
+        let mut constraint = GenericParamConstraint {
+            name,
+            ..GenericParamConstraint::default()
+        };
         if self.match_simple(&TokenKind::LeftBrace) {
             loop {
-                self.parse_single_type_param_constraint()?;
+                self.parse_single_type_param_constraint(&mut constraint)?;
                 if self.match_simple(&TokenKind::Comma) {
                     continue;
                 }
@@ -1807,24 +1831,35 @@ impl Parser {
                 TokenKind::RightBrace,
                 "Expected '}' after type parameter constraints",
             )?;
-            return Ok(());
+            return Ok(constraint);
         }
 
-        self.parse_single_type_param_constraint()
+        self.parse_single_type_param_constraint(&mut constraint)?;
+        Ok(constraint)
     }
 
-    fn parse_single_type_param_constraint(&mut self) -> Result<(), Diagnostic> {
-        if self.match_simple(&TokenKind::Class)
-            || self.match_simple(&TokenKind::Structure)
-            || self.match_simple(&TokenKind::New)
-        {
+    fn parse_single_type_param_constraint(
+        &mut self,
+        constraint: &mut GenericParamConstraint,
+    ) -> Result<(), Diagnostic> {
+        if self.match_simple(&TokenKind::Class) {
+            constraint.require_class = true;
+            return Ok(());
+        }
+        if self.match_simple(&TokenKind::Structure) {
+            constraint.require_structure = true;
+            return Ok(());
+        }
+        if self.match_simple(&TokenKind::New) {
             if self.match_simple(&TokenKind::LeftParen) {
                 self.expect_simple(TokenKind::RightParen, "Expected ')' after New constraint")?;
             }
+            constraint.require_new = true;
             return Ok(());
         }
 
-        let _ = self.parse_type_name()?;
+        let bound = self.parse_type_name()?;
+        constraint.bounds.push(bound);
         Ok(())
     }
 
@@ -1832,14 +1867,37 @@ impl Parser {
         while matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Where"))
         {
             self.advance();
-            let _name = self.expect_identifier("Expected type parameter name after 'Where'")?;
+            let name = self.expect_identifier("Expected type parameter name after 'Where'")?;
             self.expect_simple(TokenKind::Colon, "Expected ':' after Where type parameter")?;
-            self.parse_type_param_constraint()?;
+            let constraint = self.parse_type_param_constraint(name.clone())?;
+            self.merge_generic_constraint(constraint);
             while self.match_simple(&TokenKind::Comma) {
-                self.parse_type_param_constraint()?;
+                let constraint = self.parse_type_param_constraint(name.clone())?;
+                self.merge_generic_constraint(constraint);
             }
         }
         Ok(())
+    }
+
+    fn merge_generic_constraint(&mut self, constraint: GenericParamConstraint) {
+        let entry = self
+            .pending_generic_constraints
+            .entry(constraint.name.to_ascii_lowercase())
+            .or_insert_with(|| GenericParamConstraint {
+                name: constraint.name.clone(),
+                ..GenericParamConstraint::default()
+            });
+        entry.require_class |= constraint.require_class;
+        entry.require_structure |= constraint.require_structure;
+        entry.require_new |= constraint.require_new;
+        entry.bounds.extend(constraint.bounds);
+    }
+
+    fn take_generic_constraints(&mut self) -> Vec<GenericParamConstraint> {
+        self.pending_generic_constraints
+            .drain()
+            .map(|(_, v)| v)
+            .collect()
     }
 
     pub(super) fn parse_optional_type_args(&mut self) -> Result<Vec<TypeName>, Diagnostic> {
