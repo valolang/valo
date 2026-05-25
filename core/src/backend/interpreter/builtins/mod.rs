@@ -162,6 +162,28 @@ pub(crate) fn dispatch_function(
         }
     }
 
+    if effective_name.eq_ignore_ascii_case("CreateObject") {
+        if args.is_empty() || args.len() > 2 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "CreateObject expects 1 to 2 arguments",
+                Some(span),
+            ));
+        }
+        let prog_id = interpreter.eval_expr(&args[0], frame)?.to_output_string();
+        if args.len() == 2 {
+            let server = interpreter.eval_expr(&args[1], frame)?.to_output_string();
+            if !server.is_empty() {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::GENERIC,
+                    "CreateObject remote server activation is not supported yet",
+                    Some(args[1].span),
+                ));
+            }
+        }
+        return Ok(Some(crate::runtime::com::create_object(&prog_id, span)?));
+    }
+
     if matches!(
         effective_name.to_ascii_lowercase().as_str(),
         "freefile" | "eof" | "lof" | "seek" | "dir" | "filelen" | "filedatetime" | "curdir"
@@ -272,6 +294,7 @@ fn is_builtin_function(name: &str) -> bool {
             | "iserror"
             | "vartype"
             | "typename"
+            | "createobject"
             | "cbyte"
             | "cint"
             | "clng"

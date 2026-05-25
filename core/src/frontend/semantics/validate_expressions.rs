@@ -1322,6 +1322,19 @@ fn validate_builtin_function(
         validate_expr(&args[0], symbols, types, signatures, context)?;
         return Ok(Some(TypeName::String));
     }
+    if effective_name.eq_ignore_ascii_case("CreateObject") {
+        if args.is_empty() || args.len() > 2 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "CreateObject expects 1 to 2 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context)?;
+        }
+        return Ok(Some(TypeName::User("Object".to_string())));
+    }
     if effective_name.eq_ignore_ascii_case("CStr") {
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(&args[0], symbols, types, signatures, context)?;

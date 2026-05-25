@@ -9,7 +9,7 @@ pub(crate) fn eval_types(
         expect_value_count(name, args, 1, span)?;
         return Ok(Some(Value::Boolean(matches!(
             args[0],
-            Value::Object(_) | Value::Nothing
+            Value::Object(_) | Value::ComObject(_) | Value::Nothing
         ))));
     }
     if name.eq_ignore_ascii_case("IsArray") {
@@ -148,7 +148,7 @@ fn vartype(value: &Value) -> i64 {
         Value::Currency(_) => 6,
         Value::Date(_) => 7,
         Value::String(_) => 8,
-        Value::Object(_) | Value::Nothing => 9,
+        Value::Object(_) | Value::ComObject(_) | Value::Nothing => 9,
         Value::Boolean(_) => 11,
         Value::Decimal(_) => 14,
         Value::Byte(_) => 17,
@@ -177,6 +177,7 @@ fn value_type_name(value: &Value) -> String {
         Value::String(_) => "String".to_string(),
         Value::Error(_) => "Error".to_string(),
         Value::Object(object) => object.borrow().class_name.clone(),
+        Value::ComObject(object) => object.prog_id.clone(),
         Value::Nothing => "Nothing".to_string(),
         Value::Array(_) => "Array".to_string(),
         Value::Record(record) => record.type_name.clone(),

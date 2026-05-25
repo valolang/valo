@@ -23,7 +23,7 @@ pub use diagnostic::{
     SourceMap, SourcePos, Span, terminal_supports_color,
 };
 pub use type_name::TypeName;
-pub use value::{ArrayValue, EventBinding, ObjectValue, RecordValue, Value};
+pub use value::{ArrayValue, ComObjectValue, EventBinding, ObjectValue, RecordValue, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArrayBound {

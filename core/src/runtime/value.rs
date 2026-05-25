@@ -1,5 +1,10 @@
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
+#[cfg(windows)]
+use windows::Win32::System::Com::IDispatch;
+#[cfg(windows)]
+use windows::core::Interface;
+
 use crate::TypeName;
 use crate::runtime::ArrayBound;
 
@@ -38,6 +43,7 @@ pub enum Value {
     Array(Rc<ArrayValue>),
     Record(Rc<RecordValue>),
     Object(Rc<RefCell<ObjectValue>>),
+    ComObject(Rc<ComObjectValue>),
     Error(i32),
     Nothing,
     Null,
@@ -51,6 +57,37 @@ pub struct ObjectValue {
     pub fields: HashMap<String, Value>,
     pub event_bindings: Vec<EventBinding>,
     pub terminated: bool,
+}
+
+#[derive(Clone)]
+pub struct ComObjectValue {
+    pub prog_id: String,
+    #[cfg(windows)]
+    pub dispatch: IDispatch,
+}
+
+impl fmt::Debug for ComObjectValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ComObjectValue")
+            .field("prog_id", &self.prog_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for ComObjectValue {
+    fn eq(&self, other: &Self) -> bool {
+        if !self.prog_id.eq_ignore_ascii_case(&other.prog_id) {
+            return false;
+        }
+        #[cfg(windows)]
+        {
+            self.dispatch.as_raw() == other.dispatch.as_raw()
+        }
+        #[cfg(not(windows))]
+        {
+            true
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +128,7 @@ impl Value {
             Value::Array(array) => TypeName::Array(Box::new(array.element_type.clone())),
             Value::Record(record) => TypeName::User(record.type_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
+            Value::ComObject(_) => TypeName::User("Object".to_string()),
             Value::Error(_) => TypeName::Variant,
             Value::Nothing | Value::Null | Value::Missing => TypeName::Variant,
             Value::Empty => TypeName::Variant,
@@ -116,7 +154,7 @@ impl Value {
             Value::String(value) => !value.is_empty(),
             Value::Array(array) => array.allocated && !array.elements.is_empty(),
             Value::Record(_) => true,
-            Value::Object(_) => true,
+            Value::Object(_) | Value::ComObject(_) => true,
             Value::Error(code) => *code != 0,
             Value::Nothing | Value::Null | Value::Missing => false,
             Value::Empty => false,
@@ -153,6 +191,7 @@ impl Value {
             Value::Array(_) => "<Array>".to_string(),
             Value::Record(record) => format!("<{}>", record.type_name),
             Value::Object(object) => format!("<{}>", object.borrow().class_name),
+            Value::ComObject(object) => format!("<COM:{}>", object.prog_id),
             Value::Error(code) => format!("Error {}", code),
             Value::Nothing => "Nothing".to_string(),
             Value::Null => "Null".to_string(),

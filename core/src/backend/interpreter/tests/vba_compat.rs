@@ -1,5 +1,5 @@
 use crate::backend::interpreter::run;
-use crate::backend::interpreter::tests::helpers::{parse_and_validate, run_source};
+use crate::backend::interpreter::tests::helpers::{parse_and_validate, run_source, source_error};
 use crate::frontend::parser::Parser;
 use crate::frontend::semantics::validate;
 use std::fs;
@@ -895,6 +895,58 @@ End Function
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["True", "False"]);
+}
+
+#[test]
+fn object_reference_accepts_any_class_instance() {
+    let output = run_source(
+        r#"
+Class Player
+    Public Name As String
+End Class
+
+Sub Main()
+    Dim p As New Player()
+    p.Name = "Ada"
+    Dim obj As Object
+    Set obj = p
+    Console.WriteLine(IsObject(obj))
+    Console.WriteLine(TypeName(obj))
+    Console.WriteLine(TypeOf obj Is Player)
+    Set obj = Nothing
+    Console.WriteLine(obj Is Nothing)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["True", "Player", "True", "True"]);
+}
+
+#[test]
+fn createobject_type_checks_as_object() {
+    let source = r#"
+Sub Main()
+    Dim obj As Object
+    Set obj = CreateObject("Scripting.Dictionary", "")
+End Sub
+"#;
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+}
+
+#[cfg(not(windows))]
+#[test]
+fn createobject_reports_clear_non_windows_runtime_error() {
+    let error = source_error(
+        r#"
+Sub Main()
+    Dim obj As Object
+    Set obj = CreateObject("Scripting.Dictionary")
+End Sub
+"#,
+    );
+
+    assert!(error.contains("CreateObject is only available on Windows COM/OLE Automation hosts"));
 }
 
 #[test]
