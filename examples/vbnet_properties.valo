@@ -1,49 +1,49 @@
-Class Produto
+Class Product
     Public Property Id As Integer
-    Public Property Nome As String = "Produto Sem Nome"
+    Public Property Name As String = "Product without a name"
 End Class
 
-Class Conta
-    Private _saldo As Decimal
+Class Account
+    Private _balance As Decimal
 
-    Public Property Saldo As Decimal
+    Public Property Balance As Decimal
         Get
-            Return _saldo
+            Return _balance
         End Get
         Set(value As Decimal)
             If value >= 0 Then
-                _saldo = value
+                _balance = value
             Else
-                _saldo = 0
+                _balance = 0
             End If
         End Set
     End Property
 End Class
 
 Class Config
-    Public ReadOnly Property Versao As String
+    Public ReadOnly Property Version As String
         Get
             Return "1.0.0"
         End Get
     End Property
 
-    Public WriteOnly Property Senha As String
+    Public WriteOnly Property Password As String
         Set(value As String)
         End Set
     End Property
 End Class
 
 Sub Main()
-    Dim produto As New Produto()
-    Console.WriteLine(produto.Nome)
-    produto.Id = 42
-    Console.WriteLine(produto.Id)
+    Dim product As New Product()
+    Console.WriteLine(product.Name)
+    product.Id = 42
+    Console.WriteLine(product.Id)
 
-    Dim conta As New Conta()
-    conta.Saldo = -1
-    Console.WriteLine(conta.Saldo)
+    Dim account As New Account()
+    account.Balance = -1
+    Console.WriteLine(account.Balance)
 
     Dim config As New Config()
-    Console.WriteLine(config.Versao)
-    config.Senha = "secret"
+    Console.WriteLine(config.Version)
+    config.Password = "secret"
 End Sub
