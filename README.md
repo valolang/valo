@@ -194,6 +194,22 @@ Finally
 End Try
 ```
 
+### COM Automation
+
+Valo supports late-bound COM automation, allowing you to control external Windows applications like Excel or FSO just like in VBA.
+
+```vb
+Sub Main()
+    Dim dict As Object
+    Set dict = CreateObject("Scripting.Dictionary")
+    
+    ' Using default property Item (dict("Key") is same as dict.Item("Key"))
+    dict("Name") = "Valo"
+    
+    Console.WriteLine("Dictionary name: " & dict("Name"))
+End Sub
+```
+
 ### VBA-style error handling
 
 ```vb

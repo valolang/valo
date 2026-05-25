@@ -1,0 +1,16 @@
+Sub Main()
+    ' Demonstrate VBA-style COM default property access
+    Dim dict As Object
+    Set dict = CreateObject("Scripting.Dictionary")
+    
+    ' Using default property Item (dict("Key") is same as dict.Item("Key"))
+    dict("Name") = "Valo"
+    dict("Version") = "0.1"
+    
+    Console.WriteLine("Dictionary content:")
+    Console.WriteLine("Name: " & dict("Name"))
+    Console.WriteLine("Version: " & dict("Version"))
+    
+    ' Demonstrate standard property access
+    Console.WriteLine("Count: " & dict.Count)
+End Sub
