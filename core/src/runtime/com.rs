@@ -115,10 +115,9 @@ pub fn invoke_com(
     invoke_type: u16,
     span: Span,
 ) -> Result<Value, Diagnostic> {
-    use windows::Win32::System::Com::{DISPATCH_FLAGS, DISPPARAMS, EXCEPINFO};
-    use windows::core::{GUID, HSTRING, PCWSTR, VARIANT};
-
     let dispatch = &com_obj.dispatch;
+
+    use windows::core::{GUID, HSTRING, PCWSTR};
 
     let name_hstring = HSTRING::from(name);
     let mut dispid: i32 = 0;
@@ -141,6 +140,32 @@ pub fn invoke_com(
         ));
     }
 
+    invoke_com_dispid(com_obj, dispid, name, args, invoke_type, span)
+}
+
+#[cfg(windows)]
+pub fn invoke_default_com(
+    com_obj: &crate::runtime::ComObjectValue,
+    args: &[Value],
+    invoke_type: u16,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    invoke_com_dispid(com_obj, 0, "<default>", args, invoke_type, span)
+}
+
+#[cfg(windows)]
+fn invoke_com_dispid(
+    com_obj: &crate::runtime::ComObjectValue,
+    dispid: i32,
+    name: &str,
+    args: &[Value],
+    invoke_type: u16,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    use windows::Win32::System::Com::{DISPATCH_FLAGS, DISPPARAMS, EXCEPINFO};
+    use windows::core::{GUID, VARIANT};
+
+    let dispatch = &com_obj.dispatch;
     let mut variants: Vec<VARIANT> = args.iter().map(value_to_variant).collect();
     variants.reverse(); // COM expects args in reverse order
 
@@ -252,6 +277,19 @@ pub fn invoke_com(
 ) -> Result<Value, Diagnostic> {
     Err(com_error(
         format!("COM Invoke '{}' is only available on Windows", name),
+        span,
+    ))
+}
+
+#[cfg(not(windows))]
+pub fn invoke_default_com(
+    _com_obj: &crate::runtime::ComObjectValue,
+    _args: &[Value],
+    _invoke_type: u16,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    Err(com_error(
+        "COM default member Invoke is only available on Windows",
         span,
     ))
 }

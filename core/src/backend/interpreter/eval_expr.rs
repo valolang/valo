@@ -301,6 +301,15 @@ impl Interpreter {
                                 Some(expr.span),
                             ));
                         }
+                        Value::ComObject(ref com_obj) => {
+                            let mut eval_args = Vec::with_capacity(args.len());
+                            for arg in args {
+                                eval_args.push(self.eval_expr(arg, frame)?);
+                            }
+                            return crate::runtime::com::invoke_default_com(
+                                com_obj, &eval_args, 2, expr.span,
+                            );
+                        }
                         Value::Record(ref record) => {
                             if let Some(default_member) = self
                                 .types

@@ -940,6 +940,7 @@ fn object_default_property_assignment_accepts_string_index_semantically() {
 Sub Main()
     Dim obj As Object
     obj("Name") = "Valo"
+    Console.WriteLine("Name: " & obj("Name"))
 End Sub
 "#;
     let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();

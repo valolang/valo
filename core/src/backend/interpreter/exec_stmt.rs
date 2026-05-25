@@ -1035,8 +1035,12 @@ impl Interpreter {
                     if let Value::ComObject(ref com_obj) = target {
                         let mut property_args = index_values;
                         property_args.push(value);
-                        let _ = com_obj;
-                        self.call_property_set_values(target, "Item", &property_args, span)?;
+                        crate::runtime::com::invoke_default_com(
+                            com_obj,
+                            &property_args,
+                            4, // DISPATCH_PROPERTYPUT
+                            span,
+                        )?;
                         return Ok(());
                     }
 

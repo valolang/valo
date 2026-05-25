@@ -800,6 +800,12 @@ pub(super) fn validate_expr(
                     VarType::Scalar(Visibility::Public, TypeName::User(class_name))
                     | VarType::Optional(Visibility::Public, TypeName::User(class_name))
                     | VarType::Const(Visibility::Public, TypeName::User(class_name)) => {
+                        if class_name.eq_ignore_ascii_case("Object") {
+                            for arg in args {
+                                validate_expr(arg, symbols, types, signatures, context)?;
+                            }
+                            return Ok(TypeName::Variant);
+                        }
                         if let Some(type_sig) = types.get(&class_name)
                             && type_sig.is_structure
                             && let Some(default_prop_name) = &type_sig.default_property
