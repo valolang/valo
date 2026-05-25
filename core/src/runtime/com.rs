@@ -79,17 +79,15 @@ pub fn create_object(prog_id: &str, span: Span) -> Result<Value, Diagnostic> {
 
     const RPC_E_CHANGED_MODE: i32 = 0x8001_0106_u32 as i32;
 
-    if let Err(error) = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }
-        && error.code().0 != RPC_E_CHANGED_MODE
-    {
+    let hr = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+    if hr.is_err() && hr.0 != RPC_E_CHANGED_MODE {
         return Err(com_error(
-            format!("CreateObject could not initialize COM: {error}"),
+            format!("CreateObject could not initialize COM: {:?}", hr),
             span,
         ));
     }
 
-    let mut clsid = GUID::zeroed();
-    unsafe { CLSIDFromProgID(&HSTRING::from(prog_id), &mut clsid) }.map_err(|error| {
+    let clsid = unsafe { CLSIDFromProgID(&HSTRING::from(prog_id)) }.map_err(|error| {
         com_error(
             format!("CreateObject could not resolve '{prog_id}': {error}"),
             span,

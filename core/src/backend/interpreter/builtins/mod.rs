@@ -95,21 +95,19 @@ pub(crate) fn dispatch_function(
     if effective_name.eq_ignore_ascii_case("VarPtr") {
         expect_arg_count(effective_name, args, 1, span)?;
         let arg = &args[0];
-        let var_name = match &arg.kind {
-            crate::ExprKind::Variable(name) => name,
-            _ => {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::GENERIC,
-                    "VarPtr requires a variable",
-                    Some(arg.span),
-                ));
+        let ptr = match &arg.kind {
+            crate::ExprKind::Variable(name) => {
+                let variable = frame.variable(name, arg.span)?;
+                if let super::frame::VariableCell::Direct(cell) = &variable.cell {
+                    std::rc::Rc::as_ptr(cell) as usize
+                } else {
+                    0
+                }
             }
-        };
-        let variable = frame.variable(var_name, arg.span)?;
-        let ptr = if let super::frame::VariableCell::Direct(cell) = &variable.cell {
-            std::rc::Rc::as_ptr(cell) as usize
-        } else {
-            0
+            _ => {
+                let _ = interpreter.eval_expr(arg, frame)?;
+                0
+            }
         };
         return Ok(Some(Value::Ptr(ptr)));
     }

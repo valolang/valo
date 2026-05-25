@@ -565,6 +565,15 @@ pub(super) fn validate_expr(
                 if let Some(constant) = crate::runtime::vba::vba_constant(field) {
                     return Ok(constant.type_name());
                 }
+                if field.eq_ignore_ascii_case("Timer") || field.eq_ignore_ascii_case("Rnd") {
+                    return Ok(TypeName::Double);
+                }
+                if field.eq_ignore_ascii_case("Now")
+                    || field.eq_ignore_ascii_case("Date")
+                    || field.eq_ignore_ascii_case("Time")
+                {
+                    return Ok(TypeName::Date);
+                }
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                     format!("Module 'VBA' has no member '{}'", field),

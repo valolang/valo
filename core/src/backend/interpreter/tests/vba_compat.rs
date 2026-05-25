@@ -1,5 +1,5 @@
 use crate::backend::interpreter::run;
-use crate::backend::interpreter::tests::helpers::{parse_and_validate, run_source, source_error};
+use crate::backend::interpreter::tests::helpers::{parse_and_validate, run_source};
 use crate::frontend::parser::Parser;
 use crate::frontend::semantics::validate;
 use std::fs;
@@ -937,7 +937,7 @@ End Sub
 #[cfg(not(windows))]
 #[test]
 fn createobject_reports_clear_non_windows_runtime_error() {
-    let error = source_error(
+    let error = crate::backend::interpreter::tests::helpers::source_error(
         r#"
 Sub Main()
     Dim obj As Object

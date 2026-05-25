@@ -137,10 +137,27 @@ impl Interpreter {
                     {
                         return Ok(val);
                     }
-                    if name.eq_ignore_ascii_case("VBA")
-                        && let Some(constant) = crate::runtime::vba::vba_constant(field)
-                    {
-                        return Ok(constant.value());
+                    if name.eq_ignore_ascii_case("VBA") {
+                        if let Some(constant) = crate::runtime::vba::vba_constant(field) {
+                            return Ok(constant.value());
+                        }
+                        if field.eq_ignore_ascii_case("Timer")
+                            || field.eq_ignore_ascii_case("Now")
+                            || field.eq_ignore_ascii_case("Date")
+                            || field.eq_ignore_ascii_case("Time")
+                            || field.eq_ignore_ascii_case("Rnd")
+                        {
+                            match super::builtins::dispatch_function(
+                                self,
+                                field,
+                                &[],
+                                frame,
+                                expr.span,
+                            )? {
+                                Some(value) => return Ok(value),
+                                None => unreachable!("bare zero-argument builtin should dispatch"),
+                            }
+                        }
                     }
                     if name.eq_ignore_ascii_case("Console") {
                         // Console doesn't have fields in our current builtin model, but we handle it
