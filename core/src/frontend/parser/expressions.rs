@@ -330,6 +330,7 @@ impl Parser {
             TokenKind::Float(value) => parse_vba_float(&value),
             TokenKind::True => ExprKind::Boolean(true),
             TokenKind::False => ExprKind::Boolean(false),
+            TokenKind::Hash => self.parse_date_literal(span)?,
             TokenKind::Nothing => ExprKind::Nothing,
             TokenKind::Empty => ExprKind::Empty,
             TokenKind::Null => ExprKind::Null,
@@ -488,6 +489,49 @@ impl Parser {
 
         let expr = Expr { kind, span };
         self.parse_member_access(expr)
+    }
+
+    fn parse_date_literal(&mut self, start: Span) -> Result<ExprKind, Diagnostic> {
+        let mut text = String::new();
+        while !self.is_at_end() && !self.check_simple(&TokenKind::Hash) {
+            let token = self.advance();
+            match token.kind {
+                TokenKind::Integer(value) => text.push_str(&value.to_string()),
+                TokenKind::Float(value) if value.ends_with('#') => {
+                    text.push_str(value.trim_end_matches('#'));
+                    if text.trim().is_empty() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::PARSE,
+                            "Date literal cannot be empty",
+                            Some(start),
+                        ));
+                    }
+                    return Ok(ExprKind::DateLiteral(text));
+                }
+                TokenKind::Float(value) => text.push_str(&value),
+                TokenKind::Slash => text.push('/'),
+                TokenKind::Minus => text.push('-'),
+                TokenKind::Colon => text.push(':'),
+                TokenKind::Identifier(value, _) => text.push_str(&value),
+                TokenKind::String(value) => text.push_str(&value),
+                _ => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "Invalid date literal",
+                        Some(token.span),
+                    ));
+                }
+            }
+        }
+        self.expect_simple(TokenKind::Hash, "Expected '#' after date literal")?;
+        if text.trim().is_empty() {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                "Date literal cannot be empty",
+                Some(start),
+            ));
+        }
+        Ok(ExprKind::DateLiteral(text))
     }
 
     pub(super) fn parse_member_access(&mut self, mut expr: Expr) -> Result<Expr, Diagnostic> {

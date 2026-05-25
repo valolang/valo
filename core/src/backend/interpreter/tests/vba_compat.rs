@@ -641,6 +641,33 @@ End Sub
 }
 
 #[test]
+fn vba_binary_get_put_accept_unprefixed_file_numbers() {
+    let path = temp_test_path("binary_io_unprefixed.bin");
+    let source = format!(
+        r#"
+Sub Main()
+    Dim b As Byte
+    b = 9
+    Open "{}" For Binary As #1
+    Put 1, , b
+    b = 0
+    Get 1, 1, b
+    Console.WriteLine(b)
+    Close 1
+    Kill "{}"
+End Sub
+"#,
+        valo_string(&path),
+        valo_string(&path)
+    );
+    let program = Parser::parse_source(&source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(output, vec!["9"]);
+    assert!(!path.exists());
+}
+
+#[test]
 fn vba_random_get_put_len_records_work() {
     let path = temp_test_path("random_io.dat");
     let source = format!(
@@ -804,6 +831,7 @@ Sub Main()
     t = Timer()
     Console.WriteLine(t >= 0 And t < 86400)
     Console.WriteLine(TypeName(FileDateTime("{}")))
+    Console.WriteLine(TypeName(#1/1/1970#))
     Console.WriteLine(Year(DateSerial(2024, 2, 29)))
     Console.WriteLine(Month(DateSerial(2024, 2, 29)))
     Console.WriteLine(Day(DateSerial(2024, 2, 29)))
@@ -823,10 +851,50 @@ End Sub
     assert_eq!(
         output,
         vec![
-            "True", "Date", "2024", "2", "29", "13", "14", "15", "1", "Feb", "Sun"
+            "True", "Date", "Date", "2024", "2", "29", "13", "14", "15", "1", "Feb", "Sun"
         ]
     );
     std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn vba_zero_arg_runtime_functions_work_without_parentheses() {
+    let source = r#"
+Sub Main()
+    Randomize 1
+    Console.WriteLine(Timer >= 0 And Timer < 86400)
+    Console.WriteLine(TypeName(Now))
+    Console.WriteLine(TypeName(Date))
+    Console.WriteLine(TypeName(Time))
+    Console.WriteLine(Rnd >= 0 And Rnd < 1)
+    Debug.Print "debug output"
+End Sub
+"#;
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(
+        output,
+        vec!["True", "Date", "Date", "Date", "True", "debug output"]
+    );
+}
+
+#[test]
+fn typed_optional_parameters_may_omit_defaults_like_vba() {
+    let source = r#"
+Sub Main()
+    Console.WriteLine(WasOmitted())
+    Console.WriteLine(WasOmitted(#1/1/1970#))
+End Sub
+
+Function WasOmitted(Optional ByVal value As Date) As Boolean
+    WasOmitted = IsMissing(value)
+End Function
+"#;
+    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
+    validate(&program).unwrap();
+    let output = run(&program).unwrap();
+    assert_eq!(output, vec!["True", "False"]);
 }
 
 #[test]

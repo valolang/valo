@@ -14,6 +14,7 @@ impl Interpreter {
     ) -> Result<Value, Diagnostic> {
         match &expr.kind {
             ExprKind::String(value) => Ok(Value::String(value.clone())),
+            ExprKind::DateLiteral(value) => parse_date_literal(value, expr.span),
             ExprKind::Integer(value) => {
                 let val = *value;
                 if val >= i16::MIN as i64 && val <= i16::MAX as i64 {
@@ -81,6 +82,16 @@ impl Interpreter {
                     Ok(Value::Int64(self.erl))
                 } else if name.eq_ignore_ascii_case("FreeFile") {
                     Ok(Value::Int64(i64::from(self.free_file_number())))
+                } else if name.eq_ignore_ascii_case("Timer")
+                    || name.eq_ignore_ascii_case("Now")
+                    || name.eq_ignore_ascii_case("Date")
+                    || name.eq_ignore_ascii_case("Time")
+                    || name.eq_ignore_ascii_case("Rnd")
+                {
+                    match super::builtins::dispatch_function(self, name, &[], frame, expr.span)? {
+                        Some(value) => Ok(value),
+                        None => unreachable!("bare zero-argument builtin should dispatch"),
+                    }
                 } else if name.eq_ignore_ascii_case("VBA")
                     || name.eq_ignore_ascii_case("Console")
                     || name.eq_ignore_ascii_case("Err")
@@ -554,4 +565,56 @@ impl Interpreter {
             )),
         }
     }
+}
+
+fn parse_date_literal(value: &str, span: crate::runtime::Span) -> Result<Value, Diagnostic> {
+    let parts = value.split('/').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Date literal must use m/d/yyyy syntax",
+            Some(span),
+        ));
+    }
+    let month = parts[0].parse::<i64>().map_err(|_| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Date literal month must be numeric",
+            Some(span),
+        )
+    })?;
+    let day = parts[1].parse::<i64>().map_err(|_| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Date literal day must be numeric",
+            Some(span),
+        )
+    })?;
+    let year = parts[2].parse::<i64>().map_err(|_| {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Date literal year must be numeric",
+            Some(span),
+        )
+    })?;
+    Ok(Value::Date(date_serial(year, month, day)))
+}
+
+fn date_serial(year: i64, month: i64, day: i64) -> f64 {
+    const UNIX_EPOCH_AS_VBA: i64 = 25_569;
+    let month_index = month - 1;
+    let normalized_year = year + month_index.div_euclid(12);
+    let normalized_month = month_index.rem_euclid(12) + 1;
+    let days = days_from_civil(normalized_year, normalized_month as u32, 1) + day - 1;
+    (days + UNIX_EPOCH_AS_VBA) as f64
+}
+
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let year = year - i64::from(month <= 2);
+    let era = year.div_euclid(400);
+    let yoe = year - era * 400;
+    let month = month as i64;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }

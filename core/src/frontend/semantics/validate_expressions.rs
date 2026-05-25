@@ -251,6 +251,7 @@ pub(super) fn validate_expr(
 ) -> Result<TypeName, Diagnostic> {
     match &expr.kind {
         ExprKind::String(_) => Ok(TypeName::String),
+        ExprKind::DateLiteral(_) => Ok(TypeName::Date),
         ExprKind::Integer(value) => {
             let val = *value;
             if val >= i16::MIN as i64 && val <= i16::MAX as i64 {
@@ -417,6 +418,15 @@ pub(super) fn validate_expr(
             }
             if name.eq_ignore_ascii_case("FreeFile") {
                 return Ok(TypeName::Integer);
+            }
+            if name.eq_ignore_ascii_case("Timer") || name.eq_ignore_ascii_case("Rnd") {
+                return Ok(TypeName::Double);
+            }
+            if name.eq_ignore_ascii_case("Now")
+                || name.eq_ignore_ascii_case("Date")
+                || name.eq_ignore_ascii_case("Time")
+            {
+                return Ok(TypeName::Date);
             }
             if name.eq_ignore_ascii_case("Console") {
                 return Ok(TypeName::Variant);

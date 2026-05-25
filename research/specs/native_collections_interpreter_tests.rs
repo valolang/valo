@@ -1,3 +1,9 @@
+//! Future interpreter behavior specs for native Valo.Collections support.
+//!
+//! These are intentionally parked outside `core/src/backend/interpreter/tests.rs`
+//! until the parser, semantic resolver, and runtime implement Rust-backed
+//! `Valo.Collections.List(Of T)` and `Dictionary(Of K, V)` end to end.
+
 use crate::run_source;
 
 #[test]

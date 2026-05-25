@@ -17,6 +17,7 @@ pub enum ExprKind {
     Currency(i64),
     Decimal(i128),
     Boolean(bool),
+    DateLiteral(String),
     Nothing,
     Empty,
     Null,

@@ -1,3 +1,9 @@
+//! Future interpreter behavior specs for namespace-qualified runtime imports.
+//!
+//! These are intentionally parked outside `core/src/backend/interpreter/tests.rs`
+//! until namespace imports, aliases, privacy checks, and qualified construction
+//! are implemented end to end.
+
 use super::modules::{temp_project, write};
 use crate::run_file;
 use std::fs;

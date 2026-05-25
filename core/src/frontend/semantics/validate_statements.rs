@@ -1635,6 +1635,7 @@ fn expr_uses_with_target(expr: &Expr, _context: &Context<'_>) -> bool {
         | ExprKind::Currency(_)
         | ExprKind::Decimal(_)
         | ExprKind::Boolean(_)
+        | ExprKind::DateLiteral(_)
         | ExprKind::Nothing
         | ExprKind::Empty
         | ExprKind::Null

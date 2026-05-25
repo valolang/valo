@@ -1871,12 +1871,6 @@ fn validate_parameter_list(params: &[Parameter], types: &TypeRegistry) -> Result
             saw_optional = true;
             if let Some(default) = &param.optional_default {
                 ensure_const_expr(default, &HashMap::new(), types)?;
-            } else if !param.ty.same_type(&TypeName::Variant) {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                    "Optional parameters without defaults must be Variant",
-                    Some(param.span),
-                ));
             }
         } else if saw_optional {
             return Err(Diagnostic::new(
@@ -2050,6 +2044,7 @@ pub(super) fn ensure_const_expr(
         | ExprKind::Currency(_)
         | ExprKind::Decimal(_)
         | ExprKind::Boolean(_)
+        | ExprKind::DateLiteral(_)
         | ExprKind::Empty
         | ExprKind::Null => Ok(()),
         ExprKind::Variable(name) => {

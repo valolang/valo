@@ -108,16 +108,27 @@ impl Parser {
             }
             TokenKind::Identifier(name, _)
                 if name.eq_ignore_ascii_case("Get")
-                    && matches!(self.peek_next_kind(), Some(TokenKind::Hash)) =>
+                    && matches!(
+                        self.peek_next_kind(),
+                        Some(TokenKind::Hash | TokenKind::Identifier(_, _) | TokenKind::Integer(_))
+                    ) =>
             {
                 self.parse_get_file()
             }
-            TokenKind::Get if matches!(self.peek_next_kind(), Some(TokenKind::Hash)) => {
+            TokenKind::Get
+                if matches!(
+                    self.peek_next_kind(),
+                    Some(TokenKind::Hash | TokenKind::Identifier(_, _) | TokenKind::Integer(_))
+                ) =>
+            {
                 self.parse_get_file()
             }
             TokenKind::Identifier(name, _)
                 if name.eq_ignore_ascii_case("Put")
-                    && matches!(self.peek_next_kind(), Some(TokenKind::Hash)) =>
+                    && matches!(
+                        self.peek_next_kind(),
+                        Some(TokenKind::Hash | TokenKind::Identifier(_, _) | TokenKind::Integer(_))
+                    ) =>
             {
                 self.parse_put_file()
             }
@@ -482,7 +493,7 @@ impl Parser {
         let mut numbers = Vec::new();
         if !self.at_statement_separator() {
             loop {
-                numbers.push(self.parse_file_number_expr()?);
+                numbers.push(self.parse_open_file_number_expr()?);
                 if !self.match_simple(&TokenKind::Comma) {
                     break;
                 }
@@ -507,7 +518,7 @@ impl Parser {
                 Some(self.previous().span),
             ));
         }
-        let number = self.parse_file_number_expr()?;
+        let number = self.parse_open_file_number_expr()?;
         self.expect_simple(TokenKind::Comma, "Expected ',' after file number")?;
         let target = self.parse_assignment_target()?;
         let end = target.span();
@@ -522,7 +533,7 @@ impl Parser {
         let start = self.expect_identifier("Expected 'Input'")?;
         let start_span = self.previous().span;
         debug_assert!(start.eq_ignore_ascii_case("Input"));
-        let number = self.parse_file_number_expr()?;
+        let number = self.parse_open_file_number_expr()?;
         self.expect_simple(TokenKind::Comma, "Expected ',' after file number")?;
         let mut targets = Vec::new();
         loop {
@@ -546,7 +557,7 @@ impl Parser {
         let start = self.expect_identifier("Expected 'Print'")?;
         let start_span = self.previous().span;
         debug_assert!(start.eq_ignore_ascii_case("Print"));
-        let number = self.parse_file_number_expr()?;
+        let number = self.parse_open_file_number_expr()?;
         let mut items = Vec::new();
         let mut trailing = None;
         if self.match_simple(&TokenKind::Comma) && !self.at_statement_separator() {
@@ -612,7 +623,7 @@ impl Parser {
             matches!(token.kind, TokenKind::Get)
                 || matches!(token.kind, TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Get"))
         );
-        let number = self.parse_file_number_expr()?;
+        let number = self.parse_open_file_number_expr()?;
         self.expect_simple(TokenKind::Comma, "Expected ',' after file number")?;
         let position = if self.check_simple(&TokenKind::Comma) {
             None
@@ -634,7 +645,7 @@ impl Parser {
         let start = self.expect_identifier("Expected 'Put'")?;
         let start_span = self.previous().span;
         debug_assert!(start.eq_ignore_ascii_case("Put"));
-        let number = self.parse_file_number_expr()?;
+        let number = self.parse_open_file_number_expr()?;
         self.expect_simple(TokenKind::Comma, "Expected ',' after file number")?;
         let position = if self.check_simple(&TokenKind::Comma) {
             None
