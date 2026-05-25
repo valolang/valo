@@ -55,4 +55,3 @@ pub fn run_file(path: impl AsRef<std::path::Path>) -> Result<Vec<String>, String
         .run_project(&project)
         .map_err(|err| err.render(&project.source_map))
 }
-pub mod variant_test;
