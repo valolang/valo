@@ -22,6 +22,7 @@ pub(super) struct TypeSig {
     pub(super) name: String,
     pub(super) type_params: Vec<String>,
     pub(super) generic_constraints: Vec<GenericParamConstraint>,
+    pub(super) implements: Vec<TypeName>,
     pub(super) is_structure: bool,
     pub(super) fields: HashMap<String, FieldSig>,
     pub(super) subs: HashMap<String, ClassMethodSig>,

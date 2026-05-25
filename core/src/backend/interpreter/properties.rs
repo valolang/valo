@@ -231,7 +231,7 @@ impl Interpreter {
                 eval_args.push(self.eval_expr(arg, caller_frame)?);
             }
             return crate::runtime::com::invoke_com(
-                com_obj, property, &eval_args, 2, // DISPATCH_PROPERTYGET
+                com_obj, property, &eval_args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
                 span,
             );
         }

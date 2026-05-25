@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime::Span;
 
 pub(super) fn validate_class(
     class_decl: &crate::ClassDecl,
@@ -6,7 +7,13 @@ pub(super) fn validate_class(
     signatures: &Signatures,
     module_symbols: &HashMap<String, VarType>,
 ) -> Result<(), Diagnostic> {
-    validate_implements(class_decl, types)?;
+    validate_implements_common(
+        &class_decl.name,
+        &class_decl.implements,
+        &class_decl.members,
+        class_decl.span,
+        types,
+    )?;
     let class_consts = class_constant_symbols(class_decl);
     for member in &class_decl.members {
         match member {
@@ -230,39 +237,40 @@ pub(super) fn validate_class(
     Ok(())
 }
 
-fn validate_implements(
-    class_decl: &crate::ClassDecl,
+fn validate_implements_common(
+    decl_name: &str,
+    implements: &[TypeName],
+    members: &[ClassMember],
+    span: Span,
     types: &TypeRegistry,
 ) -> Result<(), Diagnostic> {
-    let class_sig = types
-        .get_class(&class_decl.name)
-        .expect("class signature collected");
     let mut implemented = std::collections::HashSet::new();
-    for interface_name in &class_decl.implements {
+    for interface_name in implements {
         let TypeName::User(interface_name) = interface_name else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                 "Implements target must be an Interface",
-                Some(class_decl.span),
+                Some(span),
             ));
         };
         let interface = types.get_interface(interface_name).ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                 format!("Interface '{}' is not defined", interface_name),
-                Some(class_decl.span),
+                Some(span),
             )
         })?;
         for method in interface.subs.values() {
-            let target = find_explicit_sub_impl(class_decl, interface_name, &method.name)?;
+            let target =
+                find_explicit_sub_impl(members, decl_name, span, interface_name, &method.name)?;
             if !signature_matches(&target.params, None, &method.params, None) {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                     format!(
                         "Implementation '{}.{}' signature does not match '{}.{}'",
-                        class_decl.name, target.name, interface.name, method.name
+                        decl_name, target.name, interface.name, method.name
                     ),
-                    Some(class_decl.span),
+                    Some(span),
                 ));
             }
             let key = format!("{}.{}", key(interface_name), key(&method.name));
@@ -273,12 +281,18 @@ fn validate_implements(
                         "Interface member '{}.{}' is implemented more than once",
                         interface.name, method.name
                     ),
-                    Some(class_decl.span),
+                    Some(span),
                 ));
             }
         }
         for method in interface.functions.values() {
-            let target = find_explicit_function_impl(class_decl, interface_name, &method.name)?;
+            let target = find_explicit_function_impl(
+                members,
+                decl_name,
+                span,
+                interface_name,
+                &method.name,
+            )?;
             if !signature_matches(
                 &target.params,
                 target.return_type.as_ref(),
@@ -289,9 +303,9 @@ fn validate_implements(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                     format!(
                         "Implementation '{}.{}' signature does not match '{}.{}'",
-                        class_decl.name, target.name, interface.name, method.name
+                        decl_name, target.name, interface.name, method.name
                     ),
-                    Some(class_decl.span),
+                    Some(span),
                 ));
             }
             let key = format!("{}.{}", key(interface_name), key(&method.name));
@@ -302,14 +316,16 @@ fn validate_implements(
                         "Interface member '{}.{}' is implemented more than once",
                         interface.name, method.name
                     ),
-                    Some(class_decl.span),
+                    Some(span),
                 ));
             }
         }
         for property in interface.properties.values() {
             if let Some(get) = &property.get {
                 let target = find_explicit_property_impl(
-                    class_decl,
+                    members,
+                    decl_name,
+                    span,
                     interface_name,
                     &property.name,
                     PropertyKind::Get,
@@ -324,15 +340,17 @@ fn validate_implements(
                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                         format!(
                             "Implementation '{}.{}' signature does not match '{}.{}'",
-                            class_decl.name, target.name, interface.name, property.name
+                            decl_name, target.name, interface.name, property.name
                         ),
-                        Some(class_decl.span),
+                        Some(span),
                     ));
                 }
             }
             if let Some(let_) = &property.let_ {
                 let target = find_explicit_property_impl(
-                    class_decl,
+                    members,
+                    decl_name,
+                    span,
                     interface_name,
                     &property.name,
                     PropertyKind::Let,
@@ -342,15 +360,17 @@ fn validate_implements(
                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                         format!(
                             "Implementation '{}.{}' signature does not match '{}.{}'",
-                            class_decl.name, target.name, interface.name, property.name
+                            decl_name, target.name, interface.name, property.name
                         ),
-                        Some(class_decl.span),
+                        Some(span),
                     ));
                 }
             }
             if let Some(set) = &property.set {
                 let target = find_explicit_property_impl(
-                    class_decl,
+                    members,
+                    decl_name,
+                    span,
                     interface_name,
                     &property.name,
                     PropertyKind::Set,
@@ -360,28 +380,37 @@ fn validate_implements(
                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                         format!(
                             "Implementation '{}.{}' signature does not match '{}.{}'",
-                            class_decl.name, target.name, interface.name, property.name
+                            decl_name, target.name, interface.name, property.name
                         ),
-                        Some(class_decl.span),
+                        Some(span),
                     ));
                 }
             }
         }
         for event in interface.events.values() {
-            if !class_sig
-                .events
-                .get(&key(&event.name))
-                .is_some_and(|candidate| {
-                    signature_matches(&candidate.params, None, &event.params, None)
-                })
-            {
+            let has_event = if let Some(class_sig) = types.get_class(decl_name) {
+                class_sig
+                    .events
+                    .get(&key(&event.name))
+                    .is_some_and(|candidate| {
+                        signature_matches(&candidate.params, None, &event.params, None)
+                    })
+            } else if let Some(type_sig) = types.get(decl_name) {
+                // Structures don't support events yet, but check for completeness
+                _ = type_sig;
+                false
+            } else {
+                false
+            };
+
+            if !has_event {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                     format!(
-                        "Class '{}' is missing implementation for event '{}.{}'",
-                        class_decl.name, interface.name, event.name
+                        "Type '{}' is missing implementation for event '{}.{}'",
+                        decl_name, interface.name, event.name
                     ),
-                    Some(class_decl.span),
+                    Some(span),
                 ));
             }
         }
@@ -390,11 +419,13 @@ fn validate_implements(
 }
 
 fn find_explicit_sub_impl(
-    class_decl: &crate::ClassDecl,
+    members: &[ClassMember],
+    decl_name: &str,
+    span: Span,
     interface_name: &str,
     member_name: &str,
 ) -> Result<CallableSig, Diagnostic> {
-    for member in &class_decl.members {
+    for member in members {
         if let ClassMember::Sub(method) = member
             && method
                 .implements
@@ -417,19 +448,21 @@ fn find_explicit_sub_impl(
     Err(Diagnostic::new(
         crate::runtime::DiagnosticCode::MEMBER_ACCESS,
         format!(
-            "Class '{}' is missing implementation for '{}.{}'",
-            class_decl.name, interface_name, member_name
+            "Type '{}' is missing implementation for '{}.{}'",
+            decl_name, interface_name, member_name
         ),
-        Some(class_decl.span),
+        Some(span),
     ))
 }
 
 fn find_explicit_function_impl(
-    class_decl: &crate::ClassDecl,
+    members: &[ClassMember],
+    decl_name: &str,
+    span: Span,
     interface_name: &str,
     member_name: &str,
 ) -> Result<CallableSig, Diagnostic> {
-    for member in &class_decl.members {
+    for member in members {
         if let ClassMember::Function(method) = member
             && method
                 .implements
@@ -452,20 +485,22 @@ fn find_explicit_function_impl(
     Err(Diagnostic::new(
         crate::runtime::DiagnosticCode::MEMBER_ACCESS,
         format!(
-            "Class '{}' is missing implementation for '{}.{}'",
-            class_decl.name, interface_name, member_name
+            "Type '{}' is missing implementation for '{}.{}'",
+            decl_name, interface_name, member_name
         ),
-        Some(class_decl.span),
+        Some(span),
     ))
 }
 
 fn find_explicit_property_impl(
-    class_decl: &crate::ClassDecl,
+    members: &[ClassMember],
+    decl_name: &str,
+    span: Span,
     interface_name: &str,
     member_name: &str,
     kind: PropertyKind,
 ) -> Result<CallableSig, Diagnostic> {
-    for member in &class_decl.members {
+    for member in members {
         if let ClassMember::Property(property) = member
             && property.kind == kind
             && property
@@ -489,10 +524,10 @@ fn find_explicit_property_impl(
     Err(Diagnostic::new(
         crate::runtime::DiagnosticCode::MEMBER_ACCESS,
         format!(
-            "Class '{}' is missing implementation for '{}.{}'",
-            class_decl.name, interface_name, member_name
+            "Type '{}' is missing implementation for '{}.{}'",
+            decl_name, interface_name, member_name
         ),
-        Some(class_decl.span),
+        Some(span),
     ))
 }
 
@@ -559,6 +594,13 @@ pub(super) fn validate_structure(
     signatures: &Signatures,
     module_symbols: &HashMap<String, VarType>,
 ) -> Result<(), Diagnostic> {
+    validate_implements_common(
+        &type_decl.name,
+        &type_decl.implements,
+        &type_decl.members,
+        type_decl.span,
+        types,
+    )?;
     for member in &type_decl.members {
         match member {
             ClassMember::Field(_)

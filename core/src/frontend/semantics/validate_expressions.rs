@@ -510,17 +510,51 @@ pub(super) fn validate_expr(
                         return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
                     }
                 }
-                if let Some(type_sig) = types.get(owner_name)
-                    && let Some(field_sig) = type_sig.fields.get(&key(name))
-                {
-                    if field_sig.array.is_some() {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::ARRAY,
-                            format!("Array variable '{}' cannot be used as a scalar", name),
-                            Some(expr.span),
-                        ));
+                if let Some(type_sig) = types.get(owner_name) {
+                    let member_key = key(name);
+                    if let Some(field_sig) = type_sig.fields.get(&member_key) {
+                        if field_sig.array.is_some() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::ARRAY,
+                                format!("Array variable '{}' cannot be used as a scalar", name),
+                                Some(expr.span),
+                            ));
+                        }
+                        return Ok(field_sig.ty.clone());
                     }
-                    return Ok(field_sig.ty.clone());
+                    if let Some(func_sig) = type_sig.functions.get(&member_key) {
+                        validate_arguments(
+                            "Function",
+                            func_sig,
+                            &[],
+                            expr.span,
+                            ExprValidation::new(symbols, types, signatures, context),
+                        )?;
+                        return Ok(func_sig.return_type.clone().expect("function return type"));
+                    }
+                    if let Some(prop_sig) = type_sig.properties.get(&member_key)
+                        && let Some(get) = &prop_sig.get
+                    {
+                        let callable = CallableSig {
+                            visibility: Visibility::Public,
+                            name: prop_sig.name.clone(),
+                            type_params: Vec::new(),
+                            generic_constraints: Vec::new(),
+                            is_shared: prop_sig.is_shared,
+                            _is_iterator: get.is_iterator,
+                            is_declare: false,
+                            params: get.params.clone(),
+                            return_type: get.return_type.clone(),
+                        };
+                        validate_arguments(
+                            "Property",
+                            &callable,
+                            &[],
+                            expr.span,
+                            ExprValidation::new(symbols, types, signatures, context),
+                        )?;
+                        return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
+                    }
                 }
             }
             if enum_member_value_type(name, types).is_some() {
@@ -2767,6 +2801,18 @@ pub(super) fn ensure_known_type(
                     ),
                     Some(span),
                 ))
+            } else if let Some(sig) = types.get_interface(name)
+                && !sig.type_params.is_empty()
+            {
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Generic type '{}' requires {} type argument(s)",
+                        sig.name,
+                        sig.type_params.len()
+                    ),
+                    Some(span),
+                ))
             } else if types.contains(name) {
                 Ok(())
             } else {
@@ -3103,9 +3149,13 @@ pub(super) fn is_object_reference_expr(expr: &Expr, ty: &TypeName, types: &TypeR
 pub(super) fn is_class_type(ty: &TypeName, types: &TypeRegistry) -> bool {
     match ty {
         TypeName::User(name) => {
-            types.get_class(name).is_some() || name.eq_ignore_ascii_case("Object")
+            types.get_class(name).is_some()
+                || types.get_interface(name).is_some()
+                || name.eq_ignore_ascii_case("Object")
         }
-        TypeName::GenericInstance { name, .. } => types.get_class(name).is_some(),
+        TypeName::GenericInstance { name, .. } => {
+            types.get_class(name).is_some() || types.get_interface(name).is_some()
+        }
         _ => false,
     }
 }

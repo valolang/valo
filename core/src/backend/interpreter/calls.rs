@@ -969,7 +969,7 @@ impl Interpreter {
                 eval_args.push(self.eval_expr(arg, caller_frame)?);
             }
             crate::runtime::com::invoke_com(
-                com_obj, method, &eval_args, 1, // DISPATCH_METHOD
+                com_obj, method, &eval_args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
                 span,
             )?;
             return Ok(());
@@ -1057,7 +1057,7 @@ impl Interpreter {
     ) -> Result<(), Diagnostic> {
         if let Value::ComObject(ref com_obj) = object {
             crate::runtime::com::invoke_com(
-                com_obj, method, args, 1, // DISPATCH_METHOD
+                com_obj, method, args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
                 span,
             )?;
             return Ok(());

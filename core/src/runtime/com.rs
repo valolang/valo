@@ -201,10 +201,18 @@ fn invoke_com_dispid(
     };
 
     if hr.is_err() {
-        return Err(com_error(
-            format!("COM Invoke failed for '{}': {:?}", name, hr),
-            span,
-        ));
+        let mut message = format!("COM Invoke failed for '{}': {:?}", name, hr);
+        if hr.0 == -2147352567 {
+            // 0x80020009 DISP_E_EXCEPTION
+            let description = unsafe { excepinfo.bstrDescription.to_string() };
+            if !description.is_empty() {
+                message = format!(
+                    "COM Invoke failed for '{}': {} ({:?})",
+                    name, description, hr
+                );
+            }
+        }
+        return Err(com_error(message, span));
     }
 
     Ok(variant_to_value(&result))
@@ -212,6 +220,7 @@ fn invoke_com_dispid(
 
 #[cfg(windows)]
 fn value_to_variant(value: &Value) -> windows::core::VARIANT {
+    use windows::Win32::System::Variant::{VT_DISPATCH, VT_ERROR, VT_NULL};
     use windows::core::{BSTR, VARIANT};
 
     match value {
@@ -222,6 +231,32 @@ fn value_to_variant(value: &Value) -> windows::core::VARIANT {
         Value::String(s) => VARIANT::from(BSTR::from(s.as_str())),
         Value::Boolean(b) => VARIANT::from(*b),
         Value::ComObject(obj) => VARIANT::from(obj.dispatch.clone()),
+        Value::Nothing => {
+            let mut var = VARIANT::default();
+            unsafe {
+                let raw = var.as_raw();
+                (*raw).anonymous1.anonymous0.vt = VT_DISPATCH.0 as u16;
+                (*raw).anonymous1.anonymous0.anonymous.pdispVal = std::ptr::null_mut();
+            }
+            var
+        }
+        Value::Null => {
+            let mut var = VARIANT::default();
+            unsafe {
+                let raw = var.as_raw();
+                (*raw).anonymous1.anonymous0.vt = VT_NULL.0 as u16;
+            }
+            var
+        }
+        Value::Missing => {
+            let mut var = VARIANT::default();
+            unsafe {
+                let raw = var.as_raw();
+                (*raw).anonymous1.anonymous0.vt = VT_ERROR.0 as u16;
+                (*raw).anonymous1.anonymous0.anonymous.scode = 0x80020004; // DISP_E_PARAMNOTFOUND
+            }
+            var
+        }
         _ => VARIANT::default(),
     }
 }

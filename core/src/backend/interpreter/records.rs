@@ -150,6 +150,28 @@ impl From<&TypeDecl> for RuntimeType {
                     initializer: field.initializer.clone(),
                     with_events: false,
                 })
+                .chain(value.members.iter().flat_map(|member| {
+                    match member {
+                        ClassMember::Field(field) => vec![RuntimeField {
+                            name: field.name.clone(),
+                            ty: field.ty.clone().unwrap_or(TypeName::Variant),
+                            array: field.array.clone(),
+                            initializer: field.initializer.clone(),
+                            with_events: field.with_events,
+                        }],
+                        ClassMember::Fields(fs) => fs
+                            .iter()
+                            .map(|field| RuntimeField {
+                                name: field.name.clone(),
+                                ty: field.ty.clone().unwrap_or(TypeName::Variant),
+                                array: field.array.clone(),
+                                initializer: field.initializer.clone(),
+                                with_events: field.with_events,
+                            })
+                            .collect(),
+                        _ => Vec::new(),
+                    }
+                }))
                 .collect(),
             subs: value
                 .members

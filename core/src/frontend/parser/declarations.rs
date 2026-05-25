@@ -132,6 +132,18 @@ impl Parser {
         let mut attributes = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndClass]) {
+            if self.match_simple(&TokenKind::Implements) {
+                loop {
+                    implements.push(self.parse_type_name()?);
+                    if !self.match_simple(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                self.expect_statement_end("Expected newline after Implements")?;
+                self.skip_newlines();
+                continue;
+            }
+
             if matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute"))
             {
                 let attribute = self.parse_attribute_decl()?;
@@ -1123,8 +1135,21 @@ impl Parser {
 
         let mut fields = Vec::new();
         let mut members = Vec::new();
+        let mut implements = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[end_block]) {
+            if self.match_simple(&TokenKind::Implements) {
+                loop {
+                    implements.push(self.parse_type_name()?);
+                    if !self.match_simple(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                self.expect_statement_end("Expected newline after Implements")?;
+                self.skip_newlines();
+                continue;
+            }
+
             if kind == TypeKind::Type && self.type_member_starts_non_field() {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -1134,7 +1159,7 @@ impl Parser {
             }
 
             if kind == TypeKind::Structure && self.structure_member_starts_non_field() {
-                members.push(self.parse_structure_member()?);
+                members.extend(self.parse_structure_member()?);
             } else {
                 let explicit_visibility = self.parse_optional_visibility();
                 if kind == TypeKind::Type && explicit_visibility.is_some() {
@@ -1210,6 +1235,7 @@ impl Parser {
             name,
             type_params,
             generic_constraints,
+            implements,
             fields,
             members,
             span: Span::new(self.file_id, start.start, end.end),
@@ -1264,7 +1290,7 @@ impl Parser {
         }
     }
 
-    fn parse_structure_member(&mut self) -> Result<ClassMember, Diagnostic> {
+    fn parse_structure_member(&mut self) -> Result<Vec<ClassMember>, Diagnostic> {
         let visibility = self
             .parse_optional_visibility()
             .unwrap_or(Visibility::Public);
@@ -1282,7 +1308,7 @@ impl Parser {
             )),
             TokenKind::Sub => {
                 if matches!(self.peek_next_kind(), Some(TokenKind::New)) {
-                    Ok(ClassMember::Sub(ClassSub {
+                    Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind: OverrideKind::None,
                         is_shared: false,
@@ -1292,23 +1318,29 @@ impl Parser {
                             "New",
                             "Initialize",
                         )?,
-                    }))
+                    })])
                 } else {
-                    Ok(ClassMember::Sub(ClassSub {
+                    let (procedure, implements) = self.parse_class_procedure(visibility)?;
+                    Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind: OverrideKind::None,
                         is_shared: false,
-                        implements: Vec::new(),
-                        procedure: self.parse_procedure(visibility)?,
-                    }))
+                        implements,
+                        procedure,
+                    })])
                 }
             }
-            TokenKind::Function => Ok(ClassMember::Function(
+            TokenKind::Function => Ok(vec![ClassMember::Function(
                 self.parse_class_function(visibility, false)?,
-            )),
-            TokenKind::Property => Ok(ClassMember::Property(
-                self.parse_property(visibility, is_default, false)?,
-            )),
+            )]),
+            TokenKind::Property => {
+                let members = self.parse_class_property_members(
+                    visibility, is_default, false, // is_iterator
+                    false, // is_readonly
+                    false, // is_writeonly
+                )?;
+                Ok(members)
+            }
             _ if is_default => Err(self.error_here("Default is only supported on Property")),
             _ => Err(self.error_here("Expected structure member")),
         }

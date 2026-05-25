@@ -166,8 +166,82 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
 
         for member in &type_decl.members {
             match member {
-                ClassMember::Field(_) | ClassMember::Fields(_) | ClassMember::Const(_) => {
-                    unreachable!("structure fields are stored separately")
+                ClassMember::Field(field) => {
+                    let field_key = key(&field.name);
+                    if fields.contains_key(&field_key)
+                        || subs.contains_key(&field_key)
+                        || functions.contains_key(&field_key)
+                        || properties.contains_key(&field_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
+                                "Field '{}' conflicts with another member in Structure '{}'",
+                                field.name, type_decl.name
+                            ),
+                            Some(field.span),
+                        ));
+                    }
+                    fields.insert(
+                        field_key,
+                        FieldSig {
+                            visibility: field.visibility,
+                            ty: field.ty.clone().unwrap_or(TypeName::Variant),
+                            array: field.array.clone(),
+                        },
+                    );
+                }
+                ClassMember::Fields(fs) => {
+                    for field in fs {
+                        let field_key = key(&field.name);
+                        if fields.contains_key(&field_key)
+                            || subs.contains_key(&field_key)
+                            || functions.contains_key(&field_key)
+                            || properties.contains_key(&field_key)
+                        {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                format!(
+                                    "Field '{}' conflicts with another member in Structure '{}'",
+                                    field.name, type_decl.name
+                                ),
+                                Some(field.span),
+                            ));
+                        }
+                        fields.insert(
+                            field_key,
+                            FieldSig {
+                                visibility: field.visibility,
+                                ty: field.ty.clone().unwrap_or(TypeName::Variant),
+                                array: field.array.clone(),
+                            },
+                        );
+                    }
+                }
+                ClassMember::Const(const_decl) => {
+                    let field_key = key(&const_decl.name);
+                    if fields.contains_key(&field_key)
+                        || subs.contains_key(&field_key)
+                        || functions.contains_key(&field_key)
+                        || properties.contains_key(&field_key)
+                    {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            format!(
+                                "Constant '{}' conflicts with another member in Structure '{}'",
+                                const_decl.name, type_decl.name
+                            ),
+                            Some(const_decl.span),
+                        ));
+                    }
+                    fields.insert(
+                        field_key,
+                        FieldSig {
+                            visibility: const_decl.visibility,
+                            ty: const_decl.ty.clone().unwrap_or(TypeName::Variant),
+                            array: None,
+                        },
+                    );
                 }
                 ClassMember::Event(event) => {
                     return Err(Diagnostic::new(
@@ -368,6 +442,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 name: type_decl.name.clone(),
                 type_params: type_decl.type_params.clone(),
                 generic_constraints: type_decl.generic_constraints.clone(),
+                implements: type_decl.implements.clone(),
                 visibility: type_decl.visibility,
                 is_structure: type_decl.kind == TypeKind::Structure,
                 fields,

@@ -94,6 +94,35 @@ End Sub
 }
 
 #[test]
+fn parses_structure_implements() {
+    let source = r#"
+Public Interface IImprimivel
+    Sub Imprimir()
+End Interface
+
+Public Structure DocumentoInfo
+    Implements IImprimivel
+
+    Public Property Codigo As Integer
+
+    Public Sub Imprimir() Implements IImprimivel.Imprimir
+        Console.WriteLine("Código: " & Codigo)
+    End Sub
+End Structure
+
+Sub Main()
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    assert_eq!(program.types.len(), 1);
+    let structure = &program.types[0];
+    assert_eq!(structure.name, "DocumentoInfo");
+    assert_eq!(structure.implements.len(), 1);
+    assert_eq!(structure.members.len(), 4); // Auto-property (field + Get + Let) + Sub
+}
+
+#[test]
 fn parses_vba_declare_frontend_metadata() {
     let source = r#"
 Private Declare PtrSafe Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As LongPtr, ByVal lpWindowName As Any) As LongLong

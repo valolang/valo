@@ -112,6 +112,7 @@ pub struct TypeDecl {
     pub name: String,
     pub type_params: Vec<String>,
     pub generic_constraints: Vec<GenericParamConstraint>,
+    pub implements: Vec<TypeName>,
     pub fields: Vec<FieldDecl>,
     pub members: Vec<ClassMember>,
     pub span: Span,
