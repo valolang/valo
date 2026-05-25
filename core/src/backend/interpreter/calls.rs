@@ -776,6 +776,18 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        if let Value::ComObject(ref com_obj) = object {
+            let mut eval_args = Vec::with_capacity(args.len());
+            for arg in args {
+                eval_args.push(self.eval_expr(arg, caller_frame)?);
+            }
+            crate::runtime::com::invoke_com(
+                com_obj, method, &eval_args, 1, // DISPATCH_METHOD
+                span,
+            )?;
+            return Ok(());
+        }
+
         let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         self.call_method_sub_on_runtime_class(
@@ -856,6 +868,14 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        if let Value::ComObject(ref com_obj) = object {
+            crate::runtime::com::invoke_com(
+                com_obj, method, args, 1, // DISPATCH_METHOD
+                span,
+            )?;
+            return Ok(());
+        }
+
         let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
@@ -928,6 +948,17 @@ impl Interpreter {
                 super::builtins::dispatch_function(self, method, args, caller_frame, span)?
         {
             return Ok(val);
+        }
+
+        if let Value::ComObject(ref com_obj) = object {
+            let mut eval_args = Vec::with_capacity(args.len());
+            for arg in args {
+                eval_args.push(self.eval_expr(arg, caller_frame)?);
+            }
+            return crate::runtime::com::invoke_com(
+                com_obj, method, &eval_args, 1, // DISPATCH_METHOD
+                span,
+            );
         }
 
         let instance = ensure_object(object.clone(), span)?;

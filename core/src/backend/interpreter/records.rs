@@ -52,6 +52,24 @@ pub(crate) fn write_member(
     new_value: Value,
     span: Span,
 ) -> Result<Value, Diagnostic> {
+    if let Value::ComObject(com_obj) = value {
+        let old_val = crate::runtime::com::invoke_com(
+            com_obj,
+            field,
+            &[],
+            2, // DISPATCH_PROPERTYGET
+            span,
+        )
+        .unwrap_or(Value::Empty);
+        crate::runtime::com::invoke_com(
+            com_obj,
+            field,
+            &[new_value],
+            4, // DISPATCH_PROPERTYPUT
+            span,
+        )?;
+        return Ok(old_val);
+    }
     if let Value::Object(object) = value {
         let mut object = object.borrow_mut();
         let Some(slot) = object.fields.get_mut(&key(field)) else {

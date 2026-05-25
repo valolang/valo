@@ -424,6 +424,15 @@ impl Interpreter {
         if object_has_field(value, member) {
             return read_field_member(value, member, span);
         }
+        if let Value::ComObject(com_obj) = value {
+            return crate::runtime::com::invoke_com(
+                com_obj,
+                member,
+                &[],
+                2, // DISPATCH_PROPERTYGET
+                span,
+            );
+        }
         if let Value::Object(obj) = value {
             let class_name = obj.borrow().class_name.clone();
             if let Ok(val) = self.read_shared_member(&class_name, member, frame, span) {

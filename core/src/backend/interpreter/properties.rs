@@ -225,6 +225,17 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
+        if let Value::ComObject(ref com_obj) = object {
+            let mut eval_args = Vec::with_capacity(args.len());
+            for arg in args {
+                eval_args.push(self.eval_expr(arg, caller_frame)?);
+            }
+            return crate::runtime::com::invoke_com(
+                com_obj, property, &eval_args, 2, // DISPATCH_PROPERTYGET
+                span,
+            );
+        }
+
         let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
@@ -354,6 +365,14 @@ impl Interpreter {
         values: &[Value],
         span: Span,
     ) -> Result<(), Diagnostic> {
+        if let Value::ComObject(ref com_obj) = object {
+            crate::runtime::com::invoke_com(
+                com_obj, property, values, 4, // DISPATCH_PROPERTYPUT
+                span,
+            )?;
+            return Ok(());
+        }
+
         let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self

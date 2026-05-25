@@ -107,11 +107,156 @@ pub fn create_object(prog_id: &str, span: Span) -> Result<Value, Diagnostic> {
     })))
 }
 
+#[cfg(windows)]
+pub fn invoke_com(
+    com_obj: &crate::runtime::ComObjectValue,
+    name: &str,
+    args: &[Value],
+    invoke_type: u16,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    use windows::Win32::System::Com::{
+        DISPATCH_METHOD, DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT, DISPATCH_PROPERTYPUTREF,
+        DISPPARAMS, EXCEPINFO, IDispatch,
+    };
+    use windows::Win32::System::Variant::VARIANT;
+    use windows::core::{BSTR, GUID, HSTRING, PCWSTR};
+
+    let dispatch = &com_obj.dispatch;
+
+    let name_hstring = HSTRING::from(name);
+    let mut dispid: i32 = 0;
+
+    let hr = unsafe {
+        let name_ptr = PCWSTR::from_raw(name_hstring.as_ptr());
+        dispatch.GetIDsOfNames(
+            &GUID::zeroed(),
+            &name_ptr,
+            1,
+            2048, // LOCALE_SYSTEM_DEFAULT
+            &mut dispid,
+        )
+    };
+
+    if hr.is_err() {
+        return Err(com_error(
+            format!("COM object has no member '{}': {:?}", name, hr),
+            span,
+        ));
+    }
+
+    let mut variants: Vec<VARIANT> = args.iter().map(value_to_variant).collect();
+    variants.reverse(); // COM expects args in reverse order
+
+    let mut dispid_named: i32 = -3; // DISPID_PROPERTYPUT
+    let is_put = invoke_type == 4 || invoke_type == 8; // DISPATCH_PROPERTYPUT | DISPATCH_PROPERTYPUTREF
+
+    let mut dispparams = DISPPARAMS {
+        rgvarg: variants.as_mut_ptr(),
+        cArgs: variants.len() as u32,
+        rgdispidNamedArgs: if is_put {
+            &mut dispid_named
+        } else {
+            std::ptr::null_mut()
+        },
+        cNamedArgs: if is_put { 1 } else { 0 },
+    };
+
+    let mut result = VARIANT::default();
+    let mut excepinfo = EXCEPINFO::default();
+    let mut argerr: u32 = 0;
+
+    let hr = unsafe {
+        dispatch.Invoke(
+            dispid,
+            &GUID::zeroed(),
+            2048,
+            invoke_type,
+            &mut dispparams,
+            Some(&mut result),
+            Some(&mut excepinfo),
+            Some(&mut argerr),
+        )
+    };
+
+    if hr.is_err() {
+        return Err(com_error(
+            format!("COM Invoke failed for '{}': {:?}", name, hr),
+            span,
+        ));
+    }
+
+    Ok(variant_to_value(&result))
+}
+
+#[cfg(windows)]
+fn value_to_variant(value: &Value) -> windows::Win32::System::Variant::VARIANT {
+    use windows::Win32::System::Variant::VARIANT;
+    use windows::core::BSTR;
+
+    match value {
+        Value::Int16(n) => VARIANT::from(*n),
+        Value::Int32(n) => VARIANT::from(*n),
+        Value::Int64(n) => VARIANT::from(*n),
+        Value::Double(n) => VARIANT::from(*n),
+        Value::String(s) => VARIANT::from(BSTR::from(s.as_str())),
+        Value::Boolean(b) => VARIANT::from(*b),
+        Value::ComObject(obj) => VARIANT::from(obj.dispatch.clone()),
+        _ => VARIANT::default(),
+    }
+}
+
+#[cfg(windows)]
+fn variant_to_value(var: &windows::Win32::System::Variant::VARIANT) -> Value {
+    use windows::Win32::System::Com::IDispatch;
+    use windows::core::BSTR;
+
+    if let Ok(b) = BSTR::try_from(var) {
+        return Value::String(b.to_string());
+    }
+    if let Ok(d) = f64::try_from(var) {
+        return Value::Double(d);
+    }
+    if let Ok(i) = i32::try_from(var) {
+        return Value::Int32(i);
+    }
+    if let Ok(b) = bool::try_from(var) {
+        return Value::Boolean(b);
+    }
+    if let Ok(i) = i16::try_from(var) {
+        return Value::Int16(i);
+    }
+    if let Ok(i) = i64::try_from(var) {
+        return Value::Int64(i);
+    }
+    if let Ok(dispatch) = IDispatch::try_from(var) {
+        return Value::ComObject(std::rc::Rc::new(crate::runtime::ComObjectValue {
+            prog_id: "UnknownCOMObject".to_string(),
+            dispatch,
+        }));
+    }
+    Value::Empty
+}
+
 #[cfg(not(windows))]
 pub fn create_object(prog_id: &str, span: Span) -> Result<Value, Diagnostic> {
     let _ = prog_id;
     Err(com_error(
         "CreateObject is only available on Windows COM/OLE Automation hosts",
+        span,
+    ))
+}
+
+#[cfg(not(windows))]
+pub fn invoke_com(
+    _com_obj: &crate::runtime::ComObjectValue,
+    name: &str,
+    _args: &[Value],
+    _invoke_type: u16,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    Err(com_error(
+        format!("COM Invoke '{}' is only available on Windows", name),
         span,
     ))
 }
