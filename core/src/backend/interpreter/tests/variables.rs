@@ -217,7 +217,7 @@ Structure Point
     Public X As Integer
     Public Y As Integer
 
-    Public Sub Constructor(ByVal x As Integer, ByVal y As Integer)
+    Public Sub New(ByVal x As Integer, ByVal y As Integer)
         X = x
         Y = y
     End Sub
@@ -399,7 +399,7 @@ fn structure_constructor_and_private_member_diagnostics_work() {
     let duplicate = source_error(
         r#"
 Structure Point
-    Public Sub Constructor()
+    Public Sub New(ByVal x As Integer)
     End Sub
 
     Public Sub Initialize()
@@ -424,9 +424,24 @@ Sub Main()
 End Sub
 "#,
     );
-    assert!(constructor_function.contains("constructor must be declared as Sub Constructor"));
+    assert!(constructor_function.contains("constructor must be declared as Sub New"));
 
     let direct_call = source_error(
+        r#"
+Structure Point
+    Public Sub New(ByVal x As Integer)
+    End Sub
+End Structure
+
+Sub Main()
+    Dim p As Point
+    p.Initialize(1)
+End Sub
+"#,
+    );
+    assert!(direct_call.contains("constructor cannot be called as a normal method"));
+
+    let constructor_alias = source_error(
         r#"
 Structure Point
     Public Sub Constructor()
@@ -434,12 +449,23 @@ Structure Point
 End Structure
 
 Sub Main()
-    Dim p As Point
-    p.Constructor()
 End Sub
 "#,
     );
-    assert!(direct_call.contains("constructor cannot be called as a normal method"));
+    assert!(constructor_alias.contains("constructor must be declared as Sub New"));
+
+    let parameterless_constructor = source_error(
+        r#"
+Structure Point
+    Public Sub New()
+    End Sub
+End Structure
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(parameterless_constructor.contains("must declare at least one parameter"));
 
     let private_method = source_error(
         r#"
@@ -491,6 +517,33 @@ End Sub
     );
 
     assert!(error.contains("Type declarations support fields only"));
+}
+
+#[test]
+fn vba_type_fields_reject_visibility_and_dim_modifiers() {
+    let public_field = source_error(
+        r#"
+Type Point
+    Public X As Integer
+End Type
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(public_field.contains("VBA Type fields cannot use Public or Private"));
+
+    let dim_field = source_error(
+        r#"
+Type Point
+    Dim X As Integer
+End Type
+
+Sub Main()
+End Sub
+"#,
+    );
+    assert!(dim_field.contains("VBA Type fields cannot use Dim"));
 }
 
 #[test]

@@ -354,7 +354,7 @@ impl Interpreter {
                 if args.len() != type_def.fields.len() {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::GENERIC,
-                        format!("Structure '{}' has no Constructor", type_def.name),
+                        format!("Structure '{}' has no Sub New constructor", type_def.name),
                         Some(span),
                     ));
                 }

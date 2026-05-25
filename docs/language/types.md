@@ -11,7 +11,7 @@ Public Structure Point
     Public X As Integer
     Public Y As Integer
 
-    Public Sub Constructor(ByVal x As Integer, ByVal y As Integer)
+    Public Sub New(ByVal x As Integer, ByVal y As Integer)
         X = x
         Y = y
     End Sub
@@ -36,7 +36,7 @@ Structures support:
 - Fields
 - `Sub` and `Function` methods
 - `Property Get` and `Property Let`
-- `Sub Constructor`
+- `Sub New` constructors with at least one parameter
 - Default `Property Get` indexers
 - Module imports, including qualified construction
 
@@ -54,6 +54,8 @@ Public Type Point
     Y As Integer
 End Type
 ```
+
+Fields inside a `Type` use plain VBA UDT syntax. Do not prefix fields with `Public`, `Private`, or `Dim`.
 
 Prefer `Structure` in new `.valo` code and keep `Type` for migrated VBA code.
 

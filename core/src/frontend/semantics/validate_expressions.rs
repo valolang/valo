@@ -357,7 +357,7 @@ pub(super) fn validate_expr(
                 } else if !args.is_empty() {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::GENERIC,
-                        format!("Structure '{}' has no Constructor", type_sig.name),
+                        format!("Structure '{}' has no Sub New constructor", type_sig.name),
                         Some(expr.span),
                     ));
                 }
@@ -2152,7 +2152,10 @@ fn validate_structure_method_call(
             span,
         ))
     } else {
-        if method.eq_ignore_ascii_case("Constructor") || method.eq_ignore_ascii_case("Initialize") {
+        if method.eq_ignore_ascii_case("New")
+            || method.eq_ignore_ascii_case("Constructor")
+            || method.eq_ignore_ascii_case("Initialize")
+        {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                 "Structure constructor cannot be called as a normal method",

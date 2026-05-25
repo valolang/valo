@@ -1132,6 +1132,13 @@ impl Parser {
                 members.push(self.parse_structure_member()?);
             } else {
                 let explicit_visibility = self.parse_optional_visibility();
+                if kind == TypeKind::Type && explicit_visibility.is_some() {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        "VBA Type fields cannot use Public or Private",
+                        Some(self.previous().span),
+                    ));
+                }
                 if self.match_simple(&TokenKind::WithEvents) {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -1140,6 +1147,13 @@ impl Parser {
                     ));
                 }
                 let has_dim = self.match_simple(&TokenKind::Dim);
+                if kind == TypeKind::Type && has_dim {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        "VBA Type fields cannot use Dim",
+                        Some(self.previous().span),
+                    ));
+                }
                 let visibility = explicit_visibility.unwrap_or(if has_dim {
                     Visibility::Private
                 } else {
@@ -1270,21 +1284,6 @@ impl Parser {
                         procedure: self.parse_lifecycle_sub_procedure(
                             visibility,
                             "New",
-                            "Initialize",
-                        )?,
-                    }))
-                } else if matches!(
-                    self.peek_next_kind(),
-                    Some(TokenKind::Identifier(name, _)) if name.eq_ignore_ascii_case("Constructor")
-                ) {
-                    Ok(ClassMember::Sub(ClassSub {
-                        visibility,
-                        override_kind: OverrideKind::None,
-                        is_shared: false,
-                        implements: Vec::new(),
-                        procedure: self.parse_lifecycle_sub_procedure(
-                            visibility,
-                            "Constructor",
                             "Initialize",
                         )?,
                     }))

@@ -2,7 +2,7 @@ Public Structure Point
     Public X As Integer
     Public Y As Integer
 
-    Public Sub Constructor(ByVal x As Integer, ByVal y As Integer)
+    Public Sub New(ByVal x As Integer, ByVal y As Integer)
         X = x
         Y = y
     End Sub

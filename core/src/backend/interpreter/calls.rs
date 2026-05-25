@@ -90,7 +90,10 @@ impl Interpreter {
                     Some(span),
                 )
             })?;
-        if method.eq_ignore_ascii_case("Constructor") {
+        if method.eq_ignore_ascii_case("New")
+            || method.eq_ignore_ascii_case("Constructor")
+            || method.eq_ignore_ascii_case("Initialize")
+        {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
                 "Structure constructor cannot be called as a normal method",

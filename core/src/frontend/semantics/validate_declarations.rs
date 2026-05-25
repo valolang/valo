@@ -195,7 +195,14 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     if method_key == "class_initialize" {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                            "Structure cannot declare Class_Initialize; use Sub Constructor",
+                            "Structure cannot declare Class_Initialize; use Sub New",
+                            Some(method.procedure.span),
+                        ));
+                    }
+                    if method_key == "constructor" {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                            "Structure constructor must be declared as Sub New",
                             Some(method.procedure.span),
                         ));
                     }
@@ -207,6 +214,13 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                                     "Structure '{}' has duplicate constructor definitions",
                                     type_decl.name
                                 ),
+                                Some(method.procedure.span),
+                            ));
+                        }
+                        if method.procedure.params.is_empty() {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                "Structure constructor must declare at least one parameter",
                                 Some(method.procedure.span),
                             ));
                         }
@@ -245,7 +259,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     if method_key == "constructor" || method_key == "initialize" {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                            "Structure constructor must be declared as Sub Constructor",
+                            "Structure constructor must be declared as Sub New",
                             Some(method.function.span),
                         ));
                     }
