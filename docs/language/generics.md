@@ -34,11 +34,19 @@ Dim nested As Box(Of Box(Of String))
 Dim pair As Pair(Of String, Long)
 ```
 
-Generic functions use explicit type arguments:
+Generic functions can use explicit type arguments:
 
 ```vb
 Dim text As String
 text = Identity(Of String)("hello")
+```
+
+For simple calls, Valo can also infer generic function type arguments from literals,
+variables, `New` expressions, named arguments, and nested generic argument positions:
+
+```vb
+Dim text As String
+text = Identity("hello")
 ```
 
 The runtime keeps instantiated generic metadata and caches concrete class/structure layouts using the formatted type identity, such as `Box(Of String)`. This keeps the current interpreter VM-ready: future bytecode can reference canonical generic definitions plus concrete type arguments instead of relying on textual rewrites.

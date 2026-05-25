@@ -48,6 +48,183 @@ fn instantiate_function(
     Ok(())
 }
 
+fn infer_function_type_args(
+    function: &Function,
+    args: &[Expr],
+    caller_frame: &Frame,
+    span: Span,
+) -> Result<Vec<TypeName>, Diagnostic> {
+    let mut inferred: Vec<Option<TypeName>> = vec![None; function.type_params.len()];
+    let mut positional_index = 0;
+    for arg in args {
+        let (param, arg_expr) = if let ExprKind::NamedArg { name, expr } = &arg.kind {
+            let Some(param) = function
+                .params
+                .iter()
+                .find(|param| param.name.eq_ignore_ascii_case(name))
+            else {
+                continue;
+            };
+            (param, expr.as_ref())
+        } else {
+            let Some(param) = function.params.get(positional_index) else {
+                continue;
+            };
+            positional_index += 1;
+            (param, arg)
+        };
+        let Some(arg_type) = infer_expr_type_for_generic(arg_expr, caller_frame)? else {
+            continue;
+        };
+        collect_generic_type_inferences(
+            &param.ty,
+            &arg_type,
+            &function.type_params,
+            &mut inferred,
+            arg.span,
+        )?;
+    }
+
+    inferred
+        .into_iter()
+        .enumerate()
+        .map(|(index, ty)| {
+            ty.ok_or_else(|| {
+                Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    format!(
+                        "Cannot infer type argument '{}' for '{}'",
+                        function.type_params[index], function.name
+                    ),
+                    Some(span),
+                )
+                .with_help("specify the type argument explicitly with '(Of ...)'")
+            })
+        })
+        .collect()
+}
+
+fn infer_expr_type_for_generic(
+    expr: &Expr,
+    caller_frame: &Frame,
+) -> Result<Option<TypeName>, Diagnostic> {
+    match &expr.kind {
+        ExprKind::String(_) => Ok(Some(TypeName::String)),
+        ExprKind::DateLiteral(_) => Ok(Some(TypeName::Date)),
+        ExprKind::Integer(value) => {
+            let ty = if *value >= i16::MIN as i64 && *value <= i16::MAX as i64 {
+                TypeName::Integer
+            } else if *value >= i32::MIN as i64 && *value <= i32::MAX as i64 {
+                TypeName::Long
+            } else {
+                TypeName::Int64
+            };
+            Ok(Some(ty))
+        }
+        ExprKind::Long(_) => Ok(Some(TypeName::Long)),
+        ExprKind::LongLong(_) => Ok(Some(TypeName::Int64)),
+        ExprKind::Single(_) => Ok(Some(TypeName::Single)),
+        ExprKind::Double(_) => Ok(Some(TypeName::Double)),
+        ExprKind::Currency(_) => Ok(Some(TypeName::Currency)),
+        ExprKind::Decimal(_) => Ok(Some(TypeName::Decimal)),
+        ExprKind::Boolean(_) => Ok(Some(TypeName::Boolean)),
+        ExprKind::Variable(name) => {
+            if caller_frame.has_variable(name) {
+                Ok(Some(caller_frame.variable(name, expr.span)?.ty))
+            } else {
+                Ok(None)
+            }
+        }
+        ExprKind::New { class_name, .. } => Ok(Some(class_name.clone())),
+        ExprKind::NamedArg { expr, .. } | ExprKind::PassingModeOverride { expr, .. } => {
+            infer_expr_type_for_generic(expr, caller_frame)
+        }
+        ExprKind::Nothing | ExprKind::Empty | ExprKind::Null | ExprKind::Missing => {
+            Ok(Some(TypeName::Variant))
+        }
+        ExprKind::AddressOf(_) => Ok(Some(TypeName::FuncPtr)),
+        _ => Ok(None),
+    }
+}
+
+fn collect_generic_type_inferences(
+    param_type: &TypeName,
+    arg_type: &TypeName,
+    type_params: &[String],
+    inferred: &mut [Option<TypeName>],
+    span: Span,
+) -> Result<(), Diagnostic> {
+    match param_type {
+        TypeName::User(name) => {
+            if let Some(index) = type_params
+                .iter()
+                .position(|param| param.eq_ignore_ascii_case(name))
+            {
+                merge_inferred_type(&mut inferred[index], arg_type.clone(), name, span)?;
+            }
+        }
+        TypeName::Array(param_inner) => {
+            if let TypeName::Array(arg_inner) = arg_type {
+                collect_generic_type_inferences(
+                    param_inner,
+                    arg_inner,
+                    type_params,
+                    inferred,
+                    span,
+                )?;
+            }
+        }
+        TypeName::GenericInstance {
+            name: param_name,
+            args: param_args,
+        } => {
+            if let TypeName::GenericInstance {
+                name: arg_name,
+                args: arg_args,
+            } = arg_type
+                && param_name.eq_ignore_ascii_case(arg_name)
+            {
+                for (param_arg, arg_arg) in param_args.iter().zip(arg_args.iter()) {
+                    collect_generic_type_inferences(
+                        param_arg,
+                        arg_arg,
+                        type_params,
+                        inferred,
+                        span,
+                    )?;
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn merge_inferred_type(
+    slot: &mut Option<TypeName>,
+    inferred_type: TypeName,
+    param_name: &str,
+    span: Span,
+) -> Result<(), Diagnostic> {
+    if let Some(existing) = slot {
+        if !existing.same_type(&inferred_type) {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!(
+                    "Conflicting inferred types for '{}': '{}' and '{}'",
+                    param_name,
+                    existing.display_name(),
+                    inferred_type.display_name()
+                ),
+                Some(span),
+            ));
+        }
+    } else {
+        *slot = Some(inferred_type);
+    }
+    Ok(())
+}
+
 impl Interpreter {
     fn bind_class_constants(
         &mut self,
@@ -272,6 +449,13 @@ impl Interpreter {
                 Some(span),
             )
         })?;
+        let inferred_type_args;
+        let type_args = if type_args.is_empty() && !function.type_params.is_empty() {
+            inferred_type_args = infer_function_type_args(&function, args, caller_frame, span)?;
+            &inferred_type_args
+        } else {
+            type_args
+        };
         instantiate_function(&mut function, type_args, span)?;
 
         self.call_stack

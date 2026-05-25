@@ -198,6 +198,84 @@ End Sub
 }
 
 #[test]
+fn generic_function_type_arguments_are_inferred_from_literals_and_variables() {
+    let output = run_source(
+        r#"
+Function Identity(Of T)(ByVal value As T) As T
+    Identity = value
+End Function
+
+Sub Main()
+    Dim name As String
+    name = "Valo"
+    Debug.Print Identity("hello")
+    Debug.Print Identity(name)
+    Debug.Print Identity(42)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["hello", "Valo", "42"]);
+}
+
+#[test]
+fn generic_function_type_inference_uses_named_arguments() {
+    let output = run_source(
+        r#"
+Function Echo(Of T)(ByVal value As T) As T
+    Echo = value
+End Function
+
+Sub Main()
+    Debug.Print Echo(value := "named")
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["named"]);
+}
+
+#[test]
+fn generic_function_type_inference_uses_nested_generic_arguments() {
+    let output = run_source(
+        r#"
+Class Box(Of T)
+    Public Value As T
+End Class
+
+Function Unbox(Of T)(ByVal box As Box(Of T)) As T
+    Unbox = box.Value
+End Function
+
+Sub Main()
+    Dim box As Box(Of String)
+    Set box = New Box(Of String)()
+    box.Value = "nested"
+    Debug.Print Unbox(box)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["nested"]);
+}
+
+#[test]
+fn generic_function_type_inference_reports_uninferrable_type_parameter() {
+    let error = source_error(
+        r#"
+Function MakeDefault(Of T)() As T
+End Function
+
+Sub Main()
+    Debug.Print MakeDefault()
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Cannot infer type argument"));
+}
+
+#[test]
 fn nested_generic_type_names_parse_and_validate() {
     let output = run_source(
         r#"
