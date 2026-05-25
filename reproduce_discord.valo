@@ -1,0 +1,5 @@
+Import "research/DiscordRPC"
+
+Sub Main()
+    Console.WriteLine("DiscordRPC import successful")
+End Sub
