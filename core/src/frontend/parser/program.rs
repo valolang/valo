@@ -156,7 +156,7 @@ impl Parser {
                                 self.apply_class_attribute(&attribute, &mut class_members);
                                 class_attributes.push(attribute);
                             } else {
-                                class_members.push(self.parse_class_member()?);
+                                class_members.extend(self.parse_class_member()?);
                             }
                             self.skip_newlines();
                         }

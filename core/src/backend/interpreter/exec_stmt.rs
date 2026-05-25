@@ -321,6 +321,15 @@ impl Interpreter {
                 frame.yield_value(value);
                 Ok(ControlFlow::Continue)
             }
+            Stmt::Throw { expr, span } => {
+                let value = self.eval_expr(expr, frame)?;
+                let message = value.to_string();
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::RUNTIME_ERROR,
+                    message,
+                    Some(*span),
+                ))
+            }
             Stmt::If {
                 condition,
                 then_body,
@@ -1267,6 +1276,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::SeekFile { span, .. }
         | Stmt::NameFile { span, .. }
         | Stmt::Yield { span, .. }
+        | Stmt::Throw { span, .. }
         | Stmt::End { span } => *span,
     }
 }

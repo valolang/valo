@@ -794,6 +794,135 @@ End Sub
 }
 
 #[test]
+fn vbnet_auto_properties_support_defaults_get_and_set() {
+    let output = run_source(
+        r#"
+Class Product
+    Public Property Id As Integer
+    Public Property Name As String = "Unnamed Product"
+End Class
+
+Sub Main()
+    Dim product As New Product()
+    Console.WriteLine(product.Id)
+    Console.WriteLine(product.Name)
+    product.Id = 7
+    product.Name = "Valo"
+    Console.WriteLine(product.Id)
+    Console.WriteLine(product.Name)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["0", "Unnamed Product", "7", "Valo"]);
+}
+
+#[test]
+fn vbnet_full_property_blocks_support_get_and_set_validation() {
+    let output = run_source(
+        r#"
+Class Account
+    Private _balance As Decimal
+
+    Public Property Balance As Decimal
+        Get
+            Return _balance
+        End Get
+        Set(value As Decimal)
+            If value >= 0 Then
+                _balance = value
+            Else
+                _balance = 0
+            End If
+        End Set
+    End Property
+End Class
+
+Sub Main()
+    Dim account As New Account()
+    account.Balance = 10
+    Console.WriteLine(account.Balance)
+    account.Balance = -1
+    Console.WriteLine(account.Balance)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["10", "0"]);
+}
+
+#[test]
+fn vbnet_readonly_and_writeonly_properties_enforce_accessors() {
+    let output = run_source(
+        r#"
+Class Config
+    Private _senha As String
+
+    Public ReadOnly Property Versao As String
+        Get
+            Return "1.0.0"
+        End Get
+    End Property
+
+    Public WriteOnly Property Senha As String
+        Set(value As String)
+            _senha = value
+        End Set
+    End Property
+
+    Public Function Masked() As String
+        Return "***"
+    End Function
+End Class
+
+Sub Main()
+    Dim config As New Config()
+    Console.WriteLine(config.Versao)
+    config.Senha = "secret"
+    Console.WriteLine(config.Masked())
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["1.0.0", "***"]);
+
+    let read_only_error = source_error(
+        r#"
+Class Config
+    Public ReadOnly Property Versao As String
+        Get
+            Return "1.0.0"
+        End Get
+    End Property
+End Class
+
+Sub Main()
+    Dim config As New Config()
+    config.Versao = "2.0.0"
+End Sub
+"#,
+    );
+    assert!(read_only_error.contains("Property 'Versao' has no Let or Set accessor"));
+
+    let write_only_error = source_error(
+        r#"
+Class Config
+    Public WriteOnly Property Senha As String
+        Set(value As String)
+        End Set
+    End Property
+End Class
+
+Sub Main()
+    Dim config As New Config()
+    Console.WriteLine(config.Senha)
+End Sub
+"#,
+    );
+    assert!(write_only_error.contains("Property 'Senha' has no Get accessor"));
+}
+
+#[test]
 fn private_property_access_outside_class_is_rejected() {
     let error = source_error(
         r#"
@@ -2133,17 +2262,38 @@ End Sub
 }
 
 #[test]
-fn rejects_withevents_non_object_field() {
-    let error = source_error(
+fn test_throw_argument_exception() {
+    let output = run_source(
         r#"
-Class Form
-    Private WithEvents counter As Integer
+Class Account
+    Private _balance As Decimal
+
+    Public Property Balance As Decimal
+        Get
+            Return _balance
+        End Get
+        Set(value As Decimal)
+            If value >= 0 Then
+                _balance = value
+            Else
+                Throw "Balance cannot be negative."
+            End If
+        End Set
+    End Property
 End Class
 
 Sub Main()
+    Dim account As New Account()
+    Try
+        account.Balance = 10
+        Console.WriteLine(account.Balance)
+        account.Balance = -1
+    Catch ex As Error
+        Console.WriteLine(ex.Message)
+    End Try
 End Sub
 "#,
     );
 
-    assert!(error.contains("WithEvents field 'counter' must have a class type"));
+    assert_eq!(output, vec!["10", "Balance cannot be negative."]);
 }

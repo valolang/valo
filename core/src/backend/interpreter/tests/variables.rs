@@ -687,22 +687,21 @@ End Sub
 }
 
 #[test]
-fn class_field_initializer_is_rejected_clearly() {
-    let diagnostic = source_diagnostic(
+fn class_field_initializer_sets_default_value() {
+    let output = run_source(
         r#"
 Class Box
     Public value As Integer = 1
 End Class
 
 Sub Main()
+    Dim box As New Box()
+    Console.WriteLine(box.value)
 End Sub
 "#,
     );
 
-    assert_eq!(
-        diagnostic.code,
-        crate::runtime::DiagnosticCode::TYPE_MISMATCH
-    );
+    assert_eq!(output, vec!["1"]);
 }
 
 #[test]

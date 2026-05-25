@@ -500,6 +500,9 @@ pub(super) fn validate_statements(
                     }
                 }
             }
+            Stmt::Throw { expr, .. } => {
+                validate_expr(expr, symbols, types, signatures, &context)?;
+            }
             Stmt::If {
                 condition,
                 then_body,
@@ -1297,13 +1300,14 @@ fn stmt_span(stmt: &Stmt, _context: &Context<'_>) -> crate::runtime::Span {
         | Stmt::SeekFile { span, .. }
         | Stmt::NameFile { span, .. }
         | Stmt::Yield { span, .. }
+        | Stmt::Throw { span, .. }
         | Stmt::End { span } => *span,
     }
 }
 
 fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
     match stmt {
-        Stmt::End { .. } => false,
+        Stmt::End { .. } | Stmt::Throw { .. } => false,
         Stmt::Const { value, .. } | Stmt::Return { expr: value, .. } => {
             expr_uses_with_target(value, _context)
         }

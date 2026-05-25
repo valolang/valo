@@ -1,0 +1,27 @@
+Class Account
+    Private _balance As Decimal
+
+    Public Property Balance As Decimal
+        Get
+            Return _balance
+        End Get
+        Set(value As Decimal)
+            If value >= 0 Then
+                _balance = value
+            Else
+                Throw "Balance cannot be negative."
+            End If
+        End Set
+    End Property
+End Class
+
+Sub Main()
+    Dim account As New Account()
+    Try
+        account.Balance = 10
+        Console.WriteLine(account.Balance)
+        account.Balance = -1
+    Catch ex As Error
+        Console.WriteLine(ex.Message)
+    End Try
+End Sub

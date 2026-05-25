@@ -39,6 +39,7 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 *   **[Generic Inheritance](generic_inheritance.valo):** Generic base classes.
 *   **[Interface Polymorphism](interface_polymorphism.valo):** Interface implementation dispatch.
 *   **[Properties](properties.valo):** Property Get/Let/Set accessors.
+*   **[VB.NET Properties](vbnet_properties.valo):** Auto-properties, full property blocks, `ReadOnly`, and `WriteOnly`.
 *   **[Native Lifecycle](native_class_lifecycle.valo):** `Sub New` and `Sub Terminate` support.
 *   **[Using Dispose](using_dispose.valo):** Deterministic cleanup with `Using` and `Dispose`.
 *   **[Events](events.valo):** Declaring and raising events.
@@ -47,6 +48,7 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 
 ## Error Handling
 
+*   **[Throw](throw_example.valo):** Throwing exceptions and `Try/Catch` block usage.
 *   **[On Error Basic](on_error_basic.valo):** Standard `On Error GoTo` usage.
 *   **[On Error Advanced](on_error_advanced.valo):** Complex error handling and recovery.
 

@@ -205,6 +205,21 @@ impl Interpreter {
         default_value(ty, &self.types, &self.enums, span)
     }
 
+    fn field_initial_value(
+        &mut self,
+        field: &RuntimeField,
+        ty: &TypeName,
+        frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        if let Some(initializer) = &field.initializer {
+            let value = self.eval_expr(initializer, frame)?;
+            coerce_assignment(ty, value, initializer.span)
+        } else {
+            self.default_field_value(ty, &field.array, span)
+        }
+    }
+
     pub(crate) fn raise_event(
         &mut self,
         name: &str,
@@ -372,7 +387,7 @@ impl Interpreter {
         let mut fields = HashMap::new();
         for field in &class.fields {
             let field_ty = self.resolve_type_name(&field.ty, caller_frame, span)?;
-            let value = self.default_field_value(&field_ty, &field.array, span)?;
+            let value = self.field_initial_value(field, &field_ty, caller_frame, span)?;
             fields.insert(key(&field.name), value);
         }
         let object = Value::Object(Rc::new(RefCell::new(ObjectValue {
@@ -404,9 +419,10 @@ impl Interpreter {
                 continue;
             }
             let mut fields = HashMap::new();
+            let mut frame = Frame::default();
             for field in &class.shared_fields {
-                let ty = self.resolve_type_name(&field.ty, &Frame::default(), span)?;
-                let value = self.default_field_value(&ty, &field.array, span)?;
+                let ty = self.resolve_type_name(&field.ty, &frame, span)?;
+                let value = self.field_initial_value(field, &ty, &mut frame, span)?;
                 fields.insert(key(&field.name), value);
             }
             self.shared_class_fields.insert(key(&class.name), fields);

@@ -1,6 +1,18 @@
 use super::*;
 use crate::runtime::{Diagnostic, Span, TypeName};
 
+#[derive(Clone)]
+struct VbNetPropertyHeader {
+    visibility: Visibility,
+    is_default: bool,
+    is_readonly: bool,
+    is_writeonly: bool,
+    start: Span,
+    name: String,
+    params: Vec<Parameter>,
+    ty: TypeName,
+}
+
 impl Parser {
     pub(super) fn parse_attribute_decl(&mut self) -> Result<AttributeDecl, Diagnostic> {
         let start = self.expect_identifier("Expected 'Attribute'")?;
@@ -125,7 +137,7 @@ impl Parser {
                 self.apply_class_attribute(&attribute, &mut members);
                 attributes.push(attribute);
             } else {
-                members.push(self.parse_class_member()?);
+                members.extend(self.parse_class_member()?);
             }
             self.skip_newlines();
         }
@@ -264,11 +276,16 @@ impl Parser {
         }
     }
 
-    pub(super) fn parse_class_member(&mut self) -> Result<ClassMember, Diagnostic> {
+    pub(super) fn parse_class_member(&mut self) -> Result<Vec<ClassMember>, Diagnostic> {
         let explicit_visibility = self.parse_optional_visibility();
         let visibility = explicit_visibility.unwrap_or(Visibility::Public);
         let override_kind = self.parse_optional_override_kind();
         let is_shared = self.match_simple(&TokenKind::Shared);
+        let is_readonly = self.match_simple(&TokenKind::ReadOnly);
+        let is_writeonly = self.match_simple(&TokenKind::WriteOnly);
+        if is_readonly && is_writeonly {
+            return Err(self.error_here("Property cannot be both ReadOnly and WriteOnly"));
+        }
         let with_events = self.match_simple(&TokenKind::WithEvents);
         let is_default = self.match_simple(&TokenKind::Default);
         let is_iterator = self.match_simple(&TokenKind::Iterator);
@@ -283,11 +300,13 @@ impl Parser {
                 if with_events {
                     return Err(self.error_here("WithEvents is only supported on fields"));
                 }
-                self.parse_event(visibility).map(ClassMember::Event)
+                self.parse_event(visibility)
+                    .map(ClassMember::Event)
+                    .map(|member| vec![member])
             }
             TokenKind::Const => self.parse_module_consts(visibility).and_then(|mut consts| {
                 if consts.len() == 1 {
-                    Ok(ClassMember::Const(consts.remove(0)))
+                    Ok(vec![ClassMember::Const(consts.remove(0))])
                 } else {
                     Err(self.error_here("Class Const declarations must be one per member"))
                 }
@@ -297,7 +316,7 @@ impl Parser {
                     return Err(self.error_here("Iterator is not supported on Sub"));
                 }
                 if matches!(self.peek_next_kind(), Some(TokenKind::New)) {
-                    Ok(ClassMember::Sub(ClassSub {
+                    Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind,
                         is_shared,
@@ -307,12 +326,12 @@ impl Parser {
                             "New",
                             "Initialize",
                         )?,
-                    }))
+                    })])
                 } else if matches!(
                     self.peek_next_kind(),
                     Some(TokenKind::Identifier(name, _)) if name.eq_ignore_ascii_case("Terminate")
                 ) {
-                    Ok(ClassMember::Sub(ClassSub {
+                    Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind,
                         is_shared,
@@ -322,37 +341,54 @@ impl Parser {
                             "Terminate",
                             "Terminate",
                         )?,
-                    }))
+                    })])
                 } else {
                     let (procedure, implements) = self.parse_class_procedure(visibility)?;
-                    Ok(ClassMember::Sub(ClassSub {
+                    Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind,
                         is_shared,
                         implements,
                         procedure,
-                    }))
+                    })])
                 }
             }
             TokenKind::Function => {
                 let mut function = self.parse_class_function(visibility, is_iterator)?;
                 function.override_kind = override_kind;
                 function.is_shared = is_shared;
-                Ok(ClassMember::Function(function))
+                Ok(vec![ClassMember::Function(function)])
             }
             TokenKind::Property => {
-                let mut property = self.parse_property(visibility, is_default, is_iterator)?;
-                property.override_kind = override_kind;
-                property.is_shared = is_shared;
-                Ok(ClassMember::Property(property))
+                let mut members = self.parse_class_property_members(
+                    visibility,
+                    is_default,
+                    is_iterator,
+                    is_readonly,
+                    is_writeonly,
+                )?;
+                for member in &mut members {
+                    if let ClassMember::Property(property) = member {
+                        property.override_kind = override_kind;
+                        property.is_shared = is_shared;
+                    } else if let ClassMember::Field(field) = member {
+                        field.is_shared = is_shared;
+                    }
+                }
+                Ok(members)
             }
-            TokenKind::Type | TokenKind::Structure => {
-                self.parse_type_decl(visibility).map(ClassMember::Type)
-            }
-            TokenKind::Enum => self.parse_enum_decl(visibility).map(ClassMember::Enum),
+            TokenKind::Type | TokenKind::Structure => self
+                .parse_type_decl(visibility)
+                .map(ClassMember::Type)
+                .map(|member| vec![member]),
+            TokenKind::Enum => self
+                .parse_enum_decl(visibility)
+                .map(ClassMember::Enum)
+                .map(|member| vec![member]),
             TokenKind::Declare => self
                 .parse_declare_decl(visibility)
-                .map(ClassMember::Declare),
+                .map(ClassMember::Declare)
+                .map(|member| vec![member]),
             _ if is_iterator => {
                 Err(self.error_here("Expected Function or Property after Iterator"))
             }
@@ -386,11 +422,11 @@ impl Parser {
                     })
                     .collect::<Vec<_>>();
                 if fields.len() == 1 {
-                    Ok(ClassMember::Field(
+                    Ok(vec![ClassMember::Field(
                         fields.into_iter().next().expect("len checked"),
-                    ))
+                    )])
                 } else {
-                    Ok(ClassMember::Fields(fields))
+                    Ok(vec![ClassMember::Fields(fields)])
                 }
             }
             _ => Err(self.error_here("Expected class member")),
@@ -517,6 +553,310 @@ impl Parser {
             body,
             span: Span::new(self.file_id, start.start, end.end),
         })
+    }
+
+    fn parse_class_property_members(
+        &mut self,
+        visibility: Visibility,
+        is_default: bool,
+        is_iterator: bool,
+        is_readonly: bool,
+        is_writeonly: bool,
+    ) -> Result<Vec<ClassMember>, Diagnostic> {
+        if matches!(
+            self.peek_next_kind(),
+            Some(TokenKind::Get | TokenKind::Let | TokenKind::Set)
+        ) {
+            let mut property = self.parse_property(visibility, is_default, is_iterator)?;
+            match property.kind {
+                PropertyKind::Get if is_writeonly => {
+                    return Err(self.error_here("WriteOnly property cannot declare a Get accessor"));
+                }
+                PropertyKind::Let | PropertyKind::Set if is_readonly => {
+                    return Err(
+                        self.error_here("ReadOnly property cannot declare a Let or Set accessor")
+                    );
+                }
+                _ => {}
+            }
+            property.is_readonly = is_readonly;
+            property.is_writeonly = is_writeonly;
+            return Ok(vec![ClassMember::Property(property)]);
+        }
+
+        self.parse_vbnet_property_members(visibility, is_default, is_readonly, is_writeonly)
+    }
+
+    fn parse_vbnet_property_members(
+        &mut self,
+        visibility: Visibility,
+        is_default: bool,
+        is_readonly: bool,
+        is_writeonly: bool,
+    ) -> Result<Vec<ClassMember>, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Property, "Expected 'Property'")?
+            .span;
+        let name = self.expect_identifier("Expected property name")?;
+        let params = if self.match_simple(&TokenKind::LeftParen) {
+            let params = self.parse_parameters()?;
+            self.expect_simple(
+                TokenKind::RightParen,
+                "Expected ')' after property parameters",
+            )?;
+            params
+        } else {
+            Vec::new()
+        };
+        self.expect_simple(TokenKind::As, "Expected 'As' after property name")?;
+        let ty = self.parse_type_name()?;
+        let initializer = if self.match_simple(&TokenKind::Equal) {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        self.expect_statement_end("Expected newline after property declaration")?;
+
+        if matches!(self.peek_kind(), TokenKind::Get | TokenKind::Set) {
+            if initializer.is_some() {
+                return Err(self.error_here("Block properties cannot use an initializer"));
+            }
+            return self.parse_vbnet_block_property(VbNetPropertyHeader {
+                visibility,
+                is_default,
+                is_readonly,
+                is_writeonly,
+                start,
+                name,
+                params,
+                ty,
+            });
+        }
+
+        if !params.is_empty() {
+            return Err(self.error_here("Auto properties cannot declare parameters"));
+        }
+        self.lower_auto_property(
+            VbNetPropertyHeader {
+                visibility,
+                is_default,
+                is_readonly,
+                is_writeonly,
+                start,
+                name,
+                params,
+                ty,
+            },
+            initializer,
+        )
+    }
+
+    fn parse_vbnet_block_property(
+        &mut self,
+        header: VbNetPropertyHeader,
+    ) -> Result<Vec<ClassMember>, Diagnostic> {
+        let mut members = Vec::new();
+        let mut saw_get = false;
+        let mut saw_set = false;
+
+        while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndProperty]) {
+            self.skip_newlines();
+            if self.matches_block_end(&[BlockEnd::EndProperty]) {
+                break;
+            }
+            match self.peek_kind() {
+                TokenKind::Get => {
+                    if header.is_writeonly {
+                        return Err(
+                            self.error_here("WriteOnly property cannot declare a Get accessor")
+                        );
+                    }
+                    if saw_get {
+                        return Err(self.error_here("Property Get accessor is already declared"));
+                    }
+                    let body = self.parse_vbnet_get_body()?;
+                    members.push(ClassMember::Property(ClassProperty {
+                        visibility: header.visibility,
+                        override_kind: OverrideKind::None,
+                        is_shared: false,
+                        implements: Vec::new(),
+                        is_default: header.is_default,
+                        is_enumerator: false,
+                        is_iterator: false,
+                        is_readonly: header.is_readonly,
+                        is_writeonly: header.is_writeonly,
+                        name: header.name.clone(),
+                        kind: PropertyKind::Get,
+                        params: header.params.clone(),
+                        return_type: Some(header.ty.clone()),
+                        body,
+                        span: header.start,
+                    }));
+                    saw_get = true;
+                }
+                TokenKind::Set => {
+                    if header.is_readonly {
+                        return Err(
+                            self.error_here("ReadOnly property cannot declare a Set accessor")
+                        );
+                    }
+                    if saw_set {
+                        return Err(self.error_here("Property Set accessor is already declared"));
+                    }
+                    let (set_params, body) = self.parse_vbnet_set_body(&header.ty)?;
+                    let mut setter_params = header.params.clone();
+                    setter_params.extend(set_params);
+                    members.push(ClassMember::Property(ClassProperty {
+                        visibility: header.visibility,
+                        override_kind: OverrideKind::None,
+                        is_shared: false,
+                        implements: Vec::new(),
+                        is_default: false,
+                        is_enumerator: false,
+                        is_iterator: false,
+                        is_readonly: header.is_readonly,
+                        is_writeonly: header.is_writeonly,
+                        name: header.name.clone(),
+                        kind: PropertyKind::Let,
+                        params: setter_params,
+                        return_type: None,
+                        body,
+                        span: header.start,
+                    }));
+                    saw_set = true;
+                }
+                _ => return Err(self.error_here("Expected Get, Set, or End Property")),
+            }
+        }
+
+        self.expect_simple(TokenKind::End, "Expected 'End Property'")?;
+        self.expect_simple(TokenKind::Property, "Expected 'Property' after 'End'")?;
+        self.consume_statement_end();
+
+        if members.is_empty() {
+            return Err(self.error_here("Property must declare at least one accessor"));
+        }
+        Ok(members)
+    }
+
+    fn parse_vbnet_get_body(&mut self) -> Result<Vec<Stmt>, Diagnostic> {
+        self.expect_simple(TokenKind::Get, "Expected 'Get'")?;
+        self.expect_statement_end("Expected newline after Get")?;
+        let body = self.parse_block_until(&[BlockEnd::EndGet])?;
+        self.expect_simple(TokenKind::End, "Expected 'End Get'")?;
+        self.expect_simple(TokenKind::Get, "Expected 'Get' after 'End'")?;
+        self.consume_statement_end();
+        Ok(body)
+    }
+
+    fn parse_vbnet_set_body(
+        &mut self,
+        ty: &TypeName,
+    ) -> Result<(Vec<Parameter>, Vec<Stmt>), Diagnostic> {
+        let start = self.expect_simple(TokenKind::Set, "Expected 'Set'")?.span;
+        let params = if self.match_simple(&TokenKind::LeftParen) {
+            let params = self.parse_parameters()?;
+            self.expect_simple(TokenKind::RightParen, "Expected ')' after Set parameter")?;
+            params
+        } else {
+            vec![Parameter {
+                name: "value".to_string(),
+                ty: ty.clone(),
+                mode: PassingMode::ByVal,
+                is_optional: false,
+                optional_default: None,
+                is_param_array: false,
+                span: start,
+            }]
+        };
+        self.expect_statement_end("Expected newline after Set")?;
+        let body = self.parse_block_until(&[BlockEnd::EndSet])?;
+        self.expect_simple(TokenKind::End, "Expected 'End Set'")?;
+        self.expect_simple(TokenKind::Set, "Expected 'Set' after 'End'")?;
+        self.consume_statement_end();
+        Ok((params, body))
+    }
+
+    fn lower_auto_property(
+        &mut self,
+        header: VbNetPropertyHeader,
+        initializer: Option<Expr>,
+    ) -> Result<Vec<ClassMember>, Diagnostic> {
+        let backing_name = format!("__valo_auto_property_{}", header.name);
+        let field = ClassMember::Field(ClassField {
+            visibility: Visibility::Private,
+            is_shared: false,
+            with_events: false,
+            name: backing_name.clone(),
+            ty: Some(header.ty.clone()),
+            array: None,
+            initializer,
+            span: header.start,
+        });
+        let mut members = vec![field];
+        if !header.is_writeonly {
+            members.push(ClassMember::Property(ClassProperty {
+                visibility: header.visibility,
+                override_kind: OverrideKind::None,
+                is_shared: false,
+                implements: Vec::new(),
+                is_default: header.is_default,
+                is_enumerator: false,
+                is_iterator: false,
+                is_readonly: header.is_readonly,
+                is_writeonly: header.is_writeonly,
+                name: header.name.clone(),
+                kind: PropertyKind::Get,
+                params: Vec::new(),
+                return_type: Some(header.ty.clone()),
+                body: vec![Stmt::Return {
+                    expr: Expr {
+                        kind: ExprKind::Variable(backing_name.clone()),
+                        span: header.start,
+                    },
+                    span: header.start,
+                }],
+                span: header.start,
+            }));
+        }
+        if !header.is_readonly {
+            members.push(ClassMember::Property(ClassProperty {
+                visibility: header.visibility,
+                override_kind: OverrideKind::None,
+                is_shared: false,
+                implements: Vec::new(),
+                is_default: false,
+                is_enumerator: false,
+                is_iterator: false,
+                is_readonly: header.is_readonly,
+                is_writeonly: header.is_writeonly,
+                name: header.name,
+                kind: PropertyKind::Let,
+                params: vec![Parameter {
+                    name: "value".to_string(),
+                    ty: header.ty,
+                    mode: PassingMode::ByVal,
+                    is_optional: false,
+                    optional_default: None,
+                    is_param_array: false,
+                    span: header.start,
+                }],
+                return_type: None,
+                body: vec![Stmt::Assign {
+                    target: AssignTarget::Variable {
+                        name: backing_name,
+                        span: header.start,
+                    },
+                    expr: Expr {
+                        kind: ExprKind::Variable("value".to_string()),
+                        span: header.start,
+                    },
+                    span: header.start,
+                }],
+                span: header.start,
+            }));
+        }
+        Ok(members)
     }
 
     pub(super) fn parse_optional_visibility(&mut self) -> Option<Visibility> {

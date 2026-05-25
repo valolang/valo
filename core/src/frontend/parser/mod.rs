@@ -210,6 +210,8 @@ pub(super) enum BlockEnd {
     EndProperty,
     EndSelect,
     EndSub,
+    EndGet,
+    EndSet,
     EndType,
     EndStructure,
     EndInterface,

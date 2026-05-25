@@ -564,6 +564,7 @@ impl DiagnosticCode {
     pub const FFI_UNSUPPORTED_MARSHALING: Self = Self("V3003");
     pub const FFI_CALL: Self = Self("V3004");
     pub const RUNTIME: Self = Self("V9000");
+    pub const RUNTIME_ERROR: Self = Self("V9001");
 }
 
 impl fmt::Display for DiagnosticCode {

@@ -1591,13 +1591,26 @@ fn validate_class_field_type(
 ) -> Result<(), Diagnostic> {
     if let Some(ty) = &field.ty {
         ensure_known_type(ty, registry, field.span)?;
-    }
-    if field.initializer.is_some() {
-        return Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-            "Class field initializers are not supported yet",
-            Some(field.span),
-        ));
+        if let Some(initializer) = &field.initializer {
+            ensure_const_expr(initializer, &HashMap::new(), registry)?;
+            let initializer_type = validate_expr(
+                initializer,
+                &HashMap::new(),
+                registry,
+                &Signatures {
+                    subs: HashMap::new(),
+                    functions: HashMap::new(),
+                },
+                &Context::Sub,
+            )?;
+            ensure_assignable_expr(
+                ty,
+                &initializer_type,
+                initializer,
+                registry,
+                initializer.span,
+            )?;
+        }
     }
     Ok(())
 }

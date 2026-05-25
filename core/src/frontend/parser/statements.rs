@@ -55,6 +55,7 @@ impl Parser {
             TokenKind::For => self.parse_for(),
             TokenKind::GoTo => self.parse_goto(),
             TokenKind::Try => self.parse_try_catch(),
+            TokenKind::Throw => self.parse_throw(),
             TokenKind::On => self.parse_on_error(),
             TokenKind::Resume => self.parse_resume(),
             TokenKind::Exit => self.parse_exit(),
@@ -1168,6 +1169,19 @@ impl Parser {
         })
     }
 
+    fn parse_throw(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Throw, "Expected 'Throw'")?
+            .span;
+        let expr = self.parse_expression()?;
+        let end = expr.span;
+
+        Ok(Stmt::Throw {
+            expr,
+            span: Span::new(self.file_id, start.start, end.end),
+        })
+    }
+
     fn parse_if(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect_simple(TokenKind::If, "Expected 'If'")?.span;
         let condition = self.parse_expression()?;
@@ -1864,6 +1878,14 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Sub))
             }
+            BlockEnd::EndGet => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Get))
+            }
+            BlockEnd::EndSet => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Set))
+            }
             BlockEnd::EndFunction => {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Function))
@@ -1930,6 +1952,8 @@ impl Parser {
                 Some(
                     TokenKind::If
                         | TokenKind::Sub
+                        | TokenKind::Get
+                        | TokenKind::Set
                         | TokenKind::Function
                         | TokenKind::Property
                         | TokenKind::Select

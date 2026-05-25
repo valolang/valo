@@ -227,6 +227,10 @@ pub enum Stmt {
         expr: Expr,
         span: Span,
     },
+    Throw {
+        expr: Expr,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
