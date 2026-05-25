@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use valo_core::{Frame, Interpreter, run_file, validate};
+use valo_core::{Frame, Interpreter, validate};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ColorChoice {
@@ -27,7 +27,7 @@ impl ColorChoice {
     }
 }
 
-pub fn run(mut args: impl Iterator<Item = String>, _color: ColorChoice) -> Result<(), String> {
+pub fn run(mut args: impl Iterator<Item = String>, color: ColorChoice) -> Result<(), String> {
     let Some(path) = args.next() else {
         return Err("usage: valo run <file>".to_string());
     };
@@ -36,7 +36,23 @@ pub fn run(mut args: impl Iterator<Item = String>, _color: ColorChoice) -> Resul
         return Err("usage: valo run <file>".to_string());
     }
 
-    let output = run_file(&path)?;
+    let path = valo_core::resolve_entrypoint(&path).map_err(|err| {
+        let map = valo_core::SourceMap::new();
+        err.render_colored(&map, color.enabled())
+    })?;
+
+    let project = match valo_core::load_project(&path) {
+        Ok(project) => project,
+        Err((err, map)) => return Err(err.render_colored(&map, color.enabled())),
+    };
+
+    if let Err(err) = valo_core::validate_project(&project) {
+        return Err(err.render_colored(&project.source_map, color.enabled()));
+    }
+
+    let output = valo_core::Interpreter::new()
+        .run_project(&project)
+        .map_err(|err| err.render_colored(&project.source_map, color.enabled()))?;
 
     for line in output {
         println!("{line}");
@@ -67,7 +83,7 @@ pub fn check(mut args: impl Iterator<Item = String>, color: ColorChoice) -> Resu
     Ok(())
 }
 
-pub fn repl() -> Result<(), String> {
+pub fn repl(color: ColorChoice) -> Result<(), String> {
     println!("Valo REPL v0.1.0 (Type 'exit' to quit)");
     let mut stdout = io::stdout();
     let mut input = String::new();
@@ -96,7 +112,7 @@ pub fn repl() -> Result<(), String> {
         match valo_core::parse_source_with_id(&source_content, file_id) {
             Ok(program) => {
                 if let Err(err) = validate(&program) {
-                    eprintln!("{}", err.render(&source_map));
+                    eprintln!("{}", err.render_colored(&source_map, color.enabled()));
                 } else {
                     match interpreter.run_repl_snippet(&program, &mut global_frame) {
                         Ok(output) => {
@@ -104,11 +120,13 @@ pub fn repl() -> Result<(), String> {
                                 println!("{}", out_line);
                             }
                         }
-                        Err(err) => eprintln!("{}", err.render(&source_map)),
+                        Err(err) => {
+                            eprintln!("{}", err.render_colored(&source_map, color.enabled()))
+                        }
                     }
                 }
             }
-            Err(err) => eprintln!("{}", err.render(&source_map)),
+            Err(err) => eprintln!("{}", err.render_colored(&source_map, color.enabled())),
         }
     }
     Ok(())

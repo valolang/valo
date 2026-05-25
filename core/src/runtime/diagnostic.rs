@@ -194,13 +194,12 @@ impl Diagnostic {
     pub fn render_colored(&self, source_map: &SourceMap, use_color: bool) -> String {
         let mut out = String::new();
         let color = ColorSupport::new(use_color);
+        let gutter_width = diagnostic_gutter_width(self);
 
         out.push_str(&format!(
-            "{}{}[{}]{}: {}{}{}\n",
-            color.bold(self.severity_color()),
-            self.severity,
+            "{}[{}]: {}{}{}\n",
+            color.severity(self.severity),
             self.code,
-            color.reset(),
             color.bold(""),
             self.message,
             color.reset()
@@ -209,37 +208,38 @@ impl Diagnostic {
         if let Some(span) = &self.span {
             let source_name = source_map.get_name(span.file_id).unwrap_or("<unknown>");
             out.push_str(&format!(
-                "  {}-->{}{} {}:{}:{}\n",
-                color.blue(""),
-                color.reset(),
+                "{}{}--> {}{}:{}:{}{}\n",
+                " ".repeat(gutter_width),
+                color.gutter(),
                 color.bold(""),
                 source_name,
                 span.start.line,
-                span.start.column
+                span.start.column,
+                color.reset()
             ));
-            out.push_str(&format!("   {}|{}\n", color.blue(""), color.reset()));
+            render_empty_gutter(&mut out, gutter_width, &color);
 
             if let Some(source) = source_map.get_content(span.file_id) {
-                render_span_lines(&mut out, source, **span, &self.labels, &color);
+                render_span_lines(&mut out, source, **span, &self.labels, &color, gutter_width);
             }
         }
 
         for note in self.notes.iter() {
             out.push_str(&format!(
-                "   {}={} {}note{}: {}\n",
-                color.blue(""),
-                color.reset(),
-                color.cyan(""),
+                "{}{}= {}note{}: {}\n",
+                " ".repeat(gutter_width),
+                color.gutter(),
+                color.note(),
                 color.reset(),
                 note
             ));
         }
         for help in self.helps.iter() {
             out.push_str(&format!(
-                "   {}={} {}help{}: {}\n",
-                color.blue(""),
-                color.reset(),
-                color.cyan(""),
+                "{}{}= {}help{}: {}\n",
+                " ".repeat(gutter_width),
+                color.gutter(),
+                color.help(),
                 color.reset(),
                 help
             ));
@@ -250,15 +250,6 @@ impl Diagnostic {
         }
 
         out.trim_end().to_string()
-    }
-
-    fn severity_color(&self) -> &'static str {
-        match self.severity {
-            Severity::Error => "\x1b[31;1m",
-            Severity::Warning => "\x1b[33;1m",
-            Severity::Note => "\x1b[36;1m",
-            Severity::Help => "\x1b[32;1m",
-        }
     }
 }
 
@@ -358,17 +349,72 @@ impl ColorSupport {
         }
     }
 
-    fn blue(&self, _text: &str) -> &str {
+    fn gutter(&self) -> &str {
         if self.enabled { "\x1b[34;1m" } else { "" }
     }
 
-    fn cyan(&self, _text: &str) -> &str {
+    fn note(&self) -> &str {
         if self.enabled { "\x1b[36;1m" } else { "" }
+    }
+
+    fn help(&self) -> &str {
+        if self.enabled { "\x1b[32;1m" } else { "" }
+    }
+
+    fn primary(&self) -> &str {
+        if self.enabled { "\x1b[31;1m" } else { "" }
+    }
+
+    fn secondary(&self) -> &str {
+        if self.enabled { "\x1b[33;1m" } else { "" }
+    }
+
+    fn severity(&self, severity: Severity) -> String {
+        if !self.enabled {
+            return severity.to_string();
+        }
+        let code = match severity {
+            Severity::Error => "\x1b[31;1m",
+            Severity::Warning => "\x1b[33;1m",
+            Severity::Note => "\x1b[36;1m",
+            Severity::Help => "\x1b[32;1m",
+        };
+        format!("{code}{severity}\x1b[0m")
     }
 
     fn reset(&self) -> &str {
         if self.enabled { "\x1b[0m" } else { "" }
     }
+}
+
+fn diagnostic_gutter_width(diagnostic: &Diagnostic) -> usize {
+    max_diagnostic_line(diagnostic).to_string().len().max(1)
+}
+
+fn max_diagnostic_line(diagnostic: &Diagnostic) -> usize {
+    let mut max_line = diagnostic
+        .span
+        .as_ref()
+        .map(|span| span.start.line.max(span.end.line))
+        .unwrap_or(0);
+
+    for label in diagnostic.labels.iter() {
+        max_line = max_line.max(label.span.start.line).max(label.span.end.line);
+    }
+    for related in diagnostic.related.iter() {
+        max_line = max_line.max(max_diagnostic_line(related));
+    }
+
+    max_line
+}
+
+fn render_empty_gutter(out: &mut String, gutter_width: usize, color: &ColorSupport) {
+    out.push_str(&format!(
+        "{}{} |{}\n",
+        " ".repeat(gutter_width),
+        color.gutter(),
+        color.reset()
+    ));
 }
 
 fn render_span_lines(
@@ -377,76 +423,92 @@ fn render_span_lines(
     primary: Span,
     labels: &[DiagnosticLabel],
     color: &ColorSupport,
+    gutter_width: usize,
 ) {
-    let line_number = primary.start.line;
-    let source_line = source
-        .lines()
-        .nth(line_number.saturating_sub(1))
-        .unwrap_or("");
-
-    out.push_str(&format!(
-        "{}{:3} |{} {}\n",
-        color.blue(""),
-        line_number,
-        color.reset(),
-        source_line
-    ));
-
     let primary_label = labels
         .iter()
         .find(|label| label.style == LabelStyle::Primary && label.span == primary)
         .map(|label| label.message.as_str())
         .unwrap_or("");
 
-    out.push_str(&format!(
-        "    {}|{} {}{}{} {}\n",
-        color.blue(""),
-        color.reset(),
-        " ".repeat(primary.start.column.saturating_sub(1)),
-        color.bold("\x1b[31m"),
-        "^".repeat(span_width(primary)),
-        primary_label
-    ));
-    out.push_str(color.reset());
+    render_labeled_span(
+        out,
+        source,
+        primary,
+        primary_label,
+        LabelStyle::Primary,
+        color,
+        gutter_width,
+    );
 
     for label in labels
         .iter()
         .filter(|label| label.style == LabelStyle::Secondary)
     {
-        if label.span.start.line == line_number {
-            out.push_str(&format!(
-                "    {}|{} {}{} {}\n",
-                color.blue(""),
-                color.reset(),
-                " ".repeat(label.span.start.column.saturating_sub(1)),
-                "-".repeat(span_width(label.span)),
-                label.message
-            ));
-        } else {
-            let source_line = source
-                .lines()
-                .nth(label.span.start.line.saturating_sub(1))
-                .unwrap_or("");
-            out.push_str(&format!("    {}|{}\n", color.blue(""), color.reset()));
-            out.push_str(&format!(
-                "{}{:3} |{} {}\n",
-                color.blue(""),
-                label.span.start.line,
-                color.reset(),
-                source_line
-            ));
-            out.push_str(&format!(
-                "    {}|{} {}{} {}\n",
-                color.blue(""),
-                color.reset(),
-                " ".repeat(label.span.start.column.saturating_sub(1)),
-                "-".repeat(span_width(label.span)),
-                label.message
-            ));
-        }
+        render_empty_gutter(out, gutter_width, color);
+        render_labeled_span(
+            out,
+            source,
+            label.span,
+            &label.message,
+            LabelStyle::Secondary,
+            color,
+            gutter_width,
+        );
     }
 
-    out.push_str(&format!("    {}|{}\n", color.blue(""), color.reset()));
+    render_empty_gutter(out, gutter_width, color);
+}
+
+fn render_labeled_span(
+    out: &mut String,
+    source: &str,
+    span: Span,
+    label: &str,
+    style: LabelStyle,
+    color: &ColorSupport,
+    gutter_width: usize,
+) {
+    let source_line = source
+        .lines()
+        .nth(span.start.line.saturating_sub(1))
+        .unwrap_or("");
+    let displayed_line = expand_tabs(source_line);
+    let marker_offset = visual_offset_for_column(source_line, span.start.column);
+    let marker_width = visual_span_width(source_line, span).max(1);
+    let marker = match style {
+        LabelStyle::Primary => "^",
+        LabelStyle::Secondary => "-",
+    };
+    let marker_color = match style {
+        LabelStyle::Primary => color.primary(),
+        LabelStyle::Secondary => color.secondary(),
+    };
+    let label_suffix = if label.is_empty() {
+        String::new()
+    } else {
+        format!(" {label}")
+    };
+
+    out.push_str(&format!(
+        "{}{:>width$} |{} {}\n",
+        color.gutter(),
+        span.start.line,
+        color.reset(),
+        displayed_line,
+        width = gutter_width
+    ));
+    out.push_str(&format!(
+        "{}{} |{} {}{}{}{}{}\n",
+        " ".repeat(gutter_width),
+        color.gutter(),
+        color.reset(),
+        " ".repeat(marker_offset),
+        marker_color,
+        marker.repeat(marker_width),
+        color.reset(),
+        label_suffix
+    ));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -541,12 +603,41 @@ pub enum LabelStyle {
     Secondary,
 }
 
-fn span_width(span: Span) -> usize {
+fn visual_span_width(source_line: &str, span: Span) -> usize {
     if span.start.line == span.end.line {
-        span.end.column.saturating_sub(span.start.column).max(1)
+        let start = visual_offset_for_column(source_line, span.start.column);
+        let end = visual_offset_for_column(source_line, span.end.column);
+        end.saturating_sub(start).max(1)
     } else {
         1
     }
+}
+
+fn visual_offset_for_column(source_line: &str, column: usize) -> usize {
+    source_line
+        .chars()
+        .take(column.saturating_sub(1))
+        .fold(0, |offset, ch| offset + char_width(ch, offset))
+}
+
+fn expand_tabs(source_line: &str) -> String {
+    let mut expanded = String::with_capacity(source_line.len());
+    let mut offset = 0;
+    for ch in source_line.chars() {
+        if ch == '\t' {
+            let width = char_width(ch, offset);
+            expanded.push_str(&" ".repeat(width));
+            offset += width;
+        } else {
+            expanded.push(ch);
+            offset += char_width(ch, offset);
+        }
+    }
+    expanded
+}
+
+fn char_width(ch: char, offset: usize) -> usize {
+    if ch == '\t' { 4 - (offset % 4) } else { 1 }
 }
 
 #[cfg(test)]
@@ -582,5 +673,36 @@ mod tests {
         assert!(rendered.contains("variable declared here"));
         assert!(rendered.contains("note: assignment types match"));
         assert!(rendered.contains("help: change the variable type"));
+    }
+
+    #[test]
+    fn renders_wide_line_gutters_without_shifting_bars() {
+        let mut source_map = SourceMap::new();
+        let mut source = "\n".repeat(999);
+        source.push_str("Dim answer As Integer\n");
+        let file_id = source_map.add("large.valo".to_string(), source);
+        let span = Span::new(file_id, SourcePos::new(1000, 5), SourcePos::new(1000, 11));
+        let diagnostic = Diagnostic::new(DiagnosticCode::TYPE_MISMATCH, "bad value", Some(span))
+            .with_primary_label("expected Integer");
+
+        let rendered = diagnostic.render_colored(&source_map, false);
+
+        assert!(rendered.contains("    |"));
+        assert!(rendered.contains("1000 | Dim answer As Integer"));
+        assert!(rendered.contains("    |     ^^^^^^ expected Integer"));
+    }
+
+    #[test]
+    fn expands_tabs_before_rendering_caret_markers() {
+        let mut source_map = SourceMap::new();
+        let file_id = source_map.add("tabs.valo".to_string(), "\tvalue = \"x\"".to_string());
+        let span = Span::new(file_id, SourcePos::new(1, 2), SourcePos::new(1, 7));
+        let diagnostic = Diagnostic::new(DiagnosticCode::TYPE_MISMATCH, "bad value", Some(span))
+            .with_primary_label("here");
+
+        let rendered = diagnostic.render_colored(&source_map, false);
+
+        assert!(rendered.contains("1 |     value = \"x\""));
+        assert!(rendered.contains("  |     ^^^^^ here"));
     }
 }

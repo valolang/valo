@@ -32,12 +32,13 @@ fn real_main() -> Result<(), String> {
     } else {
         first
     }) else {
-        return Err(usage());
+        println!("{}", usage());
+        return Ok(());
     };
 
     match command.as_str() {
         "run" => commands::run(args, color),
-        "repl" => commands::repl(),
+        "repl" => commands::repl(color),
         "check" => commands::check(args, color),
         "version" => {
             println!("Valo 0.1.0");
