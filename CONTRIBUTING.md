@@ -1,49 +1,153 @@
 # Contributing to Valo
 
-Thank you for your interest in contributing to Valo! As an experimental project, we welcome help in many forms, from bug reports to new language features.
+Thank you for helping improve Valo. The project is experimental, but we keep changes disciplined: small reproductions, focused tests, clear diagnostics, and cross-platform behavior matter.
 
-## How to Contribute
+## Ways to Contribute
 
-### 1. Report Bugs
-If you find a bug, please open an issue on GitHub. Include:
-- A minimal reproduction script (`.valo` file).
-- The expected output vs. actual output.
-- Your environment details (OS, Rust version).
+### Bug Reports
 
-### 2. Suggest Features
-We are actively refining the Valo language. If you have ideas for syntax improvements or missing features, please open a Discussion or Issue.
+Open an issue with:
 
-### 3. Submit Pull Requests
+- A minimal `.valo`, `.bas`, or `.cls` reproduction.
+- The expected behavior and the actual output or diagnostic.
+- Your OS, Rust version, and how you ran Valo.
+- Any platform-specific context, especially for COM, native FFI, paths, or file I/O.
+
+Good reports include the smallest program that fails. For parser and semantic bugs, a short source snippet is usually enough.
+
+### Feature Requests
+
+Feature requests are welcome when they include:
+
+- The syntax or API being proposed.
+- A concrete example program.
+- Whether the feature is meant to match VBA, VB6, VB.NET, or native Valo behavior.
+- Known compatibility tradeoffs.
+
+Valo is a modern Basic-family language with strong VBA compatibility, but compatibility is a bridge, not a requirement to preserve every legacy limitation.
+
+### Pull Requests
+
+Before opening a PR:
+
 1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/amazing-feature`).
-3. Commit your changes (`git commit -m 'Add some amazing feature'`).
-4. Push to the branch (`git push origin feature/amazing-feature`).
-5. Open a Pull Request.
+2. Create a focused branch.
+3. Keep unrelated refactors out of the PR.
+4. Add or update tests for language behavior changes.
+5. Update documentation when user-facing syntax, CLI behavior, diagnostics, or compatibility changes.
+6. Run the full validation commands below.
 
-## Development Workflow
+Use clear commit messages, for example:
 
-### Building from Source
-Valo is written in Rust. You will need the latest stable Rust toolchain.
+```txt
+Fix COM default property access with string keys
+Add parser coverage for generic class headers
+Document Module block semantics
+```
 
-```bash
+## Development Setup
+
+Valo is a Rust workspace using the stable toolchain.
+
+```sh
+git clone https://github.com/valolang/valo
+cd valo
 cargo build
 ```
 
-### Running Tests
-We maintain high standards for language correctness. Always run the test suite before submitting a PR.
+The workspace contains:
 
-```bash
-cargo test
+- `core/`: lexer, parser, AST, semantic validation, runtime, interpreter, FFI, COM bridge, and tests.
+- `cli/`: the `valo` command-line interface.
+- `examples/`: executable examples used by the examples integration test.
+- `docs/`: language and architecture documentation.
+- `research/`: experimental and real-world compatibility material.
+
+## Validation
+
+Run these before submitting a PR:
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
 ```
 
-The test suite includes:
-- Unit tests for lexer, parser, and semantic validator.
-- Integration tests that run all files in the `examples/` directory.
+For release-sensitive changes, also run:
 
-### Code Style
-- Follow standard Rust idioms and `rustfmt` defaults.
-- Ensure all public functions and types in `core` are documented.
-- Keep the Basic-style syntax of Valo consistent with its VBA-inspired philosophy.
+```sh
+cargo build --release
+```
 
-## Roadmap & Priorities
-Check the [README.md](README.md) for the current roadmap. We are currently prioritizing the Bytecode VM and standard library foundations.
+CI runs on multiple platforms. Avoid adding tests that only pass on one OS unless they are explicitly guarded with `#[cfg(...)]` or the test harness skips them intentionally.
+
+## Test Guidance
+
+Choose tests based on the behavior you changed:
+
+- Lexer/parser syntax: add tests under `core/src/frontend/parser/tests.rs` or parser-specific test modules.
+- Semantic validation: add targeted validation tests near the relevant semantic/runtime test group.
+- Interpreter behavior: add tests under `core/src/backend/interpreter/tests/`.
+- Module/import behavior: use `core/src/backend/interpreter/tests/modules.rs`.
+- VBA compatibility: use `core/src/backend/interpreter/tests/vba_compat.rs`.
+- Examples: add or update files in `examples/` only when the example should be runnable by the integration test.
+
+The examples integration test runs `.valo` and `.bas` files in `examples/`. Windows-only examples, such as COM automation, need platform-aware handling.
+
+## Platform-Specific Features
+
+### COM/OLE Automation
+
+COM support is Windows-only. Code using `CreateObject`, `IDispatch`, or COM default properties must:
+
+- Compile on non-Windows through `#[cfg(windows)]` and non-Windows stubs.
+- Produce clear diagnostics when runtime behavior is unavailable off Windows.
+- Include semantic tests that can run cross-platform when possible.
+- Include Windows behavior tests only when the environment dependency is stable enough for CI.
+
+### Native FFI
+
+FFI behavior varies by OS, architecture, library availability, and calling convention. Prefer small tests that use stable system libraries and guard platform-specific cases.
+
+## Code Style
+
+- Follow standard Rust idioms and `rustfmt`.
+- Keep diagnostics actionable: include source spans, clear messages, and suggestions when useful.
+- Preserve existing parser and interpreter patterns unless a broader refactor is necessary.
+- Prefer focused changes over sweeping rewrites.
+- Keep comments short and useful; avoid comments that repeat the code.
+- Do not weaken validation just to make a runtime path pass. If the language should allow a construct, add a semantic rule and a regression test.
+
+## Documentation
+
+Update docs when you change:
+
+- Language syntax or semantics.
+- CLI commands or output.
+- Diagnostics users may see.
+- VBA compatibility behavior.
+- Platform-specific behavior.
+- Examples or getting-started workflows.
+
+Useful starting points:
+
+- [README.md](README.md)
+- [Language docs](docs/language/README.md)
+- [Architecture docs](docs/architecture/README.md)
+- [Examples](examples/README.md)
+
+## Current Priorities
+
+Good contribution areas include:
+
+- Real-world `.bas` and `.cls` compatibility cases.
+- Parser and semantic regression tests.
+- Diagnostics and suggestions.
+- COM/OLE Automation behavior on Windows.
+- Native FFI coverage.
+- Module, namespace, and project-system behavior.
+- Standard runtime functions.
+- Documentation and examples.
+- Future VM/compiler preparation.
+
+If a change touches a core language rule, include both a positive test and, when appropriate, a rejection test.

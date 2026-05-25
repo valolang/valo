@@ -124,19 +124,21 @@ It already includes:
 
 - a parser and semantic validator
 - a tree-walking interpreter
-- modules and imports
-- classes, interfaces, inheritance, and generics
-- properties, events, and object lifecycle support
+- modules, imports, namespaces, and VB.NET-style `Module ... End Module` blocks
+- classes, interfaces, inheritance, structures, properties, events, and lifecycle hooks
+- generics for classes, structures, functions, and methods, including nested generic type names
+- parser support for VB.NET-style generic variance and constraint syntax
 - structures and classic VBA `Type`
 - deterministic cleanup and `Using`
 - VBA-compatible error handling
 - a diagnostics engine
 - a REPL and CLI
 - native FFI support
+- Windows COM/OLE Automation support through late-bound `Object`, `CreateObject`, and default-property dispatch
 - VBA compatibility runtime features
 - cross-platform release packaging
 
-Valo is not yet a full production compiler. There is currently no bytecode VM, package manager, formatter, or complete standard library.
+Valo is not yet a full production compiler. There is currently no bytecode VM, package manager, formatter, or complete standard library. Some compatibility features are intentionally pragmatic and still evolving.
 
 ## Native Valo and VBA compatibility
 
@@ -196,7 +198,9 @@ End Try
 
 ### COM Automation
 
-Valo supports late-bound COM automation, allowing you to control external Windows applications like Excel or FSO just like in VBA.
+On Windows, Valo supports late-bound COM/OLE Automation through `Object`, `CreateObject`, property access, method calls, and default-property syntax. This allows common VBA automation patterns such as `dict("Key")` for `Scripting.Dictionary`.
+
+COM examples are Windows-only. On non-Windows hosts, `CreateObject` reports a clear runtime diagnostic.
 
 ```vb
 Sub Main()
@@ -209,6 +213,37 @@ Sub Main()
     Console.WriteLine("Dictionary name: " & dict("Name"))
 End Sub
 ```
+
+### VB.NET-style modules
+
+```vb
+Module MathTools
+    Public Function Add(ByVal left As Integer, ByVal right As Integer) As Integer
+        Add = left + right
+    End Function
+End Module
+
+Sub Main()
+    Console.WriteLine(MathTools.Add(2, 3))
+End Sub
+```
+
+`Module ... End Module` blocks act as module-level declaration containers. Callable members and fields can also be accessed through the module block name.
+
+### Namespaces
+
+```vb
+Namespace Game
+Namespace Graphics
+
+Public Class Sprite
+End Class
+
+End Namespace
+End Namespace
+```
+
+Nested namespace wrappers are flattened into a qualified namespace such as `Game.Graphics`.
 
 ### VBA-style error handling
 
@@ -226,19 +261,23 @@ Handler:
 End Sub
 ```
 
-### Generics and inheritance
+### Generics, constraints, and inheritance
 
 ```vb
-MustInherit Class Animal
-    Public MustOverride Sub Speak()
+Class Box(Of T)
+    Public Value As T
 End Class
 
-Class Dog Inherits Animal
-    Public Overrides Sub Speak()
-        Console.WriteLine("Woof")
-    End Sub
+Interface IProducer(Of Out T)
+    Function Current() As T
+End Interface
+
+Class Repository(Of T As {Class, New})
+    Public Current As T
 End Class
 ```
+
+Generic type substitution is active for classes, structures, fields, parameters, properties, return values, inheritance, and nested generic instances. Constraint and variance syntax is accepted by the parser; deeper compile-time constraint enforcement is still being expanded.
 
 ### Native FFI
 
@@ -383,9 +422,9 @@ Windows:
 ### Quality checks
 
 ```sh
-cargo fmt
+cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-cargo test
+cargo test --all-targets
 cargo build --release
 ```
 
@@ -454,6 +493,7 @@ Currently supported areas include:
 - `AddressOf`
 - `VarPtr`, `StrPtr`, `ObjPtr`
 - `Variant`, `Object`, `Empty`, `Null`
+- Windows COM/OLE Automation through `CreateObject`, late-bound calls/properties, and default-property syntax
 - file I/O compatibility runtime
 - `Dir`, `EOF`, `LOF`, `FreeFile`
 - `Input #`, `Line Input #`
@@ -464,11 +504,9 @@ Currently supported areas include:
 
 Compatibility is pragmatic and growing.
 
-Valo already supports a substantial VBA compatibility surface, including `.bas` / `.cls` modules, classic runtime behavior, and native interop primitives.
+Valo already supports a substantial VBA compatibility surface, including `.bas` / `.cls` modules, classic runtime behavior, COM automation foundations on Windows, and native interop primitives.
 
-Broader COM/OLE automation support, Office object models, and advanced interoperability layers are planned future directions, but are not yet fully implemented.
-
-Experimental native FFI is supported through VBA-style `Declare`, `PtrSafe`, `LongPtr`, `AddressOf`, callbacks, and platform-aware library loading.
+Experimental native FFI is supported through VBA-style `Declare`, `PtrSafe`, `LongPtr`, `AddressOf`, callbacks, and platform-aware library loading. Broader Office object-model coverage and type-library tooling are future directions.
 
 ## Research directory
 
@@ -530,9 +568,9 @@ Good areas to contribute:
 Before submitting changes, run:
 
 ```sh
-cargo fmt
+cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-cargo test
+cargo test --all-targets
 cargo build --release
 ```
 
