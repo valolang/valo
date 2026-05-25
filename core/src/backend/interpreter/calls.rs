@@ -955,13 +955,10 @@ impl Interpreter {
             for arg in args {
                 eval_args.push(self.eval_expr(arg, caller_frame)?);
             }
-            // For COM objects, the default property (usually "Item" for Dictionary) 
+            // For COM objects, the default property (usually "Item" for Dictionary)
             // is accessed via DISPID_VALUE (0).
             return crate::runtime::com::invoke_com(
-                com_obj,
-                "Item",
-                &eval_args,
-                2, // DISPATCH_PROPERTYGET
+                com_obj, "Item", &eval_args, 2, // DISPATCH_PROPERTYGET
                 span,
             );
         }
