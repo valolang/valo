@@ -75,7 +75,7 @@ pub fn create_object(prog_id: &str, span: Span) -> Result<Value, Diagnostic> {
         CLSCTX_ALL, CLSIDFromProgID, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
         IDispatch,
     };
-    use windows::core::{GUID, HSTRING};
+    use windows::core::HSTRING;
 
     const RPC_E_CHANGED_MODE: i32 = 0x8001_0106_u32 as i32;
 
@@ -115,12 +115,8 @@ pub fn invoke_com(
     invoke_type: u16,
     span: Span,
 ) -> Result<Value, Diagnostic> {
-    use windows::Win32::System::Com::{
-        DISPATCH_METHOD, DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT, DISPATCH_PROPERTYPUTREF,
-        DISPPARAMS, EXCEPINFO, IDispatch,
-    };
-    use windows::Win32::System::Variant::VARIANT;
-    use windows::core::{BSTR, GUID, HSTRING, PCWSTR};
+    use windows::Win32::System::Com::{DISPATCH_FLAGS, DISPPARAMS, EXCEPINFO};
+    use windows::core::{GUID, HSTRING, PCWSTR, VARIANT};
 
     let dispatch = &com_obj.dispatch;
 
@@ -151,7 +147,7 @@ pub fn invoke_com(
     let mut dispid_named: i32 = -3; // DISPID_PROPERTYPUT
     let is_put = invoke_type == 4 || invoke_type == 8; // DISPATCH_PROPERTYPUT | DISPATCH_PROPERTYPUTREF
 
-    let mut dispparams = DISPPARAMS {
+    let dispparams = DISPPARAMS {
         rgvarg: variants.as_mut_ptr(),
         cArgs: variants.len() as u32,
         rgdispidNamedArgs: if is_put {
@@ -171,8 +167,8 @@ pub fn invoke_com(
             dispid,
             &GUID::zeroed(),
             2048,
-            invoke_type,
-            &mut dispparams,
+            DISPATCH_FLAGS(invoke_type),
+            &dispparams,
             Some(&mut result),
             Some(&mut excepinfo),
             Some(&mut argerr),
@@ -190,9 +186,8 @@ pub fn invoke_com(
 }
 
 #[cfg(windows)]
-fn value_to_variant(value: &Value) -> windows::Win32::System::Variant::VARIANT {
-    use windows::Win32::System::Variant::VARIANT;
-    use windows::core::BSTR;
+fn value_to_variant(value: &Value) -> windows::core::VARIANT {
+    use windows::core::{BSTR, VARIANT};
 
     match value {
         Value::Int16(n) => VARIANT::from(*n),
@@ -207,7 +202,7 @@ fn value_to_variant(value: &Value) -> windows::Win32::System::Variant::VARIANT {
 }
 
 #[cfg(windows)]
-fn variant_to_value(var: &windows::Win32::System::Variant::VARIANT) -> Value {
+fn variant_to_value(var: &windows::core::VARIANT) -> Value {
     use windows::Win32::System::Com::IDispatch;
     use windows::core::BSTR;
 
