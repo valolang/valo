@@ -112,6 +112,7 @@ impl Parser {
                 }
             }
         }
+        self.parse_optional_where_clauses()?;
         self.expect_statement_end("Expected newline after Class declaration")?;
 
         let mut members = Vec::new();
@@ -157,6 +158,7 @@ impl Parser {
             .span;
         let name = self.expect_identifier("Expected interface name after 'Interface'")?;
         let type_params = self.parse_optional_type_params()?;
+        self.parse_optional_where_clauses()?;
         self.expect_statement_end("Expected newline after Interface declaration")?;
         let mut members = Vec::new();
         self.skip_newlines();
@@ -474,6 +476,7 @@ impl Parser {
             None
         };
         let implements = self.parse_optional_implements_clause()?;
+        self.parse_optional_where_clauses()?;
         self.expect_statement_end("Expected newline after property declaration")?;
         while matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute"))
         {
@@ -770,6 +773,7 @@ impl Parser {
         };
         let name = self.expect_identifier(&format!("Expected type name after '{keyword}'"))?;
         let type_params = self.parse_optional_type_params()?;
+        self.parse_optional_where_clauses()?;
         self.expect_statement_end(&format!("Expected newline after {keyword} declaration"))?;
 
         let mut fields = Vec::new();
@@ -985,6 +989,7 @@ impl Parser {
             TokenKind::RightParen,
             "Expected ')' after procedure parameters",
         )?;
+        self.parse_optional_where_clauses()?;
         self.expect_statement_end("Expected newline after procedure declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndSub])?;
@@ -1018,6 +1023,7 @@ impl Parser {
             "Expected ')' after procedure parameters",
         )?;
         let implements = self.parse_optional_implements_clause()?;
+        self.parse_optional_where_clauses()?;
         self.expect_statement_end("Expected newline after procedure declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndSub])?;
@@ -1122,6 +1128,7 @@ impl Parser {
             )?;
             return_type = TypeName::Array(Box::new(return_type));
         }
+        self.parse_optional_where_clauses()?;
         self.expect_statement_end("Expected newline after function declaration")?;
 
         let body = self.parse_block_until(&[BlockEnd::EndFunction])?;
@@ -1173,6 +1180,7 @@ impl Parser {
             return_type = TypeName::Array(Box::new(return_type));
         }
         let implements = self.parse_optional_implements_clause()?;
+        self.parse_optional_where_clauses()?;
         self.expect_statement_end("Expected newline after function declaration")?;
 
         let mut is_enumerator = false;
@@ -1413,6 +1421,7 @@ impl Parser {
         self.expect_simple(TokenKind::Of, "Expected 'Of' in type parameter list")?;
         let mut params = Vec::new();
         loop {
+            self.parse_optional_type_param_variance();
             let name = self.expect_identifier("Expected type parameter name")?;
             if params
                 .iter()
@@ -1424,6 +1433,9 @@ impl Parser {
                     Some(self.previous().span),
                 ));
             }
+            if self.match_simple(&TokenKind::As) {
+                self.parse_type_param_constraint()?;
+            }
             params.push(name);
             if !self.match_simple(&TokenKind::Comma) {
                 break;
@@ -1431,6 +1443,64 @@ impl Parser {
         }
         self.expect_simple(TokenKind::RightParen, "Expected ')' after type parameters")?;
         Ok(params)
+    }
+
+    fn parse_optional_type_param_variance(&mut self) {
+        if self.match_simple(&TokenKind::In) {
+            return;
+        }
+        if matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Out"))
+        {
+            self.advance();
+        }
+    }
+
+    fn parse_type_param_constraint(&mut self) -> Result<(), Diagnostic> {
+        if self.match_simple(&TokenKind::LeftBrace) {
+            loop {
+                self.parse_single_type_param_constraint()?;
+                if self.match_simple(&TokenKind::Comma) {
+                    continue;
+                }
+                break;
+            }
+            self.expect_simple(
+                TokenKind::RightBrace,
+                "Expected '}' after type parameter constraints",
+            )?;
+            return Ok(());
+        }
+
+        self.parse_single_type_param_constraint()
+    }
+
+    fn parse_single_type_param_constraint(&mut self) -> Result<(), Diagnostic> {
+        if self.match_simple(&TokenKind::Class)
+            || self.match_simple(&TokenKind::Structure)
+            || self.match_simple(&TokenKind::New)
+        {
+            if self.match_simple(&TokenKind::LeftParen) {
+                self.expect_simple(TokenKind::RightParen, "Expected ')' after New constraint")?;
+            }
+            return Ok(());
+        }
+
+        let _ = self.parse_type_name()?;
+        Ok(())
+    }
+
+    fn parse_optional_where_clauses(&mut self) -> Result<(), Diagnostic> {
+        while matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Where"))
+        {
+            self.advance();
+            let _name = self.expect_identifier("Expected type parameter name after 'Where'")?;
+            self.expect_simple(TokenKind::Colon, "Expected ':' after Where type parameter")?;
+            self.parse_type_param_constraint()?;
+            while self.match_simple(&TokenKind::Comma) {
+                self.parse_type_param_constraint()?;
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn parse_optional_type_args(&mut self) -> Result<Vec<TypeName>, Diagnostic> {

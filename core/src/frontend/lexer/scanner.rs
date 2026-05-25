@@ -69,6 +69,8 @@ impl<'a> Lexer<'a> {
                 ':' => tokens.push(self.single_char(TokenKind::Colon)),
                 '(' => tokens.push(self.single_char(TokenKind::LeftParen)),
                 ')' => tokens.push(self.single_char(TokenKind::RightParen)),
+                '{' => tokens.push(self.single_char(TokenKind::LeftBrace)),
+                '}' => tokens.push(self.single_char(TokenKind::RightBrace)),
                 '+' => tokens.push(self.single_char(TokenKind::Plus)),
                 '-' => tokens.push(self.single_char(TokenKind::Minus)),
                 '*' => tokens.push(self.single_char(TokenKind::Star)),

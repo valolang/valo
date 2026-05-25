@@ -308,17 +308,18 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             Some(property.span),
                         ));
                     }
-                    let property_sig = properties
-                        .entry(property_key)
-                        .or_insert_with(|| ClassPropertySig {
-                            name: property.name.clone(),
-                            is_shared: property.is_shared,
-                            is_readonly: property.is_readonly,
-                            is_writeonly: property.is_writeonly,
-                            get: None,
-                            let_: None,
-                            set: None,
-                        });
+                    let property_sig =
+                        properties
+                            .entry(property_key)
+                            .or_insert_with(|| ClassPropertySig {
+                                name: property.name.clone(),
+                                is_shared: property.is_shared,
+                                is_readonly: property.is_readonly,
+                                is_writeonly: property.is_writeonly,
+                                get: None,
+                                let_: None,
+                                set: None,
+                            });
                     let target = match property.kind {
                         PropertyKind::Get => &mut property_sig.get,
                         PropertyKind::Let => &mut property_sig.let_,
@@ -953,17 +954,18 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             Some(property.span),
                         ));
                     }
-                    let property_sig = properties
-                        .entry(property_key)
-                        .or_insert_with(|| ClassPropertySig {
-                            name: property.name.clone(),
-                            is_shared: property.is_shared,
-                            is_readonly: property.is_readonly,
-                            is_writeonly: property.is_writeonly,
-                            get: None,
-                            let_: None,
-                            set: None,
-                        });
+                    let property_sig =
+                        properties
+                            .entry(property_key)
+                            .or_insert_with(|| ClassPropertySig {
+                                name: property.name.clone(),
+                                is_shared: property.is_shared,
+                                is_readonly: property.is_readonly,
+                                is_writeonly: property.is_writeonly,
+                                get: None,
+                                let_: None,
+                                set: None,
+                            });
                     let target = match property.kind {
                         PropertyKind::Get => &mut property_sig.get,
                         PropertyKind::Let => &mut property_sig.let_,

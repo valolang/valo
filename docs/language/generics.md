@@ -56,9 +56,19 @@ End Class
 
 Inherited generic members keep their instantiated type arguments in the runtime layout.
 
-Constraint syntax is reserved for a future pass:
+Valo accepts VB.NET-style variance markers and type parameter constraint syntax in generic
+declarations. Current runtime generic substitution uses the parameter names; constraints are
+parsed as declaration metadata and reserved for deeper compile-time enforcement.
 
 ```vb
+Interface IProducer(Of Out T)
+End Interface
+
+Interface IConsumer(Of In T)
+End Interface
+
 Class List(Of T As IDisposable)
-Function Create(Of T As {Class, New})() As T
+End Class
+
+Function Create(Of T)() As T Where T : Class, New
 ```

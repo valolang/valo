@@ -18,18 +18,25 @@ fn test_official_examples() {
 
     let mut failures = Vec::new();
     let mut count = 0;
+    let mut skipped = 0;
 
     for entry in entries {
         let path = entry.path();
         let extension = path.extension().and_then(|s| s.to_str());
+        let file_name = path.file_name().and_then(|s| s.to_str());
 
         if extension == Some("valo") || extension == Some("bas") {
+            #[cfg(not(windows))]
+            if file_name == Some("com_dictionary.valo") {
+                skipped += 1;
+                continue;
+            }
+
             count += 1;
             match valo_core::run_file(&path) {
                 Ok(output) => {
                     // Optional: Simple output verification for stable examples
-                    if (path.file_name().and_then(|s| s.to_str()) == Some("hello.valo")
-                        || path.file_name().and_then(|s| s.to_str()) == Some("hello.bas"))
+                    if (file_name == Some("hello.valo") || file_name == Some("hello.bas"))
                         && output != vec!["Hello, Valo"]
                     {
                         failures.push(format!(
@@ -54,5 +61,5 @@ fn test_official_examples() {
         );
     }
 
-    println!("Successfully ran {} examples.", count);
+    println!("Successfully ran {} examples ({} skipped).", count, skipped);
 }

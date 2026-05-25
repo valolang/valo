@@ -10,6 +10,8 @@ impl Parser {
         let mut attributes = Vec::new();
         let mut imports = Vec::new();
         let mut namespace = None;
+        let mut namespace_segments = Vec::new();
+        let mut namespace_stack = Vec::new();
         let mut types = Vec::new();
         let mut enums = Vec::new();
         let mut module_vars = Vec::new();
@@ -32,26 +34,51 @@ impl Parser {
         while !self.is_at_end() {
             match self.peek_kind() {
                 TokenKind::Namespace => {
-                    if saw_declarations || namespace.is_some() {
-                        return Err(self.error_here(
-                            "Namespace must appear once before declarations in this file",
-                        ));
+                    if saw_declarations {
+                        return Err(self
+                            .error_here("Namespace must appear before declarations in this file"));
                     }
-                    namespace = Some(self.parse_namespace_decl()?);
+                    let next_namespace = self.parse_namespace_decl()?;
+                    let parts: Vec<String> = next_namespace
+                        .split('.')
+                        .map(|segment| segment.to_string())
+                        .collect();
+                    namespace_stack.push(parts.len());
+                    namespace_segments.extend(parts);
+                    namespace = Some(namespace_segments.join("."));
                 }
                 TokenKind::End if matches!(self.peek_next_kind(), Some(TokenKind::Namespace)) => {
                     self.advance();
                     self.advance();
                     self.expect_statement_end("Expected newline after End Namespace")?;
+                    let Some(segment_count) = namespace_stack.pop() else {
+                        return Err(self.error_here("End Namespace without matching Namespace"));
+                    };
+                    for _ in 0..segment_count {
+                        namespace_segments.pop();
+                    }
                     if !self.is_at_end() {
                         self.skip_newlines();
                         if !self.is_at_end() {
-                            return Err(self.error_here(
-                                "Declarations after End Namespace are not supported yet",
-                            ));
+                            if namespace_stack.is_empty() {
+                                return Err(self.error_here(
+                                    "Declarations after End Namespace are not supported yet",
+                                ));
+                            }
+                            if !matches!(
+                                self.peek_kind(),
+                                TokenKind::End
+                                    if matches!(self.peek_next_kind(), Some(TokenKind::Namespace))
+                            ) {
+                                return Err(self.error_here(
+                                    "Declarations at multiple namespace depths are not supported yet",
+                                ));
+                            }
                         }
                     }
-                    break;
+                    if namespace_stack.is_empty() {
+                        break;
+                    }
                 }
                 TokenKind::Option => {
                     if saw_declarations {

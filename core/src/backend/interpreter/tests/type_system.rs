@@ -217,3 +217,44 @@ End Sub
 
     assert_eq!(output, vec!["nested"]);
 }
+
+#[test]
+fn vbnet_style_generic_variance_and_constraints_parse() {
+    let output = run_source(
+        r#"
+Interface IProducer(Of Out T)
+    Function Current() As T
+End Interface
+
+Interface IConsumer(Of In T)
+    Sub Accept(ByVal value As T)
+End Interface
+
+Class User
+End Class
+
+Class Box(Of T As {Class, New})
+    Public Value As T
+End Class
+
+Function Marker(Of T)() As String Where T : Class, New
+    Marker = "ok"
+End Function
+
+Sub Main()
+    Dim user As User
+    Set user = New User()
+
+    Dim box As Box(Of User)
+    Set box = New Box(Of User)()
+    Set box.Value = user
+
+    If box.Value Is user Then
+        Debug.Print Marker(Of User)()
+    End If
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["ok"]);
+}

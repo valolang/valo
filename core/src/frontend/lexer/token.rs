@@ -132,6 +132,8 @@ pub enum TokenKind {
     Colon,
     LeftParen,
     RightParen,
+    LeftBrace,
+    RightBrace,
     LeftBracket,
     RightBracket,
     Plus,
