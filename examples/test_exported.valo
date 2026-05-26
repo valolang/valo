@@ -1,7 +1,0 @@
-Import exported_class
-
-Sub Main()
-    Dim c As New exported_class.Counter
-    Console.WriteLine("Item: " & c.Item)
-    Console.WriteLine("End of Main")
-End Sub
