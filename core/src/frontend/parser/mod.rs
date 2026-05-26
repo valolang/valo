@@ -200,7 +200,7 @@ fn token_description(kind: &TokenKind) -> String {
         TokenKind::End => "'End'".to_string(),
         TokenKind::If => "'If'".to_string(),
         TokenKind::Then => "'Then'".to_string(),
-        TokenKind::Import => "'Import'".to_string(),
+        TokenKind::Imports => "'Imports'".to_string(),
         TokenKind::Namespace => "'Namespace'".to_string(),
         TokenKind::Module => "'Module'".to_string(),
         TokenKind::As => "'As'".to_string(),

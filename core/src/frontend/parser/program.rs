@@ -127,7 +127,7 @@ impl Parser {
                     }
                     self.expect_statement_end("Expected newline after Option statement")?;
                 }
-                TokenKind::Import => imports.push(self.parse_import_decl()?),
+                TokenKind::Imports => imports.push(self.parse_import_decl()?),
                 TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute") => {
                     attributes.push(self.parse_attribute_decl()?);
                 }

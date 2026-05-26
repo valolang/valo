@@ -15,7 +15,7 @@ pub enum TokenKind {
     Sub,
     Function,
     Iterator,
-    Import,
+    Imports,
     Namespace,
     Module,
     Const,

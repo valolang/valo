@@ -63,7 +63,7 @@ impl Parser {
 
     pub(super) fn parse_import_decl(&mut self) -> Result<ImportDecl, Diagnostic> {
         let start = self
-            .expect_simple(TokenKind::Import, "Expected 'Import'")?
+            .expect_simple(TokenKind::Imports, "Expected 'Imports'")?
             .span;
         let token = self.advance();
         let module = match token.kind {
@@ -81,7 +81,7 @@ impl Parser {
             _ => {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::PARSE,
-                    "Expected module name or string literal after 'Import'",
+                    "Expected module name or string literal after 'Imports'",
                     Some(token.span),
                 ));
             }
@@ -89,11 +89,25 @@ impl Parser {
 
         let alias = if self.match_simple(&TokenKind::As) {
             Some(self.expect_identifier("Expected import alias after 'As'")?)
+        } else if self.match_simple(&TokenKind::Equal) {
+            let alias = Some(module);
+            let mut module = self.expect_identifier("Expected module name after '='")?;
+            while self.match_simple(&TokenKind::Dot) {
+                let next =
+                    self.expect_identifier("Expected identifier after '.' in import path")?;
+                module.push('.');
+                module.push_str(&next);
+            }
+            return Ok(ImportDecl {
+                module,
+                alias,
+                span: Span::new(self.file_id, start.start, self.previous().span.end),
+            });
         } else {
             None
         };
         let end = self.previous().span;
-        self.expect_statement_end("Expected newline after Import declaration")?;
+        self.expect_statement_end("Expected newline after Imports declaration")?;
         Ok(ImportDecl {
             module,
             alias,

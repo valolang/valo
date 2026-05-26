@@ -1,7 +1,7 @@
-Import Math
-Import State
-Import Models As M
-Import Enums
+Imports Math
+Imports State
+Imports M = Models
+Imports Enums
 
 Sub Main()
     Console.WriteLine(Math.Add(10, 20))

@@ -221,7 +221,7 @@ fn ansi_and_utf16_imports_decode() {
 
     fs::write(
         &main_path,
-        "Import Ansi\nImport Wide\nSub Main()\nConsole.WriteLine(AnsiText())\nConsole.WriteLine(WideText())\nEnd Sub\n",
+        "Imports Ansi\nImports Wide\nSub Main()\nConsole.WriteLine(AnsiText())\nConsole.WriteLine(WideText())\nEnd Sub\n",
     )
     .unwrap();
     fs::write(
@@ -971,7 +971,7 @@ fn imported_bas_optional_and_callable_resolution_work() {
     std::fs::write(
         &main,
         r#"
-Import Helpers
+Imports Helpers
 
 Sub Main()
     Console.WriteLine(AddDefault(5))
@@ -1011,7 +1011,7 @@ fn imported_cls_method_can_call_same_class_method() {
     std::fs::write(
         &main,
         r#"
-Import Worker
+Imports Worker
 
 Sub Main()
     Dim w As New Worker

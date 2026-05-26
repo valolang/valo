@@ -86,8 +86,8 @@ fn imports_same_directory_module_with_alias_and_state() {
         &dir,
         "main.valo",
         r#"
-Import Math As M
-Import State
+Imports Math As M
+Imports State
 
 Sub Main()
     Console.WriteLine(M.Add(10, 20))
@@ -139,8 +139,8 @@ fn unqualified_imported_function_must_be_unambiguous() {
         &dir,
         "main.valo",
         r#"
-Import A
-Import B
+Imports A
+Imports B
 
 Sub Main()
     Console.WriteLine(Add(1, 2))
@@ -169,8 +169,8 @@ fn qualified_imported_function_bypasses_unqualified_ambiguity() {
         &dir,
         "main.valo",
         r#"
-Import A
-Import B
+Imports A
+Imports B
 
 Sub Main()
     Console.WriteLine(A.Add(1, 2))
@@ -201,7 +201,7 @@ fn duplicate_import_alias_is_rejected_case_insensitively() {
     write(
         &dir,
         "main.valo",
-        "Import A As M\nImport B As m\n\nSub Main()\nEnd Sub\n",
+        "Imports A As M\nImports B As m\n\nSub Main()\nEnd Sub\n",
     );
     write(&dir, "A.valo", "");
     write(&dir, "B.valo", "");
@@ -216,7 +216,7 @@ fn import_resolution_is_case_insensitive() {
     write(
         &dir,
         "main.valo",
-        "Import math As M\n\nSub Main()\nConsole.WriteLine(M.Add(1, 2))\nEnd Sub\n",
+        "Imports math As M\n\nSub Main()\nConsole.WriteLine(M.Add(1, 2))\nEnd Sub\n",
     );
     write(
         &dir,
@@ -237,7 +237,7 @@ fn private_imported_function_is_rejected() {
         &dir,
         "main.valo",
         r#"
-Import Math
+Imports Math
 
 Sub Main()
     Console.WriteLine(Math.Hidden())
@@ -264,7 +264,7 @@ fn imported_public_declare_is_callable_unqualified_and_qualified() {
         &dir,
         "main.valo",
         r#"
-Import Native
+Imports Native
 
 Sub Main()
     Console.WriteLine(Native.MyLen("Valo"))
@@ -296,7 +296,7 @@ fn imported_private_declare_is_rejected() {
         &dir,
         "main.valo",
         r#"
-Import Native
+Imports Native
 
 Sub Main()
     Console.WriteLine(Native.HiddenLen("Valo"))
@@ -328,8 +328,8 @@ fn declares_load_from_bas_and_cls_modules() {
         &dir,
         "main.valo",
         r#"
-Import NativeBas
-Import NativeCls
+Imports NativeBas
+Imports NativeCls
 
 Sub Main()
     Console.WriteLine(NativeBas.BasLen("Valo"))
@@ -373,7 +373,7 @@ fn imported_public_constant_is_qualified_and_private_constant_is_rejected() {
         &dir,
         "main.valo",
         r#"
-Import Settings
+Imports Settings
 
 Sub Main()
     Console.WriteLine(Settings.Answer)
@@ -401,7 +401,7 @@ fn qualified_imported_class_construction_and_alias_work() {
         &dir,
         "main.valo",
         r#"
-Import Models As M
+Imports Models As M
 
 Sub Main()
     Dim user As M.User
@@ -435,7 +435,7 @@ fn qualified_imported_type_records_work() {
         &dir,
         "main.valo",
         r#"
-Import Models
+Imports Models
 
 Sub Main()
     Dim p As Models.PersonRecord
@@ -467,7 +467,7 @@ fn qualified_imported_structure_records_work() {
         &dir,
         "main.valo",
         r#"
-Import Models
+Imports Models
 
 Sub Main()
     Dim p As Models.Point
@@ -502,7 +502,7 @@ fn private_imported_structure_is_rejected() {
         &dir,
         "main.valo",
         r#"
-Import Models
+Imports Models
 
 Sub Main()
     Dim p As Models.Point
@@ -531,7 +531,7 @@ fn imported_structure_methods_properties_and_constructor_work() {
         &dir,
         "main.valo",
         r#"
-Import Geometry
+Imports Geometry
 
 Sub Main()
     Dim p As New Geometry.Point(10, 20)
@@ -590,7 +590,7 @@ fn qualified_imported_enum_type_and_member_work() {
         &dir,
         "main.valo",
         r#"
-Import Enums As E
+Imports Enums As E
 
 Sub Main()
     Dim day As E.Days
@@ -623,7 +623,7 @@ fn qualified_public_module_variable_persists_and_can_be_assigned() {
         &dir,
         "main.valo",
         r#"
-Import State
+Imports State
 
 Sub Main()
     State.GlobalCounter = State.GlobalCounter + 1
@@ -647,7 +647,7 @@ fn private_imported_class_and_enum_are_rejected() {
         &dir,
         "main.valo",
         r#"
-Import Models As M
+Imports Models As M
 
 Sub Main()
     Dim item As M.Hidden
@@ -667,7 +667,7 @@ End Sub
         &dir,
         "main.valo",
         r#"
-Import Enums As E
+Imports Enums As E
 
 Sub Main()
     Dim value As E.Secret
@@ -690,7 +690,7 @@ fn unknown_qualified_symbol_is_rejected() {
         &dir,
         "main.valo",
         r#"
-Import Models
+Imports Models
 
 Sub Main()
     Console.WriteLine(Models.Missing)
@@ -713,7 +713,7 @@ fn invalid_qualified_new_target_is_rejected() {
         &dir,
         "main.valo",
         r#"
-Import Models As M
+Imports Models As M
 
 Sub Main()
     Dim p As M.PersonRecord
@@ -737,7 +737,11 @@ End Sub
 #[test]
 fn missing_module_is_reported() {
     let dir = temp_project();
-    write(&dir, "main.valo", "Import Missing\n\nSub Main()\nEnd Sub\n");
+    write(
+        &dir,
+        "main.valo",
+        "Imports Missing\n\nSub Main()\nEnd Sub\n",
+    );
 
     let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::MODULE_NOT_FOUND);
@@ -746,8 +750,8 @@ fn missing_module_is_reported() {
 #[test]
 fn import_cycle_is_reported() {
     let dir = temp_project();
-    write(&dir, "main.valo", "Import A\n\nSub Main()\nEnd Sub\n");
-    write(&dir, "A.valo", "Import main\n");
+    write(&dir, "main.valo", "Imports A\n\nSub Main()\nEnd Sub\n");
+    write(&dir, "A.valo", "Imports main\n");
 
     let error = run_file_diagnostic(dir.join("main.valo"));
     assert_eq!(error.code, crate::runtime::DiagnosticCode::IMPORT_CYCLE);
