@@ -5,12 +5,12 @@ use crate::runtime::numeric::{unary_negate, unary_positive};
 use crate::runtime::{Diagnostic, RecordValue, Span, TypeName, Value, coerce_assignment};
 use crate::{BinaryOp, Expr, ExprKind, UnaryOp};
 
-use super::records::{RuntimeEnum, RuntimeType};
+use super::records::RuntimeEnum;
+use super::Interpreter;
 
 pub(crate) fn default_value(
     ty: &TypeName,
-    types: &HashMap<String, RuntimeType>,
-    enums: &HashMap<String, RuntimeEnum>,
+    interpreter: &Interpreter,
     span: Span,
 ) -> Result<Value, Diagnostic> {
     if let Some(value) = ty.builtin_default_value() {
@@ -20,9 +20,19 @@ pub(crate) fn default_value(
     let (name, display_name, bindings) = match ty {
         TypeName::User(name) => (name.clone(), name.clone(), Vec::new()),
         TypeName::GenericInstance { name, args } => {
-            let params = types
+            let params = interpreter.types
                 .get(&key(name))
                 .map(|type_def| type_def.type_params.clone())
+                .or_else(|| {
+                    interpreter.interfaces
+                        .get(&key(name))
+                        .map(|interface_def| interface_def.type_params.clone())
+                })
+                .or_else(|| {
+                    interpreter.classes
+                        .get(&key(name))
+                        .map(|class_def| class_def.type_params.clone())
+                })
                 .unwrap_or_default();
             (
                 name.clone(),
@@ -35,31 +45,38 @@ pub(crate) fn default_value(
     if name.eq_ignore_ascii_case("Object") {
         return Ok(Value::Nothing);
     }
-    if enums.contains_key(&key(&name)) {
+    if interpreter.enums.contains_key(&key(&name)) {
         return Ok(Value::Int64(0));
     }
-    let type_def = types
+    if interpreter.interfaces.contains_key(&key(&name)) {
+        return Ok(Value::Nothing);
+    }
+    if interpreter.classes.contains_key(&key(&name)) {
+        return Ok(Value::Nothing);
+    }
+    let type_def = interpreter.types
         .get(&key(&display_name))
-        .or_else(|| types.get(&key(&name)))
+        .or_else(|| interpreter.types.get(&key(&name)))
         .ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                 format!("Type '{}' is not defined", display_name),
                 Some(span),
             )
-        });
-    let Ok(type_def) = type_def else {
-        return Ok(Value::Nothing);
-    };
+        })?;
 
     let mut fields = HashMap::new();
     for field in &type_def.fields {
         let value = if let Some(initializer) = &field.initializer {
-            let value = eval_const_default(initializer, enums, span)?;
+            let value = eval_const_default(initializer, &interpreter.enums, span)?;
             let field_ty = field.ty.substitute_generics(&bindings);
             coerce_assignment(&field_ty, value, initializer.span)?
         } else {
-            default_value(&field.ty.substitute_generics(&bindings), types, enums, span)?
+            default_value(
+                &field.ty.substitute_generics(&bindings),
+                interpreter,
+                span,
+            )?
         };
         fields.insert(key(&field.name), value);
     }

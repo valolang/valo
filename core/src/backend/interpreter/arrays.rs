@@ -1,10 +1,8 @@
 use crate::runtime::{ArrayBound, Diagnostic, Span, Value, coerce_assignment};
 use std::rc::Rc;
 
-use super::records::{RuntimeEnum, RuntimeType};
 use super::values::{default_value, key};
 use super::{Frame, Interpreter};
-use std::collections::HashMap;
 
 pub(crate) fn read_array_element(
     value: &Value,
@@ -104,8 +102,7 @@ pub(crate) fn redim_array(
     value: &mut Value,
     new_bounds: Vec<ArrayBound>,
     preserve: bool,
-    types: &HashMap<String, RuntimeType>,
-    enums: &HashMap<String, RuntimeEnum>,
+    interpreter: &Interpreter,
     span: Span,
 ) -> Result<(), Diagnostic> {
     let Value::Array(array) = value else {
@@ -164,7 +161,11 @@ pub(crate) fn redim_array(
     }
 
     while new_elements.len() < new_len {
-        new_elements.push(default_value(&array.element_type, types, enums, span)?);
+        new_elements.push(default_value(
+            &array.element_type,
+            interpreter,
+            span,
+        )?);
     }
 
     array.elements = new_elements;

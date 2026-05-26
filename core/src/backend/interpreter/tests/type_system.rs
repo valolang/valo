@@ -31,6 +31,38 @@ End Sub
 }
 
 #[test]
+fn structure_polymorphism_through_interface() {
+    let output = run_source(
+        r#"
+Interface ITest
+    Sub Imprimir()
+End Interface
+
+Structure DocumentoInfo
+    Implements ITest
+
+    Public Property Codigo As Integer
+
+    Public Sub Imprimir() Implements ITest.Imprimir
+        Console.WriteLine("Código: " & Me.Codigo)
+    End Sub
+End Structure
+
+Sub Main()
+    Dim doc As DocumentoInfo
+    doc.Codigo = 456
+    
+    Dim it As ITest
+    it = doc
+    it.Imprimir()
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["Código: 456"]);
+}
+
+#[test]
 fn interface_implements_sub_contract() {
     let output = run_source(
         r#"

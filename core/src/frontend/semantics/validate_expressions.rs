@@ -2315,6 +2315,105 @@ fn validate_structure_method_call(
     context: &Context<'_>,
 ) -> Result<TypeName, Diagnostic> {
     let (type_name, bindings) = generic_bindings_for_type(object_type, types);
+    if let Some(interface_sig) = types.get_interface(&type_name) {
+        if as_expression {
+            if let Some(method_sig) = interface_sig.functions.get(&key(method)) {
+                validate_arguments(
+                    "Function",
+                    method_sig,
+                    args,
+                    span,
+                    ExprValidation::new(symbols, types, signatures, context),
+                )?;
+                return Ok(method_sig
+                    .return_type
+                    .clone()
+                    .expect("function return")
+                    .substitute_generics(&bindings));
+            }
+            if let Some(get) = interface_sig
+                .properties
+                .get(&key(method))
+                .and_then(|p| p.get.as_ref())
+            {
+                let return_type = get
+                    .return_type
+                    .clone()
+                    .expect("property return type")
+                    .substitute_generics(&bindings);
+                let dummy_sig = CallableSig {
+                    visibility: get.visibility,
+                    name: method.to_string(),
+                    type_params: Vec::new(),
+                    generic_constraints: Vec::new(),
+                    is_shared: false,
+                    _is_iterator: get.is_iterator,
+                    is_declare: false,
+                    params: get.params.clone(),
+                    return_type: Some(return_type.clone()),
+                };
+                validate_arguments(
+                    "Property",
+                    &dummy_sig,
+                    args,
+                    span,
+                    ExprValidation::new(symbols, types, signatures, context),
+                )?;
+                return Ok(return_type);
+            }
+            if interface_sig.subs.contains_key(&key(method)) {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!("Sub method '{}' cannot be used as an expression", method),
+                    Some(span),
+                ));
+            }
+        } else {
+            if let Some(method_sig) = interface_sig.subs.get(&key(method)) {
+                validate_arguments(
+                    "Sub",
+                    method_sig,
+                    args,
+                    span,
+                    ExprValidation::new(symbols, types, signatures, context),
+                )?;
+                return Ok(TypeName::Variant);
+            }
+            if let Some(property_accessor) = interface_sig
+                .properties
+                .get(&key(method))
+                .and_then(|p| p.let_.as_ref().or(p.set.as_ref()))
+            {
+                let dummy_sig = CallableSig {
+                    visibility: property_accessor.visibility,
+                    name: method.to_string(),
+                    type_params: Vec::new(),
+                    generic_constraints: Vec::new(),
+                    is_shared: false,
+                    _is_iterator: property_accessor.is_iterator,
+                    is_declare: false,
+                    params: property_accessor.params.clone(),
+                    return_type: None,
+                };
+                validate_arguments(
+                    "Property",
+                    &dummy_sig,
+                    args,
+                    span,
+                    ExprValidation::new(symbols, types, signatures, context),
+                )?;
+                return Ok(TypeName::Variant);
+            }
+            if interface_sig.functions.contains_key(&key(method)) {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!("Function method '{}' cannot be used as a Sub", method),
+                    Some(span),
+                ));
+            }
+        }
+    }
+
     let type_sig = types.get(&type_name).ok_or_else(|| {
         Diagnostic::new(
             crate::runtime::DiagnosticCode::UNKNOWN_NAME,

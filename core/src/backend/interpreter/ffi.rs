@@ -858,7 +858,7 @@ fn marshal_byval(
             "ByVal arrays are not supported by native marshaling",
             span,
         ))?,
-        Value::Record(_) => Err(unsupported(
+        Value::Record(_) | Value::BoxedRecord(_, _) => Err(unsupported(
             "ByVal structures are not supported; pass structures ByRef",
             span,
         ))?,
@@ -924,7 +924,7 @@ fn marshal_byref(
             }
             ArgumentStorage::Array(pack_array(&array.element_type, &array.elements, span)?)
         }
-        Value::Record(record) => {
+        Value::Record(record) | Value::BoxedRecord(record, _) => {
             let ty = types.get(&key(&record.type_name)).ok_or_else(|| {
                 unsupported(
                     format!("structure type '{}' is not available", record.type_name),

@@ -204,7 +204,7 @@ fn invoke_com_dispid(
         let mut message = format!("COM Invoke failed for '{}': {:?}", name, err);
         if err.code().0 == -2147352567 {
             // 0x80020009 DISP_E_EXCEPTION
-            let description = unsafe { excepinfo.bstrDescription.to_string() };
+            let description = excepinfo.bstrDescription.to_string();
             if !description.is_empty() {
                 message = format!(
                     "COM Invoke failed for '{}': {} ({:?})",
@@ -232,28 +232,30 @@ fn value_to_variant(value: &Value) -> windows::core::VARIANT {
         Value::Boolean(b) => VARIANT::from(*b),
         Value::ComObject(obj) => VARIANT::from(obj.dispatch.clone()),
         Value::Nothing => {
-            let mut var = VARIANT::default();
+            let var = VARIANT::default();
             unsafe {
                 let raw = var.as_raw();
-                (*raw).Anonymous.Anonymous.vt = VT_DISPATCH.0 as u16;
-                (*raw).Anonymous.Anonymous.Anonymous.pdispVal = std::ptr::null_mut();
+                *(std::ptr::addr_of!(raw.Anonymous.Anonymous.vt) as *mut u16) = VT_DISPATCH.0;
+                *(std::ptr::addr_of!(raw.Anonymous.Anonymous.Anonymous.pdispVal) as *mut *mut std::ffi::c_void) =
+                    std::ptr::null_mut();
             }
             var
         }
         Value::Null => {
-            let mut var = VARIANT::default();
+            let var = VARIANT::default();
             unsafe {
                 let raw = var.as_raw();
-                (*raw).Anonymous.Anonymous.vt = VT_NULL.0 as u16;
+                *(std::ptr::addr_of!(raw.Anonymous.Anonymous.vt) as *mut u16) = VT_NULL.0;
             }
             var
         }
         Value::Missing => {
-            let mut var = VARIANT::default();
+            let var = VARIANT::default();
             unsafe {
                 let raw = var.as_raw();
-                (*raw).Anonymous.Anonymous.vt = VT_ERROR.0 as u16;
-                (*raw).Anonymous.Anonymous.Anonymous.scode = 0x80020004; // DISP_E_PARAMNOTFOUND
+                *(std::ptr::addr_of!(raw.Anonymous.Anonymous.vt) as *mut u16) = VT_ERROR.0;
+                *(std::ptr::addr_of!(raw.Anonymous.Anonymous.Anonymous.scode) as *mut i32) =
+                    0x80020004_u32 as i32; // DISP_E_PARAMNOTFOUND
             }
             var
         }

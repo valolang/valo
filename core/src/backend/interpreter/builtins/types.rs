@@ -155,7 +155,7 @@ fn vartype(value: &Value) -> i64 {
         Value::Int64(_) => 20,
         Value::Array(_) => 8192,
         Value::Error(_) => 10,
-        Value::Record(_) | Value::Missing => 12,
+        Value::Record(_) | Value::Missing | Value::BoxedRecord(_, _) => 12,
         Value::Ptr(_) | Value::UInt32(_) | Value::UInt64(_) | Value::FuncPtr(_) => 12,
     }
 }
@@ -181,6 +181,7 @@ fn value_type_name(value: &Value) -> String {
         Value::Nothing => "Nothing".to_string(),
         Value::Array(_) => "Array".to_string(),
         Value::Record(record) => record.type_name.clone(),
+        Value::BoxedRecord(_, interface_name) => interface_name.clone(),
         Value::Missing => "Missing".to_string(),
         Value::Ptr(_) => "Ptr".to_string(),
         Value::FuncPtr(_) => "FuncPtr".to_string(),

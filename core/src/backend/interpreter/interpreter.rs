@@ -6,13 +6,14 @@ use std::rc::Rc;
 use crate::runtime::{Diagnostic, TypeName, Value};
 use crate::{DeclareDecl, Function, Procedure, Program};
 
-use super::records::RuntimeType;
+use super::records::{RuntimeType, RuntimeInterface};
 use super::values::key;
 use super::{ControlFlow, Frame, RuntimeClass, RuntimeEnum};
 
 #[derive(Debug)]
 pub struct Interpreter {
     pub(crate) types: HashMap<String, RuntimeType>,
+    pub(crate) interfaces: HashMap<String, RuntimeInterface>,
     pub(crate) enums: HashMap<String, RuntimeEnum>,
     pub(crate) enum_members: HashMap<String, i64>,
     pub(crate) classes: HashMap<String, RuntimeClass>,
@@ -44,9 +45,11 @@ pub struct Interpreter {
     pub(crate) class_modules: HashMap<String, Vec<String>>,
     pub(crate) type_modules: HashMap<String, Vec<String>>,
     pub(crate) enum_modules: HashMap<String, Vec<String>>,
+    pub(crate) interface_modules: HashMap<String, Vec<String>>,
     pub(crate) public_classes: HashSet<String>,
     pub(crate) public_types: HashSet<String>,
     pub(crate) public_enums: HashSet<String>,
+    pub(crate) public_interfaces: HashSet<String>,
     pub(crate) public_values: HashMap<String, HashSet<String>>,
     pub(crate) rng: Pcg64,
     pub(crate) file_io: super::file_io::FileIoState,
@@ -57,6 +60,7 @@ impl Default for Interpreter {
     fn default() -> Self {
         Self {
             types: HashMap::new(),
+            interfaces: HashMap::new(),
             enums: HashMap::new(),
             enum_members: HashMap::new(),
             classes: HashMap::new(),
@@ -88,9 +92,11 @@ impl Default for Interpreter {
             class_modules: HashMap::new(),
             type_modules: HashMap::new(),
             enum_modules: HashMap::new(),
+            interface_modules: HashMap::new(),
             public_classes: HashSet::new(),
             public_types: HashSet::new(),
             public_enums: HashSet::new(),
+            public_interfaces: HashSet::new(),
             public_values: HashMap::new(),
             rng: Pcg64::from_entropy(),
             file_io: super::file_io::FileIoState::default(),
@@ -224,6 +230,10 @@ impl Interpreter {
             self.types
                 .insert(key(&type_decl.name), RuntimeType::from(type_decl));
         }
+        for interface_decl in &program.interfaces {
+            self.interfaces
+                .insert(key(&interface_decl.name), RuntimeInterface::from(interface_decl));
+        }
 
         let mut module_const_values = HashMap::new();
         let mut pending_consts: Vec<_> = program.module_consts.iter().collect();
@@ -307,8 +317,7 @@ impl Interpreter {
                 false,
                 value,
                 var.span,
-                &self.types,
-                &self.enums,
+                &self,
             )?;
         }
         for const_decl in &program.module_consts {
@@ -322,8 +331,7 @@ impl Interpreter {
                 true,
                 Some(value),
                 const_decl.span,
-                &self.types,
-                &self.enums,
+                &self,
             )?;
         }
 
@@ -378,6 +386,10 @@ impl Interpreter {
         for type_decl in &program.types {
             self.types
                 .insert(key(&type_decl.name), RuntimeType::from(type_decl));
+        }
+        for interface_decl in &program.interfaces {
+            self.interfaces
+                .insert(key(&interface_decl.name), RuntimeInterface::from(interface_decl));
         }
 
         let mut module_const_values = HashMap::new();
@@ -462,8 +474,7 @@ impl Interpreter {
                     false,
                     value,
                     var.span,
-                    &self.types,
-                    &self.enums,
+                    self,
                 )?;
             }
         }
@@ -479,8 +490,7 @@ impl Interpreter {
                     true,
                     Some(value),
                     const_decl.span,
-                    &self.types,
-                    &self.enums,
+                    self,
                 )?;
             }
         }
@@ -625,6 +635,25 @@ impl Interpreter {
                     self.public_types.insert(qualified);
                 }
             }
+            for interface_decl in &module.program.interfaces {
+                let qualified = qualified_symbol_key(&module_key, &interface_decl.name);
+                let mut runtime_interface = RuntimeInterface::from(interface_decl);
+                runtime_interface.name = qualified_display_name(&module.name, &interface_decl.name);
+                self.interfaces.insert(qualified.clone(), runtime_interface);
+                if module_key == entry_key {
+                    self.interfaces.insert(
+                        super::values::key(&interface_decl.name),
+                        RuntimeInterface::from(interface_decl),
+                    );
+                }
+                if module_key == entry_key || crate::modules::is_public(interface_decl.visibility) {
+                    self.interface_modules
+                        .entry(super::values::key(&interface_decl.name))
+                        .or_default()
+                        .push(module_key.clone());
+                    self.public_interfaces.insert(qualified);
+                }
+            }
             for enum_decl in &module.program.enums {
                 let mut members = HashMap::new();
                 let mut previous = -1;
@@ -740,8 +769,7 @@ impl Interpreter {
                     false,
                     value,
                     var.span,
-                    &self.types,
-                    &self.enums,
+                    self,
                 )?;
             }
             for const_decl in &module.program.module_consts {
@@ -759,8 +787,7 @@ impl Interpreter {
                     true,
                     Some(value),
                     const_decl.span,
-                    &self.types,
-                    &self.enums,
+                    self,
                 )?;
             }
             self.public_values
@@ -845,6 +872,10 @@ impl Interpreter {
                 self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
                 return Ok(qualified);
             }
+            if self.interfaces.contains_key(&qualified) {
+                self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
+                return Ok(qualified);
+            }
             if self.enums.contains_key(&qualified) {
                 self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
                 return Ok(qualified);
@@ -852,7 +883,7 @@ impl Interpreter {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_QUALIFIED_SYMBOL,
                 format!(
-                    "Module '{}' has no type, class, or enum '{}'",
+                    "Module '{}' has no type, interface, class, or enum '{}'",
                     qualifier, member
                 ),
                 Some(span),
@@ -863,6 +894,7 @@ impl Interpreter {
             let current_key = qualified_symbol_key(current, name);
             if self.classes.contains_key(&current_key)
                 || self.types.contains_key(&current_key)
+                || self.interfaces.contains_key(&current_key)
                 || self.enums.contains_key(&current_key)
             {
                 return Ok(current_key);
@@ -882,10 +914,14 @@ impl Interpreter {
         candidates.extend(self.imported_type_candidates(name, frame, &self.class_modules));
         candidates.extend(self.imported_type_candidates(name, frame, &self.type_modules));
         candidates.extend(self.imported_type_candidates(name, frame, &self.enum_modules));
+        candidates.extend(self.imported_type_candidates(name, frame, &self.interface_modules));
         candidates.sort();
         candidates.dedup();
         match candidates.len() {
-            0 => Ok(super::values::key(name)),
+            0 => {
+                let key = super::values::key(name);
+                Ok(key)
+            }
             1 => Ok(qualified_symbol_key(&candidates[0], name)),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT,
@@ -932,6 +968,7 @@ impl Interpreter {
         if frame.module_key() == Some(module_key)
             || self.public_classes.contains(qualified)
             || self.public_types.contains(qualified)
+            || self.public_interfaces.contains(qualified)
             || self.public_enums.contains(qualified)
         {
             Ok(())

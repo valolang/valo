@@ -396,7 +396,7 @@ impl Interpreter {
                     return self.call_shared_function(class_name, method, args, frame, expr.span);
                 }
                 let object = self.eval_expr(object, frame)?;
-                if matches!(object, Value::Record(_)) {
+                if matches!(object, Value::Record(_) | Value::BoxedRecord(_, _)) {
                     return self.call_record_function(object, method, args, frame, expr.span);
                 }
                 self.call_method_function(object, method, args, frame, expr.span)

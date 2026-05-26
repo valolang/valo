@@ -29,12 +29,16 @@ pub(crate) fn read_field_member(
         .with_primary_label("attempted to access a member on Nothing")
         .with_help("assign an object before accessing its members"));
     }
-    let Value::Record(record) = value else {
-        return Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-            "Member access requires a user-defined Type value",
-            Some(span),
-        ));
+    let record = match value {
+        Value::Record(v) => v,
+        Value::BoxedRecord(v, _) => v,
+        _ => {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Member access requires a user-defined Type value",
+                Some(span),
+            ));
+        }
     };
 
     record.fields.get(&key(field)).cloned().ok_or_else(|| {
@@ -93,14 +97,18 @@ pub(crate) fn write_member(
         .with_primary_label("attempted to assign a member on Nothing")
         .with_help("assign an object before assigning its members"));
     }
-    let Value::Record(record) = value else {
-        return Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-            "Member assignment requires a user-defined Type value",
-            Some(span),
-        ));
+    
+    let (mut record, interface) = match value {
+        Value::Record(v) => (v.as_ref().clone(), None),
+        Value::BoxedRecord(v, interface) => (v.as_ref().clone(), Some(interface.clone())),
+        _ => {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Member assignment requires a user-defined Type value",
+                Some(span),
+            ));
+        }
     };
-    let record = Rc::make_mut(record);
 
     let Some(slot) = record.fields.get_mut(&key(field)) else {
         return Err(Diagnostic::new(
@@ -113,6 +121,12 @@ pub(crate) fn write_member(
     let ty = slot.type_name();
     let old = slot.clone();
     *slot = coerce_assignment(&ty, new_value, span)?;
+    
+    *value = match interface {
+        Some(interface) => Value::BoxedRecord(Rc::new(record), interface),
+        None => Value::Record(Rc::new(record)),
+    };
+    
     Ok(old)
 }
 
@@ -121,6 +135,7 @@ pub(crate) struct RuntimeType {
     pub(crate) name: String,
     pub(crate) type_params: Vec<String>,
     pub(crate) is_structure: bool,
+    pub(crate) implements: Vec<TypeName>,
     pub(crate) fields: Vec<RuntimeField>,
     pub(crate) subs: std::collections::HashMap<String, crate::Procedure>,
     pub(crate) functions: std::collections::HashMap<String, crate::Function>,
@@ -140,6 +155,7 @@ impl From<&TypeDecl> for RuntimeType {
             name: value.name.clone(),
             type_params: value.type_params.clone(),
             is_structure: value.kind == TypeKind::Structure,
+            implements: value.implements.clone(),
             fields: value
                 .fields
                 .iter()
@@ -268,4 +284,56 @@ pub(crate) struct RuntimeField {
     pub(crate) array: Option<crate::ArrayDecl>,
     pub(crate) initializer: Option<crate::Expr>,
     pub(crate) with_events: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeInterface {
+    pub(crate) name: String,
+    #[allow(dead_code)]
+    pub(crate) type_params: Vec<String>,
+    #[allow(dead_code)]
+    pub(crate) subs: std::collections::HashMap<String, crate::InterfaceMethod>,
+    #[allow(dead_code)]
+    pub(crate) functions: std::collections::HashMap<String, crate::InterfaceMethod>,
+    #[allow(dead_code)]
+    pub(crate) properties: std::collections::HashMap<String, crate::InterfaceProperty>,
+}
+
+impl From<&crate::InterfaceDecl> for RuntimeInterface {
+    fn from(value: &crate::InterfaceDecl) -> Self {
+        Self {
+            name: value.name.clone(),
+            type_params: value.type_params.clone(),
+            subs: value
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    crate::InterfaceMember::Sub(method) => {
+                        Some((key(&method.name), method.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            functions: value
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    crate::InterfaceMember::Function(method) => {
+                        Some((key(&method.name), method.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            properties: value
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    crate::InterfaceMember::Property(property) => {
+                        Some((key(&property.name), property.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
 }

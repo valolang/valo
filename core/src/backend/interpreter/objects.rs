@@ -183,7 +183,7 @@ impl Interpreter {
                         bounds.push(*bound);
                     }
                     for _ in 0..total_len {
-                        elements.push(default_value(ty, &self.types, &self.enums, span)?);
+                        elements.push(default_value(ty, self, span)?);
                     }
                     true
                 }
@@ -202,7 +202,7 @@ impl Interpreter {
             })));
         }
 
-        default_value(ty, &self.types, &self.enums, span)
+        default_value(ty, self, span)
     }
 
     fn field_initial_value(
@@ -297,8 +297,7 @@ impl Interpreter {
             }
             let record = default_value(
                 &TypeName::User(type_def.name.clone()),
-                &self.types,
-                &self.enums,
+                self,
                 span,
             )?;
             if let Some(init) = type_def.subs.get("initialize").cloned() {
@@ -319,6 +318,8 @@ impl Interpreter {
                     TypeName::User(type_def.name.clone()),
                     variable,
                     span,
+                    &self.types,
+                    &self.interfaces,
                 )?;
                 self.bind_parameters(&init.params, args, caller_frame, &mut init_frame)?;
                 self.scope_stack
@@ -440,6 +441,11 @@ impl Interpreter {
         if object_has_field(value, member) {
             return read_field_member(value, member, span);
         }
+        if let Value::BoxedRecord(record, _) = value
+            && record.fields.contains_key(&key(member))
+        {
+            return read_field_member(value, member, span);
+        }
         if let Value::ComObject(com_obj) = value {
             return crate::runtime::com::invoke_com(
                 com_obj,
@@ -469,12 +475,16 @@ impl Interpreter {
         }
         match read_field_member(value, member, span) {
             Ok(value) => Ok(value),
-            Err(error) if matches!(value, Value::Record(_)) => {
-                if let Value::Record(record) = value
-                    && self
-                        .types
-                        .get(&key(&record.type_name))
-                        .is_some_and(|type_def| type_def.properties.contains_key(&key(member)))
+            Err(error) if matches!(value, Value::Record(_) | Value::BoxedRecord(_, _)) => {
+                let type_name = match value {
+                    Value::Record(record) => record.type_name.clone(),
+                    Value::BoxedRecord(record, _) => record.type_name.clone(),
+                    _ => unreachable!(),
+                };
+                if self
+                    .types
+                    .get(&key(&type_name))
+                    .is_some_and(|type_def| type_def.properties.contains_key(&key(member)))
                 {
                     return self.call_record_property_get(value.clone(), member, &[], frame, span);
                 }
@@ -698,6 +708,16 @@ impl Interpreter {
                 drop(root);
                 return self.call_record_property_set(variable, member, value, span);
             }
+            if let Value::BoxedRecord(record, _) = &*root
+                && !record.fields.contains_key(&key(member))
+                && self
+                    .types
+                    .get(&key(&record.type_name))
+                    .is_some_and(|type_def| type_def.properties.contains_key(&key(member)))
+            {
+                drop(root);
+                return self.call_record_property_set(variable, member, value, span);
+            }
             return self.write_object_member(&mut root, member, value, span);
         }
         let object = root.clone();
@@ -885,7 +905,11 @@ impl Interpreter {
             array.allocated = false;
         } else {
             for element in &mut array.elements {
-                *element = default_value(&array.element_type, &self.types, &self.enums, span)?;
+                *element = default_value(
+                    &array.element_type,
+                    self,
+                    span,
+                )?;
             }
         }
         Ok(())
@@ -902,7 +926,13 @@ impl Interpreter {
         match target {
             crate::ReDimTarget::Variable { name, .. } => {
                 if frame.has_variable(name) {
-                    frame.redim_array(name, new_bounds, preserve, &self.types, &self.enums, span)
+                    frame.redim_array(
+                        name,
+                        new_bounds,
+                        preserve,
+                        self,
+                        span,
+                    )
                 } else {
                     let owner = frame.get("me", span)?;
                     self.redim_value_member(owner, name, new_bounds, preserve, span)
@@ -955,7 +985,13 @@ impl Interpreter {
                 dynamic: true,
             }));
         }
-        redim_array(slot, new_bounds, preserve, &self.types, &self.enums, span)
+        redim_array(
+            slot,
+            new_bounds,
+            preserve,
+            self,
+            span,
+        )
     }
 
     fn write_object_member(

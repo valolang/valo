@@ -16,15 +16,18 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let Value::Record(record) = &record_val else {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "Property assignment requires a Structure value",
-                Some(span),
-            ));
+        let (type_name, record_val) = match &record_val {
+            Value::Record(record) => (record.type_name.clone(), record_val),
+            Value::BoxedRecord(record, _) => (record.type_name.clone(), Value::Record(record.clone())),
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Property access requires a Structure value",
+                    Some(span),
+                ));
+            }
         };
-        let type_name = &record.type_name;
-        let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
+        let structure = self.types.get(&key(&type_name)).cloned().ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                 format!("Structure '{}' is not defined", type_name),
@@ -66,8 +69,7 @@ impl Interpreter {
                 None,
                 self.option_base,
                 accessor.span,
-                &self.types,
-                &self.enums,
+                self,
             )?;
         }
         self.scope_stack
@@ -137,15 +139,18 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), Diagnostic> {
         let record_val = variable.borrow().clone();
-        let Value::Record(record) = &record_val else {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "Property assignment requires a Structure value",
-                Some(span),
-            ));
+        let type_name = match &record_val {
+            Value::Record(record) => record.type_name.clone(),
+            Value::BoxedRecord(record, _) => record.type_name.clone(),
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Property assignment requires a Structure value",
+                    Some(span),
+                ));
+            }
         };
-        let type_name = &record.type_name;
-        let structure = self.types.get(&key(type_name)).cloned().ok_or_else(|| {
+        let structure = self.types.get(&key(&type_name)).cloned().ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                 format!("Structure '{}' is not defined", type_name),
@@ -186,17 +191,15 @@ impl Interpreter {
             ));
         };
         let mut frame = Frame::default();
-        frame.declare_alias("me", TypeName::User(structure.name.clone()), variable, span)?;
+        frame.declare_alias("me", TypeName::User(structure.name.clone()), variable, span, &self.types, &self.interfaces)?;
         frame.declare(
             &param.name,
             param.ty.clone(),
             None,
             self.option_base,
             param.span,
-            &self.types,
-            &self.enums,
-        )?;
-        let _ = frame.assign(&param.name, value, span)?;
+            self,
+        )?;        let _ = frame.assign(&param.name, value, span)?;
         self.scope_stack
             .push(format!("{}.{}", structure.name, accessor.name));
         let result = self.exec_block(&accessor.body, &mut frame);
@@ -283,8 +286,7 @@ impl Interpreter {
                 None,
                 self.option_base,
                 accessor.span,
-                &self.types,
-                &self.enums,
+                self,
             )?;
         }
         self.scope_stack

@@ -254,14 +254,14 @@ impl Interpreter {
                 }
                 if let crate::ExprKind::Variable(name) = &object.kind
                     && let Ok(variable) = frame.variable(name, object.span)
-                    && matches!(&*variable.borrow(), Value::Record(_))
+                    && matches!(&*variable.borrow(), Value::Record(_) | Value::BoxedRecord(_, _))
                 {
                     self.call_record_sub_variable(variable, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
                 }
                 if matches!(object.kind, crate::ExprKind::Me)
                     && let Ok(variable) = frame.variable("me", object.span)
-                    && matches!(&*variable.borrow(), Value::Record(_))
+                    && matches!(&*variable.borrow(), Value::Record(_) | Value::BoxedRecord(_, _))
                 {
                     self.call_record_sub_variable(variable, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
@@ -537,7 +537,7 @@ impl Interpreter {
             Stmt::Erase { target, span } => {
                 match target {
                     ReDimTarget::Variable { name, .. } => {
-                        frame.erase_array(name, *span, &self.types, &self.enums)?;
+                        frame.erase_array(name, *span, self)?;
                     }
                     ReDimTarget::Member { object, field, .. } => {
                         let obj_value = self.eval_expr(object, frame)?;
@@ -604,8 +604,7 @@ impl Interpreter {
                             None,
                             self.option_base,
                             catch.span,
-                            &self.types,
-                            &self.enums,
+                            self,
                         )?;
                         frame.assign(var_name, error_obj, catch.span)?;
                     }
@@ -857,8 +856,7 @@ impl Interpreter {
             array.clone(),
             self.option_base,
             span,
-            &self.types,
-            &self.enums,
+            self,
         )?;
         if as_new {
             let crate::runtime::TypeName::User(class_name) = ty_for_new else {
@@ -926,8 +924,7 @@ impl Interpreter {
             array.clone(),
             self.option_base,
             span,
-            &self.types,
-            &self.enums,
+            self,
             &mut static_frame,
         )?;
         if !already_declared && let Some(value) = initial_value {

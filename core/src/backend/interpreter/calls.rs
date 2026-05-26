@@ -249,12 +249,16 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), Diagnostic> {
         let record = variable.borrow().clone();
-        let Value::Record(record_val) = &record else {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "Structure method call requires a Structure value",
-                Some(span),
-            ));
+        let record_val = match &record {
+            Value::Record(v) => v,
+            Value::BoxedRecord(v, _) => v,
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Structure method call requires a Structure value",
+                    Some(span),
+                ));
+            }
         };
         let structure = self
             .types
@@ -289,7 +293,7 @@ impl Interpreter {
         if let Some((module_key, _)) = key(&structure.name).split_once('.') {
             frame.set_module_key(module_key.to_string());
         }
-        frame.declare_alias("me", TypeName::User(structure.name.clone()), variable, span)?;
+        frame.declare_alias("me", TypeName::User(structure.name.clone()), variable, span, &self.types, &self.interfaces)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         self.scope_stack
             .push(format!("{}.{}", structure.name, procedure.name));
@@ -319,12 +323,16 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let Value::Record(record_val) = &record else {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "Structure method call requires a Structure value",
-                Some(span),
-            ));
+        let record_val = match &record {
+            Value::Record(v) => v,
+            Value::BoxedRecord(v, _) => v,
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Structure method call requires a Structure value",
+                    Some(span),
+                ));
+            }
         };
         let structure = self
             .types
@@ -349,7 +357,7 @@ impl Interpreter {
             if let Some(slot) = &function.return_slot {
                 frame.set_return_slot(
                     slot.clone(),
-                    default_value(&return_type, &self.types, &self.enums, function.span)?,
+                    default_value(&return_type, self, function.span)?,
                 );
             } else if !frame.has_variable(&function.name) {
                 frame.declare(
@@ -358,8 +366,7 @@ impl Interpreter {
                     None,
                     self.option_base,
                     function.span,
-                    &self.types,
-                    &self.enums,
+                    self,
                 )?;
             }
             self.scope_stack
@@ -480,7 +487,7 @@ impl Interpreter {
             if let Some(slot) = &function.return_slot {
                 frame.set_return_slot(
                     slot.clone(),
-                    default_value(&return_type, &self.types, &self.enums, function.span)?,
+                    default_value(&return_type, self, function.span)?,
                 );
             } else if !frame.has_variable(&function.name) {
                 frame.declare(
@@ -489,8 +496,7 @@ impl Interpreter {
                     None,
                     self.option_base,
                     function.span,
-                    &self.types,
-                    &self.enums,
+                    self,
                 )?;
             }
 
@@ -694,8 +700,7 @@ impl Interpreter {
                 None,
                 self.option_base,
                 function.span,
-                &self.types,
-                &self.enums,
+                self,
             )?;
         }
         if function.is_iterator {
@@ -963,28 +968,38 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        if let Value::ComObject(ref com_obj) = object {
-            let mut eval_args = Vec::with_capacity(args.len());
-            for arg in args {
-                eval_args.push(self.eval_expr(arg, caller_frame)?);
+        match object {
+            Value::ComObject(ref com_obj) => {
+                let mut eval_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    eval_args.push(self.eval_expr(arg, caller_frame)?);
+                }
+                crate::runtime::com::invoke_com(
+                    com_obj, method, &eval_args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
+                    span,
+                )?;
+                Ok(())
             }
-            crate::runtime::com::invoke_com(
-                com_obj, method, &eval_args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
-                span,
-            )?;
-            return Ok(());
+            Value::BoxedRecord(record_val, _) => {
+                let mut eval_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    eval_args.push(self.eval_expr(arg, caller_frame)?);
+                }
+                self.call_method_sub_values(Value::Record(record_val), method, &eval_args, caller_frame, span)
+            }
+            _ => {
+                let instance = ensure_object(object, span)?;
+                let class_name = instance.borrow().class_name.clone();
+                self.call_method_sub_on_runtime_class(
+                    instance,
+                    &class_name,
+                    method,
+                    args,
+                    caller_frame,
+                    span,
+                )
+            }
         }
-
-        let instance = ensure_object(object, span)?;
-        let class_name = instance.borrow().class_name.clone();
-        self.call_method_sub_on_runtime_class(
-            instance,
-            &class_name,
-            method,
-            args,
-            caller_frame,
-            span,
-        )
     }
 
     pub(crate) fn call_method_sub_on_runtime_class(
@@ -1137,157 +1152,162 @@ impl Interpreter {
             return Ok(val);
         }
 
-        if let Value::ComObject(ref com_obj) = object {
-            let mut eval_args = Vec::with_capacity(args.len());
-            for arg in args {
-                eval_args.push(self.eval_expr(arg, caller_frame)?);
-            }
-            return crate::runtime::com::invoke_default_com(
-                com_obj, &eval_args, 2, // DISPATCH_PROPERTYGET
-                span,
-            );
-        }
-
-        let instance = ensure_object(object.clone(), span)?;
-        let class_name = instance.borrow().class_name.clone();
-        let class = self
-            .classes
-            .get(&key(&class_name))
-            .cloned()
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                    format!("Class '{}' is not defined", class_name),
-                    Some(span),
+        match object {
+            Value::ComObject(ref com_obj) => {
+                let mut eval_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    eval_args.push(self.eval_expr(arg, caller_frame)?);
+                }
+                crate::runtime::com::invoke_com(
+                    com_obj, method, &eval_args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
+                    span,
                 )
-            })?;
-        if let Some(function) = class.functions.get(&key(method)).cloned() {
-            let mut frame = Frame::default();
-            frame.inherit_modules_from(caller_frame)?;
-            if let Some((module_key, _)) = key(&class.name).split_once('.') {
-                frame.set_module_key(module_key.to_string());
             }
-            frame.declare_object_alias("me", &class.name, instance, span)?;
-            self.bind_class_constants(&class, &mut frame)?;
-            self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
-            let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
-            if let Some(slot) = &function.return_slot {
-                frame.set_return_slot(
-                    slot.clone(),
-                    default_value(&return_type, &self.types, &self.enums, function.span)?,
-                );
-            } else if !frame.has_variable(&function.name) {
-                frame.declare(
-                    &function.name,
-                    return_type.clone(),
-                    None,
-                    self.option_base,
-                    function.span,
-                    &self.types,
-                    &self.enums,
-                )?;
+            Value::BoxedRecord(record_val, _) => {
+                self.call_record_function(Value::Record(record_val), method, args, caller_frame, span)
             }
-            self.scope_stack
-                .push(format!("{}.{}", class.name, function.name));
-            if function.is_iterator {
-                frame.set_yield_mode();
-            }
-            let result = self.exec_block(&function.body, &mut frame);
-            self.scope_stack.pop();
-            return match result? {
-                ControlFlow::Return(value) => {
-                    if function.is_iterator {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                            "Return is not allowed inside Iterator; use Yield or Exit Function",
-                            Some(function.span),
-                        ));
-                    }
-                    if let Some(slot) = &function.return_slot {
-                        frame.set_return_slot(slot.clone(), value.clone());
-                    }
-                    coerce_assignment(&return_type, value, span)
-                }
-                ControlFlow::Continue | ControlFlow::ExitFunction => {
-                    if function.is_iterator {
-                        let elements = frame.take_yielded_values().unwrap_or_default();
-                        let len = elements.len() as i64;
-                        Ok(Value::Array(Rc::new(ArrayValue {
-                            element_type: function.return_type.clone(),
-                            elements,
-                            bounds: vec![crate::runtime::ArrayBound {
-                                lower: self.option_base,
-                                upper: self.option_base + len - 1,
-                            }],
-                            allocated: true,
-                            dynamic: true,
-                        })))
-                    } else if let Some(slot) = &function.return_slot {
-                        Ok(frame.get_return_slot(slot).ok_or_else(|| {
-                            Diagnostic::new(
-                                crate::runtime::DiagnosticCode::GENERIC,
-                                "Return slot not found",
-                                Some(function.span),
-                            )
-                        })?)
-                    } else {
-                        frame.get(&function.name, function.span)
-                    }
-                }
-                ControlFlow::Terminate => Ok(Value::Empty),
-                ControlFlow::ExitSub => Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                    "Exit Sub is only valid inside Sub",
-                    Some(function.span),
-                )),
-                ControlFlow::ExitFor
-                | ControlFlow::ExitWhile
-                | ControlFlow::ExitDo
-                | ControlFlow::GoTo(_)
-                | ControlFlow::Resume(_) => Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
-                    "Exit statement escaped its block",
-                    Some(span),
-                )),
-            };
-        }
-
-        if class.properties.contains_key(&key(method)) {
-            // Try Case 1: The property itself takes these arguments
-            if let Ok(value) =
-                self.call_property_get(object.clone(), method, args, caller_frame, span)
-            {
-                return Ok(value);
-            }
-
-            // Try Case 2: The property returns an object that has a default property
-            let value = self.call_property_get(object, method, &[], caller_frame, span)?;
-            if let Value::Object(ref inner_object) = value {
-                let inner_class_name = inner_object.borrow().class_name.clone();
-                if let Some(default_prop_name) = self
+            _ => {
+                let instance = ensure_object(object.clone(), span)?;
+                let class_name = instance.borrow().class_name.clone();
+                let class = self
                     .classes
-                    .get(&key(&inner_class_name))
-                    .and_then(|c| c.default_member.clone())
-                {
-                    return self.call_method_function(
-                        value,
-                        &default_prop_name,
-                        args,
-                        caller_frame,
-                        span,
-                    );
+                    .get(&key(&class_name))
+                    .cloned()
+                    .ok_or_else(|| {
+                        Diagnostic::new(
+                            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                            format!("Class '{}' is not defined", class_name),
+                            Some(span),
+                        )
+                    })?;
+                if let Some(function) = class.functions.get(&key(method)).cloned() {
+                    let mut frame = Frame::default();
+                    frame.inherit_modules_from(caller_frame)?;
+                    if let Some((module_key, _)) = key(&class.name).split_once('.') {
+                        frame.set_module_key(module_key.to_string());
+                    }
+                    frame.declare_object_alias("me", &class.name, instance, span)?;
+                    self.bind_class_constants(&class, &mut frame)?;
+                    self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
+                    let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
+                    if let Some(slot) = &function.return_slot {
+                        frame.set_return_slot(
+                            slot.clone(),
+                            default_value(&return_type, self, function.span)?,
+                        );
+                    } else if !frame.has_variable(&function.name) {
+                        frame.declare(
+                            &function.name,
+                            return_type.clone(),
+                            None,
+                            self.option_base,
+                            function.span,
+                            self,
+                        )?;
+                    }
+                    self.scope_stack
+                        .push(format!("{}.{}", class.name, function.name));
+                    if function.is_iterator {
+                        frame.set_yield_mode();
+                    }
+                    let result = self.exec_block(&function.body, &mut frame);
+                    self.scope_stack.pop();
+                    return match result? {
+                        ControlFlow::Return(value) => {
+                            if function.is_iterator {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                                    "Return is not allowed inside Iterator; use Yield or Exit Function",
+                                    Some(function.span),
+                                ));
+                            }
+                            if let Some(slot) = &function.return_slot {
+                                frame.set_return_slot(slot.clone(), value.clone());
+                            }
+                            coerce_assignment(&return_type, value, span)
+                        }
+                        ControlFlow::Continue | ControlFlow::ExitFunction => {
+                            if function.is_iterator {
+                                let elements = frame.take_yielded_values().unwrap_or_default();
+                                let len = elements.len() as i64;
+                                Ok(Value::Array(Rc::new(ArrayValue {
+                                    element_type: function.return_type.clone(),
+                                    elements,
+                                    bounds: vec![crate::runtime::ArrayBound {
+                                        lower: self.option_base,
+                                        upper: self.option_base + len - 1,
+                                    }],
+                                    allocated: true,
+                                    dynamic: true,
+                                })))
+                            } else if let Some(slot) = &function.return_slot {
+                                Ok(frame.get_return_slot(slot).ok_or_else(|| {
+                                    Diagnostic::new(
+                                        crate::runtime::DiagnosticCode::GENERIC,
+                                        "Return slot not found",
+                                        Some(function.span),
+                                    )
+                                })?)
+                            } else {
+                                frame.get(&function.name, function.span)
+                            }
+                        }
+                        ControlFlow::Terminate => Ok(Value::Empty),
+                        ControlFlow::ExitSub => Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Exit Sub is only valid inside Sub",
+                            Some(function.span),
+                        )),
+                        ControlFlow::ExitFor
+                        | ControlFlow::ExitWhile
+                        | ControlFlow::ExitDo
+                        | ControlFlow::GoTo(_)
+                        | ControlFlow::Resume(_) => Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Exit statement escaped its block",
+                            Some(span),
+                        )),
+                    };
                 }
+
+                if class.properties.contains_key(&key(method)) {
+                    // Try Case 1: The property itself takes these arguments
+                    if let Ok(value) =
+                        self.call_property_get(object.clone(), method, args, caller_frame, span)
+                    {
+                        return Ok(value);
+                    }
+
+                    // Try Case 2: The property returns an object that has a default property
+                    let value = self.call_property_get(object, method, &[], caller_frame, span)?;
+                    if let Value::Object(ref inner_object) = value {
+                        let inner_class_name = inner_object.borrow().class_name.clone();
+                        if let Some(default_prop_name) = self
+                            .classes
+                            .get(&key(&inner_class_name))
+                            .and_then(|c| c.default_member.clone())
+                        {
+                            return self.call_method_function(
+                                value,
+                                &default_prop_name,
+                                args,
+                                caller_frame,
+                                span,
+                            );
+                        }
+                    }
+                }
+
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!(
+                        "Class '{}' has no method or property '{}'",
+                        class.name, method
+                    ),
+                    Some(span),
+                ))
             }
         }
-
-        Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!(
-                "Class '{}' has no method or property '{}'",
-                class.name, method
-            ),
-            Some(span),
-        ))
     }
 
     pub(crate) fn call_shared_function(
@@ -1336,8 +1356,7 @@ impl Interpreter {
                 None,
                 self.option_base,
                 function.span,
-                &self.types,
-                &self.enums,
+                self,
             )?;
         }
         self.scope_stack
@@ -1462,8 +1481,7 @@ impl Interpreter {
                 None,
                 self.option_base,
                 function.span,
-                &self.types,
-                &self.enums,
+                self,
             )?;
         }
         self.scope_stack
@@ -1608,11 +1626,10 @@ impl Interpreter {
                 callee_frame.declare(
                     &param.name,
                     param_ty.clone(),
-                    Some(crate::ArrayDecl::Dynamic),
+                    None,
                     self.option_base,
                     param.span,
-                    &self.types,
-                    &self.enums,
+                    self,
                 )?;
                 let len = elements.len();
                 let _ = callee_frame.assign(
@@ -1648,8 +1665,7 @@ impl Interpreter {
                         None,
                         self.option_base,
                         param.span,
-                        &self.types,
-                        &self.enums,
+                        self,
                     )?;
                     if matches!(value, Value::Missing) {
                         callee_frame.assign_missing(&param.name, param.span)?;
@@ -1670,8 +1686,7 @@ impl Interpreter {
                             None,
                             self.option_base,
                             param.span,
-                            &self.types,
-                            &self.enums,
+                            self,
                         )?;
                         if matches!(value, Value::Missing) {
                             callee_frame.assign_missing(&param.name, param.span)?;
@@ -1689,6 +1704,8 @@ impl Interpreter {
                                     param_ty,
                                     variable,
                                     param.span,
+                                    &self.types,
+                                    &self.interfaces,
                                 )?;
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
@@ -1698,8 +1715,7 @@ impl Interpreter {
                                     None,
                                     self.option_base,
                                     param.span,
-                                    &self.types,
-                                    &self.enums,
+                                    self,
                                 )?;
                                 let _ = callee_frame.assign(&param.name, value, param.span)?;
                             }
@@ -1744,6 +1760,8 @@ impl Interpreter {
                                     param_ty,
                                     variable,
                                     param.span,
+                                    &self.types,
+                                    &self.interfaces,
                                 )?;
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
@@ -1753,8 +1771,7 @@ impl Interpreter {
                                     None,
                                     self.option_base,
                                     param.span,
-                                    &self.types,
-                                    &self.enums,
+                                    self,
                                 )?;
                                 let _ = callee_frame.assign(&param.name, value, param.span)?;
                             }
@@ -1767,8 +1784,7 @@ impl Interpreter {
                                 None,
                                 self.option_base,
                                 param.span,
-                                &self.types,
-                                &self.enums,
+                                self,
                             )?;
                             let _ = callee_frame.assign(&param.name, value, param.span)?;
                         }
@@ -1824,6 +1840,8 @@ impl Interpreter {
                                             param_ty,
                                             variable,
                                             param.span,
+                                            &self.types,
+                                            &self.interfaces,
                                         )?;
                                     } else {
                                         drop(array_val);
@@ -1834,22 +1852,19 @@ impl Interpreter {
                                             None,
                                             self.option_base,
                                             param.span,
-                                            &self.types,
-                                            &self.enums,
-                                        )?;
-                                        let _ =
+                                            self,
+                                        )?;                                        let _ =
                                             callee_frame.assign(&param.name, value, param.span)?;
                                     }
                                 } else {
                                     let value = self.eval_expr(arg, caller_frame)?;
                                     callee_frame.declare(
                                         &param.name,
-                                        param_ty,
+                                        param_ty.clone(),
                                         None,
                                         self.option_base,
                                         param.span,
-                                        &self.types,
-                                        &self.enums,
+                                        self,
                                     )?;
                                     let _ = callee_frame.assign(&param.name, value, param.span)?;
                                 }
@@ -1861,8 +1876,7 @@ impl Interpreter {
                                     None,
                                     self.option_base,
                                     param.span,
-                                    &self.types,
-                                    &self.enums,
+                                    self,
                                 )?;
                                 let _ = callee_frame.assign(&param.name, value, param.span)?;
                             }
@@ -1901,6 +1915,8 @@ impl Interpreter {
                                             param_ty,
                                             variable,
                                             param.span,
+                                            &self.types,
+                                            &self.interfaces,
                                         )?;
                                     } else {
                                         let value = self.eval_expr(arg, caller_frame)?;
@@ -1910,22 +1926,19 @@ impl Interpreter {
                                             None,
                                             self.option_base,
                                             param.span,
-                                            &self.types,
-                                            &self.enums,
-                                        )?;
-                                        let _ =
+                                            self,
+                                        )?;                                        let _ =
                                             callee_frame.assign(&param.name, value, param.span)?;
                                     }
                                 } else {
                                     let value = self.eval_expr(arg, caller_frame)?;
                                     callee_frame.declare(
                                         &param.name,
-                                        param_ty,
+                                        param_ty.clone(),
                                         None,
                                         self.option_base,
                                         param.span,
-                                        &self.types,
-                                        &self.enums,
+                                        self,
                                     )?;
                                     let _ = callee_frame.assign(&param.name, value, param.span)?;
                                 }
@@ -1937,8 +1950,7 @@ impl Interpreter {
                                     None,
                                     self.option_base,
                                     param.span,
-                                    &self.types,
-                                    &self.enums,
+                                    self,
                                 )?;
                                 let _ = callee_frame.assign(&param.name, value, param.span)?;
                             }
@@ -1951,8 +1963,7 @@ impl Interpreter {
                                 None,
                                 self.option_base,
                                 param.span,
-                                &self.types,
-                                &self.enums,
+                                self,
                             )?;
                             let _ = callee_frame.assign(&param.name, value, param.span)?;
                         }
@@ -1985,10 +1996,8 @@ impl Interpreter {
                 None,
                 self.option_base,
                 param.span,
-                &self.types,
-                &self.enums,
-            )?;
-            let _ = callee_frame.assign(&param.name, value.clone(), param.span)?;
+                self,
+            )?;            let _ = callee_frame.assign(&param.name, value.clone(), param.span)?;
         }
         Ok(())
     }

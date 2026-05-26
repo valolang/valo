@@ -8,8 +8,9 @@ use crate::runtime::{
 };
 
 use super::arrays::{read_array_element, redim_array, write_array_element};
-use super::records::{RuntimeEnum, RuntimeType};
+use super::records::{RuntimeInterface, RuntimeType};
 use super::values::{default_value, key};
+use super::Interpreter;
 
 #[derive(Debug, Clone)]
 pub(crate) enum VariableCell {
@@ -128,8 +129,7 @@ impl Frame {
         array: Option<ArrayDecl>,
         _option_base: i64,
         span: Span,
-        types: &HashMap<String, RuntimeType>,
-        enums: &HashMap<String, RuntimeEnum>,
+        interpreter: &Interpreter,
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
@@ -153,7 +153,7 @@ impl Frame {
                         bounds.push(bound);
                     }
                     for _ in 0..total_len {
-                        elements.push(default_value(&ty, types, enums, span)?);
+                        elements.push(default_value(&ty, interpreter, span)?);
                     }
                     true
                 }
@@ -171,7 +171,7 @@ impl Frame {
                 dynamic: is_dynamic,
             }))
         } else {
-            default_value(&ty, types, enums, span)?
+            default_value(&ty, interpreter, span)?
         };
 
         self.variables.insert(
@@ -196,16 +196,22 @@ impl Frame {
         array: Option<ArrayDecl>,
         option_base: i64,
         span: Span,
-        types: &HashMap<String, RuntimeType>,
-        enums: &HashMap<String, RuntimeEnum>,
+        interpreter: &Interpreter,
         static_frame: &mut Frame,
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if !static_frame.variables.contains_key(&key) {
-            static_frame.declare(name, ty.clone(), array, option_base, span, types, enums)?;
+            static_frame.declare(
+                name,
+                ty.clone(),
+                array,
+                option_base,
+                span,
+                interpreter,
+            )?;
         }
         let variable = static_frame.variable(name, span)?;
-        self.declare_alias(name, ty, variable, span)
+        self.declare_alias(name, ty, variable, span, &interpreter.types, &interpreter.interfaces)
     }
 
     pub(crate) fn declare_const(
@@ -249,10 +255,16 @@ impl Frame {
         is_const: bool,
         value: Option<Value>,
         span: Span,
-        types: &HashMap<String, RuntimeType>,
-        enums: &HashMap<String, RuntimeEnum>,
+        interpreter: &Interpreter,
     ) -> Result<(), Diagnostic> {
-        self.declare(name, ty.clone(), array, option_base, span, types, enums)?;
+        self.declare(
+            name,
+            ty.clone(),
+            array,
+            option_base,
+            span,
+            interpreter,
+        )?;
         let variable = self.variables.get_mut(&key(name)).expect("declared");
         variable.module_level = true;
         variable.is_const = is_const;
@@ -268,6 +280,8 @@ impl Frame {
         ty: TypeName,
         variable: Variable,
         span: Span,
+        types: &HashMap<String, RuntimeType>,
+        _interfaces: &HashMap<String, RuntimeInterface>,
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if self.variables.contains_key(&key) {
@@ -277,7 +291,28 @@ impl Frame {
                 Some(span),
             ));
         }
-        if !variable.ty.same_type(&ty) {
+        
+        let mut types_match = variable.ty.same_type(&ty);
+
+        if !types_match && let TypeName::User(target_name) = &ty
+            && let TypeName::User(source_name) = &variable.ty {
+            // Case 1: Source is Structure, Target is Interface (implemented by Structure)
+            if let Some(record_sig) = types.get(&super::values::key(source_name))
+                && record_sig.implements.iter().any(|i| i.display_name().eq_ignore_ascii_case(target_name)) {
+                types_match = true;
+            } 
+            // Case 2: Source is Interface (boxed record), Target is original Structure
+            else if let Some(target_sig) = types.get(&super::values::key(target_name))
+                && target_sig.implements.iter().any(|i| i.display_name().eq_ignore_ascii_case(source_name)) {
+                types_match = true;
+            }
+            // Case 3: Same name (case-insensitive)
+            else if source_name.eq_ignore_ascii_case(target_name) {
+                types_match = true;
+            }
+        }
+
+        if !types_match {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
                 format!(
@@ -440,8 +475,7 @@ impl Frame {
         name: &str,
         new_bounds: Vec<ArrayBound>,
         preserve: bool,
-        types: &HashMap<String, RuntimeType>,
-        enums: &HashMap<String, RuntimeEnum>,
+        interpreter: &Interpreter,
         span: Span,
     ) -> Result<(), Diagnostic> {
         let variable = self.variable(name, span)?;
@@ -454,15 +488,14 @@ impl Frame {
             .with_primary_label("ReDim target is not a dynamic array"));
         }
         let mut array = variable.borrow_mut();
-        redim_array(&mut array, new_bounds, preserve, types, enums, span)
+        redim_array(&mut array, new_bounds, preserve, interpreter, span)
     }
 
     pub(crate) fn erase_array(
         &mut self,
         name: &str,
         span: Span,
-        types: &HashMap<String, RuntimeType>,
-        enums: &HashMap<String, RuntimeEnum>,
+        interpreter: &Interpreter,
     ) -> Result<(), Diagnostic> {
         let variable = self.variable(name, span)?;
         let mut array_val = variable.borrow_mut();
@@ -480,7 +513,7 @@ impl Frame {
             array.allocated = false;
         } else {
             for element in &mut array.elements {
-                *element = default_value(&array.element_type, types, enums, span)?;
+                *element = default_value(&array.element_type, interpreter, span)?;
             }
         }
         Ok(())

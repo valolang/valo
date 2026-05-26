@@ -115,6 +115,19 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
         _ => {
             if ty.same_type(&value.type_name()) {
                 Ok(value)
+            } else if let TypeName::User(target_name) = ty {
+                match value {
+                    Value::Record(ref record) => {
+                        if record.type_name.eq_ignore_ascii_case(target_name) {
+                            return Ok(value);
+                        }
+                        // Box record into an interface. 
+                        // The semantic analyzer should have verified it implements the interface.
+                        Ok(Value::BoxedRecord(record.clone(), target_name.to_string()))
+                    }
+                    Value::Object(_) | Value::ComObject(_) | Value::Nothing => Ok(value),
+                    _ => Err(type_mismatch_err(ty, &value, span)),
+                }
             } else {
                 Err(type_mismatch_err(ty, &value, span))
             }
