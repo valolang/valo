@@ -25,6 +25,13 @@ jobs:
             binary: valo
             package: tar
 
+          - name: Linux ARM64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            archive: valo-linux-arm64.tar.gz
+            binary: valo
+            package: tar
+
           - name: Linux x86
             os: ubuntu-latest
             target: i686-unknown-linux-gnu
@@ -71,11 +78,11 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Linux x86 dependencies
-        if: matrix.target == 'i686-unknown-linux-gnu'
+      - name: Install Linux cross-compilation dependencies
+        if: matrix.target == 'i686-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-multilib g++-multilib libc6-dev-i386
+          sudo apt-get install -y gcc-multilib g++-multilib libc6-dev-i386 gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
