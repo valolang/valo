@@ -342,7 +342,7 @@ valo> Console.WriteLine(x)
 
 Valo is currently experimental, but prebuilt releases are available for supported platforms.
 
-### Install with script
+### Install via script
 
 Linux and macOS:
 
@@ -350,23 +350,19 @@ Linux and macOS:
 curl -fsSL https://raw.githubusercontent.com/valolang/valo/main/scripts/install.sh | bash
 ```
 
-After installation:
+Windows (PowerShell):
 
-```sh
-export PATH="$HOME/.valo/bin:$PATH"
+```powershell
+iwr https://raw.githubusercontent.com/valolang/valo/main/scripts/install.ps1 | iex
 ```
+
+After installation, restart your terminal to apply PATH changes.
 
 Verify:
 
 ```sh
 valo version
 valo help
-```
-
-### Install a specific version
-
-```sh
-VALO_VERSION="v0.1.0-2026.05.21" curl -fsSL https://raw.githubusercontent.com/valolang/valo/main/scripts/install.sh | bash
 ```
 
 ### Manual download

@@ -10,29 +10,28 @@ NC='\033[0m' # No Color
 
 VALO_DIR="$HOME/.valo"
 BIN_DIR="$VALO_DIR/bin"
-CACHE_DIR="$VALO_DIR/cache"
-PKG_DIR="$VALO_DIR/packages"
-TOOL_DIR="$VALO_DIR/toolchains"
-TMP_DIR="$VALO_DIR/tmp"
+DIRS=("$BIN_DIR" "$VALO_DIR/cache" "$VALO_DIR/packages" "$VALO_DIR/toolchains" "$VALO_DIR/tmp")
 
 log() { echo -e "${BLUE}[Valo]${NC} $1"; }
 success() { echo -e "${GREEN}[Valo]${NC} $1"; }
 error() { echo -e "${RED}[Valo]${NC} $1"; exit 1; }
 
+# Prerequisites
+command -v curl >/dev/null 2>&1 || error "curl is required to install Valo."
+
 # 1. Platform Detection
-OS="$(uname -s)"
-ARCH="$(uname -m)"
-case "$OS" in
+case "$(uname -s)" in
     Linux*)     PLATFORM="linux" ;;
     Darwin*)    PLATFORM="macos" ;;
-    *)          error "Unsupported OS: $OS" ;;
+    *)          error "Unsupported OS: $(uname -s)" ;;
 esac
 
-if [ "$ARCH" = "x86_64" ]; then ARCH="x64"; fi
+ARCH="$(uname -m)"
+[ "$ARCH" = "x86_64" ] && ARCH="x64"
 
 # 2. Setup Directory Structure
 log "Creating runtime structure in $VALO_DIR..."
-mkdir -p "$BIN_DIR" "$CACHE_DIR" "$PKG_DIR" "$TOOL_DIR" "$TMP_DIR"
+for dir in "${DIRS[@]}"; do mkdir -p "$dir"; done
 
 # 3. Download Latest Release
 LATEST_URL="https://github.com/valolang/valo/releases/latest/download/valo-$PLATFORM-$ARCH"
@@ -42,27 +41,26 @@ chmod +x "$BIN_DIR/valo"
 
 # 4. PATH Configuration
 PROFILE=""
-if [ -n "$ZSH_VERSION" ]; then
-    PROFILE="$HOME/.zshrc"
-elif [ -n "$BASH_VERSION" ]; then
-    PROFILE="$HOME/.bashrc"
-fi
+case "$SHELL" in
+    */zsh)  PROFILE="$HOME/.zshrc" ;;
+    */bash) PROFILE="$HOME/.bashrc" ;;
+esac
 
-if [ -n "$PROFILE" ]; then
-    if ! grep -q "$BIN_DIR" "$PROFILE"; then
+if [ -n "$PROFILE" ] && [ -f "$PROFILE" ]; then
+    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
         log "Adding $BIN_DIR to $PROFILE..."
         echo "export PATH=\"\$PATH:$BIN_DIR\"" >> "$PROFILE"
-        success "Added to PATH. Please run 'source $PROFILE' or restart your terminal."
+        success "Installation added to PATH. Please restart your terminal."
     else
-        log "$BIN_DIR already in PATH."
+        log "$BIN_DIR is already in PATH."
     fi
 else
-    log "Could not detect shell profile. Please add $BIN_DIR to your PATH manually."
+    log "Could not detect active shell profile. Please add $BIN_DIR to your PATH manually."
 fi
 
 # 5. Validation
 log "Validating installation..."
-if "$BIN_DIR/valo" version > /dev/null; then
+if "$BIN_DIR/valo" version > /dev/null 2>&1; then
     success "Valo installed successfully!"
     "$BIN_DIR/valo" version
 else
