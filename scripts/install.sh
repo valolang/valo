@@ -27,7 +27,10 @@ case "$(uname -s)" in
 esac
 
 ARCH="$(uname -m)"
-[ "$ARCH" = "x86_64" ] && ARCH="x64"
+case "$ARCH" in
+    x86_64)  ARCH="x64" ;;
+    aarch64) ARCH="arm64" ;;
+esac
 
 # 2. Setup Directory Structure
 log "Creating runtime structure in $VALO_DIR..."

@@ -18,7 +18,13 @@ foreach ($Dir in $Dirs) {
     }
 }
 
-$Arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
+$OsArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+$Arch = switch ($OsArch) {
+    "Arm64" { "arm64" }
+    "X64"   { "x64" }
+    "X86"   { "x86" }
+    Default { "x64" }
+}
 $Url = "https://github.com/valolang/valo/releases/latest/download/valo-windows-$Arch.exe"
 
 Write-Host "[Valo] Downloading Valo from $Url..." -ForegroundColor Cyan
