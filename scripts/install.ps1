@@ -21,7 +21,7 @@ foreach ($Dir in $Dirs) {
 
 $OsArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
 $Arch = switch ($OsArch) {
-    "Arm64" { "x64" } # release.yml não tem valo-windows-arm64.zip
+    "Arm64" { "x64" } # release.yml ainda não publica valo-windows-arm64.zip
     "X64"   { "x64" }
     "X86"   { "x86" }
     Default { "x64" }
@@ -43,7 +43,6 @@ try {
 
     Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $ZipFile
     Expand-Archive -Path $ZipFile -DestinationPath $ExtractDir -Force
-
     Remove-Item $ZipFile
 
     $ExtractedValoDir = Join-Path $ExtractDir "valo"
