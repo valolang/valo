@@ -353,7 +353,7 @@ curl -fsSL https://raw.githubusercontent.com/valolang/valo/main/scripts/install.
 Windows (PowerShell):
 
 ```powershell
-iwr https://raw.githubusercontent.com/valolang/valo/main/scripts/install.ps1 | iex
+iwr -UseBasicParsing https://raw.githubusercontent.com/valolang/valo/main/scripts/install.ps1 | iex
 ```
 
 After installation, restart your terminal to apply PATH changes.
