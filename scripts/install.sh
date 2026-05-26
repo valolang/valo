@@ -37,9 +37,13 @@ log "Creating runtime structure in $VALO_DIR..."
 for dir in "${DIRS[@]}"; do mkdir -p "$dir"; done
 
 # 3. Download Latest Release
-LATEST_URL="https://github.com/valolang/valo/releases/latest/download/valo-$PLATFORM-$ARCH"
-log "Downloading Valo from $LATEST_URL..."
-curl -fsSL "$LATEST_URL" -o "$BIN_DIR/valo"
+LATEST_TAG=$(curl -s https://api.github.com/repos/valolang/valo/releases | grep -m 1 '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+DOWNLOAD_URL="https://github.com/valolang/valo/releases/download/$LATEST_TAG/valo-$PLATFORM-$ARCH.tar.gz"
+log "Downloading Valo from $DOWNLOAD_URL..."
+curl -fsSL "$DOWNLOAD_URL" -o "$VALO_DIR/valo.tar.gz"
+rm -rf "$BIN_DIR"/*
+tar -xzf "$VALO_DIR/valo.tar.gz" -C "$BIN_DIR" --strip-components=1
+rm "$VALO_DIR/valo.tar.gz"
 chmod +x "$BIN_DIR/valo"
 
 # 4. PATH Configuration

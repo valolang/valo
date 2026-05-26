@@ -25,13 +25,18 @@ $Arch = switch ($OsArch) {
     "X86"   { "x86" }
     Default { "x64" }
 }
-$Url = "https://github.com/valolang/valo/releases/latest/download/valo-windows-$Arch.exe"
+$Releases = Invoke-RestMethod -Uri "https://api.github.com/repos/valolang/valo/releases"
+$LatestTag = $Releases[0].tag_name
+$Url = "https://github.com/valolang/valo/releases/download/$LatestTag/valo-windows-$Arch.zip"
 
 Write-Host "[Valo] Downloading Valo from $Url..." -ForegroundColor Cyan
 try {
-    Invoke-WebRequest -Uri $Url -OutFile (Join-Path $BinDir "valo.exe")
+    $ZipFile = Join-Path $ValoDir "valo.zip"
+    Invoke-WebRequest -Uri $Url -OutFile $ZipFile
+    Expand-Archive -Path $ZipFile -DestinationPath $BinDir -Force
+    Remove-Item $ZipFile
 } catch {
-    Write-Error "[Valo] Failed to download Valo binary."
+    Write-Error "[Valo] Failed to download or extract Valo binary."
     exit 1
 }
 
