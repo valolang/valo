@@ -295,11 +295,7 @@ impl Interpreter {
                     Some(span),
                 ));
             }
-            let record = default_value(
-                &TypeName::User(type_def.name.clone()),
-                self,
-                span,
-            )?;
+            let record = default_value(&TypeName::User(type_def.name.clone()), self, span)?;
             if let Some(init) = type_def.subs.get("initialize").cloned() {
                 let mut frame = Frame::default();
                 frame.inherit_modules_from(caller_frame)?;
@@ -905,11 +901,7 @@ impl Interpreter {
             array.allocated = false;
         } else {
             for element in &mut array.elements {
-                *element = default_value(
-                    &array.element_type,
-                    self,
-                    span,
-                )?;
+                *element = default_value(&array.element_type, self, span)?;
             }
         }
         Ok(())
@@ -926,13 +918,7 @@ impl Interpreter {
         match target {
             crate::ReDimTarget::Variable { name, .. } => {
                 if frame.has_variable(name) {
-                    frame.redim_array(
-                        name,
-                        new_bounds,
-                        preserve,
-                        self,
-                        span,
-                    )
+                    frame.redim_array(name, new_bounds, preserve, self, span)
                 } else {
                     let owner = frame.get("me", span)?;
                     self.redim_value_member(owner, name, new_bounds, preserve, span)
@@ -985,13 +971,7 @@ impl Interpreter {
                 dynamic: true,
             }));
         }
-        redim_array(
-            slot,
-            new_bounds,
-            preserve,
-            self,
-            span,
-        )
+        redim_array(slot, new_bounds, preserve, self, span)
     }
 
     fn write_object_member(

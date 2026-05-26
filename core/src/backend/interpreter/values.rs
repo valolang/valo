@@ -5,8 +5,8 @@ use crate::runtime::numeric::{unary_negate, unary_positive};
 use crate::runtime::{Diagnostic, RecordValue, Span, TypeName, Value, coerce_assignment};
 use crate::{BinaryOp, Expr, ExprKind, UnaryOp};
 
-use super::records::RuntimeEnum;
 use super::Interpreter;
+use super::records::RuntimeEnum;
 
 pub(crate) fn default_value(
     ty: &TypeName,
@@ -20,16 +20,19 @@ pub(crate) fn default_value(
     let (name, display_name, bindings) = match ty {
         TypeName::User(name) => (name.clone(), name.clone(), Vec::new()),
         TypeName::GenericInstance { name, args } => {
-            let params = interpreter.types
+            let params = interpreter
+                .types
                 .get(&key(name))
                 .map(|type_def| type_def.type_params.clone())
                 .or_else(|| {
-                    interpreter.interfaces
+                    interpreter
+                        .interfaces
                         .get(&key(name))
                         .map(|interface_def| interface_def.type_params.clone())
                 })
                 .or_else(|| {
-                    interpreter.classes
+                    interpreter
+                        .classes
                         .get(&key(name))
                         .map(|class_def| class_def.type_params.clone())
                 })
@@ -54,7 +57,8 @@ pub(crate) fn default_value(
     if interpreter.classes.contains_key(&key(&name)) {
         return Ok(Value::Nothing);
     }
-    let type_def = interpreter.types
+    let type_def = interpreter
+        .types
         .get(&key(&display_name))
         .or_else(|| interpreter.types.get(&key(&name)))
         .ok_or_else(|| {
@@ -72,11 +76,7 @@ pub(crate) fn default_value(
             let field_ty = field.ty.substitute_generics(&bindings);
             coerce_assignment(&field_ty, value, initializer.span)?
         } else {
-            default_value(
-                &field.ty.substitute_generics(&bindings),
-                interpreter,
-                span,
-            )?
+            default_value(&field.ty.substitute_generics(&bindings), interpreter, span)?
         };
         fields.insert(key(&field.name), value);
     }

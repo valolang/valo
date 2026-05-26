@@ -121,7 +121,7 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
                         if record.type_name.eq_ignore_ascii_case(target_name) {
                             return Ok(value);
                         }
-                        // Box record into an interface. 
+                        // Box record into an interface.
                         // The semantic analyzer should have verified it implements the interface.
                         Ok(Value::BoxedRecord(record.clone(), target_name.to_string()))
                     }

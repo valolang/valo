@@ -236,8 +236,8 @@ fn value_to_variant(value: &Value) -> windows::core::VARIANT {
             unsafe {
                 let raw = var.as_raw();
                 *(std::ptr::addr_of!(raw.Anonymous.Anonymous.vt) as *mut u16) = VT_DISPATCH.0;
-                *(std::ptr::addr_of!(raw.Anonymous.Anonymous.Anonymous.pdispVal) as *mut *mut std::ffi::c_void) =
-                    std::ptr::null_mut();
+                *(std::ptr::addr_of!(raw.Anonymous.Anonymous.Anonymous.pdispVal)
+                    as *mut *mut std::ffi::c_void) = std::ptr::null_mut();
             }
             var
         }
@@ -327,6 +327,63 @@ pub fn invoke_default_com(
 ) -> Result<Value, Diagnostic> {
     Err(com_error(
         "COM default member Invoke is only available on Windows",
+        span,
+    ))
+}
+
+#[cfg(windows)]
+pub fn enumerable_com_values(
+    com_obj: &crate::runtime::ComObjectValue,
+    span: Span,
+) -> Result<Vec<Value>, Diagnostic> {
+    use windows::Win32::System::Ole::IEnumVARIANT;
+    use windows::core::Interface;
+
+    // DISPID_NEWENUM = -4
+    let enum_variant_value = invoke_com_dispid(com_obj, -4, "_NewEnum", &[], 3, span)?;
+
+    let Value::ComObject(enum_dispatch_obj) = enum_variant_value else {
+        return Err(com_error(
+            "COM object does not support enumeration (_NewEnum did not return an object)",
+            span,
+        ));
+    };
+
+    let enum_variant: IEnumVARIANT = enum_dispatch_obj.dispatch.cast().map_err(|error| {
+        com_error(
+            format!("COM object enumeration interface (IEnumVARIANT) not found: {error}"),
+            span,
+        )
+    })?;
+
+    let mut values = Vec::new();
+    loop {
+        use windows::core::VARIANT;
+        let mut item = [VARIANT::default()];
+        let mut fetched = 0;
+        let hr = unsafe { enum_variant.Next(&mut item, &mut fetched) };
+
+        if hr.is_err() {
+            return Err(com_error(format!("COM enumeration failed: {:?}", hr), span));
+        }
+
+        if fetched == 0 {
+            break;
+        }
+
+        values.push(variant_to_value(&item[0]));
+    }
+
+    Ok(values)
+}
+
+#[cfg(not(windows))]
+pub fn enumerable_com_values(
+    _com_obj: &crate::runtime::ComObjectValue,
+    span: Span,
+) -> Result<Vec<Value>, Diagnostic> {
+    Err(com_error(
+        "COM enumeration is only available on Windows",
         span,
     ))
 }

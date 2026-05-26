@@ -18,7 +18,9 @@ impl Interpreter {
     ) -> Result<Value, Diagnostic> {
         let (type_name, record_val) = match &record_val {
             Value::Record(record) => (record.type_name.clone(), record_val),
-            Value::BoxedRecord(record, _) => (record.type_name.clone(), Value::Record(record.clone())),
+            Value::BoxedRecord(record, _) => {
+                (record.type_name.clone(), Value::Record(record.clone()))
+            }
             _ => {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -191,7 +193,14 @@ impl Interpreter {
             ));
         };
         let mut frame = Frame::default();
-        frame.declare_alias("me", TypeName::User(structure.name.clone()), variable, span, &self.types, &self.interfaces)?;
+        frame.declare_alias(
+            "me",
+            TypeName::User(structure.name.clone()),
+            variable,
+            span,
+            &self.types,
+            &self.interfaces,
+        )?;
         frame.declare(
             &param.name,
             param.ty.clone(),
@@ -199,7 +208,8 @@ impl Interpreter {
             self.option_base,
             param.span,
             self,
-        )?;        let _ = frame.assign(&param.name, value, span)?;
+        )?;
+        let _ = frame.assign(&param.name, value, span)?;
         self.scope_stack
             .push(format!("{}.{}", structure.name, accessor.name));
         let result = self.exec_block(&accessor.body, &mut frame);

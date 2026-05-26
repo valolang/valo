@@ -254,14 +254,20 @@ impl Interpreter {
                 }
                 if let crate::ExprKind::Variable(name) = &object.kind
                     && let Ok(variable) = frame.variable(name, object.span)
-                    && matches!(&*variable.borrow(), Value::Record(_) | Value::BoxedRecord(_, _))
+                    && matches!(
+                        &*variable.borrow(),
+                        Value::Record(_) | Value::BoxedRecord(_, _)
+                    )
                 {
                     self.call_record_sub_variable(variable, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
                 }
                 if matches!(object.kind, crate::ExprKind::Me)
                     && let Ok(variable) = frame.variable("me", object.span)
-                    && matches!(&*variable.borrow(), Value::Record(_) | Value::BoxedRecord(_, _))
+                    && matches!(
+                        &*variable.borrow(),
+                        Value::Record(_) | Value::BoxedRecord(_, _)
+                    )
                 {
                     self.call_record_sub_variable(variable, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
@@ -850,14 +856,7 @@ impl Interpreter {
                 .unwrap_or(crate::runtime::TypeName::Variant)
         };
         let ty_for_new = ty.clone();
-        frame.declare(
-            name,
-            ty,
-            array.clone(),
-            self.option_base,
-            span,
-            self,
-        )?;
+        frame.declare(name, ty, array.clone(), self.option_base, span, self)?;
         if as_new {
             let crate::runtime::TypeName::User(class_name) = ty_for_new else {
                 return Err(Diagnostic::new(

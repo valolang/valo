@@ -97,7 +97,7 @@ pub(crate) fn write_member(
         .with_primary_label("attempted to assign a member on Nothing")
         .with_help("assign an object before assigning its members"));
     }
-    
+
     let (mut record, interface) = match value {
         Value::Record(v) => (v.as_ref().clone(), None),
         Value::BoxedRecord(v, interface) => (v.as_ref().clone(), Some(interface.clone())),
@@ -121,12 +121,12 @@ pub(crate) fn write_member(
     let ty = slot.type_name();
     let old = slot.clone();
     *slot = coerce_assignment(&ty, new_value, span)?;
-    
+
     *value = match interface {
         Some(interface) => Value::BoxedRecord(Rc::new(record), interface),
         None => Value::Record(Rc::new(record)),
     };
-    
+
     Ok(old)
 }
 

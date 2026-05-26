@@ -7,10 +7,10 @@ use crate::runtime::{
     ArrayBound, ArrayValue, Diagnostic, ObjectValue, Span, TypeName, Value, coerce_assignment,
 };
 
+use super::Interpreter;
 use super::arrays::{read_array_element, redim_array, write_array_element};
 use super::records::{RuntimeInterface, RuntimeType};
 use super::values::{default_value, key};
-use super::Interpreter;
 
 #[derive(Debug, Clone)]
 pub(crate) enum VariableCell {
@@ -201,17 +201,17 @@ impl Frame {
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if !static_frame.variables.contains_key(&key) {
-            static_frame.declare(
-                name,
-                ty.clone(),
-                array,
-                option_base,
-                span,
-                interpreter,
-            )?;
+            static_frame.declare(name, ty.clone(), array, option_base, span, interpreter)?;
         }
         let variable = static_frame.variable(name, span)?;
-        self.declare_alias(name, ty, variable, span, &interpreter.types, &interpreter.interfaces)
+        self.declare_alias(
+            name,
+            ty,
+            variable,
+            span,
+            &interpreter.types,
+            &interpreter.interfaces,
+        )
     }
 
     pub(crate) fn declare_const(
@@ -257,14 +257,7 @@ impl Frame {
         span: Span,
         interpreter: &Interpreter,
     ) -> Result<(), Diagnostic> {
-        self.declare(
-            name,
-            ty.clone(),
-            array,
-            option_base,
-            span,
-            interpreter,
-        )?;
+        self.declare(name, ty.clone(), array, option_base, span, interpreter)?;
         let variable = self.variables.get_mut(&key(name)).expect("declared");
         variable.module_level = true;
         variable.is_const = is_const;
@@ -291,19 +284,29 @@ impl Frame {
                 Some(span),
             ));
         }
-        
+
         let mut types_match = variable.ty.same_type(&ty);
 
-        if !types_match && let TypeName::User(target_name) = &ty
-            && let TypeName::User(source_name) = &variable.ty {
+        if !types_match
+            && let TypeName::User(target_name) = &ty
+            && let TypeName::User(source_name) = &variable.ty
+        {
             // Case 1: Source is Structure, Target is Interface (implemented by Structure)
             if let Some(record_sig) = types.get(&super::values::key(source_name))
-                && record_sig.implements.iter().any(|i| i.display_name().eq_ignore_ascii_case(target_name)) {
+                && record_sig
+                    .implements
+                    .iter()
+                    .any(|i| i.display_name().eq_ignore_ascii_case(target_name))
+            {
                 types_match = true;
-            } 
+            }
             // Case 2: Source is Interface (boxed record), Target is original Structure
             else if let Some(target_sig) = types.get(&super::values::key(target_name))
-                && target_sig.implements.iter().any(|i| i.display_name().eq_ignore_ascii_case(source_name)) {
+                && target_sig
+                    .implements
+                    .iter()
+                    .any(|i| i.display_name().eq_ignore_ascii_case(source_name))
+            {
                 types_match = true;
             }
             // Case 3: Same name (case-insensitive)

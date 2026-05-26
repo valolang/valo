@@ -293,7 +293,14 @@ impl Interpreter {
         if let Some((module_key, _)) = key(&structure.name).split_once('.') {
             frame.set_module_key(module_key.to_string());
         }
-        frame.declare_alias("me", TypeName::User(structure.name.clone()), variable, span, &self.types, &self.interfaces)?;
+        frame.declare_alias(
+            "me",
+            TypeName::User(structure.name.clone()),
+            variable,
+            span,
+            &self.types,
+            &self.interfaces,
+        )?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         self.scope_stack
             .push(format!("{}.{}", structure.name, procedure.name));
@@ -985,7 +992,13 @@ impl Interpreter {
                 for arg in args {
                     eval_args.push(self.eval_expr(arg, caller_frame)?);
                 }
-                self.call_method_sub_values(Value::Record(record_val), method, &eval_args, caller_frame, span)
+                self.call_method_sub_values(
+                    Value::Record(record_val),
+                    method,
+                    &eval_args,
+                    caller_frame,
+                    span,
+                )
             }
             _ => {
                 let instance = ensure_object(object, span)?;
@@ -1163,9 +1176,13 @@ impl Interpreter {
                     span,
                 )
             }
-            Value::BoxedRecord(record_val, _) => {
-                self.call_record_function(Value::Record(record_val), method, args, caller_frame, span)
-            }
+            Value::BoxedRecord(record_val, _) => self.call_record_function(
+                Value::Record(record_val),
+                method,
+                args,
+                caller_frame,
+                span,
+            ),
             _ => {
                 let instance = ensure_object(object.clone(), span)?;
                 let class_name = instance.borrow().class_name.clone();
@@ -1189,7 +1206,8 @@ impl Interpreter {
                     frame.declare_object_alias("me", &class.name, instance, span)?;
                     self.bind_class_constants(&class, &mut frame)?;
                     self.bind_parameters(&function.params, args, caller_frame, &mut frame)?;
-                    let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
+                    let return_type =
+                        self.resolve_type_name(&function.return_type, &frame, span)?;
                     if let Some(slot) = &function.return_slot {
                         frame.set_return_slot(
                             slot.clone(),
@@ -1853,7 +1871,8 @@ impl Interpreter {
                                             self.option_base,
                                             param.span,
                                             self,
-                                        )?;                                        let _ =
+                                        )?;
+                                        let _ =
                                             callee_frame.assign(&param.name, value, param.span)?;
                                     }
                                 } else {
@@ -1927,7 +1946,8 @@ impl Interpreter {
                                             self.option_base,
                                             param.span,
                                             self,
-                                        )?;                                        let _ =
+                                        )?;
+                                        let _ =
                                             callee_frame.assign(&param.name, value, param.span)?;
                                     }
                                 } else {
@@ -1997,7 +2017,8 @@ impl Interpreter {
                 self.option_base,
                 param.span,
                 self,
-            )?;            let _ = callee_frame.assign(&param.name, value.clone(), param.span)?;
+            )?;
+            let _ = callee_frame.assign(&param.name, value.clone(), param.span)?;
         }
         Ok(())
     }

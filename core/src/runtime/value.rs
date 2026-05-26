@@ -192,7 +192,9 @@ impl Value {
             Value::FuncPtr(value) => format!("<FuncPtr: 0x{:X}>", value),
             Value::Array(_) => "<Array>".to_string(),
             Value::Record(record) => format!("<{}>", record.type_name),
-            Value::BoxedRecord(record, interface) => format!("<{} as {}>", record.type_name, interface),
+            Value::BoxedRecord(record, interface) => {
+                format!("<{} as {}>", record.type_name, interface)
+            }
             Value::Object(object) => format!("<{}>", object.borrow().class_name),
             Value::ComObject(object) => format!("<COM:{}>", object.prog_id),
             Value::Error(code) => format!("Error {}", code),

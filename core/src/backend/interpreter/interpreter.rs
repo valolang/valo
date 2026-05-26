@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::runtime::{Diagnostic, TypeName, Value};
 use crate::{DeclareDecl, Function, Procedure, Program};
 
-use super::records::{RuntimeType, RuntimeInterface};
+use super::records::{RuntimeInterface, RuntimeType};
 use super::values::key;
 use super::{ControlFlow, Frame, RuntimeClass, RuntimeEnum};
 
@@ -231,8 +231,10 @@ impl Interpreter {
                 .insert(key(&type_decl.name), RuntimeType::from(type_decl));
         }
         for interface_decl in &program.interfaces {
-            self.interfaces
-                .insert(key(&interface_decl.name), RuntimeInterface::from(interface_decl));
+            self.interfaces.insert(
+                key(&interface_decl.name),
+                RuntimeInterface::from(interface_decl),
+            );
         }
 
         let mut module_const_values = HashMap::new();
@@ -388,8 +390,10 @@ impl Interpreter {
                 .insert(key(&type_decl.name), RuntimeType::from(type_decl));
         }
         for interface_decl in &program.interfaces {
-            self.interfaces
-                .insert(key(&interface_decl.name), RuntimeInterface::from(interface_decl));
+            self.interfaces.insert(
+                key(&interface_decl.name),
+                RuntimeInterface::from(interface_decl),
+            );
         }
 
         let mut module_const_values = HashMap::new();

@@ -161,11 +161,7 @@ pub(crate) fn redim_array(
     }
 
     while new_elements.len() < new_len {
-        new_elements.push(default_value(
-            &array.element_type,
-            interpreter,
-            span,
-        )?);
+        new_elements.push(default_value(&array.element_type, interpreter, span)?);
     }
 
     array.elements = new_elements;
@@ -212,6 +208,10 @@ fn enumerable_values_with_depth(
 
     if matches!(value, Value::Array(_)) {
         return array_values(&value, span);
+    }
+
+    if let Value::ComObject(ref com_obj) = value {
+        return crate::runtime::com::enumerable_com_values(com_obj, span);
     }
 
     let Value::Object(object) = value.clone() else {
