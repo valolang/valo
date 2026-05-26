@@ -81,6 +81,18 @@ pub(super) struct ParamSig {
     pub(super) is_param_array: bool,
 }
 
+impl ParamSig {
+    pub(super) fn substitute_generics(&self, bindings: &[(String, TypeName)]) -> Self {
+        ParamSig {
+            name: self.name.clone(),
+            mode: self.mode,
+            ty: self.ty.substitute_generics(bindings),
+            is_optional: self.is_optional,
+            is_param_array: self.is_param_array,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct CallableSig {
     pub(super) visibility: Visibility,
@@ -92,6 +104,29 @@ pub(super) struct CallableSig {
     pub(super) is_declare: bool,
     pub(super) params: Vec<ParamSig>,
     pub(super) return_type: Option<TypeName>,
+}
+
+impl CallableSig {
+    pub(super) fn substitute_generics(&self, bindings: &[(String, TypeName)]) -> Self {
+        CallableSig {
+            visibility: self.visibility,
+            name: self.name.clone(),
+            type_params: self.type_params.clone(),
+            generic_constraints: self.generic_constraints.clone(),
+            is_shared: self.is_shared,
+            _is_iterator: self._is_iterator,
+            is_declare: self.is_declare,
+            params: self
+                .params
+                .iter()
+                .map(|p| p.substitute_generics(bindings))
+                .collect(),
+            return_type: self
+                .return_type
+                .as_ref()
+                .map(|ty| ty.substitute_generics(bindings)),
+        }
+    }
 }
 
 #[derive(Clone)]

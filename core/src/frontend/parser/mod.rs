@@ -14,11 +14,15 @@ use crate::runtime::{Diagnostic, FileId};
 use std::collections::HashMap;
 
 pub fn parse_source(source: &str) -> Result<Program, Diagnostic> {
-    Parser::parse_source(source, FileId::default())
+    let mut program = Parser::parse_source(source, FileId::default())?;
+    program.flatten_nested_types();
+    Ok(program)
 }
 
 pub fn parse_source_with_id(source: &str, file_id: FileId) -> Result<Program, Diagnostic> {
-    Parser::parse_source(source, file_id)
+    let mut program = Parser::parse_source(source, file_id)?;
+    program.flatten_nested_types();
+    Ok(program)
 }
 
 pub struct Parser {

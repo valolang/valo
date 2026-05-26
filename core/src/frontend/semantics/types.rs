@@ -127,6 +127,7 @@ pub(super) struct ClassSig {
     pub(super) type_params: Vec<String>,
     pub(super) generic_constraints: Vec<GenericParamConstraint>,
     pub(super) base_class: Option<TypeName>,
+    pub(super) implements: Vec<TypeName>,
     pub(super) fields: HashMap<String, ClassFieldSig>,
     pub(super) events: HashMap<String, ClassEventSig>,
     pub(super) subs: HashMap<String, ClassMethodSig>,
@@ -163,7 +164,6 @@ pub(super) type ClassMethodSig = crate::semantics::symbols::CallableSig;
 pub(super) type ClassEventSig = crate::semantics::symbols::CallableSig;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub(super) struct ClassPropertySig {
     pub(super) name: String,
     pub(super) is_shared: bool,
@@ -174,10 +174,42 @@ pub(super) struct ClassPropertySig {
     pub(super) set: Option<PropertyAccessorSig>,
 }
 
+impl ClassPropertySig {
+    pub(super) fn substitute_generics(&self, bindings: &[(String, TypeName)]) -> Self {
+        ClassPropertySig {
+            name: self.name.clone(),
+            is_shared: self.is_shared,
+            is_readonly: self.is_readonly,
+            is_writeonly: self.is_writeonly,
+            get: self.get.as_ref().map(|a| a.substitute_generics(bindings)),
+            let_: self.let_.as_ref().map(|a| a.substitute_generics(bindings)),
+            set: self.set.as_ref().map(|a| a.substitute_generics(bindings)),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct PropertyAccessorSig {
     pub(super) visibility: Visibility,
     pub(super) is_iterator: bool,
     pub(super) params: Vec<crate::semantics::symbols::ParamSig>,
     pub(super) return_type: Option<TypeName>,
+}
+
+impl PropertyAccessorSig {
+    pub(super) fn substitute_generics(&self, bindings: &[(String, TypeName)]) -> Self {
+        PropertyAccessorSig {
+            visibility: self.visibility,
+            is_iterator: self.is_iterator,
+            params: self
+                .params
+                .iter()
+                .map(|p| p.substitute_generics(bindings))
+                .collect(),
+            return_type: self
+                .return_type
+                .as_ref()
+                .map(|ty| ty.substitute_generics(bindings)),
+        }
+    }
 }

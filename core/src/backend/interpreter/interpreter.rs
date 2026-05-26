@@ -865,47 +865,68 @@ impl Interpreter {
         frame: &Frame,
         span: crate::runtime::Span,
     ) -> Result<String, Diagnostic> {
-        if let Some((qualifier, member)) = name.split_once('.') {
-            let module_key = self.resolve_module_qualifier(qualifier, frame, span)?;
-            let qualified = qualified_symbol_key(&module_key, member);
-            if self.classes.contains_key(&qualified) {
-                self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
-                return Ok(qualified);
-            }
-            if self.types.contains_key(&qualified) {
-                self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
-                return Ok(qualified);
-            }
-            if self.interfaces.contains_key(&qualified) {
-                self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
-                return Ok(qualified);
-            }
-            if self.enums.contains_key(&qualified) {
-                self.ensure_public_qualified_type(&qualified, frame, &module_key, name, span)?;
-                return Ok(qualified);
-            }
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_QUALIFIED_SYMBOL,
-                format!(
-                    "Module '{}' has no type, interface, class, or enum '{}'",
-                    qualifier, member
-                ),
-                Some(span),
-            ));
-        }
-
-        if let Some(current) = frame.module_key() {
-            let current_key = qualified_symbol_key(current, name);
-            if self.classes.contains_key(&current_key)
-                || self.types.contains_key(&current_key)
-                || self.interfaces.contains_key(&current_key)
-                || self.enums.contains_key(&current_key)
-            {
-                return Ok(current_key);
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let mut parens = 0;
+        for c in name.chars() {
+            match c {
+                '(' => {
+                    parens += 1;
+                    current.push(c);
+                }
+                ')' => {
+                    parens -= 1;
+                    current.push(c);
+                }
+                '.' if parens == 0 => {
+                    parts.push(current.clone());
+                    current.clear();
+                }
+                _ => current.push(c),
             }
         }
+        parts.push(current);
 
-        self.resolve_unqualified_type(name, frame, span)
+        let mut resolved = String::new();
+        for (i, part) in parts.iter().enumerate() {
+            if i == 0 {
+                if parts.len() > 1 && self.resolve_module_qualifier(part, frame, span).is_ok() {
+                    resolved = self.resolve_module_qualifier(part, frame, span).unwrap();
+                } else if self.classes.contains_key(&key(part))
+                    || self.types.contains_key(&key(part))
+                    || self.interfaces.contains_key(&key(part))
+                    || self.enums.contains_key(&key(part))
+                {
+                    resolved = key(part);
+                    // Ensure the unqualified type is public if it comes from another module
+                    let _ = self.resolve_unqualified_type(part, frame, span)?;
+                } else if let Ok(full_resolution) = self.resolve_unqualified_type(name, frame, span)
+                {
+                    return Ok(full_resolution);
+                } else {
+                    return self.resolve_unqualified_type(part, frame, span);
+                }
+            } else {
+                let module_key = resolved.clone();
+                resolved = format!("{}.{}", resolved, key(part));
+                if !self.classes.contains_key(&resolved)
+                    && !self.types.contains_key(&resolved)
+                    && !self.interfaces.contains_key(&resolved)
+                    && !self.enums.contains_key(&resolved)
+                {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Symbol '{}' not found", resolved),
+                        Some(span),
+                    ));
+                }
+                if parts.len() > 1 && i == 1 && self.module_frames.contains_key(&module_key) {
+                    // It's a module qualifier, ensure the type is public
+                    self.ensure_public_qualified_type(&resolved, frame, &module_key, name, span)?;
+                }
+            }
+        }
+        Ok(resolved)
     }
 
     fn resolve_unqualified_type(
@@ -926,7 +947,12 @@ impl Interpreter {
                 let key = super::values::key(name);
                 Ok(key)
             }
-            1 => Ok(qualified_symbol_key(&candidates[0], name)),
+            1 => {
+                let module_key = &candidates[0];
+                let qualified = qualified_symbol_key(module_key, name);
+                self.ensure_public_qualified_type(&qualified, frame, module_key, name, span)?;
+                Ok(qualified)
+            }
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT,
                 format!(
@@ -953,9 +979,10 @@ impl Interpreter {
         modules
             .iter()
             .filter(|module| {
-                self.module_imports
-                    .get(current)
-                    .is_some_and(|imports| imports.iter().any(|import| &import.module == *module))
+                *module == current
+                    || self.module_imports.get(current).is_some_and(|imports| {
+                        imports.iter().any(|import| &import.module == *module)
+                    })
             })
             .cloned()
             .collect()

@@ -1,6 +1,6 @@
 use super::*;
+use crate::TypeKind;
 use crate::runtime::Span;
-use crate::{EnumDecl, TypeDecl, TypeKind};
 
 pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
     let mut types = HashMap::new();
@@ -8,28 +8,6 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     let mut interfaces = HashMap::new();
     let mut classes = HashMap::new();
     let mut generic_params = std::collections::HashSet::new();
-
-    let all_types: Vec<&TypeDecl> = program
-        .types
-        .iter()
-        .chain(program.classes.iter().flat_map(|c| {
-            c.members.iter().filter_map(|m| match m {
-                ClassMember::Type(t) => Some(t),
-                _ => None,
-            })
-        }))
-        .collect();
-
-    let all_enums: Vec<&EnumDecl> = program
-        .enums
-        .iter()
-        .chain(program.classes.iter().flat_map(|c| {
-            c.members.iter().filter_map(|m| match m {
-                ClassMember::Enum(e) => Some(e),
-                _ => None,
-            })
-        }))
-        .collect();
 
     // Add built-in Error class
     classes.insert(
@@ -40,6 +18,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             generic_constraints: Vec::new(),
             inheritance: crate::ClassInheritance::Normal,
             base_class: None,
+            implements: Vec::new(),
             visibility: Visibility::Public,
             fields: {
                 let mut f = HashMap::new();
@@ -115,7 +94,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         },
     );
 
-    for type_decl in &all_types {
+    for type_decl in &program.types {
         for param in &type_decl.type_params {
             generic_params.insert(key(param));
         }
@@ -257,7 +236,10 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         Some(method.function.span),
                     ));
                 }
-                ClassMember::Type(_) | ClassMember::Declare(_) | ClassMember::Enum(_) => {}
+                ClassMember::Type(_)
+                | ClassMember::Declare(_)
+                | ClassMember::Enum(_)
+                | ClassMember::Class(_) => {}
                 ClassMember::Sub(method) => {
                     let method_key = key(&method.procedure.name);
                     if method_key == "terminate" || method_key == "class_terminate" {
@@ -473,7 +455,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         pending_consts = next_pending;
     }
 
-    for enum_decl in &all_enums {
+    for enum_decl in &program.enums {
         let enum_key = key(&enum_decl.name);
         if types.contains_key(&enum_key) || enums.contains_key(&enum_key) {
             return Err(Diagnostic::new(
@@ -1091,7 +1073,10 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         return_type: property.return_type.clone(),
                     });
                 }
-                ClassMember::Type(_) | ClassMember::Declare(_) | ClassMember::Enum(_) => {}
+                ClassMember::Type(_)
+                | ClassMember::Declare(_)
+                | ClassMember::Enum(_)
+                | ClassMember::Class(_) => {}
             }
         }
         classes.insert(
@@ -1102,6 +1087,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 generic_constraints: class_decl.generic_constraints.clone(),
                 inheritance: class_decl.inheritance,
                 base_class: class_decl.base_class.clone(),
+                implements: class_decl.implements.clone(),
                 visibility: class_decl.visibility,
                 fields,
                 events,
@@ -1167,7 +1153,8 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 | ClassMember::Iterator(_)
                 | ClassMember::Type(_)
                 | ClassMember::Declare(_)
-                | ClassMember::Enum(_) => {}
+                | ClassMember::Enum(_)
+                | ClassMember::Class(_) => {}
                 ClassMember::Sub(method) => {
                     for param in &method.procedure.params {
                         ensure_known_type(&param.ty, &registry, param.span)?;
@@ -1358,7 +1345,10 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         }
                     }
                 },
-                ClassMember::Type(_) | ClassMember::Declare(_) | ClassMember::Enum(_) => {}
+                ClassMember::Type(_)
+                | ClassMember::Declare(_)
+                | ClassMember::Enum(_)
+                | ClassMember::Class(_) => {}
             }
         }
     }
@@ -1528,6 +1518,20 @@ fn class_member_oop_info(
 
 fn apply_class_sig_inheritance(registry: &mut TypeRegistry) -> Result<(), Diagnostic> {
     let class_keys = registry.classes.keys().cloned().collect::<Vec<_>>();
+    for class_key in &class_keys {
+        let implements = if let Some(class) = registry.classes.get(class_key) {
+            class
+                .implements
+                .iter()
+                .map(|ty| registry.canonical_type_name(ty))
+                .collect::<Vec<_>>()
+        } else {
+            continue;
+        };
+        if let Some(class) = registry.classes.get_mut(class_key) {
+            class.implements = implements;
+        }
+    }
     for class_key in class_keys {
         let mut visiting = Vec::new();
         let merged = resolve_class_sig_inheritance(registry, &class_key, &mut visiting)?;
@@ -1623,6 +1627,9 @@ fn resolve_class_sig_inheritance(
 }
 
 fn substitute_class_sig_types(class_sig: &mut ClassSig, bindings: &[(String, TypeName)]) {
+    for impl_ty in &mut class_sig.implements {
+        *impl_ty = impl_ty.substitute_generics(bindings);
+    }
     for field in class_sig.fields.values_mut() {
         field.ty = field.ty.substitute_generics(bindings);
     }
@@ -1747,7 +1754,8 @@ fn validate_withevents_handlers(
                 | ClassMember::Property(_)
                 | ClassMember::Type(_)
                 | ClassMember::Declare(_)
-                | ClassMember::Enum(_) => continue,
+                | ClassMember::Enum(_)
+                | ClassMember::Class(_) => Vec::new(),
             };
             for field in fields {
                 let owner_field_sig = class_sig

@@ -858,15 +858,19 @@ impl Interpreter {
         let ty_for_new = ty.clone();
         frame.declare(name, ty, array.clone(), self.option_base, span, self)?;
         if as_new {
-            let crate::runtime::TypeName::User(class_name) = ty_for_new else {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                    "As New requires a class type",
-                    Some(span),
-                ));
-            };
-            let value = self.new_object(&TypeName::User(class_name), new_args, frame, span)?;
-            let _ = frame.assign(name, value, span)?;
+            match &ty_for_new {
+                TypeName::User(_) | TypeName::GenericInstance { .. } => {
+                    let value = self.new_object(&ty_for_new, new_args, frame, span)?;
+                    let _ = frame.assign(name, value, span)?;
+                }
+                _ => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        "As New requires a class type",
+                        Some(span),
+                    ));
+                }
+            }
         }
         if let Some(value) = initial_value {
             let init_span = initializer

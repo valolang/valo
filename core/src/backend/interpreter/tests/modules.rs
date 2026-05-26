@@ -72,7 +72,10 @@ End Namespace
 
     let project = crate::load_project(dir.join("main.valo")).unwrap();
     let index = crate::build_project_index(&project).unwrap();
-    assert!(index.by_qualified_name.contains_key("game.graphics.sprite"));
+    assert!(
+        index.by_qualified_name.contains_key("game.graphics.sprite"),
+        "Missing key: game.graphics.sprite"
+    );
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -517,6 +520,7 @@ End Structure
     );
 
     let error = run_file_diagnostic(dir.join("main.valo")).to_string();
+    eprintln!("ACTUAL ERROR: {}", error);
     assert!(error.contains("Imported type 'Models.Point' is Private"));
 }
 

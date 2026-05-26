@@ -22,7 +22,8 @@ pub(super) fn validate_class(
             | ClassMember::Const(_)
             | ClassMember::Type(_)
             | ClassMember::Declare(_)
-            | ClassMember::Enum(_) => {}
+            | ClassMember::Enum(_)
+            | ClassMember::Class(_) => {}
             ClassMember::Event(_) => {}
             ClassMember::Sub(method) => {
                 let mut symbols = HashMap::new();
@@ -245,15 +246,35 @@ fn validate_implements_common(
     types: &TypeRegistry,
 ) -> Result<(), Diagnostic> {
     let mut implemented = std::collections::HashSet::new();
-    for interface_name in implements {
-        let TypeName::User(interface_name) = interface_name else {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "Implements target must be an Interface",
-                Some(span),
-            ));
+    for interface_ty in implements {
+        let interface_ty = types.canonical_type_name(interface_ty);
+        let (interface_name, bindings) = match interface_ty {
+            TypeName::User(name) => (name.clone(), Vec::new()),
+            TypeName::GenericInstance { name, args } => {
+                let interface = types.get_interface(&name).ok_or_else(|| {
+                    Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Interface '{}' is not defined", name),
+                        Some(span),
+                    )
+                })?;
+                let bindings: Vec<(String, TypeName)> = interface
+                    .type_params
+                    .iter()
+                    .cloned()
+                    .zip(args.iter().cloned())
+                    .collect();
+                (name, bindings)
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Implements target must be an Interface",
+                    Some(span),
+                ));
+            }
         };
-        let interface = types.get_interface(interface_name).ok_or_else(|| {
+        let interface = types.get_interface(&interface_name).ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                 format!("Interface '{}' is not defined", interface_name),
@@ -261,8 +282,15 @@ fn validate_implements_common(
             )
         })?;
         for method in interface.subs.values() {
-            let target =
-                find_explicit_sub_impl(members, decl_name, span, interface_name, &method.name)?;
+            let target = find_explicit_sub_impl(
+                members,
+                decl_name,
+                span,
+                &interface_name,
+                &method.name,
+                &bindings,
+            )?;
+            let method = method.substitute_generics(&bindings);
             if !signature_matches(&target.params, None, &method.params, None) {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -273,7 +301,7 @@ fn validate_implements_common(
                     Some(span),
                 ));
             }
-            let key = format!("{}.{}", key(interface_name), key(&method.name));
+            let key = format!("{}.{}", key(&interface_name), key(&method.name));
             if !implemented.insert(key) {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
@@ -290,9 +318,11 @@ fn validate_implements_common(
                 members,
                 decl_name,
                 span,
-                interface_name,
+                &interface_name,
                 &method.name,
+                &bindings,
             )?;
+            let method = method.substitute_generics(&bindings);
             if !signature_matches(
                 &target.params,
                 target.return_type.as_ref(),
@@ -308,7 +338,7 @@ fn validate_implements_common(
                     Some(span),
                 ));
             }
-            let key = format!("{}.{}", key(interface_name), key(&method.name));
+            let key = format!("{}.{}", key(&interface_name), key(&method.name));
             if !implemented.insert(key) {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
@@ -321,14 +351,16 @@ fn validate_implements_common(
             }
         }
         for property in interface.properties.values() {
-            if let Some(get) = &property.get {
+            let property_bound = property.substitute_generics(&bindings);
+            if let Some(get) = &property_bound.get {
                 let target = find_explicit_property_impl(
                     members,
                     decl_name,
                     span,
-                    interface_name,
+                    &interface_name,
                     &property.name,
                     PropertyKind::Get,
+                    &bindings,
                 )?;
                 if !signature_matches(
                     &target.params,
@@ -346,14 +378,15 @@ fn validate_implements_common(
                     ));
                 }
             }
-            if let Some(let_) = &property.let_ {
+            if let Some(let_) = &property_bound.let_ {
                 let target = find_explicit_property_impl(
                     members,
                     decl_name,
                     span,
-                    interface_name,
+                    &interface_name,
                     &property.name,
                     PropertyKind::Let,
+                    &bindings,
                 )?;
                 if !signature_matches(&target.params, None, &let_.params, None) {
                     return Err(Diagnostic::new(
@@ -366,14 +399,15 @@ fn validate_implements_common(
                     ));
                 }
             }
-            if let Some(set) = &property.set {
+            if let Some(set) = &property_bound.set {
                 let target = find_explicit_property_impl(
                     members,
                     decl_name,
                     span,
-                    interface_name,
+                    &interface_name,
                     &property.name,
                     PropertyKind::Set,
+                    &bindings,
                 )?;
                 if !signature_matches(&target.params, None, &set.params, None) {
                     return Err(Diagnostic::new(
@@ -388,6 +422,7 @@ fn validate_implements_common(
             }
         }
         for event in interface.events.values() {
+            let event = event.substitute_generics(&bindings);
             let has_event = if let Some(class_sig) = types.get_class(decl_name) {
                 class_sig
                     .events
@@ -424,13 +459,14 @@ fn find_explicit_sub_impl(
     span: Span,
     interface_name: &str,
     member_name: &str,
+    bindings: &[(String, TypeName)],
 ) -> Result<CallableSig, Diagnostic> {
     for member in members {
         if let ClassMember::Sub(method) = member
             && method
                 .implements
                 .iter()
-                .any(|clause| implements_matches(clause, interface_name, member_name))
+                .any(|clause| implements_matches(clause, interface_name, member_name, bindings))
         {
             return Ok(CallableSig {
                 visibility: method.visibility,
@@ -461,13 +497,14 @@ fn find_explicit_function_impl(
     span: Span,
     interface_name: &str,
     member_name: &str,
+    bindings: &[(String, TypeName)],
 ) -> Result<CallableSig, Diagnostic> {
     for member in members {
         if let ClassMember::Function(method) = member
             && method
                 .implements
                 .iter()
-                .any(|clause| implements_matches(clause, interface_name, member_name))
+                .any(|clause| implements_matches(clause, interface_name, member_name, bindings))
         {
             return Ok(CallableSig {
                 visibility: method.visibility,
@@ -499,6 +536,7 @@ fn find_explicit_property_impl(
     interface_name: &str,
     member_name: &str,
     kind: PropertyKind,
+    bindings: &[(String, TypeName)],
 ) -> Result<CallableSig, Diagnostic> {
     for member in members {
         if let ClassMember::Property(property) = member
@@ -506,7 +544,7 @@ fn find_explicit_property_impl(
             && property
                 .implements
                 .iter()
-                .any(|clause| implements_matches(clause, interface_name, member_name))
+                .any(|clause| implements_matches(clause, interface_name, member_name, bindings))
         {
             return Ok(CallableSig {
                 visibility: property.visibility,
@@ -535,8 +573,15 @@ fn implements_matches(
     clause: &crate::ImplementsClause,
     interface_name: &str,
     member_name: &str,
+    bindings: &[(String, TypeName)],
 ) -> bool {
-    matches!(&clause.interface_name, TypeName::User(name) if name.eq_ignore_ascii_case(interface_name))
+    let target_ty = clause.interface_name.substitute_generics(bindings);
+    let target_name = match &target_ty {
+        TypeName::User(name) => name,
+        TypeName::GenericInstance { name, .. } => name,
+        _ => return false,
+    };
+    target_name.eq_ignore_ascii_case(interface_name)
         && clause.member_name.eq_ignore_ascii_case(member_name)
 }
 
@@ -583,7 +628,8 @@ fn class_constant_symbols(class_decl: &crate::ClassDecl) -> HashMap<String, VarT
             | ClassMember::Property(_)
             | ClassMember::Type(_)
             | ClassMember::Declare(_)
-            | ClassMember::Enum(_) => None,
+            | ClassMember::Enum(_)
+            | ClassMember::Class(_) => None,
         })
         .collect()
 }
@@ -610,7 +656,8 @@ pub(super) fn validate_structure(
             | ClassMember::Iterator(_)
             | ClassMember::Type(_)
             | ClassMember::Declare(_)
-            | ClassMember::Enum(_) => {}
+            | ClassMember::Enum(_)
+            | ClassMember::Class(_) => {}
             ClassMember::Sub(method) => {
                 let mut symbols = HashMap::new();
                 add_module_symbols(module_symbols, &mut symbols);

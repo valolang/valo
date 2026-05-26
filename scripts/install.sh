@@ -1,163 +1,70 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -e
 
-REPO="valolang/valo"
-VERSION="${VALO_VERSION:-latest}"
-INSTALL_DIR="${VALO_INSTALL_DIR:-$HOME/.valo/bin}"
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
+VALO_DIR="$HOME/.valo"
+BIN_DIR="$VALO_DIR/bin"
+CACHE_DIR="$VALO_DIR/cache"
+PKG_DIR="$VALO_DIR/packages"
+TOOL_DIR="$VALO_DIR/toolchains"
+TMP_DIR="$VALO_DIR/tmp"
+
+log() { echo -e "${BLUE}[Valo]${NC} $1"; }
+success() { echo -e "${GREEN}[Valo]${NC} $1"; }
+error() { echo -e "${RED}[Valo]${NC} $1"; exit 1; }
+
+# 1. Platform Detection
 OS="$(uname -s)"
 ARCH="$(uname -m)"
-
-TARGET=""
-
 case "$OS" in
-    Linux)
-        case "$ARCH" in
-            x86_64 | amd64)
-                TARGET="linux-x64"
-                ;;
-            i386 | i486 | i586 | i686)
-                TARGET="linux-x86"
-                ;;
-            aarch64 | arm64)
-                echo "Linux ARM64 release is not available yet."
-                echo "For Termux/Android ARM64, build from source for now:"
-                echo ""
-                echo "  cargo build --release"
-                echo ""
-                exit 1
-                ;;
-            *)
-                echo "Unsupported Linux architecture: $ARCH"
-                exit 1
-                ;;
-        esac
-        ;;
-
-    Darwin)
-        case "$ARCH" in
-            x86_64 | amd64)
-                TARGET="macos-x64"
-                ;;
-            arm64 | aarch64)
-                TARGET="macos-arm64"
-                ;;
-            *)
-                echo "Unsupported macOS architecture: $ARCH"
-                exit 1
-                ;;
-        esac
-        ;;
-
-    *)
-        echo "Unsupported OS: $OS"
-        echo "This installer currently supports Linux and macOS."
-        echo "For Windows, download the .zip release manually."
-        exit 1
-        ;;
+    Linux*)     PLATFORM="linux" ;;
+    Darwin*)    PLATFORM="macos" ;;
+    *)          error "Unsupported OS: $OS" ;;
 esac
 
-FILE="valo-$TARGET.tar.gz"
-CHECKSUM_FILE="$FILE.sha256"
+if [ "$ARCH" = "x86_64" ]; then ARCH="x64"; fi
 
-if [ "$VERSION" = "latest" ]; then
-    BASE_URL="https://github.com/$REPO/releases/latest/download"
-else
-    BASE_URL="https://github.com/$REPO/releases/download/$VERSION"
+# 2. Setup Directory Structure
+log "Creating runtime structure in $VALO_DIR..."
+mkdir -p "$BIN_DIR" "$CACHE_DIR" "$PKG_DIR" "$TOOL_DIR" "$TMP_DIR"
+
+# 3. Download Latest Release
+LATEST_URL="https://github.com/valolang/valo/releases/latest/download/valo-$PLATFORM-$ARCH"
+log "Downloading Valo from $LATEST_URL..."
+curl -fsSL "$LATEST_URL" -o "$BIN_DIR/valo"
+chmod +x "$BIN_DIR/valo"
+
+# 4. PATH Configuration
+PROFILE=""
+if [ -n "$ZSH_VERSION" ]; then
+    PROFILE="$HOME/.zshrc"
+elif [ -n "$BASH_VERSION" ]; then
+    PROFILE="$HOME/.bashrc"
 fi
 
-URL="$BASE_URL/$FILE"
-CHECKSUM_URL="$BASE_URL/$CHECKSUM_FILE"
-
-TMP_DIR="$(mktemp -d)"
-
-cleanup() {
-    rm -rf "$TMP_DIR"
-}
-
-trap cleanup EXIT
-
-mkdir -p "$INSTALL_DIR"
-
-echo "Installing Valo"
-echo "Target: $TARGET"
-echo "Version: $VERSION"
-echo "Install dir: $INSTALL_DIR"
-echo ""
-
-echo "Downloading $FILE..."
-
-if command -v curl >/dev/null 2>&1; then
-    curl -fL "$URL" -o "$TMP_DIR/$FILE"
-elif command -v wget >/dev/null 2>&1; then
-    wget -O "$TMP_DIR/$FILE" "$URL"
-else
-    echo "Error: curl or wget is required."
-    exit 1
-fi
-
-echo "Downloading checksum..."
-
-if command -v curl >/dev/null 2>&1; then
-    curl -fL "$CHECKSUM_URL" -o "$TMP_DIR/$CHECKSUM_FILE" || true
-elif command -v wget >/dev/null 2>&1; then
-    wget -O "$TMP_DIR/$CHECKSUM_FILE" "$CHECKSUM_URL" || true
-fi
-
-if [ -f "$TMP_DIR/$CHECKSUM_FILE" ]; then
-    echo "Verifying checksum..."
-
-    cd "$TMP_DIR"
-
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum -c "$CHECKSUM_FILE"
-    elif command -v shasum >/dev/null 2>&1; then
-        EXPECTED="$(awk '{print $1}' "$CHECKSUM_FILE")"
-        ACTUAL="$(shasum -a 256 "$FILE" | awk '{print $1}')"
-
-        if [ "$EXPECTED" != "$ACTUAL" ]; then
-            echo "Checksum verification failed."
-            exit 1
-        fi
+if [ -n "$PROFILE" ]; then
+    if ! grep -q "$BIN_DIR" "$PROFILE"; then
+        log "Adding $BIN_DIR to $PROFILE..."
+        echo "export PATH=\"\$PATH:$BIN_DIR\"" >> "$PROFILE"
+        success "Added to PATH. Please run 'source $PROFILE' or restart your terminal."
     else
-        echo "Warning: sha256sum/shasum not found. Skipping checksum verification."
+        log "$BIN_DIR already in PATH."
     fi
-
-    cd - >/dev/null
 else
-    echo "Warning: checksum file not found. Skipping verification."
+    log "Could not detect shell profile. Please add $BIN_DIR to your PATH manually."
 fi
 
-echo "Extracting..."
-
-tar -xzf "$TMP_DIR/$FILE" -C "$TMP_DIR"
-
-if [ ! -f "$TMP_DIR/valo/valo" ]; then
-    echo "Error: extracted archive does not contain valo/valo."
-    exit 1
+# 5. Validation
+log "Validating installation..."
+if "$BIN_DIR/valo" version > /dev/null; then
+    success "Valo installed successfully!"
+    "$BIN_DIR/valo" version
+else
+    error "Installation failed validation."
 fi
-
-chmod +x "$TMP_DIR/valo/valo"
-
-mv "$TMP_DIR/valo/valo" "$INSTALL_DIR/valo"
-
-echo ""
-echo "Valo installed successfully."
-echo ""
-
-case ":$PATH:" in
-    *":$INSTALL_DIR:"*)
-        ;;
-    *)
-        echo "Add this to your shell config:"
-        echo ""
-        echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
-        echo ""
-        ;;
-esac
-
-echo "Run:"
-echo ""
-echo "  valo --help"
-echo ""

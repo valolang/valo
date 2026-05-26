@@ -45,6 +45,11 @@ fn instantiate_function(
         param.ty = param.ty.substitute_generics(&bindings);
     }
     function.return_type = function.return_type.substitute_generics(&bindings);
+    function.body = function
+        .body
+        .iter()
+        .map(|stmt| stmt.substitute_generics(&bindings))
+        .collect();
     Ok(())
 }
 

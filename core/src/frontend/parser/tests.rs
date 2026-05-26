@@ -588,7 +588,7 @@ End Namespace
     let program = Parser::parse_source(source, FileId::default()).unwrap();
     assert_eq!(program.namespace.as_deref(), Some("Game.Graphics"));
     assert_eq!(program.classes.len(), 1);
-    assert_eq!(program.classes[0].name, "Sprite");
+    assert_eq!(program.classes[0].name, "Game.Graphics.Sprite");
 }
 
 #[test]
@@ -606,7 +606,7 @@ End Namespace
     let program = Parser::parse_source(source, FileId::default()).unwrap();
     assert_eq!(program.namespace.as_deref(), Some("Game.Graphics"));
     assert_eq!(program.classes.len(), 1);
-    assert_eq!(program.classes[0].name, "Sprite");
+    assert_eq!(program.classes[0].name, "Game.Graphics.Sprite");
 }
 
 #[test]

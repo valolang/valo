@@ -100,6 +100,58 @@ pub fn build_project_index(project: &Project) -> Result<ProjectIndex, Diagnostic
             module_name: &module_name,
             namespace: namespace.as_deref(),
         };
+
+        fn index_nested(
+            members: &[crate::ClassMember],
+            prefix: &str,
+            index: &mut ProjectIndex,
+            scope: SymbolScope<'_>,
+        ) -> Result<(), Diagnostic> {
+            for member in members {
+                match member {
+                    crate::ClassMember::Type(t) => {
+                        let kind = if t.kind == crate::TypeKind::Structure {
+                            TypeSymbolKind::Structure
+                        } else {
+                            TypeSymbolKind::Type
+                        };
+                        push_type(
+                            index,
+                            scope,
+                            &format!("{}.{}", prefix, t.name),
+                            t.visibility,
+                            kind,
+                            t.span,
+                        )?;
+                    }
+                    crate::ClassMember::Enum(e) => {
+                        push_type(
+                            index,
+                            scope,
+                            &format!("{}.{}", prefix, e.name),
+                            e.visibility,
+                            TypeSymbolKind::Enum,
+                            e.span,
+                        )?;
+                    }
+                    crate::ClassMember::Class(c) => {
+                        let qualified = format!("{}.{}", prefix, c.name);
+                        push_type(
+                            index,
+                            scope,
+                            &qualified,
+                            c.visibility,
+                            TypeSymbolKind::Class,
+                            c.span,
+                        )?;
+                        index_nested(&c.members, &qualified, index, scope)?;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+
         for type_decl in &module.program.types {
             let kind = if type_decl.kind == crate::TypeKind::Structure {
                 TypeSymbolKind::Structure
@@ -144,6 +196,7 @@ pub fn build_project_index(project: &Project) -> Result<ProjectIndex, Diagnostic
                 TypeSymbolKind::Class,
                 class_decl.span,
             )?;
+            index_nested(&class_decl.members, &class_decl.name, &mut index, scope)?;
         }
         for procedure in &module.program.procedures {
             push_function(
@@ -255,7 +308,13 @@ fn push_function(
 
 fn qualified_name(module_name: &str, namespace: Option<&str>, name: &str) -> String {
     match namespace {
-        Some(namespace) => format!("{namespace}.{name}"),
+        Some(namespace) => {
+            if name.starts_with(namespace) {
+                name.to_string()
+            } else {
+                format!("{namespace}.{name}")
+            }
+        }
         None => format!("{module_name}.{name}"),
     }
 }

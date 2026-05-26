@@ -22,6 +22,80 @@ pub struct Program {
     pub properties: Vec<ClassProperty>,
 }
 
+impl Program {
+    pub fn flatten_nested_types(&mut self) {
+        let mut new_types = Vec::new();
+        let mut new_enums = Vec::new();
+        let mut new_classes = Vec::new();
+
+        fn extract_nested(
+            members: &mut Vec<ClassMember>,
+            prefix: &str,
+            parent_type_params: &[String],
+            new_types: &mut Vec<TypeDecl>,
+            new_enums: &mut Vec<EnumDecl>,
+            new_classes: &mut Vec<ClassDecl>,
+        ) {
+            let mut i = 0;
+            while i < members.len() {
+                match &mut members[i] {
+                    ClassMember::Type(t) => {
+                        let mut t_clone = t.clone();
+                        let mut params = parent_type_params.to_vec();
+                        params.extend(t_clone.type_params);
+                        t_clone.type_params = params;
+                        t_clone.name = format!("{}.{}", prefix, t.name);
+                        new_types.push(t_clone);
+                        members.remove(i);
+                    }
+                    ClassMember::Enum(e) => {
+                        let mut e_clone = e.clone();
+                        e_clone.name = format!("{}.{}", prefix, e.name);
+                        new_enums.push(e_clone);
+                        members.remove(i);
+                    }
+                    ClassMember::Class(c) => {
+                        let mut c_clone = *c.clone();
+                        let qualified = format!("{}.{}", prefix, c.name);
+                        let mut params = parent_type_params.to_vec();
+                        params.extend(c_clone.type_params);
+                        c_clone.type_params = params.clone();
+                        c_clone.name = qualified.clone();
+                        extract_nested(
+                            &mut c_clone.members,
+                            &qualified,
+                            &params,
+                            new_types,
+                            new_enums,
+                            new_classes,
+                        );
+                        new_classes.push(c_clone);
+                        members.remove(i);
+                    }
+                    _ => {
+                        i += 1;
+                    }
+                }
+            }
+        }
+
+        for c in &mut self.classes {
+            extract_nested(
+                &mut c.members,
+                &c.name,
+                &c.type_params,
+                &mut new_types,
+                &mut new_enums,
+                &mut new_classes,
+            );
+        }
+
+        self.types.append(&mut new_types);
+        self.enums.append(&mut new_enums);
+        self.classes.append(&mut new_classes);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttributeDecl {
     pub target: String,
@@ -220,6 +294,7 @@ pub enum ClassMember {
     Type(TypeDecl),
     Declare(DeclareDecl),
     Enum(EnumDecl),
+    Class(Box<ClassDecl>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

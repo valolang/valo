@@ -397,6 +397,10 @@ impl Parser {
                 .parse_type_decl(visibility)
                 .map(ClassMember::Type)
                 .map(|member| vec![member]),
+            TokenKind::Class => self
+                .parse_class_decl(visibility, ClassInheritance::Normal)
+                .map(|member| ClassMember::Class(Box::new(member)))
+                .map(|member| vec![member]),
             TokenKind::Enum => self
                 .parse_enum_decl(visibility)
                 .map(ClassMember::Enum)
@@ -456,9 +460,26 @@ impl Parser {
         }
         loop {
             let start = self.previous().span;
-            let interface_name = TypeName::User(self.expect_identifier("Expected interface name")?);
-            self.expect_simple(TokenKind::Dot, "Expected '.' in Implements clause")?;
-            let member_name = self.expect_identifier("Expected interface member name")?;
+            let mut interface_name = self.parse_type_name()?;
+            let member_name = if self.match_simple(&TokenKind::Dot) {
+                self.expect_identifier("Expected interface member name")?
+            } else {
+                match interface_name {
+                    TypeName::User(ref mut name) if name.contains('.') => {
+                        let (new_name, member) = name.rsplit_once('.').unwrap();
+                        let member = member.to_string();
+                        *name = new_name.to_string();
+                        member
+                    }
+                    _ => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::PARSE,
+                            "Expected '.' in Implements clause",
+                            Some(self.previous().span),
+                        ));
+                    }
+                }
+            };
             let end = self.previous().span;
             clauses.push(ImplementsClause {
                 interface_name,
@@ -1770,13 +1791,43 @@ impl Parser {
                         name.push('.');
                         name.push_str(&member);
                     }
-                    let ty = if self.check_simple(&TokenKind::LeftParen)
+                    let mut ty = if self.check_simple(&TokenKind::LeftParen)
                         && matches!(self.peek_next_kind(), Some(TokenKind::Of))
                     {
                         self.parse_generic_type_instance(name)?
                     } else {
                         TypeName::User(name)
                     };
+                    while self.match_simple(&TokenKind::Dot) {
+                        let member = self.expect_identifier("Expected member name after '.'")?;
+                        let mut base_name = ty.base_user_name().unwrap().to_string();
+                        base_name.push('.');
+                        base_name.push_str(&member);
+                        let mut args = match ty {
+                            TypeName::GenericInstance { args, .. } => args,
+                            _ => Vec::new(),
+                        };
+                        if self.check_simple(&TokenKind::LeftParen)
+                            && matches!(self.peek_next_kind(), Some(TokenKind::Of))
+                        {
+                            let inner_ty = self.parse_generic_type_instance(base_name.clone())?;
+                            if let TypeName::GenericInstance {
+                                args: mut inner_args,
+                                ..
+                            } = inner_ty
+                            {
+                                args.append(&mut inner_args);
+                            }
+                        }
+                        if args.is_empty() {
+                            ty = TypeName::User(base_name);
+                        } else {
+                            ty = TypeName::GenericInstance {
+                                name: base_name,
+                                args,
+                            };
+                        }
+                    }
                     Ok(ty)
                 }
             }

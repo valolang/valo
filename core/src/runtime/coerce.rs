@@ -22,7 +22,9 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
     {
         return Ok(value);
     }
-    if matches!(ty, TypeName::User(_)) && matches!(value, Value::Object(_) | Value::Nothing) {
+    if matches!(ty, TypeName::User(_) | TypeName::GenericInstance { .. })
+        && matches!(value, Value::Object(_) | Value::Nothing)
+    {
         return Ok(value);
     }
 

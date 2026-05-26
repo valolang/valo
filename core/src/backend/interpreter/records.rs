@@ -205,7 +205,8 @@ impl From<&TypeDecl> for RuntimeType {
                     | ClassMember::Property(_)
                     | ClassMember::Type(_)
                     | ClassMember::Declare(_)
-                    | ClassMember::Enum(_) => None,
+                    | ClassMember::Enum(_)
+                    | ClassMember::Class(_) => None,
                 })
                 .collect(),
             functions: value
@@ -224,7 +225,8 @@ impl From<&TypeDecl> for RuntimeType {
                     | ClassMember::Property(_)
                     | ClassMember::Type(_)
                     | ClassMember::Declare(_)
-                    | ClassMember::Enum(_) => None,
+                    | ClassMember::Enum(_)
+                    | ClassMember::Class(_) => None,
                 })
                 .collect(),
             properties: value
@@ -241,7 +243,8 @@ impl From<&TypeDecl> for RuntimeType {
                     | ClassMember::Iterator(_)
                     | ClassMember::Type(_)
                     | ClassMember::Declare(_)
-                    | ClassMember::Enum(_) => None,
+                    | ClassMember::Enum(_)
+                    | ClassMember::Class(_) => None,
                 })
                 .fold(std::collections::HashMap::new(), |mut props, property| {
                     let entry = props.entry(key(&property.name)).or_insert(RuntimeProperty {

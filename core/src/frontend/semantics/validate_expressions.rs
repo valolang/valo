@@ -3219,7 +3219,47 @@ pub(super) fn ensure_assignable_expr(
         return Ok(());
     }
 
+    if let (TypeName::User(src_name), _) = (source, target)
+        && (class_inherits_from(src_name, &target.display_name(), types)
+            || class_implements_interface(src_name, target, types))
+    {
+        return Ok(());
+    }
+
+    if let (TypeName::GenericInstance { name: src_name, .. }, _) = (source, target)
+        && (class_inherits_from(src_name, &target.display_name(), types)
+            || class_implements_interface(src_name, target, types))
+    {
+        return Ok(());
+    }
+
     ensure_assignable(target, source, span)
+}
+
+fn class_implements_interface(
+    class_name: &str,
+    interface_ty: &TypeName,
+    types: &TypeRegistry,
+) -> bool {
+    let Some(class) = types.get_class(class_name) else {
+        return false;
+    };
+    for impl_ty in &class.implements {
+        if impl_ty.same_type(interface_ty) {
+            return true;
+        }
+    }
+    if let Some(base) = &class.base_class {
+        let base_name = match base {
+            TypeName::User(name) => name,
+            TypeName::GenericInstance { name, .. } => name,
+            _ => return false,
+        };
+        if class_implements_interface(base_name, interface_ty, types) {
+            return true;
+        }
+    }
+    false
 }
 
 pub(super) fn ensure_class_type(

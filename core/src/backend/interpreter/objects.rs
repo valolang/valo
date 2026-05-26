@@ -21,6 +21,11 @@ fn substitute_procedure_types(procedure: &mut Procedure, bindings: &[(String, Ty
     for param in &mut procedure.params {
         param.ty = param.ty.substitute_generics(bindings);
     }
+    procedure.body = procedure
+        .body
+        .iter()
+        .map(|stmt| stmt.substitute_generics(bindings))
+        .collect();
 }
 
 fn substitute_function_types(function: &mut Function, bindings: &[(String, TypeName)]) {
@@ -29,6 +34,11 @@ fn substitute_function_types(function: &mut Function, bindings: &[(String, TypeN
         param.ty = param.ty.substitute_generics(bindings);
     }
     function.return_type = function.return_type.substitute_generics(bindings);
+    function.body = function
+        .body
+        .iter()
+        .map(|stmt| stmt.substitute_generics(bindings))
+        .collect();
 }
 
 fn substitute_property_accessor_types(
@@ -42,6 +52,11 @@ fn substitute_property_accessor_types(
         .return_type
         .clone()
         .map(|ty| ty.substitute_generics(bindings));
+    accessor.body = accessor
+        .body
+        .iter()
+        .map(|stmt| stmt.substitute_generics(bindings))
+        .collect();
 }
 
 impl Interpreter {
@@ -1174,7 +1189,10 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                         PropertyKind::Set => property_entry.set = Some(accessor),
                     }
                 }
-                ClassMember::Type(_) | ClassMember::Declare(_) | ClassMember::Enum(_) => {}
+                ClassMember::Type(_)
+                | ClassMember::Declare(_)
+                | ClassMember::Enum(_)
+                | ClassMember::Class(_) => {}
             }
         }
         Self {

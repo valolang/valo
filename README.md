@@ -11,33 +11,59 @@
 <p align="center">
   <a href="#what-is-valo">What is Valo?</a> |
   <a href="#why-build-valo">Why?</a> |
-  <a href="#language-goals">Goals</a> |
-  <a href="#project-status">Status</a> |
-  <a href="#getting-started">Getting started</a> |
-  <a href="#vba-compatibility">VBA compatibility</a> |
+  <a href="#installation">Installation</a> |
+  <a href="#getting-started">Getting Started</a> |
   <a href="#documentation">Documentation</a> |
   <a href="#contributing">Contributing</a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/valolang/valo/actions/workflows/ci.yml">
-    <img src="https://github.com/valolang/valo/actions/workflows/ci.yml/badge.svg" alt="CI Status">
-  </a>
-  <a href="https://github.com/valolang/valo/actions/workflows/release.yml">
-    <img src="https://github.com/valolang/valo/actions/workflows/release.yml/badge.svg" alt="Release Status">
-  </a>
-  <a href="https://github.com/valolang/valo/releases">
-    <img src="https://img.shields.io/github/v/release/valolang/valo?include_prereleases&label=release" alt="Release">
-  </a>
-  <a href="https://github.com/valolang/valo/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/valolang/valo" alt="License">
-  </a>
-  <img src="https://img.shields.io/badge/runtime-Rust-orange" alt="Runtime">
-  <img src="https://img.shields.io/badge/status-experimental-blue" alt="Status">
-</p>
+## Installation
 
-> [!NOTE]
-> Valo is experimental and not production-ready yet. APIs, syntax, runtime behavior, and compatibility details may change quickly.
+Valo is a modern, Basic-inspired runtime. You can install it using one of the following commands:
+
+### Linux / macOS
+```bash
+curl -fsSL https://raw.githubusercontent.com/valolang/valo/main/scripts/install.sh | bash
+```
+
+### Windows (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/valolang/valo/main/scripts/install.ps1 | iex
+```
+
+### Setup Directory
+Valo installs its runtime components under `~/.valo/` (or `%USERPROFILE%\.valo` on Windows):
+- `bin/`: The Valo CLI executable.
+- `cache/`: Downloaded packages and build artifacts.
+- `packages/`: Global library dependencies.
+- `toolchains/`: Versioned runtime environments.
+
+## Getting Started
+
+1. **Verify Installation:**
+   ```bash
+   valo version
+   ```
+
+2. **Quick Start:**
+   Create a `hello.valo` file:
+   ```vb
+   Sub Main()
+       Console.WriteLine("Hello, Valo!")
+   End Sub
+   ```
+   Run your program:
+   ```bash
+   valo run hello.valo
+   ```
+
+3. **Explore:**
+   Start an interactive REPL:
+   ```bash
+   valo repl
+   ```
+
+---
 
 ## What is Valo?
 
@@ -181,347 +207,6 @@ For more examples:
 
 - [Examples](examples/README.md)
 - [Language docs](docs/language)
-
-## Feature highlights
-
-### Modern control flow
-
-```vb
-Try
-    DangerousOperation()
-Catch ex As Error
-    Console.WriteLine(ex.Message)
-Finally
-    Console.WriteLine("cleanup")
-End Try
-```
-
-### COM Automation
-
-On Windows, Valo supports late-bound COM/OLE Automation through `Object`, `CreateObject`, property access, method calls, and default-property syntax. This allows common VBA automation patterns such as `dict("Key")` for `Scripting.Dictionary`.
-
-COM examples are Windows-only. On non-Windows hosts, `CreateObject` reports a clear runtime diagnostic.
-
-```vb
-Sub Main()
-    Dim dict As Object
-    Set dict = CreateObject("Scripting.Dictionary")
-    
-    ' Using default property Item (dict("Key") is same as dict.Item("Key"))
-    dict("Name") = "Valo"
-    
-    Console.WriteLine("Dictionary name: " & dict("Name"))
-End Sub
-```
-
-### VB.NET-style modules
-
-```vb
-Module MathTools
-    Public Function Add(ByVal left As Integer, ByVal right As Integer) As Integer
-        Add = left + right
-    End Function
-End Module
-
-Sub Main()
-    Console.WriteLine(MathTools.Add(2, 3))
-End Sub
-```
-
-`Module ... End Module` blocks act as module-level declaration containers. Callable members and fields can also be accessed through the module block name.
-
-### Namespaces
-
-```vb
-Namespace Game
-Namespace Graphics
-
-Public Class Sprite
-End Class
-
-End Namespace
-End Namespace
-```
-
-Nested namespace wrappers are flattened into a qualified namespace such as `Game.Graphics`.
-
-### VBA-style error handling
-
-```vb
-Sub Main()
-    On Error GoTo Handler
-
-    Err.Raise 1001, "Example", "Something failed"
-
-    Exit Sub
-
-Handler:
-    Debug.Print Err.Description
-    Resume Next
-End Sub
-```
-
-### Generics, constraints, and inheritance
-
-```vb
-Class Box(Of T)
-    Public Value As T
-End Class
-
-Interface IProducer(Of Out T)
-    Function Current() As T
-End Interface
-
-Class Repository(Of T As {Class, New})
-    Public Current As T
-End Class
-```
-
-Generic type substitution is active for classes, structures, fields, parameters, properties, return values, inheritance, and nested generic instances. Constraint and variance syntax is accepted by the parser; deeper compile-time constraint enforcement is still being expanded.
-
-### Native FFI
-
-```vb
-Declare PtrSafe Function strlen Lib "libc" CDecl (
-    ByVal value As String
-) As Long
-
-Sub Main()
-    Debug.Print strlen("Valo")
-End Sub
-```
-
-Additional examples are available in the `examples/` directory.
-
-## Supported file types
-
-| Extension | Mode | Purpose |
-|---|---|---|
-| `.valo` | Native Valo | Modern Basic-inspired development |
-| `.bas` | VBA module compatibility | Legacy standard modules |
-| `.cls` | VBA class compatibility | Exported class modules |
-
-## CLI
-
-Valo ships with a command-line interface for running, checking, and experimenting with code.
-
-```sh
-valo run examples/hello.valo
-valo check examples/generic_box.valo
-valo repl
-valo version
-valo help
-```
-
-### Run a file
-
-```sh
-valo run examples/hello.valo
-```
-
-### Check a file
-
-```sh
-valo check examples/modules/main.valo
-```
-
-### Start the REPL
-
-```sh
-valo repl
-```
-
-```txt
-valo> Dim x As Integer
-valo> x = 10
-valo> Console.WriteLine(x)
-10
-```
-
-## Getting started
-
-Valo is currently experimental, but prebuilt releases are available for supported platforms.
-
-### Install with script
-
-Linux and macOS:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/valolang/valo/main/scripts/install.sh | bash
-```
-
-After installation:
-
-```sh
-export PATH="$HOME/.valo/bin:$PATH"
-```
-
-Verify:
-
-```sh
-valo version
-valo help
-```
-
-### Install a specific version
-
-```sh
-VALO_VERSION="v0.1.0-2026.05.21" curl -fsSL https://raw.githubusercontent.com/valolang/valo/main/scripts/install.sh | bash
-```
-
-### Manual download
-
-Releases:
-
-```txt
-https://github.com/valolang/valo/releases
-```
-
-Available release assets may include:
-
-| Platform | Asset |
-|---|---|
-| Linux x64 | `valo-linux-x64.tar.gz` |
-| Linux x86 | `valo-linux-x86.tar.gz` |
-| macOS ARM64 | `valo-macos-arm64.tar.gz` |
-| macOS x64 | `valo-macos-x64.tar.gz` |
-| Windows x64 | `valo-windows-x64.zip` |
-| Windows x86 | `valo-windows-x86.zip` |
-
-Windows example:
-
-```powershell
-.\valo.exe version
-.\valo.exe run examples\hello.valo
-```
-
-### Build from source
-
-Requirements:
-
-- Rust stable
-
-```sh
-git clone https://github.com/valolang/valo
-cd valo
-cargo build --release
-```
-
-Run the CLI:
-
-```sh
-./target/release/valo version
-```
-
-Windows:
-
-```powershell
-.\target\release\valo.exe version
-```
-
-### Quality checks
-
-```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
-cargo build --release
-```
-
-## Your first Valo program
-
-Create `hello.valo`:
-
-```vb
-Sub Main()
-    Console.WriteLine("Hello, Valo")
-End Sub
-```
-
-Run it:
-
-```sh
-valo run hello.valo
-```
-
-Output:
-
-```txt
-Hello, Valo
-```
-
-## Diagnostics
-
-Valo includes professional diagnostics with:
-
-- explicit diagnostic codes
-- source spans
-- suggestions
-- stack traces
-- import-cycle diagnostics
-- semantic/member suggestions
-
-Example:
-
-```txt
-error[V1100]: Cannot assign String value to Integer variable
- --> examples/demo.valo:4:9
-  |
-4 |     age = "twenty"
-  |         ^^^^^^^^^ expected Integer
-```
-
-Diagnostics are designed to be actionable, stable, and suitable for future tooling.
-
-## VBA compatibility
-
-Valo supports a growing set of VBA-compatible features.
-
-Currently supported areas include:
-
-- `.bas` and `.cls` parsing
-- exported class modules
-- `Attribute VB_Name`
-- `Attribute VB_UserMemId`
-- classic function assignment semantics
-- `On Error`
-- `Err`
-- `Resume`
-- `Erl`
-- `Debug.Print`
-- `Declare`, `PtrSafe`, `LongPtr`
-- `AddressOf`
-- `VarPtr`, `StrPtr`, `ObjPtr`
-- `Variant`, `Object`, `Empty`, `Null`
-- Windows COM/OLE Automation through `CreateObject`, late-bound calls/properties, and default-property syntax
-- file I/O compatibility runtime
-- `Dir`, `EOF`, `LOF`, `FreeFile`
-- `Input #`, `Line Input #`
-- `Print #`, `Write #`
-- `Get #`, `Put #`
-- Random/Binary file modes
-- imported `.bas` / `.cls` compatibility improvements
-
-Compatibility is pragmatic and growing.
-
-Valo already supports a substantial VBA compatibility surface, including `.bas` / `.cls` modules, classic runtime behavior, COM automation foundations on Windows, and native interop primitives.
-
-Experimental native FFI is supported through VBA-style `Declare`, `PtrSafe`, `LongPtr`, `AddressOf`, callbacks, and platform-aware library loading. Broader Office object-model coverage and type-library tooling are future directions.
-
-## Research directory
-
-The `research/` directory contains real-world VBA/VB-style modules, parser edge cases, runtime stress tests, FFI demos, interoperability experiments, and prototypes used during Valo development.
-
-These files are used to:
-
-- validate VBA compatibility
-- reproduce parser/runtime bugs
-- stress the interpreter and FFI layer
-- benchmark performance
-- explore future language features
-- prototype APIs and module-system behavior
-
-Files in this directory are experimental and may change frequently as the language evolves.
 
 ## Documentation
 
