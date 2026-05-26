@@ -32,9 +32,6 @@ case "$ARCH" in
     aarch64) ARCH="arm64" ;;
 esac
 
-# DEBUG: print values to identify the 404
-log "PLATFORM=$PLATFORM, ARCH=$ARCH"
-
 # 2. Setup Directory Structure
 log "Creating runtime structure in $VALO_DIR..."
 for dir in "${DIRS[@]}"; do mkdir -p "$dir"; done
