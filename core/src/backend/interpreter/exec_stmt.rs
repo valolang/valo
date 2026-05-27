@@ -186,11 +186,11 @@ impl Interpreter {
                 self.assign_target(target, value, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
-            Stmt::ConsoleWriteLine { args, .. } => {
+            Stmt::ConsoleCall { method, args, .. } => {
                 if let Some(flow) = super::builtins::dispatch_stmt(
                     self,
                     "Console",
-                    "WriteLine",
+                    method,
                     args,
                     frame,
                     stmt_span(stmt),
@@ -1243,7 +1243,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::ConstMany { span, .. }
         | Stmt::Assign { span, .. }
         | Stmt::SetAssign { span, .. }
-        | Stmt::ConsoleWriteLine { span, .. }
+        | Stmt::ConsoleCall { span, .. }
         | Stmt::SubCall { span, .. }
         | Stmt::MemberSubCall { span, .. }
         | Stmt::RaiseEvent { span, .. }

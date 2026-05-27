@@ -72,19 +72,14 @@ pub struct ComParamInfo {
 #[cfg(windows)]
 pub fn create_object(prog_id: &str, span: Span) -> Result<Value, Diagnostic> {
     use windows::Win32::System::Com::{
-        CLSCTX_ALL, CLSIDFromProgID, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+        CLSCTX_ALL, CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, CLSIDFromProgID, CoCreateInstance,
         IDispatch,
     };
-    use windows::core::{HSTRING, IUnknown, Interface};
+    use windows::Win32::System::Ole::OleInitialize;
+    use windows::core::HSTRING;
 
-    const RPC_E_CHANGED_MODE: i32 = 0x8001_0106_u32 as i32;
-
-    let hr = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
-    if hr.is_err() && hr.0 != RPC_E_CHANGED_MODE {
-        return Err(com_error(
-            format!("CreateObject could not initialize COM: {:?}", hr),
-            span,
-        ));
+    unsafe {
+        let _ = OleInitialize(None);
     }
 
     let clsid = unsafe { CLSIDFromProgID(&HSTRING::from(prog_id)) }.map_err(|error| {
@@ -96,18 +91,11 @@ pub fn create_object(prog_id: &str, span: Span) -> Result<Value, Diagnostic> {
 
     // Try to create the object and get IDispatch
     let dispatch: IDispatch = unsafe {
-        match CoCreateInstance(&clsid, None, CLSCTX_ALL) {
+        match CoCreateInstance(&clsid, None, CLSCTX_LOCAL_SERVER | CLSCTX_INPROC_SERVER) {
             Ok(d) => d,
             Err(_) => {
-                // Fallback: try IUnknown then cast to IDispatch
-                let unknown: IUnknown =
-                    CoCreateInstance(&clsid, None, CLSCTX_ALL).map_err(|error| {
-                        com_error(
-                            format!("CreateObject could not create '{prog_id}': {error}"),
-                            span,
-                        )
-                    })?;
-                unknown.cast().map_err(|error| {
+                // Try with CLSCTX_ALL as fallback
+                CoCreateInstance(&clsid, None, CLSCTX_ALL).map_err(|error| {
                     com_error(
                         format!("CreateObject: '{prog_id}' does not support automation (IDispatch): {error}"),
                         span,
@@ -513,6 +501,91 @@ pub fn enumerable_com_values(
 ) -> Result<Vec<Value>, Diagnostic> {
     Err(com_error(
         "COM enumeration is only available on Windows",
+        span,
+    ))
+}
+
+#[cfg(windows)]
+pub fn get_object(
+    pathname: Option<&str>,
+    prog_id: Option<&str>,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    use windows::Win32::System::Com::{CLSIDFromProgID, CoGetObject, IDispatch};
+    use windows::Win32::System::Ole::{GetActiveObject, OleInitialize};
+    use windows::core::{HSTRING, Interface};
+
+    unsafe {
+        let _ = OleInitialize(None);
+    }
+
+    if let Some(path) = pathname {
+        if path.is_empty() {
+            if let Some(pid) = prog_id {
+                // GetObject(, "ProgID")
+                let clsid = unsafe { CLSIDFromProgID(&HSTRING::from(pid)) }.map_err(|error| {
+                    com_error(
+                        format!("GetObject could not resolve '{pid}': {error}"),
+                        span,
+                    )
+                })?;
+
+                let mut unknown = None;
+                unsafe {
+                    GetActiveObject(&clsid, None, &mut unknown).map_err(|error| {
+                        com_error(
+                            format!("GetObject: could not get active object for '{pid}': {error}"),
+                            span,
+                        )
+                    })?;
+                }
+
+                let dispatch: IDispatch = unknown.unwrap().cast().map_err(|error| {
+                    com_error(
+                        format!("GetObject: object for '{pid}' does not support automation (IDispatch): {error}"),
+                        span,
+                    )
+                })?;
+
+                return Ok(Value::ComObject(Rc::new(ComObjectValue {
+                    prog_id: pid.to_string(),
+                    dispatch,
+                })));
+            }
+        } else {
+            // GetObject("path", ["ProgID"])
+            let dispatch: IDispatch = unsafe {
+                CoGetObject(&HSTRING::from(path), None).map_err(|error| {
+                    com_error(
+                        format!("GetObject could not bind to '{path}': {error}"),
+                        span,
+                    )
+                })?
+            };
+
+            return Ok(Value::ComObject(Rc::new(ComObjectValue {
+                prog_id: prog_id.unwrap_or(path).to_string(),
+                dispatch,
+            })));
+        }
+    } else if let Some(pid) = prog_id {
+        return get_object(Some(""), Some(pid), span);
+    }
+
+    Err(com_error(
+        "GetObject requires either a pathname or a class name",
+        span,
+    ))
+}
+
+#[cfg(not(windows))]
+pub fn get_object(
+    _pathname: Option<&str>,
+    _prog_id: Option<&str>,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    Err(com_error(
+        "GetObject is only available on Windows COM/OLE Automation hosts",
         span,
     ))
 }

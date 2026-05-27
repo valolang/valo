@@ -1,0 +1,102 @@
+
+' Valo Complex COM Automation Example
+' This script automates PowerPoint using data from the File System.
+' It demonstrates multi-object orchestration, error handling, 
+' and deep property/method access.
+
+Sub Main()
+    On Error Resume Next
+    
+    Console.WriteLine("=== Valo Cross-App Automation ===")
+    
+    ' 1. Initialize Objects
+    Dim fso As Object:    Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim shell As Object:  Set shell = CreateObject("WScript.Shell")
+    Dim pptApp As Object: Set pptApp = CreateObject("PowerPoint.Application")
+    
+    If Err.Number <> 0 Then
+        Console.WriteLine("Critical Error: Could not initialize COM objects.")
+        Console.WriteLine("Details: " & Err.Description)
+        Exit Sub
+    End If
+
+    ' 2. Create a temporary data file using FSO
+    Dim tempPath As String: tempPath = shell.ExpandEnvironmentStrings("%TEMP%")
+    Dim dataFile As String: dataFile = tempPath & "\valo_presentation_data.txt"
+    
+    Console.WriteLine("Preparing data in: " & dataFile)
+    Dim ts As Object: Set ts = fso.CreateTextFile(dataFile, True)
+    ts.WriteLine("Valo Language Features")
+    ts.WriteLine("1. Full VBA COM Parity")
+    ts.WriteLine("2. Late-bound Automation")
+    ts.WriteLine("3. Out-of-process support (Excel/PPT)")
+    ts.WriteLine("4. For Each Enumeration")
+    ts.Close
+
+    ' 3. Automate PowerPoint
+    Console.WriteLine("Starting PowerPoint...")
+    pptApp.Visible = 1 ' MSOTrue
+    
+    Dim pres As Object: Set pres = pptApp.Presentations.Add()
+    Dim slideIndex As Integer: slideIndex = 1
+    
+    ' Read the data file and create slides
+    Dim reader As Object: Set reader = fso.OpenTextFile(dataFile, 1) ' 1 = ForReading
+    Dim slide As Object
+    Dim line As String
+    
+    Do While reader.AtEndOfStream <> True
+        line = reader.ReadLine()
+        
+        ' Add a slide (12 = ppLayoutText in many Office versions, but let's use 1 for Title)
+        ' Note: In PowerPoint, 1 is ppLayoutTitle, 2 is ppLayoutText
+        Set slide = pres.Slides.Add(slideIndex, 2) 
+        
+        If Err.Number <> 0 Then
+            Console.WriteLine("Failed to add slide " & slideIndex & ": " & Err.Description)
+            Err.Clear
+        Else
+            ' Accessing deep properties: Slide -> Shapes -> Item(1) -> TextFrame -> TextRange -> Text
+            slide.Shapes.Item(1).TextFrame.TextRange.Text = "Valo Automation"
+            slide.Shapes.Item(2).TextFrame.TextRange.Text = line
+            
+            ' Apply some formatting
+            slide.Shapes.Item(1).TextFrame.TextRange.Font.Color.RGB = 255 ' Red
+            
+            Console.WriteLine("Created Slide " & slideIndex & ": " & line)
+            slideIndex = slideIndex + 1
+        End If
+    Loop
+    reader.Close
+
+    ' 4. Demonstrate GetObject by attaching to the presentation we just created
+    Console.WriteLine("Verifying via GetObject...")
+    Dim attachedApp As Object
+    Set attachedApp = GetObject(, "PowerPoint.Application")
+    
+    If Err.Number = 0 Then
+        Console.WriteLine("Successfully attached to: " & attachedApp.ActivePresentation.Name)
+    End If
+
+    ' 5. Save the presentation
+    Dim savePath As String: savePath = shell.SpecialFolders("Desktop") & "\ValoDemo.pptx"
+    Console.WriteLine("Saving presentation to Desktop...")
+    
+    ' Delete if exists
+    If fso.FileExists(savePath) Then fso.DeleteFile(savePath)
+    
+    pres.SaveAs(savePath)
+    
+    If Err.Number = 0 Then
+        Console.WriteLine("SUCCESS! Presentation saved at: " & savePath)
+    Else
+        Console.WriteLine("Save failed: " & Err.Description)
+    End If
+
+    ' Cleanup
+    Console.WriteLine("Cleaning up...")
+    ' pptApp.Quit ' Uncomment to close PPT automatically
+    fso.DeleteFile(dataFile)
+    
+    Console.WriteLine("Task Finished.")
+End Sub

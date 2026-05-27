@@ -50,7 +50,8 @@ pub enum Stmt {
         expr: Expr,
         span: Span,
     },
-    ConsoleWriteLine {
+    ConsoleCall {
+        method: String,
         args: Vec<Expr>,
         span: Span,
     },
@@ -513,7 +514,8 @@ impl Stmt {
                 expr: expr.substitute_generics(bindings),
                 span: *span,
             },
-            Stmt::ConsoleWriteLine { args, span } => Stmt::ConsoleWriteLine {
+            Stmt::ConsoleCall { method, args, span } => Stmt::ConsoleCall {
+                method: method.clone(),
                 args: args
                     .iter()
                     .map(|arg| arg.substitute_generics(bindings))

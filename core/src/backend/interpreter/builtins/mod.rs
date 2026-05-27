@@ -7,8 +7,8 @@
 //! (`IIf`, `CallByName`, pointer builtins, and host-owned services).
 
 use super::{ControlFlow, Frame, Interpreter};
-use crate::Expr;
-use crate::runtime::{Diagnostic, Value};
+use crate::runtime::{Diagnostic, TypeName, Value, coerce_assignment};
+use crate::{Expr, ExprKind};
 
 pub(crate) fn dispatch_stmt(
     interpreter: &mut Interpreter,
@@ -18,6 +18,15 @@ pub(crate) fn dispatch_stmt(
     frame: &mut Frame,
     span: crate::runtime::Span,
 ) -> Result<Option<ControlFlow>, Diagnostic> {
+    if object_name.is_empty()
+        && matches!(
+            method.to_ascii_lowercase().as_str(),
+            "msgbox" | "inputbox" | "doevents"
+        )
+    {
+        dispatch_function(interpreter, method, args, frame, span)?;
+        return Ok(Some(ControlFlow::Continue));
+    }
     // Handle VBA namespace fallback: VBA.MsgBox(...) -> MsgBox(...)
     let effective_object_name = if object_name.eq_ignore_ascii_case("VBA") {
         "VBA"
@@ -28,6 +37,13 @@ pub(crate) fn dispatch_stmt(
     if effective_object_name.eq_ignore_ascii_case("Console")
         || effective_object_name.eq_ignore_ascii_case("Debug")
     {
+        if effective_object_name.eq_ignore_ascii_case("Debug")
+            && method.eq_ignore_ascii_case("Assert")
+        {
+            dispatch_function(interpreter, "Debug.Assert", args, frame, span)?;
+            return Ok(Some(ControlFlow::Continue));
+        }
+
         let mut values = Vec::with_capacity(args.len());
         for arg in args {
             let val = interpreter.eval_expr(arg, frame)?;
@@ -36,8 +52,18 @@ pub(crate) fn dispatch_stmt(
         }
 
         if effective_object_name.eq_ignore_ascii_case("Console") {
+            if method.eq_ignore_ascii_case("ReadLine") {
+                let result = console::exec_console(method, &values, span)?;
+                if let Some(_line) = result {
+                    // This is a bit tricky: ReadLine as a statement? Usually it's a function.
+                    // If called as a statement, we just ignore the result.
+                    return Ok(Some(ControlFlow::Continue));
+                }
+            }
             if let Some(line) = console::exec_console(method, &values, span)? {
                 interpreter.output.push(line);
+                return Ok(Some(ControlFlow::Continue));
+            } else if method.eq_ignore_ascii_case("Write") {
                 return Ok(Some(ControlFlow::Continue));
             }
         } else {
@@ -52,7 +78,15 @@ pub(crate) fn dispatch_stmt(
         return err::exec_err(interpreter, method, args, frame, span);
     }
 
-    if object_name.eq_ignore_ascii_case("VBA") {
+    if effective_object_name.eq_ignore_ascii_case("VBA") {
+        if matches!(
+            method.to_ascii_lowercase().as_str(),
+            "msgbox" | "inputbox" | "doevents"
+        ) {
+            dispatch_function(interpreter, method, args, frame, span)?;
+            return Ok(Some(ControlFlow::Continue));
+        }
+
         // VBA.Randomize 123
         if let Some(val) = dispatch_function(interpreter, method, args, frame, span)? {
             // If it returns a value but was called as a stmt, we just ignore the value
@@ -160,6 +194,124 @@ pub(crate) fn dispatch_function(
         }
     }
 
+    if effective_name.eq_ignore_ascii_case("DoEvents") {
+        #[cfg(windows)]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage,
+            };
+            unsafe {
+                let mut msg = MSG::default();
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+        }
+        return Ok(Some(Value::Empty));
+    }
+
+    if effective_name.eq_ignore_ascii_case("MsgBox") {
+        if args.is_empty() || args.len() > 5 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "MsgBox expects 1 to 5 arguments",
+                Some(span),
+            ));
+        }
+        let prompt = interpreter.eval_expr(&args[0], frame)?.to_output_string();
+        let buttons_val = if args.len() >= 2 && !matches!(args[1].kind, ExprKind::Missing) {
+            interpreter.eval_expr(&args[1], frame)?
+        } else {
+            Value::Int32(0) // vbOKOnly
+        };
+        let buttons = coerce_assignment(&TypeName::Long, buttons_val, span)?
+            .to_output_string()
+            .parse::<i32>()
+            .unwrap_or(0);
+
+        let title = if args.len() >= 3 && !matches!(args[2].kind, ExprKind::Missing) {
+            interpreter.eval_expr(&args[2], frame)?.to_output_string()
+        } else {
+            "Valo".to_string()
+        };
+
+        #[cfg(windows)]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::{MESSAGEBOX_STYLE, MessageBoxW};
+            use windows::core::HSTRING;
+            let result = unsafe {
+                MessageBoxW(
+                    None,
+                    &HSTRING::from(prompt),
+                    &HSTRING::from(title),
+                    MESSAGEBOX_STYLE(buttons as u32),
+                )
+            };
+            return Ok(Some(Value::Int16(result.0 as i16)));
+        }
+        #[cfg(not(windows))]
+        {
+            println!("{title}: {prompt}");
+            return Ok(Some(Value::Int16(1))); // vbOK
+        }
+    }
+
+    if effective_name.eq_ignore_ascii_case("InputBox") {
+        if args.is_empty() || args.len() > 7 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "InputBox expects 1 to 7 arguments",
+                Some(span),
+            ));
+        }
+        let prompt = interpreter.eval_expr(&args[0], frame)?.to_output_string();
+        let title = if args.len() >= 2 && !matches!(args[1].kind, ExprKind::Missing) {
+            interpreter.eval_expr(&args[1], frame)?.to_output_string()
+        } else {
+            "Valo".to_string()
+        };
+        let default = if args.len() >= 3 && !matches!(args[2].kind, ExprKind::Missing) {
+            interpreter.eval_expr(&args[2], frame)?.to_output_string()
+        } else {
+            String::new()
+        };
+
+        // For now, let's use console ReadLine as a fallback for InputBox
+        println!("{title}: {prompt}");
+        if !default.is_empty() {
+            println!("Default: {default}");
+        }
+        print!("> ");
+        use std::io::{self, Write};
+        let _ = io::stdout().flush();
+        let mut input = String::new();
+        let _ = io::stdin().read_line(&mut input);
+        let result = input.trim_end_matches(['\r', '\n']).to_string();
+        if result.is_empty() && !default.is_empty() {
+            return Ok(Some(Value::String(default)));
+        }
+        return Ok(Some(Value::String(result)));
+    }
+
+    if effective_name.eq_ignore_ascii_case("Debug.Assert") {
+        expect_arg_count(effective_name, args, 1, span)?;
+        let condition = interpreter.eval_expr(&args[0], frame)?.is_truthy();
+        if !condition {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Assertion failed".to_string(),
+                Some(args[0].span),
+            ));
+        }
+        return Ok(Some(Value::Empty));
+    }
+
+    if effective_name.eq_ignore_ascii_case("Console.ReadLine") {
+        let result = console::exec_console("ReadLine", &[], span)?;
+        return Ok(Some(Value::String(result.unwrap_or_default())));
+    }
+
     if effective_name.eq_ignore_ascii_case("CreateObject") {
         if args.is_empty() || args.len() > 2 {
             return Err(Diagnostic::new(
@@ -180,6 +332,31 @@ pub(crate) fn dispatch_function(
             }
         }
         return Ok(Some(crate::runtime::com::create_object(&prog_id, span)?));
+    }
+
+    if effective_name.eq_ignore_ascii_case("GetObject") {
+        if args.is_empty() || args.len() > 2 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "GetObject expects 1 to 2 arguments",
+                Some(span),
+            ));
+        }
+        let pathname = if !matches!(args[0].kind, ExprKind::Missing) {
+            Some(interpreter.eval_expr(&args[0], frame)?.to_output_string())
+        } else {
+            None
+        };
+        let prog_id = if args.len() == 2 && !matches!(args[1].kind, ExprKind::Missing) {
+            Some(interpreter.eval_expr(&args[1], frame)?.to_output_string())
+        } else {
+            None
+        };
+        return Ok(Some(crate::runtime::com::get_object(
+            pathname.as_deref(),
+            prog_id.as_deref(),
+            span,
+        )?));
     }
 
     if matches!(

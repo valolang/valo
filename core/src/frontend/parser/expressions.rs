@@ -449,6 +449,24 @@ impl Parser {
                     ExprKind::Variable(name)
                 }
             }
+            TokenKind::Console => {
+                self.expect_simple(TokenKind::Dot, "Expected '.' after 'Console'")?;
+                let method = self.expect_identifier("Expected method name after 'Console.'")?;
+                let args = if self.match_simple(&TokenKind::LeftParen) {
+                    self.finish_call_arguments()?
+                } else {
+                    Vec::new()
+                };
+                let end = self.previous().span;
+                return self.parse_member_access(Expr {
+                    kind: ExprKind::Call {
+                        name: format!("Console.{}", method),
+                        type_args: Vec::new(),
+                        args,
+                    },
+                    span: Span::new(self.file_id, span.start, end.end),
+                });
+            }
             TokenKind::Lib
             | TokenKind::Base
             | TokenKind::Text
@@ -639,16 +657,27 @@ impl Parser {
         let mut saw_named = false;
         if !self.check_simple(&TokenKind::RightParen) {
             loop {
-                let arg = self.parse_argument()?;
-                if matches!(arg.kind, ExprKind::NamedArg { .. }) {
-                    saw_named = true;
-                } else if saw_named {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::GENERIC,
-                        "Positional arguments cannot appear after named arguments",
-                        Some(arg.span),
-                    ));
-                }
+                let arg = if self.check_simple(&TokenKind::Comma)
+                    || self.check_simple(&TokenKind::RightParen)
+                {
+                    // Omitted argument
+                    Expr {
+                        kind: ExprKind::Missing,
+                        span: self.peek().span,
+                    }
+                } else {
+                    let arg = self.parse_argument()?;
+                    if matches!(arg.kind, ExprKind::NamedArg { .. }) {
+                        saw_named = true;
+                    } else if saw_named {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Positional arguments cannot appear after named arguments",
+                            Some(arg.span),
+                        ));
+                    }
+                    arg
+                };
                 args.push(arg);
                 if !self.match_simple(&TokenKind::Comma) {
                     break;

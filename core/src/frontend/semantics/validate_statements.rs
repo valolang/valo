@@ -293,7 +293,22 @@ pub fn validate_statements(
                 }
                 ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
             }
-            Stmt::ConsoleWriteLine { args, .. } | Stmt::DebugPrint { args, .. } => {
+            Stmt::ConsoleCall { method, args, .. } => {
+                if !matches!(
+                    method.to_ascii_lowercase().as_str(),
+                    "writeline" | "write" | "readline"
+                ) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Unknown Console method: {}", method),
+                        Some(stmt_span(stmt, context)),
+                    ));
+                }
+                for arg in args {
+                    validate_expr(arg, symbols, types, signatures, context, option_explicit)?;
+                }
+            }
+            Stmt::DebugPrint { args, .. } => {
                 for arg in args {
                     validate_expr(arg, symbols, types, signatures, context, option_explicit)?;
                 }
@@ -1519,7 +1534,7 @@ fn stmt_span(stmt: &Stmt, _context: &Context<'_>) -> crate::runtime::Span {
         | Stmt::ConstMany { span, .. }
         | Stmt::Assign { span, .. }
         | Stmt::SetAssign { span, .. }
-        | Stmt::ConsoleWriteLine { span, .. }
+        | Stmt::ConsoleCall { span, .. }
         | Stmt::SubCall { span, .. }
         | Stmt::MemberSubCall { span, .. }
         | Stmt::RaiseEvent { span, .. }
@@ -1570,7 +1585,7 @@ fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
             assign_target_uses_with_target(target, _context)
                 || expr_uses_with_target(expr, _context)
         }
-        Stmt::ConsoleWriteLine { args, .. }
+        Stmt::ConsoleCall { args, .. }
         | Stmt::SubCall { args, .. }
         | Stmt::DebugPrint { args, .. } => {
             args.iter().any(|arg| expr_uses_with_target(arg, _context))

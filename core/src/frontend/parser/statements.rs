@@ -1107,10 +1107,18 @@ impl Parser {
             .expect_simple(TokenKind::Console, "Expected 'Console'")?
             .span;
         self.expect_simple(TokenKind::Dot, "Expected '.' after 'Console'")?;
-        self.expect_simple(
-            TokenKind::WriteLine,
-            "Expected 'WriteLine' after 'Console.'",
-        )?;
+
+        let method = match self.advance().kind {
+            TokenKind::WriteLine => "WriteLine".to_string(),
+            TokenKind::Identifier(name, _) => name,
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected method name after 'Console.'",
+                    Some(self.previous().span),
+                ));
+            }
+        };
 
         let args = if self.match_simple(&TokenKind::LeftParen) {
             let mut args = Vec::new();
@@ -1129,7 +1137,8 @@ impl Parser {
         };
 
         let end = self.previous().span;
-        Ok(Stmt::ConsoleWriteLine {
+        Ok(Stmt::ConsoleCall {
+            method,
             args,
             span: Span::new(self.file_id, start.start, end.end),
         })
