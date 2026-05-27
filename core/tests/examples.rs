@@ -64,10 +64,11 @@ fn test_official_examples() {
 }
 
 fn should_skip_example(file_name: Option<&str>) -> bool {
-    if let Some(name) = file_name {
-        if cfg!(not(windows)) && name.starts_with("com_") {
-            return true;
-        }
+    if let Some(name) = file_name
+        && cfg!(not(windows))
+        && name.starts_with("com_")
+    {
+        return true;
     }
     false
 }
