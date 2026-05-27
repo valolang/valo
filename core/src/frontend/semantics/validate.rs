@@ -29,31 +29,7 @@ use validate_declarations::{
     ensure_const_expr, params_to_sigs, validate_function, validate_procedure,
 };
 use validate_expressions::*;
-use validate_statements::validate_statements;
-
-#[derive(Debug, Clone, Copy, Default)]
-struct LoopContext {
-    for_depth: usize,
-    while_depth: usize,
-    do_depth: usize,
-}
-
-impl LoopContext {
-    fn in_for(mut self) -> Self {
-        self.for_depth += 1;
-        self
-    }
-
-    fn in_while(mut self) -> Self {
-        self.while_depth += 1;
-        self
-    }
-
-    fn in_do(mut self) -> Self {
-        self.do_depth += 1;
-        self
-    }
-}
+pub(super) use validate_statements::{LoopContext, StmtValidation, validate_statements};
 
 pub fn validate(program: &Program) -> Result<(), Diagnostic> {
     validate_internal(program, true)

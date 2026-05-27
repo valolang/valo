@@ -724,12 +724,8 @@ pub(super) fn validate_expr(
                 if let Some(ty) = validate_builtin_function(
                     method,
                     args,
-                    symbols,
-                    types,
-                    signatures,
                     expr.span,
-                    context,
-                    option_explicit,
+                    ExprValidation::new(symbols, types, signatures, context, option_explicit),
                 )? {
                     return Ok(ty);
                 }
@@ -833,12 +829,8 @@ pub(super) fn validate_expr(
             if let Some(ty) = validate_builtin_function(
                 name,
                 args,
-                symbols,
-                types,
-                signatures,
                 expr.span,
-                context,
-                option_explicit,
+                ExprValidation::new(symbols, types, signatures, context, option_explicit),
             )? {
                 return Ok(ty);
             }
@@ -1348,13 +1340,15 @@ pub(super) fn validate_array_expr(
 fn validate_builtin_function(
     name: &str,
     args: &[Expr],
-    symbols: &HashMap<String, VarType>,
-    types: &TypeRegistry,
-    signatures: &Signatures,
     span: crate::runtime::Span,
-    context: &Context<'_>,
-    option_explicit: bool,
+    validation: ExprValidation<'_, '_>,
 ) -> Result<Option<TypeName>, Diagnostic> {
+    let symbols = validation.symbols;
+    let types = validation.types;
+    let signatures = validation.signatures;
+    let context = validation.context;
+    let option_explicit = validation.option_explicit;
+
     // Handle VBA namespace fallback
     let effective_name = if let Some(stripped) = name.strip_prefix("VBA.") {
         stripped
@@ -1366,21 +1360,21 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         if validate_array_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )
         .is_err()
         {
             validate_expr(
                 &args[0],
-                symbols,
-                types,
-                signatures,
-                context,
-                option_explicit,
+                validation.symbols,
+                validation.types,
+                validation.signatures,
+                validation.context,
+                validation.option_explicit,
             )?;
         }
         return Ok(Some(TypeName::Boolean));
@@ -1393,11 +1387,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Boolean));
     }
@@ -1485,11 +1479,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Date));
     }
@@ -1536,11 +1530,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Date));
     }
@@ -1548,11 +1542,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Boolean));
     }
@@ -1589,11 +1583,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Ptr));
     }
@@ -1601,11 +1595,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::String));
     }
@@ -1626,11 +1620,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::String));
     }
@@ -1638,11 +1632,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Byte));
     }
@@ -1650,11 +1644,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Integer));
     }
@@ -1662,11 +1656,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Long));
     }
@@ -1676,11 +1670,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Int64));
     }
@@ -1688,11 +1682,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Single));
     }
@@ -1700,11 +1694,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Double));
     }
@@ -1712,11 +1706,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Decimal));
     }
@@ -1724,11 +1718,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Currency));
     }
@@ -1736,11 +1730,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Date));
     }
@@ -1748,11 +1742,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Boolean));
     }
@@ -1772,11 +1766,11 @@ fn validate_builtin_function(
         }
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         if args.len() == 2 {
             validate_expr(
@@ -1906,11 +1900,11 @@ fn validate_builtin_function(
         }
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         validate_expr(
             &args[1],
@@ -1946,11 +1940,11 @@ fn validate_builtin_function(
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
-            symbols,
-            types,
-            signatures,
-            context,
-            option_explicit,
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
         )?;
         let return_type = if effective_name.eq_ignore_ascii_case("Val") {
             TypeName::Double

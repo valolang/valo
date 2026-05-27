@@ -2279,13 +2279,15 @@ pub(super) fn validate_procedure(
     add_parameters(&procedure.params, &mut symbols)?;
     validate_statements(
         &procedure.body,
-        &mut symbols,
-        types,
-        signatures,
-        Context::Sub,
-        LoopContext::default(),
-        false,
-        option_explicit,
+        &mut StmtValidation {
+            symbols: &mut symbols,
+            types,
+            signatures,
+            context: &mut Context::Sub,
+            loop_context: LoopContext::default(),
+            in_with: false,
+            option_explicit,
+        },
     )
 }
 
@@ -2311,19 +2313,21 @@ pub(super) fn validate_function(
     let mut saw_yield = false;
     validate_statements(
         &function.body,
-        &mut symbols,
-        types,
-        signatures,
-        Context::Function {
-            return_type: function.return_type.clone(),
-            return_slot: Some(return_slot),
-            is_iterator: function.is_iterator,
-            saw_return: &mut saw_return,
-            saw_yield: &mut saw_yield,
+        &mut StmtValidation {
+            symbols: &mut symbols,
+            types,
+            signatures,
+            context: &mut Context::Function {
+                return_type: function.return_type.clone(),
+                return_slot: Some(return_slot),
+                is_iterator: function.is_iterator,
+                saw_return: &mut saw_return,
+                saw_yield: &mut saw_yield,
+            },
+            loop_context: LoopContext::default(),
+            in_with: false,
+            option_explicit,
         },
-        LoopContext::default(),
-        false,
-        option_explicit,
     )?;
 
     if function.is_iterator {

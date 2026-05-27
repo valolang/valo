@@ -37,15 +37,17 @@ pub(super) fn validate_class(
                 add_parameters(&method.procedure.params, &mut symbols)?;
                 validate_statements(
                     &method.procedure.body,
-                    &mut symbols,
-                    types,
-                    signatures,
-                    Context::MethodSub {
-                        class_name: class_decl.name.clone(),
+                    &mut StmtValidation {
+                        symbols: &mut symbols,
+                        types,
+                        signatures,
+                        context: &mut Context::MethodSub {
+                            class_name: class_decl.name.clone(),
+                        },
+                        loop_context: LoopContext::default(),
+                        in_with: false,
+                        option_explicit,
                     },
-                    LoopContext::default(),
-                    false,
-                    option_explicit,
                 )?;
             }
             ClassMember::Function(method) => {
@@ -65,20 +67,22 @@ pub(super) fn validate_class(
                 let mut saw_yield = false;
                 validate_statements(
                     &method.function.body,
-                    &mut symbols,
-                    types,
-                    signatures,
-                    Context::MethodFunction {
-                        class_name: class_decl.name.clone(),
-                        return_type: method.function.return_type.clone(),
-                        return_slot: Some(format!("__return_{}", method.function.name)),
-                        is_iterator: method.function.is_iterator,
-                        saw_return: &mut saw_return,
-                        saw_yield: &mut saw_yield,
+                    &mut StmtValidation {
+                        symbols: &mut symbols,
+                        types,
+                        signatures,
+                        context: &mut Context::MethodFunction {
+                            class_name: class_decl.name.clone(),
+                            return_type: method.function.return_type.clone(),
+                            return_slot: Some(format!("__return_{}", method.function.name)),
+                            is_iterator: method.function.is_iterator,
+                            saw_return: &mut saw_return,
+                            saw_yield: &mut saw_yield,
+                        },
+                        loop_context: LoopContext::default(),
+                        in_with: false,
+                        option_explicit,
                     },
-                    LoopContext::default(),
-                    false,
-                    option_explicit,
                 )?;
                 if method.function.is_iterator {
                     if !saw_yield {
@@ -128,20 +132,22 @@ pub(super) fn validate_class(
                 let mut saw_yield = false;
                 validate_statements(
                     &method.function.body,
-                    &mut symbols,
-                    types,
-                    signatures,
-                    Context::MethodFunction {
-                        class_name: class_decl.name.clone(),
-                        return_type: method.function.return_type.clone(),
-                        return_slot: Some(format!("__return_{}", method.function.name)),
-                        is_iterator: true,
-                        saw_return: &mut saw_return,
-                        saw_yield: &mut saw_yield,
+                    &mut StmtValidation {
+                        symbols: &mut symbols,
+                        types,
+                        signatures,
+                        context: &mut Context::MethodFunction {
+                            class_name: class_decl.name.clone(),
+                            return_type: method.function.return_type.clone(),
+                            return_slot: Some(format!("__return_{}", method.function.name)),
+                            is_iterator: true,
+                            saw_return: &mut saw_return,
+                            saw_yield: &mut saw_yield,
+                        },
+                        loop_context: LoopContext::default(),
+                        in_with: false,
+                        option_explicit,
                     },
-                    LoopContext::default(),
-                    false,
-                    option_explicit,
                 )?;
                 if !saw_yield && !saw_return {
                     return Err(Diagnostic::new(
@@ -177,20 +183,22 @@ pub(super) fn validate_class(
                         let mut saw_yield = false;
                         validate_statements(
                             &property.body,
-                            &mut symbols,
-                            types,
-                            signatures,
-                            Context::PropertyGet {
-                                class_name: class_decl.name.clone(),
-                                return_type,
-                                return_slot: Some(format!("__return_{}", property.name)),
-                                is_iterator: property.is_iterator,
-                                saw_return: &mut saw_return,
-                                saw_yield: &mut saw_yield,
+                            &mut StmtValidation {
+                                symbols: &mut symbols,
+                                types,
+                                signatures,
+                                context: &mut Context::PropertyGet {
+                                    class_name: class_decl.name.clone(),
+                                    return_type,
+                                    return_slot: Some(format!("__return_{}", property.name)),
+                                    is_iterator: property.is_iterator,
+                                    saw_return: &mut saw_return,
+                                    saw_yield: &mut saw_yield,
+                                },
+                                loop_context: LoopContext::default(),
+                                in_with: false,
+                                option_explicit,
                             },
-                            LoopContext::default(),
-                            false,
-                            option_explicit,
                         )?;
                         if property.is_iterator {
                             if !saw_yield {
@@ -226,15 +234,17 @@ pub(super) fn validate_class(
                     PropertyKind::Let | PropertyKind::Set => {
                         validate_statements(
                             &property.body,
-                            &mut symbols,
-                            types,
-                            signatures,
-                            Context::PropertyLetSet {
-                                class_name: class_decl.name.clone(),
+                            &mut StmtValidation {
+                                symbols: &mut symbols,
+                                types,
+                                signatures,
+                                context: &mut Context::PropertyLetSet {
+                                    class_name: class_decl.name.clone(),
+                                },
+                                loop_context: LoopContext::default(),
+                                in_with: false,
+                                option_explicit,
                             },
-                            LoopContext::default(),
-                            false,
-                            option_explicit,
                         )?;
                     }
                 }
@@ -675,15 +685,17 @@ pub(super) fn validate_structure(
                 add_parameters(&method.procedure.params, &mut symbols)?;
                 validate_statements(
                     &method.procedure.body,
-                    &mut symbols,
-                    types,
-                    signatures,
-                    Context::MethodSub {
-                        class_name: type_decl.name.clone(),
+                    &mut StmtValidation {
+                        symbols: &mut symbols,
+                        types,
+                        signatures,
+                        context: &mut Context::MethodSub {
+                            class_name: type_decl.name.clone(),
+                        },
+                        loop_context: LoopContext::default(),
+                        in_with: false,
+                        option_explicit,
                     },
-                    LoopContext::default(),
-                    false,
-                    option_explicit,
                 )?;
             }
             ClassMember::Function(method) => {
@@ -702,20 +714,22 @@ pub(super) fn validate_structure(
                 let mut saw_yield = false;
                 validate_statements(
                     &method.function.body,
-                    &mut symbols,
-                    types,
-                    signatures,
-                    Context::MethodFunction {
-                        class_name: type_decl.name.clone(),
-                        return_type: method.function.return_type.clone(),
-                        return_slot: Some(format!("__return_{}", method.function.name)),
-                        is_iterator: method.function.is_iterator,
-                        saw_return: &mut saw_return,
-                        saw_yield: &mut saw_yield,
+                    &mut StmtValidation {
+                        symbols: &mut symbols,
+                        types,
+                        signatures,
+                        context: &mut Context::MethodFunction {
+                            class_name: type_decl.name.clone(),
+                            return_type: method.function.return_type.clone(),
+                            return_slot: Some(format!("__return_{}", method.function.name)),
+                            is_iterator: method.function.is_iterator,
+                            saw_return: &mut saw_return,
+                            saw_yield: &mut saw_yield,
+                        },
+                        loop_context: LoopContext::default(),
+                        in_with: false,
+                        option_explicit,
                     },
-                    LoopContext::default(),
-                    false,
-                    option_explicit,
                 )?;
                 if method.function.is_iterator {
                     if !saw_yield {
@@ -770,20 +784,22 @@ pub(super) fn validate_structure(
                         let mut saw_yield = false;
                         validate_statements(
                             &property.body,
-                            &mut symbols,
-                            types,
-                            signatures,
-                            Context::PropertyGet {
-                                class_name: type_decl.name.clone(),
-                                return_type,
-                                return_slot: Some(format!("__return_{}", property.name)),
-                                is_iterator: property.is_iterator,
-                                saw_return: &mut saw_return,
-                                saw_yield: &mut saw_yield,
+                            &mut StmtValidation {
+                                symbols: &mut symbols,
+                                types,
+                                signatures,
+                                context: &mut Context::PropertyGet {
+                                    class_name: type_decl.name.clone(),
+                                    return_type,
+                                    return_slot: Some(format!("__return_{}", property.name)),
+                                    is_iterator: property.is_iterator,
+                                    saw_return: &mut saw_return,
+                                    saw_yield: &mut saw_yield,
+                                },
+                                loop_context: LoopContext::default(),
+                                in_with: false,
+                                option_explicit,
                             },
-                            LoopContext::default(),
-                            false,
-                            option_explicit,
                         )?;
                         if property.is_iterator {
                             if !saw_yield {
@@ -819,15 +835,17 @@ pub(super) fn validate_structure(
                     PropertyKind::Let | PropertyKind::Set => {
                         validate_statements(
                             &property.body,
-                            &mut symbols,
-                            types,
-                            signatures,
-                            Context::PropertyLetSet {
-                                class_name: type_decl.name.clone(),
+                            &mut StmtValidation {
+                                symbols: &mut symbols,
+                                types,
+                                signatures,
+                                context: &mut Context::PropertyLetSet {
+                                    class_name: type_decl.name.clone(),
+                                },
+                                loop_context: LoopContext::default(),
+                                in_with: false,
+                                option_explicit,
                             },
-                            LoopContext::default(),
-                            false,
-                            option_explicit,
                         )?;
                     }
                 }

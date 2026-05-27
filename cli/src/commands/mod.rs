@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use valo_core::{Frame, Interpreter, validate_snippet};
+use valo_core::{Frame, Interpreter, Stmt, validate_snippet};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ColorChoice {
@@ -130,24 +130,43 @@ pub fn repl(color: ColorChoice) -> Result<(), String> {
 
         let mut source_map = valo_core::SourceMap::new();
         let file_id = source_map.add("repl".to_string(), source_content.clone());
-        match valo_core::parse_source_with_id(&source_content, file_id) {
-            Ok(program) => {
-                if let Err(err) = validate_snippet(&program) {
-                    eprintln!("{}", err.render_colored(&source_map, color.enabled()));
-                } else {
-                    match interpreter.run_repl_snippet(&program, &mut global_frame) {
-                        Ok(output) => {
-                            for out_line in output {
-                                println!("{}", out_line);
-                            }
-                        }
-                        Err(err) => {
-                            eprintln!("{}", err.render_colored(&source_map, color.enabled()))
-                        }
+        let mut program = match valo_core::parse_source_with_id(&source_content, file_id) {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("{}", err.render_colored(&source_map, color.enabled()));
+                continue;
+            }
+        };
+
+        if !is_decl
+            && let Some(main) = program
+                .procedures
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case("main"))
+            && main.body.len() == 1
+            && let Stmt::SubCall { args, .. } = &main.body[0]
+            && args.is_empty()
+        {
+            let expr_content = format!("Sub Main()\nDebug.Print {}\nEnd Sub", line);
+            let test_file_id = source_map.add("repl".to_string(), expr_content.clone());
+            if let Ok(expr_program) = valo_core::parse_source_with_id(&expr_content, test_file_id)
+                && validate_snippet(&expr_program).is_ok()
+            {
+                program = expr_program;
+            }
+        }
+
+        if let Err(err) = validate_snippet(&program) {
+            eprintln!("{}", err.render_colored(&source_map, color.enabled()));
+        } else {
+            match interpreter.run_repl_snippet(&program, &mut global_frame) {
+                Ok(output) => {
+                    for out_line in output {
+                        println!("{}", out_line);
                     }
                 }
+                Err(err) => eprintln!("{}", err.render_colored(&source_map, color.enabled())),
             }
-            Err(err) => eprintln!("{}", err.render_colored(&source_map, color.enabled())),
         }
     }
     Ok(())

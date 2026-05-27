@@ -64,5 +64,10 @@ fn test_official_examples() {
 }
 
 fn should_skip_example(file_name: Option<&str>) -> bool {
-    cfg!(not(windows)) && file_name == Some("com_dictionary.valo")
+    if let Some(name) = file_name {
+        if cfg!(not(windows)) && name.starts_with("com_") {
+            return true;
+        }
+    }
+    false
 }
