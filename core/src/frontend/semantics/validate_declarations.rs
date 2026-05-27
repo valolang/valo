@@ -1134,6 +1134,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         functions: HashMap::new(),
                     },
                     &Context::Sub,
+                    program.option_explicit,
                 )?;
                 ensure_assignable_expr(
                     &field.ty,
@@ -1713,6 +1714,7 @@ fn validate_class_field_type(
                     functions: HashMap::new(),
                 },
                 &Context::Sub,
+                false,
             )?;
             ensure_assignable_expr(
                 ty,
@@ -2096,7 +2098,14 @@ pub(super) fn collect_module_symbols(
             ensure_known_type(ty, types, var.span)?;
             ty.clone()
         } else if let Some(initializer) = &var.initializer {
-            validate_expr(initializer, &symbols, types, signatures, &Context::Sub)?
+            validate_expr(
+                initializer,
+                &symbols,
+                types,
+                signatures,
+                &Context::Sub,
+                program.option_explicit,
+            )?
         } else {
             TypeName::Variant
         };
@@ -2108,8 +2117,14 @@ pub(super) fn collect_module_symbols(
                     Some(initializer.span),
                 ));
             }
-            let source_type =
-                validate_expr(initializer, &symbols, types, signatures, &Context::Sub)?;
+            let source_type = validate_expr(
+                initializer,
+                &symbols,
+                types,
+                signatures,
+                &Context::Sub,
+                program.option_explicit,
+            )?;
             ensure_assignable_expr(&ty, &source_type, initializer, types, initializer.span)?;
         }
         let name_key = key(&var.name);
@@ -2136,6 +2151,7 @@ pub(super) fn collect_module_symbols(
             types,
             signatures,
             &Context::Sub,
+            program.option_explicit,
         )?;
         let const_type = const_decl.ty.clone().unwrap_or(value_type.clone());
         ensure_known_type(&const_type, types, const_decl.span)?;
@@ -2256,6 +2272,7 @@ pub(super) fn validate_procedure(
     types: &TypeRegistry,
     signatures: &Signatures,
     module_symbols: &HashMap<String, VarType>,
+    option_explicit: bool,
 ) -> Result<(), Diagnostic> {
     let mut symbols = HashMap::new();
     add_module_symbols(module_symbols, &mut symbols);
@@ -2268,6 +2285,7 @@ pub(super) fn validate_procedure(
         Context::Sub,
         LoopContext::default(),
         false,
+        option_explicit,
     )
 }
 
@@ -2276,6 +2294,7 @@ pub(super) fn validate_function(
     types: &TypeRegistry,
     signatures: &Signatures,
     module_symbols: &HashMap<String, VarType>,
+    option_explicit: bool,
 ) -> Result<(), Diagnostic> {
     let mut symbols = HashMap::new();
     add_module_symbols(module_symbols, &mut symbols);
@@ -2304,6 +2323,7 @@ pub(super) fn validate_function(
         },
         LoopContext::default(),
         false,
+        option_explicit,
     )?;
 
     if function.is_iterator {

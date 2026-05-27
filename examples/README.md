@@ -71,6 +71,10 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 *   **[VBA File Attributes](vba_file_attributes.valo):** `Dir` with `vbDirectory`, `FileLen`, `FileDateTime`, `CurDir`, `MkDir`, and `RmDir`.
 *   **[VBA Timer](vba_timer.valo):** `Timer`, `Now`, `DateSerial`, `Year`, `MonthName`, and `WeekdayName`.
 *   **[VBA Optional Arguments](vba_optional_arguments.valo):** Optional defaults and Optional Variant `IsMissing`.
+*   **[COM FileSystem](com_filesystem.valo):** Scripting.FileSystemObject for listing files and folders.
+*   **[COM Dictionary](com_dictionary.valo):** Using the Scripting.Dictionary automation object.
+*   **[COM PowerPoint](com_powerpoint.valo):** Automating Microsoft PowerPoint (requires PowerPoint).
+
 
 Run an example with:
 

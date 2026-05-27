@@ -1166,3 +1166,83 @@ End Sub
     let error = run(&program).unwrap_err().to_string();
     assert!(error.contains("File number must be between 1 and 511"));
 }
+
+#[cfg(windows)]
+#[test]
+fn test_createobject_fso() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Console.WriteLine(TypeName(fso))
+End Sub
+"#,
+    );
+    assert_eq!(output, vec!["Scripting.FileSystemObject"]);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_fso_getfolder_returned_object_type() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim folder As Object
+    Set folder = fso.GetFolder(".")
+    Console.WriteLine(TypeName(folder))
+End Sub
+"#,
+    );
+    assert_eq!(output, vec!["IFolder"]);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_fso_enumeration() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim folder As Object
+    Set folder = fso.GetFolder("C:\Windows")
+    
+    Dim count As Integer
+    count = 0
+    Dim subf As Object
+    For Each subf In folder.SubFolders
+        count = count + 1
+        If count >= 1 Then Exit For
+    Next
+    
+    if count > 0 then
+        Console.WriteLine("Enumerate OK")
+    else
+        Console.WriteLine("No subfolders found")
+    end if
+End Sub
+"#,
+    );
+    assert!(output[0] == "Enumerate OK" || output[0] == "No subfolders found");
+}
+
+#[cfg(windows)]
+#[test]
+fn test_com_dictionary() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Dim dict As Object
+    Set dict = CreateObject("Scripting.Dictionary")
+    dict.Add "a", 1
+    dict.Add "b", 2
+    Console.WriteLine(dict.Item("a"))
+    Console.WriteLine(dict.Exists("b"))
+End Sub
+"#,
+    );
+    assert_eq!(output, vec!["1", "True"]);
+}

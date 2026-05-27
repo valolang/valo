@@ -538,10 +538,32 @@ impl Parser {
         loop {
             if self.match_simple(&TokenKind::Dot) {
                 let field_token = self.advance();
-                let field = match field_token.kind {
-                    TokenKind::Identifier(field, _) => field,
+                let field = match &field_token.kind {
+                    TokenKind::Identifier(field, _) => field.clone(),
                     TokenKind::Version => "VERSION".to_string(),
                     TokenKind::WriteLine => "WriteLine".to_string(),
+                    TokenKind::Text => "Text".to_string(),
+                    TokenKind::Binary => "Binary".to_string(),
+                    TokenKind::Compare => "Compare".to_string(),
+                    TokenKind::Base => "Base".to_string(),
+                    TokenKind::Lib => "Lib".to_string(),
+                    TokenKind::New => "New".to_string(),
+                    TokenKind::Type => "Type".to_string(),
+                    TokenKind::Class => "Class".to_string(),
+                    TokenKind::Module => "Module".to_string(),
+                    TokenKind::Enum => "Enum".to_string(),
+                    TokenKind::Interface => "Interface".to_string(),
+                    TokenKind::Structure => "Structure".to_string(),
+                    TokenKind::Get => "Get".to_string(),
+                    TokenKind::Let => "Let".to_string(),
+                    TokenKind::Set => "Set".to_string(),
+                    TokenKind::Option => "Option".to_string(),
+                    TokenKind::Explicit => "Explicit".to_string(),
+                    TokenKind::Sub => "Sub".to_string(),
+                    TokenKind::Function => "Function".to_string(),
+                    TokenKind::Property => "Property".to_string(),
+                    TokenKind::Event => "Event".to_string(),
+                    TokenKind::Declare => "Declare".to_string(),
                     _ => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::PARSE,

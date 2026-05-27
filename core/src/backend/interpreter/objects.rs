@@ -653,6 +653,11 @@ impl Interpreter {
                 values.push(value);
                 self.call_property_set_values(Value::Object(instance), field, &values, span)
             }
+            Value::ComObject(com_obj) => {
+                let mut values = indices;
+                values.push(value);
+                self.call_property_set_values(Value::ComObject(com_obj), field, &values, span)
+            }
             Value::Record(record) => {
                 let mut record = record.as_ref().clone();
                 let Some(slot) = record.fields.get_mut(&key(field)) else {

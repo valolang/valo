@@ -1,0 +1,41 @@
+' Valo COM Example: PowerPoint Automation
+' This example demonstrates automating PowerPoint via COM.
+' Requires Windows and Microsoft PowerPoint installed.
+
+Sub Main()
+    Dim pptApp As Object
+    Dim presentation As Object
+    Dim slideIndex As Integer
+    Dim layoutIndex As Integer
+    slideIndex = 1
+    layoutIndex = 12 ' ppLayoutBlank
+
+    On Error GoTo ErrorHandler
+    
+    Debug.Print "Launching PowerPoint..."
+    Set pptApp = CreateObject("PowerPoint.Application")
+    pptApp.Visible = True ' Required for some operations
+    
+    Debug.Print "Creating presentation..."
+    Set presentation = pptApp.Presentations.Add
+    
+    Debug.Print "Adding slide..."
+    ' In PowerPoint VBA: Slides.Add(Index, Layout)
+    Dim slide1 As Object
+    Set slide1 = presentation.Slides.Add(slideIndex, layoutIndex)
+    
+    Debug.Print "Adding text..."
+    ' PowerPoint member chain test
+    slide1.Shapes.AddTextbox(1, 100, 100, 500, 50).TextFrame.TextRange.Text = "Valo + PowerPoint"
+    
+    ' Another chain test
+    Dim shape As Object
+    Set shape = slide1.Shapes.AddTextbox(1, 100, 200, 500, 50)
+    shape.TextFrame.TextRange.Text = "Created via Valo COM automation"
+    
+    Debug.Print "Done!"
+    Exit Sub
+
+ErrorHandler:
+    Debug.Print "Error: " & Err.Description
+End Sub

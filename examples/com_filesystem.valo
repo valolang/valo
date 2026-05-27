@@ -1,0 +1,31 @@
+' Valo COM Example: FileSystemObject
+' This example demonstrates using Scripting.FileSystemObject to list files and folders.
+' Requires Windows.
+
+Sub Main()
+    Dim fso As Object
+    Dim folder As Object
+    Dim subFolder As Object
+    Dim file As Object
+    
+    ' Create the FileSystemObject
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    
+    ' Get the current folder
+    Set folder = fso.GetFolder(".")
+    
+    Debug.Print "Folder: " & folder.Path
+    Debug.Print "Type: " & TypeName(folder)
+    
+    Debug.Print ""
+    Debug.Print "Subfolders:"
+    For Each subFolder In folder.SubFolders
+        Debug.Print "  " & subFolder.Name
+    Next
+    
+    Debug.Print ""
+    Debug.Print "Files:"
+    For Each file In folder.Files
+        Debug.Print "  " & file.Name & " (" & file.Size & " bytes)"
+    Next
+End Sub

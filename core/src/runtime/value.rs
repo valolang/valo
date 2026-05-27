@@ -130,7 +130,7 @@ impl Value {
             Value::Record(record) => TypeName::User(record.type_name.clone()),
             Value::BoxedRecord(_, interface_name) => TypeName::User(interface_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
-            Value::ComObject(_) => TypeName::User("Object".to_string()),
+            Value::ComObject(com) => TypeName::User(com.prog_id.clone()),
             Value::Error(_) => TypeName::Variant,
             Value::Nothing | Value::Null | Value::Missing => TypeName::Variant,
             Value::Empty => TypeName::Variant,

@@ -625,3 +625,33 @@ End Module
     assert_eq!(program.functions.len(), 1);
     assert_eq!(program.functions[0].name, "Add");
 }
+
+#[test]
+fn parses_chained_member_access() {
+    let source = r#"
+Sub Main()
+    a.b.c = 1
+    a.b(1).c = 2
+    a.b.Item(1).c = 3
+    slide.Shapes.Item(2).TextFrame.TextRange.Text = "x"
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    assert_eq!(program.procedures[0].body.len(), 4);
+}
+
+#[test]
+fn parses_keyword_as_member_name() {
+    let source = r#"
+Sub Main()
+    obj.Text = "hello"
+    obj.Base = 1
+    obj.Version = 2
+    obj.Sub = 3
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+    assert_eq!(program.procedures[0].body.len(), 4);
+}

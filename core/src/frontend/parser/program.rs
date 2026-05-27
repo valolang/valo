@@ -37,7 +37,6 @@ impl Parser {
             match self.peek_kind() {
                 TokenKind::Namespace => {
                     let ns_name = self.parse_namespace_decl()?;
-                    eprintln!("Parsed Namespace: {}", ns_name);
                     let parts: Vec<String> = ns_name
                         .split('.')
                         .map(|segment| segment.to_string())
@@ -296,8 +295,6 @@ impl Parser {
             }
             self.skip_newlines();
         }
-
-        eprintln!("Final namespace state: {:?}", namespace);
 
         Ok(Program {
             namespace: last_namespace,

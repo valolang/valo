@@ -1,12 +1,17 @@
 use crate::backend::interpreter::run;
 use crate::frontend::ast::Program;
 use crate::frontend::parser::Parser;
-use crate::frontend::semantics::validate;
 use crate::runtime::{Diagnostic, FileId};
 
 pub fn parse_and_validate(source: &str) -> Result<Program, Diagnostic> {
     let program = Parser::parse_source(source, FileId::default())?;
-    validate(&program)?;
+    crate::frontend::semantics::validate(&program)?;
+    Ok(program)
+}
+
+pub fn parse_and_validate_snippet(source: &str) -> Result<Program, Diagnostic> {
+    let program = Parser::parse_source(source, FileId::default())?;
+    crate::frontend::semantics::validate_snippet(&program)?;
     Ok(program)
 }
 

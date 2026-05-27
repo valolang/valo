@@ -75,7 +75,7 @@ pub fn create_object(prog_id: &str, span: Span) -> Result<Value, Diagnostic> {
         CLSCTX_ALL, CLSIDFromProgID, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
         IDispatch,
     };
-    use windows::core::HSTRING;
+    use windows::core::{HSTRING, IUnknown, Interface};
 
     const RPC_E_CHANGED_MODE: i32 = 0x8001_0106_u32 as i32;
 
@@ -93,13 +93,29 @@ pub fn create_object(prog_id: &str, span: Span) -> Result<Value, Diagnostic> {
             span,
         )
     })?;
-    let dispatch: IDispatch =
-        unsafe { CoCreateInstance(&clsid, None, CLSCTX_ALL) }.map_err(|error| {
-            com_error(
-                format!("CreateObject could not create '{prog_id}': {error}"),
-                span,
-            )
-        })?;
+
+    // Try to create the object and get IDispatch
+    let dispatch: IDispatch = unsafe {
+        match CoCreateInstance(&clsid, None, CLSCTX_ALL) {
+            Ok(d) => d,
+            Err(_) => {
+                // Fallback: try IUnknown then cast to IDispatch
+                let unknown: IUnknown =
+                    CoCreateInstance(&clsid, None, CLSCTX_ALL).map_err(|error| {
+                        com_error(
+                            format!("CreateObject could not create '{prog_id}': {error}"),
+                            span,
+                        )
+                    })?;
+                unknown.cast().map_err(|error| {
+                    com_error(
+                        format!("CreateObject: '{prog_id}' does not support automation (IDispatch): {error}"),
+                        span,
+                    )
+                })?
+            }
+        }
+    };
 
     Ok(Value::ComObject(Rc::new(ComObjectValue {
         prog_id: prog_id.to_string(),
@@ -134,6 +150,11 @@ pub fn invoke_com(
     };
 
     if hr.is_err() {
+        // Try fallback to default member if name is empty or similar
+        if name.is_empty() {
+            return invoke_default_com(com_obj, args, invoke_type, span);
+        }
+
         return Err(com_error(
             format!("COM object has no member '{}': {:?}", name, hr),
             span,
@@ -220,7 +241,7 @@ fn invoke_com_dispid(
 
 #[cfg(windows)]
 fn value_to_variant(value: &Value) -> windows::core::VARIANT {
-    use windows::Win32::System::Variant::{VT_DISPATCH, VT_ERROR, VT_NULL};
+    use windows::Win32::System::Variant::{VT_DATE, VT_DISPATCH, VT_ERROR, VT_NULL};
     use windows::core::{BSTR, VARIANT};
 
     match value {
@@ -230,6 +251,15 @@ fn value_to_variant(value: &Value) -> windows::core::VARIANT {
         Value::Double(n) => VARIANT::from(*n),
         Value::String(s) => VARIANT::from(BSTR::from(s.as_str())),
         Value::Boolean(b) => VARIANT::from(*b),
+        Value::Date(d) => {
+            let var = VARIANT::default();
+            unsafe {
+                let raw = var.as_raw();
+                *(std::ptr::addr_of!(raw.Anonymous.Anonymous.vt) as *mut u16) = VT_DATE.0;
+                *(std::ptr::addr_of!(raw.Anonymous.Anonymous.Anonymous.date) as *mut f64) = *d;
+            }
+            var
+        }
         Value::ComObject(obj) => VARIANT::from(obj.dispatch.clone()),
         Value::Nothing => {
             let var = VARIANT::default();
@@ -264,35 +294,99 @@ fn value_to_variant(value: &Value) -> windows::core::VARIANT {
 }
 
 #[cfg(windows)]
+fn get_com_type_name(dispatch: &windows::Win32::System::Com::IDispatch) -> String {
+    use windows::core::BSTR;
+    unsafe {
+        if let Ok(ti) = dispatch.GetTypeInfo(0, 2048) {
+            let mut name = BSTR::default();
+            if ti
+                .GetDocumentation(-1, Some(&mut name), None, std::ptr::null_mut(), None)
+                .is_ok()
+            {
+                return name.to_string();
+            }
+        }
+    }
+    "COMObject".to_string()
+}
+
+#[cfg(windows)]
 fn variant_to_value(var: &windows::core::VARIANT) -> Value {
     use windows::Win32::System::Com::IDispatch;
-    use windows::core::BSTR;
+    use windows::Win32::System::Variant::*;
+    use windows::core::{BSTR, IUnknown, Interface};
 
-    if let Ok(b) = BSTR::try_from(var) {
-        return Value::String(b.to_string());
+    let vt = unsafe { var.as_raw().Anonymous.Anonymous.vt };
+    let vt = VARENUM(vt);
+
+    match vt {
+        VT_EMPTY => Value::Empty,
+        VT_NULL => Value::Null,
+        VT_I2 => Value::Int16(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.iVal }),
+        VT_I4 => Value::Int32(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.lVal }),
+        VT_R4 => Value::Single(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.fltVal }),
+        VT_R8 => Value::Double(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.dblVal }),
+        VT_CY => Value::Currency(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.cyVal.int64 }),
+        VT_DATE => Value::Date(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.date }),
+        VT_BSTR => {
+            if let Ok(b) = BSTR::try_from(var) {
+                Value::String(b.to_string())
+            } else {
+                Value::String(String::new())
+            }
+        }
+        VT_DISPATCH => {
+            if let Ok(dispatch) = IDispatch::try_from(var) {
+                let prog_id = get_com_type_name(&dispatch);
+                Value::ComObject(std::rc::Rc::new(crate::runtime::ComObjectValue {
+                    prog_id,
+                    dispatch,
+                }))
+            } else {
+                Value::Nothing
+            }
+        }
+        VT_ERROR => Value::Error(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.scode }),
+        VT_BOOL => {
+            Value::Boolean(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.boolVal != 0 })
+        }
+        VT_UNKNOWN => {
+            if let Ok(unknown) = IUnknown::try_from(var) {
+                if let Ok(dispatch) = unknown.cast::<IDispatch>() {
+                    let prog_id = get_com_type_name(&dispatch);
+                    Value::ComObject(std::rc::Rc::new(crate::runtime::ComObjectValue {
+                        prog_id,
+                        dispatch,
+                    }))
+                } else {
+                    Value::Empty
+                }
+            } else {
+                Value::Nothing
+            }
+        }
+        VT_I1 => Value::Byte(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.cVal } as u8),
+        VT_UI1 => Value::Byte(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.bVal }),
+        VT_UI2 => Value::Int32(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.uiVal } as i32),
+        VT_UI4 => Value::Int64(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.ulVal } as i64),
+        VT_I8 => Value::Int64(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.llVal }),
+        VT_UI8 => Value::UInt64(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.ullVal }),
+        VT_INT => Value::Int32(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.intVal }),
+        VT_UINT => {
+            Value::Int64(unsafe { var.as_raw().Anonymous.Anonymous.Anonymous.uintVal } as i64)
+        }
+        _ => {
+            if let Ok(b) = BSTR::try_from(var) {
+                Value::String(b.to_string())
+            } else if let Ok(d) = f64::try_from(var) {
+                Value::Double(d)
+            } else if let Ok(i) = i32::try_from(var) {
+                Value::Int32(i)
+            } else {
+                Value::Empty
+            }
+        }
     }
-    if let Ok(d) = f64::try_from(var) {
-        return Value::Double(d);
-    }
-    if let Ok(i) = i32::try_from(var) {
-        return Value::Int32(i);
-    }
-    if let Ok(b) = bool::try_from(var) {
-        return Value::Boolean(b);
-    }
-    if let Ok(i) = i16::try_from(var) {
-        return Value::Int16(i);
-    }
-    if let Ok(i) = i64::try_from(var) {
-        return Value::Int64(i);
-    }
-    if let Ok(dispatch) = IDispatch::try_from(var) {
-        return Value::ComObject(std::rc::Rc::new(crate::runtime::ComObjectValue {
-            prog_id: "UnknownCOMObject".to_string(),
-            dispatch,
-        }));
-    }
-    Value::Empty
 }
 
 #[cfg(not(windows))]
@@ -336,29 +430,64 @@ pub fn enumerable_com_values(
     com_obj: &crate::runtime::ComObjectValue,
     span: Span,
 ) -> Result<Vec<Value>, Diagnostic> {
+    use windows::Win32::System::Com::IDispatch;
+    use windows::Win32::System::Com::{DISPATCH_FLAGS, DISPPARAMS, EXCEPINFO};
     use windows::Win32::System::Ole::IEnumVARIANT;
-    use windows::core::Interface;
+    use windows::core::{GUID, IUnknown, Interface, VARIANT};
+
+    let dispatch = &com_obj.dispatch;
+    let dispparams = DISPPARAMS::default();
+    let mut result = VARIANT::default();
+    let mut excepinfo = EXCEPINFO::default();
+    let mut argerr: u32 = 0;
 
     // DISPID_NEWENUM = -4
-    let enum_variant_value = invoke_com_dispid(com_obj, -4, "_NewEnum", &[], 3, span)?;
+    let hr = unsafe {
+        dispatch.Invoke(
+            -4,
+            &GUID::zeroed(),
+            2048,
+            DISPATCH_FLAGS(3), // DISPATCH_METHOD | DISPATCH_PROPERTYGET
+            &dispparams,
+            Some(&mut result),
+            Some(&mut excepinfo),
+            Some(&mut argerr),
+        )
+    };
 
-    let Value::ComObject(enum_dispatch_obj) = enum_variant_value else {
+    if let Err(err) = hr {
+        return Err(com_error(
+            format!(
+                "COM object does not support enumeration (_NewEnum failed): {:?}",
+                err
+            ),
+            span,
+        ));
+    }
+
+    let enum_variant: IEnumVARIANT = if let Ok(dispatch) = IDispatch::try_from(&result) {
+        dispatch.cast().map_err(|error| {
+            com_error(
+                format!("COM object enumeration interface (IEnumVARIANT) not found: {error}"),
+                span,
+            )
+        })?
+    } else if let Ok(unknown) = IUnknown::try_from(&result) {
+        unknown.cast().map_err(|error| {
+            com_error(
+                format!("COM object enumeration interface (IEnumVARIANT) not found: {error}"),
+                span,
+            )
+        })?
+    } else {
         return Err(com_error(
             "COM object does not support enumeration (_NewEnum did not return an object)",
             span,
         ));
     };
 
-    let enum_variant: IEnumVARIANT = enum_dispatch_obj.dispatch.cast().map_err(|error| {
-        com_error(
-            format!("COM object enumeration interface (IEnumVARIANT) not found: {error}"),
-            span,
-        )
-    })?;
-
     let mut values = Vec::new();
     loop {
-        use windows::core::VARIANT;
         let mut item = [VARIANT::default()];
         let mut fetched = 0;
         let hr = unsafe { enum_variant.Next(&mut item, &mut fetched) };

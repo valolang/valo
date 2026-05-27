@@ -20,6 +20,7 @@ End Sub
 fn reports_undefined_variables() {
     let error = source_error(
         r#"
+Option Explicit
 Sub Main()
     missing = 1
 End Sub
@@ -33,6 +34,7 @@ End Sub
 fn unknown_variable_reports_nearby_symbol() {
     let diagnostic = source_diagnostic(
         r#"
+Option Explicit
 Sub Main()
     Dim Count As Integer
     Conut = 1

@@ -6,6 +6,7 @@ pub(super) fn validate_class(
     types: &TypeRegistry,
     signatures: &Signatures,
     module_symbols: &HashMap<String, VarType>,
+    option_explicit: bool,
 ) -> Result<(), Diagnostic> {
     validate_implements_common(
         &class_decl.name,
@@ -44,6 +45,7 @@ pub(super) fn validate_class(
                     },
                     LoopContext::default(),
                     false,
+                    option_explicit,
                 )?;
             }
             ClassMember::Function(method) => {
@@ -76,6 +78,7 @@ pub(super) fn validate_class(
                     },
                     LoopContext::default(),
                     false,
+                    option_explicit,
                 )?;
                 if method.function.is_iterator {
                     if !saw_yield {
@@ -138,6 +141,7 @@ pub(super) fn validate_class(
                     },
                     LoopContext::default(),
                     false,
+                    option_explicit,
                 )?;
                 if !saw_yield && !saw_return {
                     return Err(Diagnostic::new(
@@ -186,6 +190,7 @@ pub(super) fn validate_class(
                             },
                             LoopContext::default(),
                             false,
+                            option_explicit,
                         )?;
                         if property.is_iterator {
                             if !saw_yield {
@@ -229,6 +234,7 @@ pub(super) fn validate_class(
                             },
                             LoopContext::default(),
                             false,
+                            option_explicit,
                         )?;
                     }
                 }
@@ -639,6 +645,7 @@ pub(super) fn validate_structure(
     types: &TypeRegistry,
     signatures: &Signatures,
     module_symbols: &HashMap<String, VarType>,
+    option_explicit: bool,
 ) -> Result<(), Diagnostic> {
     validate_implements_common(
         &type_decl.name,
@@ -676,6 +683,7 @@ pub(super) fn validate_structure(
                     },
                     LoopContext::default(),
                     false,
+                    option_explicit,
                 )?;
             }
             ClassMember::Function(method) => {
@@ -707,6 +715,7 @@ pub(super) fn validate_structure(
                     },
                     LoopContext::default(),
                     false,
+                    option_explicit,
                 )?;
                 if method.function.is_iterator {
                     if !saw_yield {
@@ -774,6 +783,7 @@ pub(super) fn validate_structure(
                             },
                             LoopContext::default(),
                             false,
+                            option_explicit,
                         )?;
                         if property.is_iterator {
                             if !saw_yield {
@@ -817,6 +827,7 @@ pub(super) fn validate_structure(
                             },
                             LoopContext::default(),
                             false,
+                            option_explicit,
                         )?;
                     }
                 }

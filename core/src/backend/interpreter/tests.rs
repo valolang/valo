@@ -15,6 +15,7 @@ mod lifecycle;
 mod modernization;
 mod module_ecosystem_test;
 mod modules;
+mod repl_test;
 mod type_system;
 mod types;
 mod using_dispose;

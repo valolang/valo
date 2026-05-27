@@ -1797,7 +1797,7 @@ impl Parser {
                 } else if name.eq_ignore_ascii_case("FuncPtr") {
                     Ok(TypeName::FuncPtr)
                 } else if name.eq_ignore_ascii_case("Object") {
-                    Ok(TypeName::User("Object".to_string()))
+                    Ok(TypeName::Variant)
                 } else {
                     while self.match_simple(&TokenKind::Dot) {
                         let member =

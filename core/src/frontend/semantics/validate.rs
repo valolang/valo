@@ -56,6 +56,14 @@ impl LoopContext {
 }
 
 pub fn validate(program: &Program) -> Result<(), Diagnostic> {
+    validate_internal(program, true)
+}
+
+pub fn validate_snippet(program: &Program) -> Result<(), Diagnostic> {
+    validate_internal(program, false)
+}
+
+fn validate_internal(program: &Program, require_main: bool) -> Result<(), Diagnostic> {
     let types = collect_types(program)?;
     let signatures = collect_signatures(program, &types)?;
     let mut module_symbols = collect_module_symbols(program, &types, &signatures)?;
@@ -69,19 +77,23 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
             VarType::Scalar(Visibility::Public, TypeName::Variant),
         );
     }
-    let Some(main) = program
+
+    let main = program
         .procedures
         .iter()
-        .find(|procedure| procedure.name.eq_ignore_ascii_case("main"))
-    else {
+        .find(|procedure| procedure.name.eq_ignore_ascii_case("main"));
+
+    if require_main && main.is_none() {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::GENERIC,
             "Program must contain Sub Main()",
             None,
         ));
-    };
+    }
 
-    if !main.params.is_empty() {
+    if let Some(main) = main
+        && !main.params.is_empty()
+    {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::GENERIC,
             "Sub Main() cannot have parameters",
@@ -90,19 +102,43 @@ pub fn validate(program: &Program) -> Result<(), Diagnostic> {
     }
 
     for procedure in &program.procedures {
-        validate_procedure(procedure, &types, &signatures, &module_symbols)?;
+        validate_procedure(
+            procedure,
+            &types,
+            &signatures,
+            &module_symbols,
+            program.option_explicit,
+        )?;
     }
 
     for function in &program.functions {
-        validate_function(function, &types, &signatures, &module_symbols)?;
+        validate_function(
+            function,
+            &types,
+            &signatures,
+            &module_symbols,
+            program.option_explicit,
+        )?;
     }
     for type_decl in &program.types {
         if type_decl.kind == crate::TypeKind::Structure {
-            validate_structure(type_decl, &types, &signatures, &module_symbols)?;
+            validate_structure(
+                type_decl,
+                &types,
+                &signatures,
+                &module_symbols,
+                program.option_explicit,
+            )?;
         }
     }
     for class_decl in &program.classes {
-        validate_class(class_decl, &types, &signatures, &module_symbols)?;
+        validate_class(
+            class_decl,
+            &types,
+            &signatures,
+            &module_symbols,
+            program.option_explicit,
+        )?;
     }
 
     Ok(())

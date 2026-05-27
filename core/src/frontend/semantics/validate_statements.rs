@@ -16,6 +16,7 @@ fn validate_const_decl(
         validation.types,
         validation.signatures,
         validation.context,
+        validation.option_explicit,
     )?;
     let const_type = ty.clone().unwrap_or(value_type.clone());
     ensure_known_type(&const_type, validation.types, span)?;
@@ -39,6 +40,7 @@ pub(super) fn validate_statements(
     mut context: Context<'_>,
     loop_context: LoopContext,
     in_with: bool,
+    option_explicit: bool,
 ) -> Result<(), Diagnostic> {
     validate_labels(statements, &context)?;
     for stmt in statements {
@@ -78,6 +80,7 @@ pub(super) fn validate_statements(
                     signatures,
                     *span,
                     &context,
+                    option_explicit,
                 )?;
                 ensure_known_type(&ty, types, *span)?;
                 validate_as_new(
@@ -85,7 +88,7 @@ pub(super) fn validate_statements(
                     &ty,
                     new_args,
                     *span,
-                    ExprValidation::new(symbols, types, signatures, &context),
+                    ExprValidation::new(symbols, types, signatures, &context, option_explicit),
                 )?;
                 if let Some(initializer) = initializer {
                     if array.is_some() {
@@ -95,8 +98,14 @@ pub(super) fn validate_statements(
                             Some(initializer.span),
                         ));
                     }
-                    let source_type =
-                        validate_expr(initializer, symbols, types, signatures, &context)?;
+                    let source_type = validate_expr(
+                        initializer,
+                        symbols,
+                        types,
+                        signatures,
+                        &context,
+                        option_explicit,
+                    )?;
                     ensure_assignable_expr(
                         &ty,
                         &source_type,
@@ -139,6 +148,7 @@ pub(super) fn validate_statements(
                         signatures,
                         decl.span,
                         &context,
+                        option_explicit,
                     )?;
                     ensure_known_type(&ty, types, decl.span)?;
                     validate_as_new(
@@ -146,7 +156,7 @@ pub(super) fn validate_statements(
                         &ty,
                         &decl.new_args,
                         decl.span,
-                        ExprValidation::new(symbols, types, signatures, &context),
+                        ExprValidation::new(symbols, types, signatures, &context, option_explicit),
                     )?;
                     if let Some(initializer) = &decl.initializer {
                         if decl.array.is_some() {
@@ -156,8 +166,14 @@ pub(super) fn validate_statements(
                                 Some(initializer.span),
                             ));
                         }
-                        let source_type =
-                            validate_expr(initializer, symbols, types, signatures, &context)?;
+                        let source_type = validate_expr(
+                            initializer,
+                            symbols,
+                            types,
+                            signatures,
+                            &context,
+                            option_explicit,
+                        )?;
                         ensure_assignable_expr(
                             &ty,
                             &source_type,
@@ -192,7 +208,7 @@ pub(super) fn validate_statements(
                     ty,
                     value,
                     *span,
-                    ExprValidation::new(symbols, types, signatures, &context),
+                    ExprValidation::new(symbols, types, signatures, &context, option_explicit),
                 )?;
                 symbols.insert(const_key, const_type);
             }
@@ -203,7 +219,7 @@ pub(super) fn validate_statements(
                         &const_decl.ty,
                         &const_decl.value,
                         const_decl.span,
-                        ExprValidation::new(symbols, types, signatures, &context),
+                        ExprValidation::new(symbols, types, signatures, &context, option_explicit),
                     )?;
                     symbols.insert(const_key, const_type);
                 }
@@ -211,18 +227,34 @@ pub(super) fn validate_statements(
             Stmt::Assign { target, expr, span } => {
                 let expr_type = class_field_expr_type(expr, symbols, types, &context)
                     .map(Ok)
-                    .unwrap_or_else(|| validate_expr(expr, symbols, types, signatures, &context))?;
+                    .unwrap_or_else(|| {
+                        validate_expr(expr, symbols, types, signatures, &context, option_explicit)
+                    })?;
                 let target_type = validate_assignment_target(
-                    target, &expr_type, symbols, types, signatures, &context,
+                    target,
+                    &expr_type,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
                 )?;
                 ensure_assignable_expr(&target_type, &expr_type, expr, types, *span)?;
             }
             Stmt::SetAssign { target, expr, span } => {
                 let expr_type = class_field_expr_type(expr, symbols, types, &context)
                     .map(Ok)
-                    .unwrap_or_else(|| validate_expr(expr, symbols, types, signatures, &context))?;
+                    .unwrap_or_else(|| {
+                        validate_expr(expr, symbols, types, signatures, &context, option_explicit)
+                    })?;
                 let target_type = validate_assignment_target(
-                    target, &expr_type, symbols, types, signatures, &context,
+                    target,
+                    &expr_type,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
                 )?;
                 if !target_type.same_type(&TypeName::Variant) {
                     ensure_class_type(
@@ -236,7 +268,7 @@ pub(super) fn validate_statements(
             }
             Stmt::ConsoleWriteLine { args, .. } | Stmt::DebugPrint { args, .. } => {
                 for arg in args {
-                    validate_expr(arg, symbols, types, signatures, &context)?;
+                    validate_expr(arg, symbols, types, signatures, &context, option_explicit)?;
                 }
             }
             Stmt::OpenFile {
@@ -245,19 +277,47 @@ pub(super) fn validate_statements(
                 record_len,
                 ..
             } => {
-                validate_expr(path, symbols, types, signatures, &context)?;
-                validate_expr(number, symbols, types, signatures, &context)?;
+                validate_expr(path, symbols, types, signatures, &context, option_explicit)?;
+                validate_expr(
+                    number,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 if let Some(record_len) = record_len {
-                    validate_expr(record_len, symbols, types, signatures, &context)?;
+                    validate_expr(
+                        record_len,
+                        symbols,
+                        types,
+                        signatures,
+                        &context,
+                        option_explicit,
+                    )?;
                 }
             }
             Stmt::CloseFile { numbers, .. } => {
                 for number in numbers {
-                    validate_expr(number, symbols, types, signatures, &context)?;
+                    validate_expr(
+                        number,
+                        symbols,
+                        types,
+                        signatures,
+                        &context,
+                        option_explicit,
+                    )?;
                 }
             }
             Stmt::LineInput { number, target, .. } => {
-                validate_expr(number, symbols, types, signatures, &context)?;
+                validate_expr(
+                    number,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 validate_assignment_target(
                     target,
                     &TypeName::String,
@@ -265,12 +325,20 @@ pub(super) fn validate_statements(
                     types,
                     signatures,
                     &context,
+                    option_explicit,
                 )?;
             }
             Stmt::InputFile {
                 number, targets, ..
             } => {
-                validate_expr(number, symbols, types, signatures, &context)?;
+                validate_expr(
+                    number,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 for target in targets {
                     validate_assignment_target(
                         target,
@@ -279,19 +347,41 @@ pub(super) fn validate_statements(
                         types,
                         signatures,
                         &context,
+                        option_explicit,
                     )?;
                 }
             }
             Stmt::PrintFile { number, items, .. } => {
-                validate_expr(number, symbols, types, signatures, &context)?;
+                validate_expr(
+                    number,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 for item in items {
-                    validate_expr(&item.expr, symbols, types, signatures, &context)?;
+                    validate_expr(
+                        &item.expr,
+                        symbols,
+                        types,
+                        signatures,
+                        &context,
+                        option_explicit,
+                    )?;
                 }
             }
             Stmt::WriteFile { number, args, .. } => {
-                validate_expr(number, symbols, types, signatures, &context)?;
+                validate_expr(
+                    number,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 for arg in args {
-                    validate_expr(arg, symbols, types, signatures, &context)?;
+                    validate_expr(arg, symbols, types, signatures, &context, option_explicit)?;
                 }
             }
             Stmt::GetFile {
@@ -300,9 +390,23 @@ pub(super) fn validate_statements(
                 target,
                 ..
             } => {
-                validate_expr(number, symbols, types, signatures, &context)?;
+                validate_expr(
+                    number,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 if let Some(position) = position {
-                    validate_expr(position, symbols, types, signatures, &context)?;
+                    validate_expr(
+                        position,
+                        symbols,
+                        types,
+                        signatures,
+                        &context,
+                        option_explicit,
+                    )?;
                 }
                 validate_assignment_target(
                     target,
@@ -311,6 +415,7 @@ pub(super) fn validate_statements(
                     types,
                     signatures,
                     &context,
+                    option_explicit,
                 )?;
             }
             Stmt::PutFile {
@@ -319,27 +424,78 @@ pub(super) fn validate_statements(
                 expr,
                 ..
             } => {
-                validate_expr(number, symbols, types, signatures, &context)?;
+                validate_expr(
+                    number,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 if let Some(position) = position {
-                    validate_expr(position, symbols, types, signatures, &context)?;
+                    validate_expr(
+                        position,
+                        symbols,
+                        types,
+                        signatures,
+                        &context,
+                        option_explicit,
+                    )?;
                 }
-                validate_expr(expr, symbols, types, signatures, &context)?;
+                validate_expr(expr, symbols, types, signatures, &context, option_explicit)?;
             }
             Stmt::SeekFile {
                 number, position, ..
             } => {
-                validate_expr(number, symbols, types, signatures, &context)?;
-                validate_expr(position, symbols, types, signatures, &context)?;
+                validate_expr(
+                    number,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
+                validate_expr(
+                    position,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
             }
             Stmt::NameFile {
                 old_path, new_path, ..
             } => {
-                validate_expr(old_path, symbols, types, signatures, &context)?;
-                validate_expr(new_path, symbols, types, signatures, &context)?;
+                validate_expr(
+                    old_path,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
+                validate_expr(
+                    new_path,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
             }
             Stmt::End { .. } => {}
             Stmt::SubCall { name, args, span } => {
-                validate_sub_call(name, args, *span, symbols, types, signatures, &context)?;
+                validate_sub_call(
+                    name,
+                    args,
+                    *span,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
             }
             Stmt::MemberSubCall {
                 object,
@@ -350,7 +506,16 @@ pub(super) fn validate_statements(
                 if let ExprKind::Variable(name) = &object.kind
                     && name.eq_ignore_ascii_case("VBA")
                 {
-                    validate_sub_call(method, args, *span, symbols, types, signatures, &context)?;
+                    validate_sub_call(
+                        method,
+                        args,
+                        *span,
+                        symbols,
+                        types,
+                        signatures,
+                        &context,
+                        option_explicit,
+                    )?;
                     continue;
                 }
                 if let ExprKind::Variable(name) = &object.kind
@@ -374,6 +539,7 @@ pub(super) fn validate_statements(
                             types,
                             signatures,
                             &context,
+                            option_explicit,
                         )?;
                         continue;
                     }
@@ -386,7 +552,14 @@ pub(super) fn validate_statements(
                 let object_type = class_field_object_type(object, symbols, types, &context)
                     .map(Ok)
                     .unwrap_or_else(|| {
-                        validate_expr(object, symbols, types, signatures, &context)
+                        validate_expr(
+                            object,
+                            symbols,
+                            types,
+                            signatures,
+                            &context,
+                            option_explicit,
+                        )
                     })?;
                 validate_method_call(
                     &object_type,
@@ -399,6 +572,7 @@ pub(super) fn validate_statements(
                     signatures,
                     context.current_class(),
                     &context,
+                    option_explicit,
                 )?;
             }
             Stmt::RaiseEvent { name, args, span } => {
@@ -424,11 +598,12 @@ pub(super) fn validate_statements(
                     event_sig,
                     args,
                     *span,
-                    ExprValidation::new(symbols, types, signatures, &context),
+                    ExprValidation::new(symbols, types, signatures, &context, option_explicit),
                 )?;
             }
             Stmt::Return { expr, span } => {
-                let expr_type = validate_expr(expr, symbols, types, signatures, &context)?;
+                let expr_type =
+                    validate_expr(expr, symbols, types, signatures, &context, option_explicit)?;
                 match &mut context {
                     Context::Sub | Context::MethodSub { .. } | Context::PropertyLetSet { .. } => {
                         return Err(Diagnostic::new(
@@ -468,7 +643,8 @@ pub(super) fn validate_statements(
                 }
             }
             Stmt::Yield { expr, span } => {
-                let expr_type = validate_expr(expr, symbols, types, signatures, &context)?;
+                let expr_type =
+                    validate_expr(expr, symbols, types, signatures, &context, option_explicit)?;
                 match &mut context {
                     Context::Function {
                         return_type,
@@ -501,7 +677,7 @@ pub(super) fn validate_statements(
                 }
             }
             Stmt::Throw { expr, .. } => {
-                validate_expr(expr, symbols, types, signatures, &context)?;
+                validate_expr(expr, symbols, types, signatures, &context, option_explicit)?;
             }
             Stmt::If {
                 condition,
@@ -512,7 +688,14 @@ pub(super) fn validate_statements(
             } => {
                 ensure_assignable(
                     &TypeName::Boolean,
-                    &validate_expr(condition, symbols, types, signatures, &context)?,
+                    &validate_expr(
+                        condition,
+                        symbols,
+                        types,
+                        signatures,
+                        &context,
+                        option_explicit,
+                    )?,
                     condition.span,
                 )?;
                 validate_statements(
@@ -523,11 +706,19 @@ pub(super) fn validate_statements(
                     context.reborrow(),
                     loop_context,
                     in_with,
+                    option_explicit,
                 )?;
                 for branch in elseif_branches {
                     ensure_assignable(
                         &TypeName::Boolean,
-                        &validate_expr(&branch.condition, symbols, types, signatures, &context)?,
+                        &validate_expr(
+                            &branch.condition,
+                            symbols,
+                            types,
+                            signatures,
+                            &context,
+                            option_explicit,
+                        )?,
                         branch.condition.span,
                     )?;
                     validate_statements(
@@ -538,6 +729,7 @@ pub(super) fn validate_statements(
                         context.reborrow(),
                         loop_context,
                         in_with,
+                        option_explicit,
                     )?;
                 }
                 validate_statements(
@@ -548,6 +740,7 @@ pub(super) fn validate_statements(
                     context.reborrow(),
                     loop_context,
                     in_with,
+                    option_explicit,
                 )?;
             }
             Stmt::SelectCase {
@@ -556,7 +749,14 @@ pub(super) fn validate_statements(
                 else_body,
                 ..
             } => {
-                let subject_type = validate_expr(subject, symbols, types, signatures, &context)?;
+                let subject_type = validate_expr(
+                    subject,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 for branch in branches {
                     for item in &branch.items {
                         validate_case_item(
@@ -566,6 +766,7 @@ pub(super) fn validate_statements(
                             types,
                             signatures,
                             &context,
+                            option_explicit,
                         )?;
                     }
                     validate_statements(
@@ -576,6 +777,7 @@ pub(super) fn validate_statements(
                         context.reborrow(),
                         loop_context,
                         in_with,
+                        option_explicit,
                     )?;
                 }
                 validate_statements(
@@ -586,12 +788,20 @@ pub(super) fn validate_statements(
                     context.reborrow(),
                     loop_context,
                     in_with,
+                    option_explicit,
                 )?;
             }
             Stmt::While {
                 condition, body, ..
             } => {
-                validate_expr(condition, symbols, types, signatures, &context)?;
+                validate_expr(
+                    condition,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 validate_statements(
                     body,
                     symbols,
@@ -600,6 +810,7 @@ pub(super) fn validate_statements(
                     context.reborrow(),
                     loop_context.in_while(),
                     in_with,
+                    option_explicit,
                 )?;
             }
             Stmt::DoLoop {
@@ -613,7 +824,14 @@ pub(super) fn validate_statements(
                     | DoLoopCondition::PostUntil(condition) => {
                         ensure_assignable(
                             &TypeName::Boolean,
-                            &validate_expr(condition, symbols, types, signatures, &context)?,
+                            &validate_expr(
+                                condition,
+                                symbols,
+                                types,
+                                signatures,
+                                &context,
+                                option_explicit,
+                            )?,
                             condition.span,
                         )?;
                     }
@@ -626,6 +844,7 @@ pub(super) fn validate_statements(
                     context.reborrow(),
                     loop_context.in_do(),
                     in_with,
+                    option_explicit,
                 )?;
             }
             Stmt::For {
@@ -656,18 +875,25 @@ pub(super) fn validate_statements(
 
                 ensure_assignable(
                     &TypeName::Integer,
-                    &validate_expr(start, symbols, types, signatures, &context)?,
+                    &validate_expr(start, symbols, types, signatures, &context, option_explicit)?,
                     start.span,
                 )?;
                 ensure_assignable(
                     &TypeName::Integer,
-                    &validate_expr(end, symbols, types, signatures, &context)?,
+                    &validate_expr(end, symbols, types, signatures, &context, option_explicit)?,
                     end.span,
                 )?;
                 if let Some(step) = step {
                     ensure_assignable(
                         &TypeName::Integer,
-                        &validate_expr(step, symbols, types, signatures, &context)?,
+                        &validate_expr(
+                            step,
+                            symbols,
+                            types,
+                            signatures,
+                            &context,
+                            option_explicit,
+                        )?,
                         step.span,
                     )?;
                 }
@@ -691,6 +917,7 @@ pub(super) fn validate_statements(
                     context.reborrow(),
                     loop_context.in_for(),
                     in_with,
+                    option_explicit,
                 )?;
             }
             Stmt::ForEach {
@@ -715,7 +942,12 @@ pub(super) fn validate_statements(
                     ));
                 };
                 let array_type = validate_for_each_iterable_expr(
-                    iterable, symbols, types, signatures, &context,
+                    iterable,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
                 )?;
                 ensure_assignable(&loop_type, &array_type, *span)?;
                 if let Some((next_variable, next_span)) = next_variable
@@ -738,6 +970,7 @@ pub(super) fn validate_statements(
                     context.reborrow(),
                     loop_context.in_for(),
                     in_with,
+                    option_explicit,
                 )?;
             }
             Stmt::ReDim {
@@ -747,7 +980,14 @@ pub(super) fn validate_statements(
                 span,
                 ..
             } => {
-                if !redim_target_is_dynamic_array(target, symbols, types, signatures, &context)? {
+                if !redim_target_is_dynamic_array(
+                    target,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )? {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
                         "ReDim target must be a dynamic array",
@@ -758,14 +998,28 @@ pub(super) fn validate_statements(
                     let upper_type = class_field_expr_type(upper, symbols, types, &context)
                         .map(Ok)
                         .unwrap_or_else(|| {
-                            validate_expr(upper, symbols, types, signatures, &context)
+                            validate_expr(
+                                upper,
+                                symbols,
+                                types,
+                                signatures,
+                                &context,
+                                option_explicit,
+                            )
                         })?;
                     ensure_assignable(&TypeName::Integer, &upper_type, upper.span)?;
                     if let Some(lower) = lower {
                         let lower_type = class_field_expr_type(lower, symbols, types, &context)
                             .map(Ok)
                             .unwrap_or_else(|| {
-                                validate_expr(lower, symbols, types, signatures, &context)
+                                validate_expr(
+                                    lower,
+                                    symbols,
+                                    types,
+                                    signatures,
+                                    &context,
+                                    option_explicit,
+                                )
                             })?;
                         ensure_assignable(&TypeName::Integer, &lower_type, lower.span)?;
                     }
@@ -777,7 +1031,14 @@ pub(super) fn validate_statements(
                 }
             }
             Stmt::Erase { target, span } => {
-                if !redim_target_is_dynamic_array(target, symbols, types, signatures, &context)? {
+                if !redim_target_is_dynamic_array(
+                    target,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )? {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
                         "Erase target must be an array or Variant",
@@ -790,7 +1051,14 @@ pub(super) fn validate_statements(
             Stmt::OnError { .. } => {}
             Stmt::Resume { .. } => {}
             Stmt::With { target, body, .. } => {
-                validate_expr(target, symbols, types, signatures, &context)?;
+                validate_expr(
+                    target,
+                    symbols,
+                    types,
+                    signatures,
+                    &context,
+                    option_explicit,
+                )?;
                 validate_statements(
                     body,
                     symbols,
@@ -799,6 +1067,7 @@ pub(super) fn validate_statements(
                     context.reborrow(),
                     loop_context,
                     true,
+                    option_explicit,
                 )?;
             }
             Stmt::Using {
@@ -822,6 +1091,7 @@ pub(super) fn validate_statements(
                         signatures,
                         decl.span,
                         &context,
+                        option_explicit,
                     )?;
                     ensure_known_type(&ty, types, decl.span)?;
                     validate_as_new(
@@ -829,11 +1099,17 @@ pub(super) fn validate_statements(
                         &ty,
                         &decl.new_args,
                         decl.span,
-                        ExprValidation::new(symbols, types, signatures, &context),
+                        ExprValidation::new(symbols, types, signatures, &context, option_explicit),
                     )?;
                     if let Some(initializer) = &decl.initializer {
-                        let source_type =
-                            validate_expr(initializer, symbols, types, signatures, &context)?;
+                        let source_type = validate_expr(
+                            initializer,
+                            symbols,
+                            types,
+                            signatures,
+                            &context,
+                            option_explicit,
+                        )?;
                         ensure_assignable_expr(&ty, &source_type, initializer, types, decl.span)?;
                     }
                     validate_using_disposable(&ty, types, decl.span)?;
@@ -855,10 +1131,12 @@ pub(super) fn validate_statements(
                         context.reborrow(),
                         loop_context,
                         in_with,
+                        option_explicit,
                     )?;
                 }
                 UsingResource::Target(expr) => {
-                    let ty = validate_expr(expr, symbols, types, signatures, &context)?;
+                    let ty =
+                        validate_expr(expr, symbols, types, signatures, &context, option_explicit)?;
                     validate_using_disposable(&ty, types, *span)?;
                     validate_statements(
                         body,
@@ -868,6 +1146,7 @@ pub(super) fn validate_statements(
                         context.reborrow(),
                         loop_context,
                         in_with,
+                        option_explicit,
                     )?;
                 }
             },
@@ -888,6 +1167,7 @@ pub(super) fn validate_statements(
                     context.reborrow(),
                     loop_context,
                     in_with,
+                    option_explicit,
                 )?;
                 if let Some(catch) = catch_block {
                     let mut catch_symbols = symbols.clone();
@@ -908,6 +1188,7 @@ pub(super) fn validate_statements(
                         context.reborrow(),
                         loop_context,
                         in_with,
+                        option_explicit,
                     )?;
                 }
                 if let Some(finally_body) = finally_body {
@@ -919,6 +1200,7 @@ pub(super) fn validate_statements(
                         context.reborrow(),
                         loop_context,
                         in_with,
+                        option_explicit,
                     )?;
                 }
             }
@@ -936,12 +1218,20 @@ fn declared_variable_type(
     signatures: &Signatures,
     span: crate::runtime::Span,
     context: &Context<'_>,
+    option_explicit: bool,
 ) -> Result<TypeName, Diagnostic> {
     if let Some(ty) = ty {
         return Ok(ty.clone());
     }
     if let Some(initializer) = initializer {
-        return validate_expr(initializer, symbols, types, signatures, context);
+        return validate_expr(
+            initializer,
+            symbols,
+            types,
+            signatures,
+            context,
+            option_explicit,
+        );
     }
     let _ = span;
     Ok(TypeName::Variant)
@@ -980,6 +1270,7 @@ fn validate_as_new(
         validation.types,
         validation.signatures,
         validation.context,
+        validation.option_explicit,
     )
     .map(|_| ())
 }
@@ -1096,6 +1387,7 @@ fn validate_sub_call(
     types: &TypeRegistry,
     signatures: &Signatures,
     context: &Context<'_>,
+    option_explicit: bool,
 ) -> Result<(), Diagnostic> {
     let effective_name = if let Some(stripped) = name.strip_prefix("VBA.") {
         stripped
@@ -1109,7 +1401,7 @@ fn validate_sub_call(
         .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
     {
         for arg in args {
-            validate_expr(arg, symbols, types, signatures, context)?;
+            validate_expr(arg, symbols, types, signatures, context, option_explicit)?;
         }
         return Ok(());
     }
@@ -1144,7 +1436,7 @@ fn validate_sub_call(
                 func,
                 args,
                 span,
-                ExprValidation::new(symbols, types, signatures, context),
+                ExprValidation::new(symbols, types, signatures, context, option_explicit),
             )?;
         } else {
             return Err(Diagnostic::new(
@@ -1161,7 +1453,7 @@ fn validate_sub_call(
         &sub,
         args,
         span,
-        ExprValidation::new(symbols, types, signatures, context),
+        ExprValidation::new(symbols, types, signatures, context, option_explicit),
     )
 }
 
@@ -1211,6 +1503,7 @@ fn redim_target_is_dynamic_array(
     types: &TypeRegistry,
     signatures: &Signatures,
     context: &Context<'_>,
+    option_explicit: bool,
 ) -> Result<bool, Diagnostic> {
     match target {
         ReDimTarget::Variable { name, span } => {
@@ -1218,6 +1511,9 @@ fn redim_target_is_dynamic_array(
                 return Ok(matches!(var_type, VarType::Array(Visibility::Public, _)));
             }
             let Some(class_name) = context.current_class() else {
+                if !option_explicit {
+                    return Ok(true);
+                }
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                     format!("Variable '{}' is not declared", name),
@@ -1228,6 +1524,9 @@ fn redim_target_is_dynamic_array(
                 .get_class(class_name)
                 .expect("current class validated");
             let Some(field_sig) = class_sig.fields.get(&key(name)) else {
+                if !option_explicit {
+                    return Ok(true);
+                }
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                     format!("Variable '{}' is not declared", name),
@@ -1242,7 +1541,8 @@ fn redim_target_is_dynamic_array(
             field,
             span,
         } => {
-            let object_type = validate_expr(object, symbols, types, signatures, context)?;
+            let object_type =
+                validate_expr(object, symbols, types, signatures, context, option_explicit)?;
             let member_type =
                 member_read_type(&object_type, field, types, *span, context.current_class())?;
             if let TypeName::User(class_name) = &object_type
@@ -1522,12 +1822,15 @@ fn validate_for_each_iterable_expr(
     types: &TypeRegistry,
     signatures: &Signatures,
     context: &Context<'_>,
+    option_explicit: bool,
 ) -> Result<TypeName, Diagnostic> {
-    if let Ok(element_type) = validate_array_expr(expr, symbols, types, signatures, context) {
+    if let Ok(element_type) =
+        validate_array_expr(expr, symbols, types, signatures, context, option_explicit)
+    {
         return Ok(element_type);
     }
 
-    let iterable_type = validate_expr(expr, symbols, types, signatures, context)?;
+    let iterable_type = validate_expr(expr, symbols, types, signatures, context, option_explicit)?;
     match iterable_type {
         TypeName::Variant => Ok(TypeName::Variant),
         TypeName::User(class_name) => {

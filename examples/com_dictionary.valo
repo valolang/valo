@@ -1,16 +1,33 @@
+' Valo COM Example: Scripting.Dictionary
+' This example demonstrates using the Scripting.Dictionary COM object.
+' Requires Windows.
+
 Sub Main()
-    ' Demonstrate VBA-style COM default property access
     Dim dict As Object
     Set dict = CreateObject("Scripting.Dictionary")
     
-    ' Using default property Item (dict("Key") is same as dict.Item("Key"))
-    dict("Name") = "Valo"
-    dict("Version") = "0.1"
+    ' Add some items
+    dict.Add "Apple", 10
+    dict.Add "Banana", 20
+    dict.Add "Orange", 30
     
-    Console.WriteLine("Dictionary content:")
-    Console.WriteLine("Name: " & dict("Name"))
-    Console.WriteLine("Version: " & dict("Version"))
+    ' Check existence
+    If dict.Exists("Apple") Then
+        Debug.Print "Apple is in the dictionary"
+    End If
     
-    ' Demonstrate standard property access
-    Console.WriteLine("Count: " & dict.Count)
+    ' Access items
+    Debug.Print "Banana value: " & dict.Item("Banana")
+    
+    ' Update item
+    dict.Item("Apple") = 15
+    Debug.Print "New Apple value: " & dict.Item("Apple")
+    
+    ' Iterate keys (standard VBA way)
+    Debug.Print ""
+    Debug.Print "All items:"
+    Dim key As Variant
+    For Each key In dict
+        Debug.Print "  " & key & " = " & dict.Item(key)
+    Next
 End Sub

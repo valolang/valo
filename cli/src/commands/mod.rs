@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use valo_core::{Frame, Interpreter, validate};
+use valo_core::{Frame, Interpreter, validate_snippet};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ColorChoice {
@@ -106,12 +106,33 @@ pub fn repl(color: ColorChoice) -> Result<(), String> {
             continue;
         }
 
-        let source_content = format!("Sub Main()\n{}\nEnd Sub", line);
+        let lower = line.to_lowercase();
+        let is_decl = lower.starts_with("dim ")
+            || lower.starts_with("private ")
+            || lower.starts_with("public ")
+            || lower.starts_with("static ")
+            || lower.starts_with("const ")
+            || lower.starts_with("sub ")
+            || lower.starts_with("function ")
+            || lower.starts_with("type ")
+            || lower.starts_with("enum ")
+            || lower.starts_with("class ")
+            || lower.starts_with("interface ")
+            || lower.starts_with("declare ")
+            || lower.starts_with("option ")
+            || lower.starts_with("imports ");
+
+        let source_content = if is_decl {
+            line.to_string()
+        } else {
+            format!("Sub Main()\n{}\nEnd Sub", line)
+        };
+
         let mut source_map = valo_core::SourceMap::new();
         let file_id = source_map.add("repl".to_string(), source_content.clone());
         match valo_core::parse_source_with_id(&source_content, file_id) {
             Ok(program) => {
-                if let Err(err) = validate(&program) {
+                if let Err(err) = validate_snippet(&program) {
                     eprintln!("{}", err.render_colored(&source_map, color.enabled()));
                 } else {
                     match interpreter.run_repl_snippet(&program, &mut global_frame) {
