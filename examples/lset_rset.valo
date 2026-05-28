@@ -1,0 +1,43 @@
+' LSet and RSet Example
+'
+' Demonstrates the VBA-compatible LSet and RSet statements for string padding
+' and truncation. These statements modify a string variable but preserve its
+' existing length, padding with spaces or truncating characters as needed.
+
+Sub Main()
+    ' Initialize string variables with a specific length
+    Dim leftAligned As String
+    Dim rightAligned As String
+    
+    ' Set initial length to 10 characters
+    leftAligned = Space(10)
+    rightAligned = Space(10)
+    
+    Console.WriteLine("Original length: " & Len(leftAligned))
+    
+    ' Use LSet to left-align text
+    LSet leftAligned = "Hello"
+    Console.WriteLine("LSet with shorter text: '" & leftAligned & "'")
+    Console.WriteLine("Length after LSet: " & Len(leftAligned))
+    
+    ' Use RSet to right-align text
+    RSet rightAligned = "World"
+    Console.WriteLine("RSet with shorter text: '" & rightAligned & "'")
+    Console.WriteLine("Length after RSet: " & Len(rightAligned))
+    
+    ' Test truncation when text is longer than the variable
+    Dim truncText As String
+    truncText = Space(5)
+    
+    LSet truncText = "Supercalifragilistic"
+    Console.WriteLine("LSet with longer text:  '" & truncText & "'")
+    
+    RSet truncText = "Supercalifragilistic"
+    Console.WriteLine("RSet with longer text:  '" & truncText & "'")
+    
+    ' Test with Array Elements
+    Dim arr(2) As String
+    arr(0) = Space(8)
+    LSet arr(0) = "Array"
+    Console.WriteLine("LSet in Array:          '" & arr(0) & "'")
+End Sub

@@ -1021,6 +1021,27 @@ pub fn validate_statements(
                     ));
                 }
             }
+            Stmt::LSet { target, expr, span } | Stmt::RSet { target, expr, span } => {
+                let target_ty = super::validate_expressions::validate_assignment_target(
+                    target,
+                    &TypeName::String,
+                    symbols,
+                    types,
+                    signatures,
+                    context,
+                    option_explicit,
+                )?;
+                let expr_ty = super::validate_expressions::validate_expr(
+                    expr,
+                    symbols,
+                    types,
+                    signatures,
+                    context,
+                    option_explicit,
+                )?;
+                ensure_assignable(&TypeName::String, &target_ty, *span)?;
+                ensure_assignable(&TypeName::String, &expr_ty, expr.span)?;
+            }
             Stmt::Label { .. } => {}
             Stmt::GoTo { .. } => {}
             Stmt::OnError { .. } => {}
@@ -1547,6 +1568,8 @@ fn stmt_span(stmt: &Stmt, _context: &Context<'_>) -> crate::runtime::Span {
         | Stmt::ForEach { span, .. }
         | Stmt::ReDim { span, .. }
         | Stmt::Erase { span, .. }
+        | Stmt::LSet { span, .. }
+        | Stmt::RSet { span, .. }
         | Stmt::Label { span, .. }
         | Stmt::GoTo { span, .. }
         | Stmt::OnError { span, .. }
@@ -1581,7 +1604,10 @@ fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
         Stmt::ConstMany { consts, .. } => consts
             .iter()
             .any(|const_decl| expr_uses_with_target(&const_decl.value, _context)),
-        Stmt::Assign { target, expr, .. } | Stmt::SetAssign { target, expr, .. } => {
+        Stmt::Assign { target, expr, .. }
+        | Stmt::SetAssign { target, expr, .. }
+        | Stmt::LSet { target, expr, .. }
+        | Stmt::RSet { target, expr, .. } => {
             assign_target_uses_with_target(target, _context)
                 || expr_uses_with_target(expr, _context)
         }

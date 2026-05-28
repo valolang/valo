@@ -552,6 +552,77 @@ impl Interpreter {
                 }
                 Ok(ControlFlow::Continue)
             }
+            Stmt::LSet { target, expr, span } | Stmt::RSet { target, expr, span } => {
+                let is_lset = matches!(stmt, Stmt::LSet { .. });
+                let target_expr = match target {
+                    crate::AssignTarget::Variable { name, span } => crate::Expr {
+                        kind: crate::ExprKind::Variable(name.clone()),
+                        span: *span,
+                    },
+                    crate::AssignTarget::ArrayElement {
+                        name,
+                        indices,
+                        span,
+                    } => crate::Expr {
+                        kind: crate::ExprKind::Call {
+                            name: name.clone(),
+                            type_args: Vec::new(),
+                            args: indices.clone(),
+                        },
+                        span: *span,
+                    },
+                    crate::AssignTarget::Member {
+                        object,
+                        field,
+                        span,
+                    } => crate::Expr {
+                        kind: crate::ExprKind::MemberAccess {
+                            object: Box::new(object.clone()),
+                            field: field.clone(),
+                        },
+                        span: *span,
+                    },
+                    crate::AssignTarget::MemberArrayElement {
+                        object,
+                        field,
+                        indices,
+                        span,
+                    } => crate::Expr {
+                        kind: crate::ExprKind::MemberCall {
+                            object: Box::new(object.clone()),
+                            method: field.clone(),
+                            type_args: Vec::new(),
+                            args: indices.clone(),
+                        },
+                        span: *span,
+                    },
+                };
+                let current_val = self.eval_expr(&target_expr, frame)?;
+                let current_str = current_val.to_output_string();
+                let current_len = current_str.chars().count();
+
+                let expr_val = self.eval_expr(expr, frame)?;
+                let expr_str = expr_val.to_output_string();
+
+                let new_str = if is_lset {
+                    if expr_str.chars().count() > current_len {
+                        expr_str.chars().take(current_len).collect::<String>()
+                    } else {
+                        let pad = current_len - expr_str.chars().count();
+                        format!("{}{}", expr_str, " ".repeat(pad))
+                    }
+                } else {
+                    if expr_str.chars().count() > current_len {
+                        expr_str.chars().take(current_len).collect::<String>()
+                    } else {
+                        let pad = current_len - expr_str.chars().count();
+                        format!("{}{}", " ".repeat(pad), expr_str)
+                    }
+                };
+
+                self.assign_target(target, Value::String(new_str), frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
             Stmt::Label { .. } => Ok(ControlFlow::Continue),
             Stmt::GoTo { label, .. } => Ok(ControlFlow::GoTo(label.clone())),
             Stmt::OnError { mode, .. } => {
@@ -1256,6 +1327,8 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::ForEach { span, .. }
         | Stmt::ReDim { span, .. }
         | Stmt::Erase { span, .. }
+        | Stmt::LSet { span, .. }
+        | Stmt::RSet { span, .. }
         | Stmt::Label { span, .. }
         | Stmt::GoTo { span, .. }
         | Stmt::OnError { span, .. }

@@ -127,6 +127,16 @@ pub enum Stmt {
         target: ReDimTarget,
         span: Span,
     },
+    LSet {
+        target: AssignTarget,
+        expr: Expr,
+        span: Span,
+    },
+    RSet {
+        target: AssignTarget,
+        expr: Expr,
+        span: Span,
+    },
     Label {
         name: String,
         span: Span,
@@ -676,6 +686,16 @@ impl Stmt {
             },
             Stmt::Erase { target, span } => Stmt::Erase {
                 target: target.substitute_generics(bindings),
+                span: *span,
+            },
+            Stmt::LSet { target, expr, span } => Stmt::LSet {
+                target: target.substitute_generics(bindings),
+                expr: expr.substitute_generics(bindings),
+                span: *span,
+            },
+            Stmt::RSet { target, expr, span } => Stmt::RSet {
+                target: target.substitute_generics(bindings),
+                expr: expr.substitute_generics(bindings),
                 span: *span,
             },
             Stmt::With { target, body, span } => Stmt::With {

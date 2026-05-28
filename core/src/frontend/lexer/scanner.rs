@@ -259,6 +259,8 @@ impl<'a> Lexer<'a> {
             "redim" if hint.is_none() => TokenKind::ReDim,
             "preserve" if hint.is_none() => TokenKind::Preserve,
             "erase" if hint.is_none() => TokenKind::Erase,
+            "lset" if hint.is_none() => TokenKind::LSet,
+            "rset" if hint.is_none() => TokenKind::RSet,
             "console" if hint.is_none() => TokenKind::Console,
             "writeline" if hint.is_none() => TokenKind::WriteLine,
             _ => TokenKind::Identifier(text, hint),

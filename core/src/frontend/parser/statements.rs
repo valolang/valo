@@ -61,6 +61,8 @@ impl Parser {
             TokenKind::Exit => self.parse_exit(),
             TokenKind::ReDim => self.parse_redim(),
             TokenKind::Erase => self.parse_erase(),
+            TokenKind::LSet => self.parse_lset(),
+            TokenKind::RSet => self.parse_rset(),
             TokenKind::RaiseEvent => self.parse_raise_event(),
             TokenKind::Let => self.parse_let_assignment(),
             TokenKind::Call => self.parse_call_statement(),
@@ -1614,6 +1616,32 @@ impl Parser {
         let end = self.previous().span;
         Ok(Stmt::Erase {
             target,
+            span: Span::new(self.file_id, start.start, end.end),
+        })
+    }
+
+    fn parse_lset(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::LSet, "Expected 'LSet'")?.span;
+        let target = self.parse_assignment_target()?;
+        self.expect_simple(TokenKind::Equal, "Expected '=' after LSet target")?;
+        let expr = self.parse_expression()?;
+        let end = self.previous().span;
+        Ok(Stmt::LSet {
+            target,
+            expr,
+            span: Span::new(self.file_id, start.start, end.end),
+        })
+    }
+
+    fn parse_rset(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::RSet, "Expected 'RSet'")?.span;
+        let target = self.parse_assignment_target()?;
+        self.expect_simple(TokenKind::Equal, "Expected '=' after RSet target")?;
+        let expr = self.parse_expression()?;
+        let end = self.previous().span;
+        Ok(Stmt::RSet {
+            target,
+            expr,
             span: Span::new(self.file_id, start.start, end.end),
         })
     }
