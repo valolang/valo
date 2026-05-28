@@ -704,20 +704,6 @@ impl Parser {
         self.parse_expression()
     }
 
-    fn parse_assignment(&mut self) -> Result<Stmt, Diagnostic> {
-        let target = self.parse_assignment_target()?;
-        let start = target.span();
-        self.expect_simple(TokenKind::Equal, "Expected '=' in assignment")?;
-        let expr = self.parse_expression()?;
-        let end = expr.span;
-
-        Ok(Stmt::Assign {
-            target,
-            expr,
-            span: Span::new(self.file_id, start.start, end.end),
-        })
-    }
-
     fn parse_let_assignment(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect_simple(TokenKind::Let, "Expected 'Let'")?.span;
         let target = self.parse_assignment_target()?;
@@ -746,6 +732,174 @@ impl Parser {
         })
     }
 
+    fn parse_identifier_statement_with_expr(
+        &mut self,
+        expr: Expr,
+        start: Span,
+    ) -> Result<Stmt, Diagnostic> {
+        let span = expr.span;
+        match &expr.kind {
+            ExprKind::Call { name, args, .. } => {
+                if self.match_simple(&TokenKind::Equal) {
+                    let value = self.parse_expression()?;
+                    let end = value.span;
+                    return Ok(Stmt::Assign {
+                        target: AssignTarget::ArrayElement {
+                            name: name.clone(),
+                            indices: args.clone(),
+                            span,
+                        },
+                        expr: value,
+                        span: Span::new(self.file_id, start.start, end.end),
+                    });
+                }
+
+                // Check if it's a member access after the call (e.g., obj(1).prop = 2)
+                if self.check_simple(&TokenKind::Dot) {
+                    let target = self.parse_member_access(expr)?;
+                    let target_span = target.span;
+                    let ExprKind::MemberAccess { object, field } = target.kind else {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::PARSE,
+                            "Expected member assignment target",
+                            Some(target_span),
+                        ));
+                    };
+                    self.expect_simple(TokenKind::Equal, "Expected '=' in member assignment")?;
+                    let value = self.parse_expression()?;
+                    let end = value.span;
+                    return Ok(Stmt::Assign {
+                        target: AssignTarget::Member {
+                            object: *object,
+                            field,
+                            span: target_span,
+                        },
+                        expr: value,
+                        span: Span::new(self.file_id, target_span.start, end.end),
+                    });
+                }
+
+                Ok(Stmt::SubCall {
+                    name: name.clone(),
+                    args: args.clone(),
+                    span: Span::new(self.file_id, start.start, span.end),
+                })
+            }
+            ExprKind::MemberAccess { object, field } => {
+                if let ExprKind::Variable(name) = &object.kind
+                    && name.eq_ignore_ascii_case("Debug")
+                    && field.eq_ignore_ascii_case("Print")
+                {
+                    let args = self.parse_bare_call_arguments()?;
+                    let end = args.last().map(|arg| arg.span).unwrap_or(span);
+                    return Ok(Stmt::DebugPrint {
+                        args,
+                        span: Span::new(self.file_id, start.start, end.end),
+                    });
+                }
+
+                if self.match_simple(&TokenKind::Equal) {
+                    let value = self.parse_expression()?;
+                    let end = value.span;
+                    return Ok(Stmt::Assign {
+                        target: AssignTarget::Member {
+                            object: (**object).clone(),
+                            field: field.clone(),
+                            span,
+                        },
+                        expr: value,
+                        span: Span::new(self.file_id, start.start, end.end),
+                    });
+                }
+
+                // Bare member call
+                let args = self.parse_bare_call_arguments()?;
+                let end = args.last().map(|arg| arg.span).unwrap_or(span);
+                Ok(Stmt::MemberSubCall {
+                    object: (**object).clone(),
+                    method: field.clone(),
+                    args,
+                    span: Span::new(self.file_id, start.start, end.end),
+                })
+            }
+            ExprKind::MemberCall {
+                object,
+                method,
+                type_args: _,
+                args,
+            } => {
+                if let ExprKind::Variable(name) = &object.kind
+                    && name.eq_ignore_ascii_case("Debug")
+                    && method.eq_ignore_ascii_case("Print")
+                {
+                    return Ok(Stmt::DebugPrint {
+                        args: args.clone(),
+                        span,
+                    });
+                }
+
+                if self.match_simple(&TokenKind::Equal) {
+                    let value = self.parse_expression()?;
+                    let end = value.span;
+                    return Ok(Stmt::Assign {
+                        target: AssignTarget::MemberArrayElement {
+                            object: (**object).clone(),
+                            field: method.clone(),
+                            indices: args.clone(),
+                            span,
+                        },
+                        expr: value,
+                        span: Span::new(self.file_id, start.start, end.end),
+                    });
+                }
+
+                Ok(Stmt::MemberSubCall {
+                    object: (**object).clone(),
+                    method: method.clone(),
+                    args: args.clone(),
+                    span: Span::new(self.file_id, start.start, span.end),
+                })
+            }
+            ExprKind::Variable(name) => {
+                if self.match_simple(&TokenKind::Equal) {
+                    let value = self.parse_expression()?;
+                    let end = value.span;
+                    return Ok(Stmt::Assign {
+                        target: AssignTarget::Variable {
+                            name: name.clone(),
+                            span,
+                        },
+                        expr: value,
+                        span: Span::new(self.file_id, start.start, end.end),
+                    });
+                }
+
+                let args = self.parse_bare_call_arguments()?;
+                let end = args.last().map(|arg| arg.span).unwrap_or(span);
+                Ok(Stmt::SubCall {
+                    name: name.clone(),
+                    args,
+                    span: Span::new(self.file_id, start.start, end.end),
+                })
+            }
+            _ => {
+                if self.match_simple(&TokenKind::Equal) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "Invalid assignment target",
+                        Some(span),
+                    ));
+                }
+
+                Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::PARSE,
+                    "Expected statement",
+                    Some(span),
+                ))
+            }
+        }
+    }
+
     fn parse_identifier_statement(&mut self) -> Result<Stmt, Diagnostic> {
         if matches!(self.peek_kind(), TokenKind::Identifier(_, _))
             && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
@@ -760,16 +914,10 @@ impl Parser {
                 span: Span::new(self.file_id, token.span.start, colon.span.end),
             });
         }
-        if matches!(self.peek_kind(), TokenKind::Dot) {
-            return self.parse_member_assignment();
-        }
-        match self.peek_next_kind() {
-            Some(TokenKind::LeftParen) => self.parse_call_or_array_assignment(),
-            Some(TokenKind::Dot) => self.parse_member_assignment(),
-            _ if matches!(self.peek_kind(), TokenKind::Me) => self.parse_member_assignment(),
-            Some(TokenKind::Equal) => self.parse_assignment(),
-            _ => self.parse_bare_sub_call(),
-        }
+
+        let start_span = self.peek().span;
+        let expr = self.parse_primary()?;
+        self.parse_identifier_statement_with_expr(expr, start_span)
     }
 
     fn parse_call_statement(&mut self) -> Result<Stmt, Diagnostic> {
@@ -863,18 +1011,6 @@ impl Parser {
         self.parse_member_access(base)
     }
 
-    fn parse_bare_sub_call(&mut self) -> Result<Stmt, Diagnostic> {
-        let start = self.peek().span;
-        let name = self.expect_identifier("Expected Sub name")?;
-        let args = self.parse_bare_call_arguments()?;
-        let end = args.last().map(|arg| arg.span).unwrap_or(start);
-        Ok(Stmt::SubCall {
-            name,
-            args,
-            span: Span::new(self.file_id, start.start, end.end),
-        })
-    }
-
     fn parse_bare_call_arguments(&mut self) -> Result<Vec<Expr>, Diagnostic> {
         let mut args = Vec::new();
         let mut saw_named = false;
@@ -895,160 +1031,6 @@ impl Parser {
             }
         }
         Ok(args)
-    }
-
-    fn parse_call_or_array_assignment(&mut self) -> Result<Stmt, Diagnostic> {
-        let start = self.peek().span;
-        let name = self.expect_identifier("Expected name")?;
-        let args = self.parse_call_arguments()?;
-        let target_end = self.previous().span;
-
-        if self.match_simple(&TokenKind::Equal) {
-            let expr = self.parse_expression()?;
-            let end = expr.span;
-            return Ok(Stmt::Assign {
-                target: AssignTarget::ArrayElement {
-                    name,
-                    indices: args,
-                    span: Span::new(self.file_id, start.start, target_end.end),
-                },
-                expr,
-                span: Span::new(self.file_id, start.start, end.end),
-            });
-        }
-
-        if self.check_simple(&TokenKind::Dot) {
-            let target = self.parse_member_access(Expr {
-                kind: ExprKind::Call {
-                    name,
-                    type_args: Vec::new(),
-                    args,
-                },
-                span: Span::new(self.file_id, start.start, self.previous().span.end),
-            })?;
-            let target_span = target.span;
-            let ExprKind::MemberAccess { object, field } = target.kind else {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PARSE,
-                    "Expected member assignment target",
-                    Some(target_span),
-                ));
-            };
-            self.expect_simple(TokenKind::Equal, "Expected '=' in member assignment")?;
-            let expr = self.parse_expression()?;
-            let end = expr.span;
-            return Ok(Stmt::Assign {
-                target: AssignTarget::Member {
-                    object: *object,
-                    field,
-                    span: target_span,
-                },
-                expr,
-                span: Span::new(self.file_id, target_span.start, end.end),
-            });
-        }
-
-        let end = self.previous().span;
-        Ok(Stmt::SubCall {
-            name,
-            args,
-            span: Span::new(self.file_id, start.start, end.end),
-        })
-    }
-
-    fn parse_member_assignment(&mut self) -> Result<Stmt, Diagnostic> {
-        let target = self.parse_primary()?;
-        let target_span = target.span;
-
-        if let ExprKind::MemberAccess { object, field } = &target.kind
-            && let ExprKind::Variable(name) = &object.kind
-            && name.eq_ignore_ascii_case("Debug")
-            && field.eq_ignore_ascii_case("Print")
-        {
-            let args = self.parse_bare_call_arguments()?;
-            let end = args.last().map(|arg| arg.span).unwrap_or(target_span);
-            return Ok(Stmt::DebugPrint {
-                args,
-                span: Span::new(self.file_id, target_span.start, end.end),
-            });
-        }
-        if let ExprKind::MemberCall {
-            object,
-            method,
-            type_args: _,
-            args,
-        } = &target.kind
-            && let ExprKind::Variable(name) = &object.kind
-            && name.eq_ignore_ascii_case("Debug")
-            && method.eq_ignore_ascii_case("Print")
-        {
-            return Ok(Stmt::DebugPrint {
-                args: args.clone(),
-                span: target_span,
-            });
-        }
-
-        let (object, field, args) = match target.kind {
-            ExprKind::MemberAccess { object, field } => (object, field, None),
-            ExprKind::MemberCall {
-                object,
-                method,
-                type_args: _,
-                args,
-            } => (object, method, Some(args)),
-            _ => {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PARSE,
-                    "Expected member assignment target",
-                    Some(target_span),
-                ));
-            }
-        };
-        if let Some(args) = args {
-            if self.match_simple(&TokenKind::Equal) {
-                let expr = self.parse_expression()?;
-                let end = expr.span;
-                return Ok(Stmt::Assign {
-                    target: AssignTarget::MemberArrayElement {
-                        object: *object,
-                        field,
-                        indices: args,
-                        span: target_span,
-                    },
-                    expr,
-                    span: Span::new(self.file_id, target_span.start, end.end),
-                });
-            }
-            return Ok(Stmt::MemberSubCall {
-                object: *object,
-                method: field,
-                args,
-                span: target_span,
-            });
-        }
-        if !self.check_simple(&TokenKind::Equal) {
-            let args = self.parse_bare_call_arguments()?;
-            let end = args.last().map(|arg| arg.span).unwrap_or(target_span);
-            return Ok(Stmt::MemberSubCall {
-                object: *object,
-                method: field,
-                args,
-                span: Span::new(self.file_id, target_span.start, end.end),
-            });
-        }
-        self.expect_simple(TokenKind::Equal, "Expected '=' in member assignment")?;
-        let expr = self.parse_expression()?;
-        let end = expr.span;
-
-        Ok(Stmt::Assign {
-            target: AssignTarget::Member {
-                object: *object,
-                field,
-                span: target_span,
-            },
-            expr,
-            span: Span::new(self.file_id, target_span.start, end.end),
-        })
     }
 
     fn at_statement_separator(&self) -> bool {

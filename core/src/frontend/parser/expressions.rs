@@ -322,24 +322,84 @@ impl Parser {
     pub(super) fn parse_primary(&mut self) -> Result<Expr, Diagnostic> {
         let token = self.advance();
         let span = token.span;
-        let kind = match token.kind {
-            TokenKind::String(value) => ExprKind::String(value),
-            TokenKind::Integer(value) => ExprKind::Integer(value),
-            TokenKind::Hex(value) => ExprKind::Integer(parse_vba_hex(&value)),
-            TokenKind::Octal(value) => ExprKind::Integer(parse_vba_octal(&value)),
-            TokenKind::Float(value) => parse_vba_float(&value),
-            TokenKind::True => ExprKind::Boolean(true),
-            TokenKind::False => ExprKind::Boolean(false),
-            TokenKind::Hash => self.parse_date_literal(span)?,
-            TokenKind::Nothing => ExprKind::Nothing,
-            TokenKind::Empty => ExprKind::Empty,
-            TokenKind::Null => ExprKind::Null,
-            TokenKind::Me => ExprKind::Me,
+        let expr = match token.kind {
+            TokenKind::String(value) => Expr {
+                kind: ExprKind::String(value),
+                span,
+            },
+            TokenKind::Integer(value) => Expr {
+                kind: ExprKind::Integer(value),
+                span,
+            },
+            TokenKind::Hex(value) => Expr {
+                kind: ExprKind::Integer(parse_vba_hex(&value)),
+                span,
+            },
+            TokenKind::Octal(value) => Expr {
+                kind: ExprKind::Integer(parse_vba_octal(&value)),
+                span,
+            },
+            TokenKind::Float(value) => Expr {
+                kind: parse_vba_float(&value),
+                span,
+            },
+            TokenKind::True => Expr {
+                kind: ExprKind::Boolean(true),
+                span,
+            },
+            TokenKind::False => Expr {
+                kind: ExprKind::Boolean(false),
+                span,
+            },
+            TokenKind::Hash => Expr {
+                kind: self.parse_date_literal(span)?,
+                span: Span::new(self.file_id, span.start, self.previous().span.end),
+            },
+            TokenKind::Nothing => Expr {
+                kind: ExprKind::Nothing,
+                span,
+            },
+            TokenKind::Empty => Expr {
+                kind: ExprKind::Empty,
+                span,
+            },
+            TokenKind::Null => Expr {
+                kind: ExprKind::Null,
+                span,
+            },
+            TokenKind::Me => Expr {
+                kind: ExprKind::Me,
+                span,
+            },
             TokenKind::Dot => {
-                let field_token = self.advance();
-                let field = match field_token.kind {
-                    TokenKind::Identifier(field, _) => field,
-                    TokenKind::Version => "VERSION".to_string(),
+                let start_span = span;
+                let field_token = self.peek();
+                let (field, field_end) = match &field_token.kind {
+                    TokenKind::Identifier(field, _) => (field.clone(), field_token.span.end),
+                    TokenKind::Version => ("VERSION".to_string(), field_token.span.end),
+                    TokenKind::WriteLine => ("WriteLine".to_string(), field_token.span.end),
+                    TokenKind::Text => ("Text".to_string(), field_token.span.end),
+                    TokenKind::Binary => ("Binary".to_string(), field_token.span.end),
+                    TokenKind::Compare => ("Compare".to_string(), field_token.span.end),
+                    TokenKind::Base => ("Base".to_string(), field_token.span.end),
+                    TokenKind::Lib => ("Lib".to_string(), field_token.span.end),
+                    TokenKind::New => ("New".to_string(), field_token.span.end),
+                    TokenKind::Type => ("Type".to_string(), field_token.span.end),
+                    TokenKind::Class => ("Class".to_string(), field_token.span.end),
+                    TokenKind::Module => ("Module".to_string(), field_token.span.end),
+                    TokenKind::Enum => ("Enum".to_string(), field_token.span.end),
+                    TokenKind::Interface => ("Interface".to_string(), field_token.span.end),
+                    TokenKind::Structure => ("Structure".to_string(), field_token.span.end),
+                    TokenKind::Get => ("Get".to_string(), field_token.span.end),
+                    TokenKind::Let => ("Let".to_string(), field_token.span.end),
+                    TokenKind::Set => ("Set".to_string(), field_token.span.end),
+                    TokenKind::Option => ("Option".to_string(), field_token.span.end),
+                    TokenKind::Explicit => ("Explicit".to_string(), field_token.span.end),
+                    TokenKind::Sub => ("Sub".to_string(), field_token.span.end),
+                    TokenKind::Function => ("Function".to_string(), field_token.span.end),
+                    TokenKind::Property => ("Property".to_string(), field_token.span.end),
+                    TokenKind::Event => ("Event".to_string(), field_token.span.end),
+                    TokenKind::Declare => ("Declare".to_string(), field_token.span.end),
                     _ => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::PARSE,
@@ -348,31 +408,33 @@ impl Parser {
                         ));
                     }
                 };
+                self.advance();
                 let object = Expr {
                     kind: ExprKind::WithTarget,
-                    span,
+                    span: start_span,
                 };
-                let member_span = Span::new(self.file_id, span.start, field_token.span.end);
+                let member_span = Span::new(self.file_id, start_span.start, field_end);
                 if self.match_simple(&TokenKind::LeftParen) {
                     let args = self.finish_call_arguments()?;
                     let end = self.previous().span;
-                    return self.parse_member_access(Expr {
+                    Expr {
                         kind: ExprKind::MemberCall {
                             object: Box::new(object),
                             method: field,
                             type_args: Vec::new(),
                             args,
                         },
-                        span: Span::new(self.file_id, span.start, end.end),
-                    });
+                        span: Span::new(self.file_id, start_span.start, end.end),
+                    }
+                } else {
+                    Expr {
+                        kind: ExprKind::MemberAccess {
+                            object: Box::new(object),
+                            field,
+                        },
+                        span: member_span,
+                    }
                 }
-                return self.parse_member_access(Expr {
-                    kind: ExprKind::MemberAccess {
-                        object: Box::new(object),
-                        field,
-                    },
-                    span: member_span,
-                });
             }
             TokenKind::New => {
                 let mut class_name = self.expect_identifier("Expected class name after 'New'")?;
@@ -394,22 +456,26 @@ impl Parser {
                 } else {
                     Vec::new()
                 };
-                ExprKind::New { class_name, args }
+                let end = self.previous().span;
+                Expr {
+                    kind: ExprKind::New { class_name, args },
+                    span: Span::new(self.file_id, span.start, end.end),
+                }
             }
             TokenKind::Identifier(name, _) => {
                 if name.eq_ignore_ascii_case("MyBase") {
-                    return self.parse_member_access(Expr {
+                    Expr {
                         kind: ExprKind::MyBase,
                         span,
-                    });
-                }
-                if name.eq_ignore_ascii_case("MyClass") {
-                    return self.parse_member_access(Expr {
+                    }
+                } else if name.eq_ignore_ascii_case("MyClass") {
+                    Expr {
                         kind: ExprKind::MyClass,
                         span,
-                    });
-                }
-                if name.eq_ignore_ascii_case("iif") && self.match_simple(&TokenKind::LeftParen) {
+                    }
+                } else if name.eq_ignore_ascii_case("iif")
+                    && self.match_simple(&TokenKind::LeftParen)
+                {
                     let condition = self.parse_expression()?;
                     self.expect_simple(TokenKind::Comma, "Expected ',' in IIf")?;
                     let true_expr = self.parse_expression()?;
@@ -417,36 +483,44 @@ impl Parser {
                     let false_expr = self.parse_expression()?;
                     self.expect_simple(TokenKind::RightParen, "Expected ')' after IIf")?;
                     let end = self.previous().span;
-                    return self.parse_member_access(Expr {
+                    Expr {
                         kind: ExprKind::IIf {
                             condition: Box::new(condition),
                             true_expr: Box::new(true_expr),
                             false_expr: Box::new(false_expr),
                         },
                         span: Span::new(self.file_id, span.start, end.end),
-                    });
-                }
-
-                if self.check_simple(&TokenKind::LeftParen)
-                    && matches!(self.peek_next_kind(), Some(TokenKind::Of))
-                {
-                    let type_args = self.parse_optional_type_args()?;
-                    self.expect_simple(TokenKind::LeftParen, "Expected '(' after type arguments")?;
-                    let args = self.finish_call_arguments()?;
-                    ExprKind::Call {
-                        name,
-                        type_args,
-                        args,
-                    }
-                } else if self.match_simple(&TokenKind::LeftParen) {
-                    let args = self.finish_call_arguments()?;
-                    ExprKind::Call {
-                        name,
-                        type_args: Vec::new(),
-                        args,
                     }
                 } else {
-                    ExprKind::Variable(name)
+                    let kind = if self.check_simple(&TokenKind::LeftParen)
+                        && matches!(self.peek_next_kind(), Some(TokenKind::Of))
+                    {
+                        let type_args = self.parse_optional_type_args()?;
+                        self.expect_simple(
+                            TokenKind::LeftParen,
+                            "Expected '(' after type arguments",
+                        )?;
+                        let args = self.finish_call_arguments()?;
+                        ExprKind::Call {
+                            name,
+                            type_args,
+                            args,
+                        }
+                    } else if self.match_simple(&TokenKind::LeftParen) {
+                        let args = self.finish_call_arguments()?;
+                        ExprKind::Call {
+                            name,
+                            type_args: Vec::new(),
+                            args,
+                        }
+                    } else {
+                        ExprKind::Variable(name)
+                    };
+                    let end = self.previous().span;
+                    Expr {
+                        kind,
+                        span: Span::new(self.file_id, span.start, end.end),
+                    }
                 }
             }
             TokenKind::Console => {
@@ -458,14 +532,14 @@ impl Parser {
                     Vec::new()
                 };
                 let end = self.previous().span;
-                return self.parse_member_access(Expr {
+                Expr {
                     kind: ExprKind::Call {
                         name: format!("Console.{}", method),
                         type_args: Vec::new(),
                         args,
                     },
                     span: Span::new(self.file_id, span.start, end.end),
-                });
+                }
             }
             TokenKind::Lib
             | TokenKind::Base
@@ -480,7 +554,7 @@ impl Parser {
                     TokenKind::Binary => "binary".to_string(),
                     _ => unreachable!(),
                 };
-                if self.match_simple(&TokenKind::LeftParen) {
+                let kind = if self.match_simple(&TokenKind::LeftParen) {
                     let args = self.finish_call_arguments()?;
                     ExprKind::Call {
                         name,
@@ -489,6 +563,11 @@ impl Parser {
                     }
                 } else {
                     ExprKind::Variable(name)
+                };
+                let end = self.previous().span;
+                Expr {
+                    kind,
+                    span: Span::new(self.file_id, span.start, end.end),
                 }
             }
             TokenKind::LeftParen => {
@@ -505,7 +584,6 @@ impl Parser {
             }
         };
 
-        let expr = Expr { kind, span };
         self.parse_member_access(expr)
     }
 
@@ -645,11 +723,6 @@ impl Parser {
         }
 
         Ok(expr)
-    }
-
-    pub(super) fn parse_call_arguments(&mut self) -> Result<Vec<Expr>, Diagnostic> {
-        self.expect_simple(TokenKind::LeftParen, "Expected '(' after name")?;
-        self.finish_call_arguments()
     }
 
     pub(super) fn finish_call_arguments(&mut self) -> Result<Vec<Expr>, Diagnostic> {

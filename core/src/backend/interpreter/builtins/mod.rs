@@ -10,6 +10,8 @@ use super::{ControlFlow, Frame, Interpreter};
 use crate::runtime::{Diagnostic, TypeName, Value, coerce_assignment};
 use crate::{Expr, ExprKind};
 
+const DEFAULT_DIALOG_TITLE: &str = "Valo";
+
 pub(crate) fn dispatch_stmt(
     interpreter: &mut Interpreter,
     object_name: &str,
@@ -208,7 +210,7 @@ pub(crate) fn dispatch_function(
                 }
             }
         }
-        return Ok(Some(Value::Empty));
+        return Ok(Some(Value::Int16(0)));
     }
 
     if effective_name.eq_ignore_ascii_case("MsgBox") {
@@ -220,24 +222,24 @@ pub(crate) fn dispatch_function(
             ));
         }
         let prompt = interpreter.eval_expr(&args[0], frame)?.to_output_string();
-        let buttons_val = if args.len() >= 2 && !matches!(args[1].kind, ExprKind::Missing) {
-            interpreter.eval_expr(&args[1], frame)?
-        } else {
-            Value::Int32(0) // vbOKOnly
-        };
-        let buttons = coerce_assignment(&TypeName::Long, buttons_val, span)?
-            .to_output_string()
-            .parse::<i32>()
-            .unwrap_or(0);
-
         let title = if args.len() >= 3 && !matches!(args[2].kind, ExprKind::Missing) {
             interpreter.eval_expr(&args[2], frame)?.to_output_string()
         } else {
-            "Valo".to_string()
+            DEFAULT_DIALOG_TITLE.to_string()
         };
 
         #[cfg(windows)]
         {
+            let buttons_val = if args.len() >= 2 && !matches!(args[1].kind, ExprKind::Missing) {
+                interpreter.eval_expr(&args[1], frame)?
+            } else {
+                Value::Int32(0) // vbOKOnly
+            };
+            let buttons = coerce_assignment(&TypeName::Long, buttons_val, span)?
+                .to_output_string()
+                .parse::<i32>()
+                .unwrap_or(0);
+
             use windows::Win32::UI::WindowsAndMessaging::{MESSAGEBOX_STYLE, MessageBoxW};
             use windows::core::HSTRING;
             let result = unsafe {
@@ -252,6 +254,11 @@ pub(crate) fn dispatch_function(
         }
         #[cfg(not(windows))]
         {
+            // Evaluate buttons anyway to maintain side-effects parity
+            if args.len() >= 2 && !matches!(args[1].kind, ExprKind::Missing) {
+                let _ = interpreter.eval_expr(&args[1], frame)?;
+            }
+
             println!("{title}: {prompt}");
             return Ok(Some(Value::Int16(1))); // vbOK
         }
@@ -269,7 +276,7 @@ pub(crate) fn dispatch_function(
         let title = if args.len() >= 2 && !matches!(args[1].kind, ExprKind::Missing) {
             interpreter.eval_expr(&args[1], frame)?.to_output_string()
         } else {
-            "Valo".to_string()
+            DEFAULT_DIALOG_TITLE.to_string()
         };
         let default = if args.len() >= 3 && !matches!(args[2].kind, ExprKind::Missing) {
             interpreter.eval_expr(&args[2], frame)?.to_output_string()

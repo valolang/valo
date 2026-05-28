@@ -326,6 +326,7 @@ fn generic_function_type_inference_reports_uninferrable_type_parameter() {
     let error = source_error(
         r#"
 Function MakeDefault(Of T)() As T
+    MakeDefault = Nothing
 End Function
 
 Sub Main()

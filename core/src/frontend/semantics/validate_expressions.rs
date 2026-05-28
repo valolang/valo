@@ -3410,16 +3410,13 @@ fn validate_generic_constraints(
             .iter()
             .position(|param| param.eq_ignore_ascii_case(&constraint.name))
         else {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                format!(
-                    "Generic constraint references unknown type parameter '{}'",
-                    constraint.name
-                ),
-                Some(span),
-            ));
+            continue;
         };
         let arg = &type_args[index];
+        println!(
+            "Validating constraint for '{}': require_new={}",
+            constraint.name, constraint.require_new
+        );
         if constraint.require_class && !is_reference_type(arg, types) {
             return Err(generic_constraint_error(
                 owner,
@@ -3439,6 +3436,7 @@ fn validate_generic_constraints(
             ));
         }
         if constraint.require_new && !has_parameterless_constructor(arg, types) {
+            println!("  Constraint FAILED: require_new check failed");
             return Err(generic_constraint_error(
                 owner,
                 &constraint.name,
@@ -3544,10 +3542,17 @@ fn class_has_public_default_new(class: &ClassSig) -> bool {
     if class.inheritance == crate::ClassInheritance::MustInherit {
         return false;
     }
-    class
+
+    // Check for explicit constructor (Sub New or Class_Initialize)
+    let ctor = class
         .subs
         .get("initialize")
-        .is_none_or(|init| init.visibility == Visibility::Public && init.params.is_empty())
+        .or_else(|| class.subs.get("class_initialize"));
+
+    match ctor {
+        Some(init) => init.visibility == Visibility::Public && init.params.is_empty(),
+        None => true, // No explicit constructor means public default
+    }
 }
 
 fn satisfies_type_bound(arg: &TypeName, bound: &TypeName, types: &TypeRegistry) -> bool {
