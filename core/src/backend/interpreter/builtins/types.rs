@@ -28,6 +28,37 @@ pub(crate) fn eval_types(
         expect_value_count(name, args, 1, span)?;
         return Ok(Some(Value::Boolean(matches!(args[0], Value::Error(_)))));
     }
+    if name.eq_ignore_ascii_case("IsNumeric") {
+        expect_value_count(name, args, 1, span)?;
+        let val = match &args[0] {
+            Value::Byte(_)
+            | Value::Int16(_)
+            | Value::Int32(_)
+            | Value::Int64(_)
+            | Value::UInt32(_)
+            | Value::UInt64(_)
+            | Value::Single(_)
+            | Value::Double(_)
+            | Value::Currency(_)
+            | Value::Decimal(_)
+            | Value::Boolean(_)
+            | Value::Date(_) => true,
+            Value::String(s) => s.trim().parse::<f64>().is_ok(),
+            _ => false,
+        };
+        return Ok(Some(Value::Boolean(val)));
+    }
+    if name.eq_ignore_ascii_case("IsDate") {
+        expect_value_count(name, args, 1, span)?;
+        let val = match &args[0] {
+            Value::Date(_) => true,
+            Value::String(s) => {
+                super::parse_date_value(s, span).is_ok() || super::parse_time_value(s, span).is_ok()
+            }
+            _ => false,
+        };
+        return Ok(Some(Value::Boolean(val)));
+    }
     if name.eq_ignore_ascii_case("VarType") {
         expect_value_count(name, args, 1, span)?;
         return Ok(Some(Value::Int64(vartype(&args[0]))));

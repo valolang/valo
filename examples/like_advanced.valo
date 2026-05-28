@@ -1,0 +1,46 @@
+' Advanced Like Operator Example
+'
+' Demonstrates full VBA-compatible pattern matching with wildcards,
+' character classes, ranges, and negation.
+
+Sub Main()
+    ' Basic Wildcards
+    Console.WriteLine("--- Basic Wildcards ---")
+    Console.WriteLine("'abc' Like 'a?c':     " & ("abc" Like "a?c"))   ' True
+    Console.WriteLine("'abc' Like 'a*':      " & ("abc" Like "a*"))    ' True
+    Console.WriteLine("'a1c' Like 'a#c':     " & ("a1c" Like "a#c"))   ' True
+    
+    ' Character Classes and Ranges
+    Console.WriteLine("--- Ranges ---")
+    Console.WriteLine("'abc' Like 'a[a-z]c':  " & ("abc" Like "a[a-z]c")) ' True
+    Console.WriteLine("'a5c' Like 'a[0-9]c':  " & ("a5c" Like "a[0-9]c")) ' True
+    Console.WriteLine("'aBc' Like 'a[A-Z]c':  " & ("aBc" Like "a[A-Z]c")) ' True
+    
+    ' Multiple Ranges and Characters
+    Console.WriteLine("--- Multiple Ranges ---")
+    Console.WriteLine("'a5c' Like 'a[a-z0-9]c':" & ("a5c" Like "a[a-z0-9]c")) ' True
+    Console.WriteLine("'azc' Like 'a[a-z0-9]c':" & ("azc" Like "a[a-z0-9]c")) ' True
+    
+    ' Negation
+    Console.WriteLine("--- Negation ---")
+    Console.WriteLine("'abc' Like 'a[!0-9]c': " & ("abc" Like "a[!0-9]c"))  ' True
+    Console.WriteLine("'a1c' Like 'a[!0-9]c': " & ("a1c" Like "a[!0-9]c"))  ' False
+    
+    ' Special Character Escaping (wrap in brackets)
+    Console.WriteLine("--- Escaping ---")
+    Console.WriteLine("'a*c' Like 'a[*]c':    " & ("a*c" Like "a[*]c"))    ' True
+    Console.WriteLine("'a?c' Like 'a[?]c':    " & ("a?c" Like "a[?]c"))    ' True
+    Console.WriteLine("'a#c' Like 'a[#]c':    " & ("a#c" Like "a[#]c"))    ' True
+    Console.WriteLine("'a[c' Like 'a[[]c':    " & ("a[c" Like "a[[]c"))    ' True
+    
+    ' Literal Dash and Brackets inside classes
+    Console.WriteLine("--- Literal Dash/Brackets ---")
+    Console.WriteLine("'a-c' Like 'a[-bc]c':  " & ("a-c" Like "a[-bc]c")) ' True (dash at start)
+    Console.WriteLine("'abc' Like 'a[bc-]c':  " & ("abc" Like "a[bc-]c")) ' True (dash at end)
+    Console.WriteLine("'a]c' Like 'a[]]c':    " & ("a]c" Like "a[]]c"))   ' True (] at start)
+    
+    ' Case Sensitivity (Binary vs Text)
+    Console.WriteLine("--- Case Sensitivity ---")
+    ' Default is Binary compare unless Option Compare Text is used
+    Console.WriteLine("'abc' Like 'A*':       " & ("abc" Like "A*"))       ' False
+End Sub

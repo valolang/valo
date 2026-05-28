@@ -1,0 +1,36 @@
+' New Builtin Functions Example
+'
+' Demonstrates IsNumeric, IsDate, Split, and Join functions.
+
+Sub Main()
+    ' Type Check Functions
+    Console.WriteLine("--- Type Checks ---")
+    Console.WriteLine("IsNumeric(123):      " & IsNumeric(123))      ' True
+    Console.WriteLine("IsNumeric(""45.6""):    " & IsNumeric("45.6"))    ' True
+    Console.WriteLine("IsNumeric(""abc""):     " & IsNumeric("abc"))     ' False
+    Console.WriteLine("IsNumeric(True):     " & IsNumeric(True))      ' True
+    
+    Console.WriteLine("IsDate(""2026-05-27""): " & IsDate("2026-05-27")) ' True
+    Console.WriteLine("IsDate(""12:30:00""):   " & IsDate("12:30:00"))   ' True
+    Console.WriteLine("IsDate(""abc""):        " & IsDate("abc"))        ' False
+    
+    ' Array Functions
+    Console.WriteLine("--- Array Functions ---")
+    Dim s As String
+    s = "Apple,Banana,Cherry,Date"
+    
+    Dim fruits As Variant
+    fruits = Split(s, ",")
+    
+    Console.WriteLine("Split result count:  " & (UBound(fruits) + 1))
+    Console.WriteLine("First fruit:         " & fruits(0))
+    
+    Dim joined As String
+    joined = Join(fruits, " | ")
+    Console.WriteLine("Joined with ' | ':   " & joined)
+    
+    ' TypeName and VarType (already existed but good to show)
+    Console.WriteLine("--- Metadata ---")
+    Console.WriteLine("TypeName(fruits):    " & TypeName(fruits))
+    Console.WriteLine("VarType(fruits):     " & VarType(fruits))
+End Sub

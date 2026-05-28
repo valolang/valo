@@ -472,6 +472,8 @@ fn is_builtin_function(name: &str) -> bool {
             | "strcomp"
             | "isobject"
             | "isarray"
+            | "isnumeric"
+            | "isdate"
             | "isnull"
             | "isempty"
             | "iserror"
@@ -852,7 +854,7 @@ fn time_serial(hour: i64, minute: i64, second: i64) -> f64 {
     total as f64 / 86_400.0
 }
 
-fn parse_date_value(value: &str, span: crate::runtime::Span) -> Result<f64, Diagnostic> {
+pub(crate) fn parse_date_value(value: &str, span: crate::runtime::Span) -> Result<f64, Diagnostic> {
     let parts: Vec<_> = value
         .split(['-', '/'])
         .filter_map(|part| part.trim().parse::<i64>().ok())
@@ -873,7 +875,7 @@ fn parse_date_value(value: &str, span: crate::runtime::Span) -> Result<f64, Diag
     }
 }
 
-fn parse_time_value(value: &str, span: crate::runtime::Span) -> Result<f64, Diagnostic> {
+pub(crate) fn parse_time_value(value: &str, span: crate::runtime::Span) -> Result<f64, Diagnostic> {
     let parts: Vec<_> = value
         .split(':')
         .map(str::trim)

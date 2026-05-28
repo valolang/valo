@@ -161,23 +161,51 @@ pub fn like_match(value: &[char], pattern: &[char]) -> bool {
 }
 
 pub fn match_char_list(
-    value: Option<char>,
+    value_char: Option<char>,
     pattern: &[char],
     start: usize,
 ) -> Option<(bool, usize)> {
-    let mut index = start + 1;
-    let negated = pattern.get(index) == Some(&'!');
+    let value = value_char?;
+    let mut pi = start + 1;
+    let negated = pattern.get(pi) == Some(&'!');
     if negated {
-        index += 1;
+        pi += 1;
     }
-    let list_start = index;
-    while index < pattern.len() && pattern[index] != ']' {
-        index += 1;
+
+    let mut found_match = false;
+
+    // Special case: ']' at the very beginning of the list matches literally
+    if pattern.get(pi) == Some(&']') {
+        if value == ']' {
+            found_match = true;
+        }
+        pi += 1;
     }
-    if index >= pattern.len() || index == list_start {
+
+    while pi < pattern.len() && pattern[pi] != ']' {
+        // Check for range x-y
+        // A range is valid if:
+        // 1. We have at least 3 chars left (x-y)
+        // 2. The next char is '-'
+        // 3. The char after '-' is not ']'
+        if pi + 2 < pattern.len() && pattern[pi + 1] == '-' && pattern[pi + 2] != ']' {
+            let start_range = pattern[pi];
+            let end_range = pattern[pi + 2];
+            if value >= start_range && value <= end_range {
+                found_match = true;
+            }
+            pi += 3;
+        } else {
+            if value == pattern[pi] {
+                found_match = true;
+            }
+            pi += 1;
+        }
+    }
+
+    if pi >= pattern.len() || pattern[pi] != ']' {
         return None;
     }
-    let value = value?;
-    let contains = pattern[list_start..index].contains(&value);
-    Some((if negated { !contains } else { contains }, index + 1))
+
+    Some((if negated { !found_match } else { found_match }, pi + 1))
 }

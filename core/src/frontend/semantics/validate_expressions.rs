@@ -1379,7 +1379,14 @@ fn validate_builtin_function(
         }
         return Ok(Some(TypeName::Boolean));
     }
-    let boolean_one_arg = ["IsObject", "IsNull", "IsError", "IsEmpty"];
+    let boolean_one_arg = [
+        "IsObject",
+        "IsNull",
+        "IsError",
+        "IsEmpty",
+        "IsNumeric",
+        "IsDate",
+    ];
     if boolean_one_arg
         .iter()
         .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
@@ -1394,6 +1401,66 @@ fn validate_builtin_function(
             validation.option_explicit,
         )?;
         return Ok(Some(TypeName::Boolean));
+    }
+    if effective_name.eq_ignore_ascii_case("TypeName") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(
+            &args[0],
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
+        )?;
+        return Ok(Some(TypeName::String));
+    }
+    if effective_name.eq_ignore_ascii_case("Split") {
+        if args.is_empty() || args.len() > 4 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Split expects 1 to 4 arguments",
+                Some(span),
+            ));
+        }
+        for arg in args {
+            validate_expr(
+                arg,
+                validation.symbols,
+                validation.types,
+                validation.signatures,
+                validation.context,
+                validation.option_explicit,
+            )?;
+        }
+        return Ok(Some(TypeName::Array(Box::new(TypeName::String))));
+    }
+    if effective_name.eq_ignore_ascii_case("Join") {
+        if args.is_empty() || args.len() > 2 {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::GENERIC,
+                "Join expects 1 to 2 arguments",
+                Some(span),
+            ));
+        }
+        validate_array_expr(
+            &args[0],
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
+        )?;
+        if args.len() == 2 {
+            validate_expr(
+                &args[1],
+                validation.symbols,
+                validation.types,
+                validation.signatures,
+                validation.context,
+                validation.option_explicit,
+            )?;
+        }
+        return Ok(Some(TypeName::String));
     }
     if effective_name.eq_ignore_ascii_case("IsMissing") {
         validate_arg_count(effective_name, args, 1, span)?;
