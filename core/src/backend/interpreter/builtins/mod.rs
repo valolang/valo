@@ -7,7 +7,7 @@
 //! (`IIf`, `CallByName`, pointer builtins, and host-owned services).
 
 use super::{ControlFlow, Frame, Interpreter};
-use crate::runtime::{Diagnostic, TypeName, Value, coerce_assignment};
+use crate::runtime::{Diagnostic, Value};
 use crate::{Expr, ExprKind};
 
 const DEFAULT_DIALOG_TITLE: &str = "Valo";
@@ -230,6 +230,7 @@ pub(crate) fn dispatch_function(
 
         #[cfg(windows)]
         {
+            use crate::runtime::{TypeName, coerce_assignment};
             let buttons_val = if args.len() >= 2 && !matches!(args[1].kind, ExprKind::Missing) {
                 interpreter.eval_expr(&args[1], frame)?
             } else {
