@@ -140,6 +140,7 @@ pub(crate) struct RuntimeType {
     pub(crate) subs: std::collections::HashMap<String, crate::Procedure>,
     pub(crate) functions: std::collections::HashMap<String, crate::Function>,
     pub(crate) properties: std::collections::HashMap<String, RuntimeProperty>,
+    pub(crate) operators: std::collections::HashMap<crate::OperatorKind, crate::Function>,
     pub(crate) default_property: Option<String>,
 }
 
@@ -206,6 +207,7 @@ impl From<&TypeDecl> for RuntimeType {
                     | ClassMember::Type(_)
                     | ClassMember::Declare(_)
                     | ClassMember::Enum(_)
+                    | ClassMember::Operator(_)
                     | ClassMember::Class(_) => None,
                 })
                 .collect(),
@@ -226,6 +228,7 @@ impl From<&TypeDecl> for RuntimeType {
                     | ClassMember::Type(_)
                     | ClassMember::Declare(_)
                     | ClassMember::Enum(_)
+                    | ClassMember::Operator(_)
                     | ClassMember::Class(_) => None,
                 })
                 .collect(),
@@ -244,6 +247,7 @@ impl From<&TypeDecl> for RuntimeType {
                     | ClassMember::Type(_)
                     | ClassMember::Declare(_)
                     | ClassMember::Enum(_)
+                    | ClassMember::Operator(_)
                     | ClassMember::Class(_) => None,
                 })
                 .fold(std::collections::HashMap::new(), |mut props, property| {
@@ -260,6 +264,28 @@ impl From<&TypeDecl> for RuntimeType {
                     }
                     props
                 }),
+            operators: value
+                .members
+                .iter()
+                .filter_map(|member| match member {
+                    ClassMember::Operator(op) => Some((
+                        op.kind,
+                        crate::Function {
+                            visibility: op.visibility,
+                            name: format!("{:?}", op.kind),
+                            is_iterator: false,
+                            type_params: Vec::new(),
+                            generic_constraints: Vec::new(),
+                            params: op.params.clone(),
+                            return_type: op.return_type.clone(),
+                            return_slot: None,
+                            body: op.body.clone(),
+                            span: op.span,
+                        },
+                    )),
+                    _ => None,
+                })
+                .collect(),
             default_property: value.members.iter().find_map(|member| match member {
                 ClassMember::Property(property) if property.is_default => {
                     Some(property.name.clone())

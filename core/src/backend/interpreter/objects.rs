@@ -1095,6 +1095,7 @@ pub(crate) struct RuntimeClass {
     pub(crate) shared_functions: HashMap<String, Function>,
     pub(crate) iterator: Option<Function>,
     pub(crate) properties: HashMap<String, RuntimeProperty>,
+    pub(crate) operators: HashMap<crate::OperatorKind, Function>,
     pub(crate) enumerator_member: Option<String>,
     pub(crate) default_member: Option<String>,
 }
@@ -1111,6 +1112,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
         let mut shared_functions = HashMap::new();
         let mut iterator = None;
         let mut properties = HashMap::new();
+        let mut operators = HashMap::new();
         let mut enumerator_member = None;
         let mut default_member = None;
         for member in &value.members {
@@ -1223,6 +1225,23 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                         PropertyKind::Set => property_entry.set = Some(accessor),
                     }
                 }
+                ClassMember::Operator(op) => {
+                    operators.insert(
+                        op.kind,
+                        crate::Function {
+                            visibility: op.visibility,
+                            name: format!("{:?}", op.kind),
+                            is_iterator: false,
+                            type_params: Vec::new(),
+                            generic_constraints: Vec::new(),
+                            params: op.params.clone(),
+                            return_type: op.return_type.clone(),
+                            return_slot: None,
+                            body: op.body.clone(),
+                            span: op.span,
+                        },
+                    );
+                }
                 ClassMember::Type(_)
                 | ClassMember::Declare(_)
                 | ClassMember::Enum(_)
@@ -1244,6 +1263,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
             shared_functions,
             iterator,
             properties,
+            operators,
             enumerator_member,
             default_member,
         }

@@ -307,6 +307,14 @@ impl Parser {
     }
 
     pub(super) fn parse_class_member(&mut self) -> Result<Vec<ClassMember>, Diagnostic> {
+        let peek1 = self.peek().clone();
+        let peek2 = self.tokens.get(self.current + 1).cloned();
+        let peek3 = self.tokens.get(self.current + 2).cloned();
+        let peek4 = self.tokens.get(self.current + 3).cloned();
+        eprintln!(
+            "parse_class_member starting at:\n  1: {:?}\n  2: {:?}\n  3: {:?}\n  4: {:?}",
+            peek1, peek2, peek3, peek4
+        );
         let explicit_visibility = self.parse_optional_visibility();
         let visibility = explicit_visibility.unwrap_or(Visibility::Public);
         let override_kind = self.parse_optional_override_kind();
@@ -406,6 +414,14 @@ impl Parser {
                     }
                 }
                 Ok(members)
+            }
+            TokenKind::Operator => {
+                if !is_shared {
+                    return Err(self.error_here("Operators must be declared as Shared"));
+                }
+                self.parse_operator_decl(visibility)
+                    .map(ClassMember::Operator)
+                    .map(|member| vec![member])
             }
             TokenKind::Type | TokenKind::Structure => self
                 .parse_type_decl(visibility)
@@ -1309,6 +1325,8 @@ impl Parser {
             | TokenKind::Iterator
             | TokenKind::Property
             | TokenKind::Default
+            | TokenKind::Shared
+            | TokenKind::Operator
             | TokenKind::Event => true,
             TokenKind::Public | TokenKind::Private => matches!(
                 self.peek_next_kind(),
@@ -1318,6 +1336,8 @@ impl Parser {
                         | TokenKind::Iterator
                         | TokenKind::Property
                         | TokenKind::Default
+                        | TokenKind::Shared
+                        | TokenKind::Operator
                         | TokenKind::Event
                 )
             ),
@@ -1326,9 +1346,14 @@ impl Parser {
     }
 
     fn parse_structure_member(&mut self) -> Result<Vec<ClassMember>, Diagnostic> {
-        let visibility = self
-            .parse_optional_visibility()
-            .unwrap_or(Visibility::Public);
+        let explicit_visibility = self.parse_optional_visibility();
+        let visibility = explicit_visibility.unwrap_or(Visibility::Public);
+        let is_shared = self.match_simple(&TokenKind::Shared);
+        let is_readonly = self.match_simple(&TokenKind::ReadOnly);
+        let is_writeonly = self.match_simple(&TokenKind::WriteOnly);
+        if is_readonly && is_writeonly {
+            return Err(self.error_here("Property cannot be both ReadOnly and WriteOnly"));
+        }
         let is_default = self.match_simple(&TokenKind::Default);
         match self.peek_kind() {
             TokenKind::Event => Err(Diagnostic::new(
@@ -1346,7 +1371,7 @@ impl Parser {
                     Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind: OverrideKind::None,
-                        is_shared: false,
+                        is_shared,
                         implements: Vec::new(),
                         procedure: self.parse_lifecycle_sub_procedure(
                             visibility,
@@ -1359,22 +1384,41 @@ impl Parser {
                     Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind: OverrideKind::None,
-                        is_shared: false,
+                        is_shared,
                         implements,
                         procedure,
                     })])
                 }
             }
-            TokenKind::Function => Ok(vec![ClassMember::Function(
-                self.parse_class_function(visibility, false)?,
-            )]),
+            TokenKind::Function => {
+                let mut function = self.parse_class_function(visibility, false)?;
+                function.is_shared = is_shared;
+                Ok(vec![ClassMember::Function(function)])
+            }
             TokenKind::Property => {
-                let members = self.parse_class_property_members(
-                    visibility, is_default, false, // is_iterator
-                    false, // is_readonly
-                    false, // is_writeonly
+                let mut members = self.parse_class_property_members(
+                    visibility,
+                    is_default,
+                    false, // is_iterator
+                    is_readonly,
+                    is_writeonly,
                 )?;
+                for member in &mut members {
+                    if let ClassMember::Property(property) = member {
+                        property.is_shared = is_shared;
+                    } else if let ClassMember::Field(field) = member {
+                        field.is_shared = is_shared;
+                    }
+                }
                 Ok(members)
+            }
+            TokenKind::Operator => {
+                if !is_shared {
+                    return Err(self.error_here("Operators must be declared as Shared"));
+                }
+                self.parse_operator_decl(visibility)
+                    .map(ClassMember::Operator)
+                    .map(|member| vec![member])
             }
             _ if is_default => Err(self.error_here("Default is only supported on Property")),
             _ => Err(self.error_here("Expected structure member")),
@@ -1962,6 +2006,136 @@ impl Parser {
         let bound = self.parse_type_name()?;
         constraint.bounds.push(bound);
         Ok(())
+    }
+
+    fn parse_operator_decl(&mut self, visibility: Visibility) -> Result<OperatorDecl, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::Operator, "Expected 'Operator'")?
+            .span;
+        let mut kind = match self.peek_kind() {
+            TokenKind::Plus => {
+                self.advance();
+                OperatorKind::Add
+            }
+            TokenKind::Minus => {
+                self.advance();
+                OperatorKind::Subtract
+            }
+            TokenKind::Star => {
+                self.advance();
+                OperatorKind::Multiply
+            }
+            TokenKind::Slash => {
+                self.advance();
+                OperatorKind::Divide
+            }
+            TokenKind::Backslash => {
+                self.advance();
+                OperatorKind::IntegerDivide
+            }
+            TokenKind::Caret => {
+                self.advance();
+                OperatorKind::Exponent
+            }
+            TokenKind::Mod => {
+                self.advance();
+                OperatorKind::Modulo
+            }
+            TokenKind::And => {
+                self.advance();
+                OperatorKind::And
+            }
+            TokenKind::Or => {
+                self.advance();
+                OperatorKind::Or
+            }
+            TokenKind::Xor => {
+                self.advance();
+                OperatorKind::Xor
+            }
+            TokenKind::Not => {
+                self.advance();
+                OperatorKind::Not
+            }
+            TokenKind::Equal => {
+                self.advance();
+                OperatorKind::Equal
+            }
+            TokenKind::NotEqual => {
+                self.advance();
+                OperatorKind::NotEqual
+            }
+            TokenKind::Less => {
+                self.advance();
+                OperatorKind::Less
+            }
+            TokenKind::Greater => {
+                self.advance();
+                OperatorKind::Greater
+            }
+            TokenKind::LessEqual => {
+                self.advance();
+                OperatorKind::LessEqual
+            }
+            TokenKind::GreaterEqual => {
+                self.advance();
+                OperatorKind::GreaterEqual
+            }
+            TokenKind::Like => {
+                self.advance();
+                OperatorKind::Like
+            }
+            TokenKind::Ampersand => {
+                self.advance();
+                OperatorKind::Concatenate
+            }
+            TokenKind::True => {
+                self.advance();
+                OperatorKind::True
+            }
+            TokenKind::False => {
+                self.advance();
+                OperatorKind::False
+            }
+            _ => {
+                return Err(self.error_here("Expected operator symbol after 'Operator'"));
+            }
+        };
+
+        self.expect_simple(TokenKind::LeftParen, "Expected '(' after operator symbol")?;
+        let params = self.parse_parameters()?;
+        self.expect_simple(
+            TokenKind::RightParen,
+            "Expected ')' after operator parameters",
+        )?;
+
+        // Disambiguate Add/Subtract based on param count
+        if params.len() == 1 {
+            if kind == OperatorKind::Add {
+                kind = OperatorKind::UnaryPlus;
+            } else if kind == OperatorKind::Subtract {
+                kind = OperatorKind::UnaryMinus;
+            }
+        }
+        self.expect_simple(TokenKind::As, "Expected 'As' after operator parameters")?;
+        let return_type = self.parse_type_name()?;
+        self.expect_statement_end("Expected newline after Operator header")?;
+
+        let body = self.parse_block_until(&[BlockEnd::EndOperator])?;
+        let end = self
+            .expect_simple(TokenKind::End, "Expected 'End Operator'")?
+            .span;
+        self.expect_simple(TokenKind::Operator, "Expected 'Operator' after 'End'")?;
+        self.consume_statement_end();
+
+        Ok(OperatorDecl {
+            visibility,
+            kind,
+            params,
+            return_type,
+            body,
+            span: Span::new(self.file_id, start.start, end.end),
+        })
     }
 
     fn parse_optional_where_clauses(&mut self) -> Result<(), Diagnostic> {

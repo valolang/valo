@@ -91,6 +91,7 @@ impl Parser {
             TokenKind::Version => Ok("VERSION".to_string()),
             TokenKind::Collection => Ok("Collection".to_string()),
             TokenKind::Error => Ok("Error".to_string()),
+            TokenKind::Operator => Ok("Operator".to_string()),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
                 message,
@@ -226,6 +227,7 @@ pub(super) enum BlockEnd {
     EndInterface,
     EndEnum,
     EndClass,
+    EndOperator,
     EndWith,
     EndUsing,
     Case,

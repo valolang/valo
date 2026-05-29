@@ -1,6 +1,6 @@
 use super::*;
-use crate::TypeKind;
 use crate::runtime::Span;
+use crate::{OperatorKind, TypeKind};
 
 pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnostic> {
     let mut types = HashMap::new();
@@ -119,6 +119,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 p
             },
             events: HashMap::new(),
+            operators: HashMap::new(),
             iterator: None,
             enumerator: Some("_NewEnum".to_string()), // Native collection is always enumerable
             default_property: Some("Item".to_string()),
@@ -207,6 +208,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
             functions: HashMap::new(),
             iterator: None,
             properties: HashMap::new(),
+            operators: HashMap::new(),
             enumerator: None,
             default_property: None,
         },
@@ -229,6 +231,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         let mut subs = HashMap::new();
         let mut functions = HashMap::new();
         let mut properties: HashMap<String, ClassPropertySig> = HashMap::new();
+        let mut operators = HashMap::new();
         let mut default_member: Option<String> = None;
         let mut constructor_span = None;
         for field in &type_decl.fields {
@@ -358,6 +361,50 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 | ClassMember::Declare(_)
                 | ClassMember::Enum(_)
                 | ClassMember::Class(_) => {}
+                ClassMember::Operator(op) => {
+                    let expected_params = match op.kind {
+                        OperatorKind::Not
+                        | OperatorKind::UnaryMinus
+                        | OperatorKind::UnaryPlus
+                        | OperatorKind::True
+                        | OperatorKind::False => 1,
+                        _ => 2,
+                    };
+                    if op.params.len() != expected_params {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            format!(
+                                "Operator '{:?}' expects {} parameter(s)",
+                                op.kind, expected_params
+                            ),
+                            Some(op.span),
+                        ));
+                    }
+                    if operators.contains_key(&op.kind) {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!(
+                                "Operator '{:?}' is already declared in Structure '{}'",
+                                op.kind, type_decl.name
+                            ),
+                            Some(op.span),
+                        ));
+                    }
+                    operators.insert(
+                        op.kind,
+                        ClassMethodSig {
+                            visibility: op.visibility,
+                            name: format!("{:?}", op.kind),
+                            type_params: Vec::new(),
+                            generic_constraints: Vec::new(),
+                            is_shared: true,
+                            is_declare: false,
+                            _is_iterator: false,
+                            params: params_to_sigs(&op.params),
+                            return_type: Some(op.return_type.clone()),
+                        },
+                    );
+                }
                 ClassMember::Sub(method) => {
                     let method_key = key(&method.procedure.name);
                     if method_key == "terminate" || method_key == "class_terminate" {
@@ -549,6 +596,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 subs,
                 functions,
                 properties,
+                operators,
                 default_property: default_member,
             },
         );
@@ -817,6 +865,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         let mut subs = HashMap::new();
         let mut functions = HashMap::new();
         let mut properties: HashMap<String, ClassPropertySig> = HashMap::new();
+        let mut operators = HashMap::new();
         let mut default_member: Option<String> = None;
         let mut iterator: Option<ClassMethodSig> = None;
         let mut enumerator_member: Option<String> = None;
@@ -1195,6 +1244,50 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 | ClassMember::Declare(_)
                 | ClassMember::Enum(_)
                 | ClassMember::Class(_) => {}
+                ClassMember::Operator(op) => {
+                    let expected_params = match op.kind {
+                        OperatorKind::Not
+                        | OperatorKind::UnaryMinus
+                        | OperatorKind::UnaryPlus
+                        | OperatorKind::True
+                        | OperatorKind::False => 1,
+                        _ => 2,
+                    };
+                    if op.params.len() != expected_params {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            format!(
+                                "Operator '{:?}' expects {} parameter(s)",
+                                op.kind, expected_params
+                            ),
+                            Some(op.span),
+                        ));
+                    }
+                    if operators.contains_key(&op.kind) {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                            format!(
+                                "Operator '{:?}' is already declared in Class '{}'",
+                                op.kind, class_decl.name
+                            ),
+                            Some(op.span),
+                        ));
+                    }
+                    operators.insert(
+                        op.kind,
+                        ClassMethodSig {
+                            visibility: op.visibility,
+                            name: format!("{:?}", op.kind),
+                            type_params: Vec::new(),
+                            generic_constraints: Vec::new(),
+                            is_shared: true,
+                            is_declare: false,
+                            _is_iterator: false,
+                            params: params_to_sigs(&op.params),
+                            return_type: Some(op.return_type.clone()),
+                        },
+                    );
+                }
             }
         }
         classes.insert(
@@ -1213,6 +1306,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 functions,
                 iterator,
                 properties,
+                operators,
                 enumerator: enumerator_member,
                 default_property: default_member,
             },
@@ -1275,6 +1369,12 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 | ClassMember::Declare(_)
                 | ClassMember::Enum(_)
                 | ClassMember::Class(_) => {}
+                ClassMember::Operator(op) => {
+                    for param in &op.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                    ensure_known_type(&op.return_type, &registry, op.span)?;
+                }
                 ClassMember::Sub(method) => {
                     for param in &method.procedure.params {
                         ensure_known_type(&param.ty, &registry, param.span)?;
@@ -1465,6 +1565,12 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         }
                     }
                 },
+                ClassMember::Operator(op) => {
+                    ensure_known_type(&op.return_type, &registry, op.span)?;
+                    for param in &op.params {
+                        ensure_known_type(&param.ty, &registry, param.span)?;
+                    }
+                }
                 ClassMember::Type(_)
                 | ClassMember::Declare(_)
                 | ClassMember::Enum(_)
@@ -1877,6 +1983,7 @@ fn validate_withevents_handlers(
                 | ClassMember::Declare(_)
                 | ClassMember::Enum(_)
                 | ClassMember::Class(_) => Vec::new(),
+                ClassMember::Operator(_) => Vec::new(),
             };
             for field in fields {
                 let owner_field_sig = class_sig

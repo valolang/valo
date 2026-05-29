@@ -1164,6 +1164,36 @@ pub(super) fn validate_expr(
                 validate_expr(left, symbols, types, signatures, context, option_explicit)?;
             let right_type =
                 validate_expr(right, symbols, types, signatures, context, option_explicit)?;
+
+            let operator_kind = match op {
+                BinaryOp::Add => Some(crate::OperatorKind::Add),
+                BinaryOp::Subtract => Some(crate::OperatorKind::Subtract),
+                BinaryOp::Multiply => Some(crate::OperatorKind::Multiply),
+                BinaryOp::Divide => Some(crate::OperatorKind::Divide),
+                BinaryOp::IntegerDivide => Some(crate::OperatorKind::IntegerDivide),
+                BinaryOp::Exponent => Some(crate::OperatorKind::Exponent),
+                BinaryOp::Modulo => Some(crate::OperatorKind::Modulo),
+                BinaryOp::LogicalAnd => Some(crate::OperatorKind::And),
+                BinaryOp::LogicalOr => Some(crate::OperatorKind::Or),
+                BinaryOp::LogicalXor => Some(crate::OperatorKind::Xor),
+                BinaryOp::Equal => Some(crate::OperatorKind::Equal),
+                BinaryOp::NotEqual => Some(crate::OperatorKind::NotEqual),
+                BinaryOp::Less => Some(crate::OperatorKind::Less),
+                BinaryOp::Greater => Some(crate::OperatorKind::Greater),
+                BinaryOp::LessEqual => Some(crate::OperatorKind::LessEqual),
+                BinaryOp::GreaterEqual => Some(crate::OperatorKind::GreaterEqual),
+                BinaryOp::Like => Some(crate::OperatorKind::Like),
+                BinaryOp::Concat => Some(crate::OperatorKind::Concatenate),
+                _ => None,
+            };
+
+            if let Some(kind) = operator_kind
+                && let Some(res_ty) =
+                    find_overloaded_binary_operator(&left_type, kind, &right_type, types)
+            {
+                return Ok(res_ty);
+            }
+
             match op {
                 BinaryOp::Add
                 | BinaryOp::Subtract
@@ -1257,36 +1287,43 @@ pub(super) fn validate_expr(
                 }
             }
         }
-        ExprKind::Unary { op, expr: inner } => match op {
-            UnaryOp::Positive | UnaryOp::Negate => {
-                let ty =
-                    validate_expr(inner, symbols, types, signatures, context, option_explicit)?;
-                if is_numeric_type(&ty) {
-                    Ok(ty)
-                } else {
-                    Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                        format!(
-                            "Unary '{}' requires a numeric expression",
-                            if matches!(op, UnaryOp::Negate) {
-                                "-"
-                            } else {
-                                "+"
-                            }
-                        ),
-                        Some(inner.span),
-                    ))
+        ExprKind::Unary { op, expr: inner } => {
+            let ty = validate_expr(inner, symbols, types, signatures, context, option_explicit)?;
+            let operator_kind = match op {
+                UnaryOp::Positive => Some(crate::OperatorKind::UnaryPlus),
+                UnaryOp::Negate => Some(crate::OperatorKind::UnaryMinus),
+                UnaryOp::LogicalNot => Some(crate::OperatorKind::Not),
+            };
+            if let Some(kind) = operator_kind
+                && let Some(res_ty) = find_overloaded_unary_operator(kind, &ty, types)
+            {
+                return Ok(res_ty);
+            }
+            match op {
+                UnaryOp::Positive | UnaryOp::Negate => {
+                    if is_numeric_type(&ty) {
+                        Ok(ty)
+                    } else {
+                        Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                            format!(
+                                "Unary '{}' requires a numeric expression",
+                                if matches!(op, UnaryOp::Negate) {
+                                    "-"
+                                } else {
+                                    "+"
+                                }
+                            ),
+                            Some(inner.span),
+                        ))
+                    }
+                }
+                UnaryOp::LogicalNot => {
+                    ensure_assignable(&TypeName::Boolean, &ty, inner.span)?;
+                    Ok(TypeName::Boolean)
                 }
             }
-            UnaryOp::LogicalNot => {
-                ensure_assignable(
-                    &TypeName::Boolean,
-                    &validate_expr(inner, symbols, types, signatures, context, option_explicit)?,
-                    inner.span,
-                )?;
-                Ok(TypeName::Boolean)
-            }
-        },
+        }
         ExprKind::AddressOf(_) => {
             // Wait, AddressOf returns a FuncPtr or LongPtr!
             Ok(TypeName::FuncPtr)
@@ -3830,6 +3867,63 @@ pub(super) fn is_class_type(ty: &TypeName, types: &TypeRegistry) -> bool {
         }
         _ => false,
     }
+}
+
+fn find_overloaded_binary_operator(
+    left: &TypeName,
+    op: crate::OperatorKind,
+    right: &TypeName,
+    types: &TypeRegistry,
+) -> Option<TypeName> {
+    // Try left operand
+    if let TypeName::User(name) = left {
+        if let Some(class) = types.get_class(name)
+            && let Some(operator) = class.operators.get(&op)
+        {
+            return Some(operator.return_type.clone().unwrap_or(TypeName::Variant));
+        }
+        if let Some(type_sig) = types.get(name)
+            && let Some(operator) = type_sig.operators.get(&op)
+        {
+            return Some(operator.return_type.clone().unwrap_or(TypeName::Variant));
+        }
+    }
+
+    // Try right operand
+    if let TypeName::User(name) = right {
+        if let Some(class) = types.get_class(name)
+            && let Some(operator) = class.operators.get(&op)
+        {
+            return Some(operator.return_type.clone().unwrap_or(TypeName::Variant));
+        }
+        if let Some(type_sig) = types.get(name)
+            && let Some(operator) = type_sig.operators.get(&op)
+        {
+            return Some(operator.return_type.clone().unwrap_or(TypeName::Variant));
+        }
+    }
+
+    None
+}
+
+fn find_overloaded_unary_operator(
+    op: crate::OperatorKind,
+    ty: &TypeName,
+    types: &TypeRegistry,
+) -> Option<TypeName> {
+    if let TypeName::User(name) = ty {
+        if let Some(class) = types.get_class(name)
+            && let Some(operator) = class.operators.get(&op)
+        {
+            return Some(operator.return_type.clone().unwrap_or(TypeName::Variant));
+        }
+        if let Some(type_sig) = types.get(name)
+            && let Some(operator) = type_sig.operators.get(&op)
+        {
+            return Some(operator.return_type.clone().unwrap_or(TypeName::Variant));
+        }
+    }
+    None
 }
 
 pub(super) fn is_enum_type(ty: &TypeName, types: &TypeRegistry) -> bool {

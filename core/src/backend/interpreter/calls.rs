@@ -448,6 +448,96 @@ impl Interpreter {
         ))
     }
 
+    pub(crate) fn call_function_value(
+        &mut self,
+        function: crate::Function,
+        args: &[Value],
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        self.call_stack
+            .push(format!("Function '{}'", function.name));
+        self.scope_stack.push(format!("Function {}", function.name));
+        let result = (|| {
+            let mut frame = Frame::default();
+            self.bind_parameter_values(&function.params, args, &mut frame, span)?;
+            let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
+            let initial_value = super::values::default_value(&return_type, self, span)?;
+            let slot = function
+                .return_slot
+                .clone()
+                .unwrap_or_else(|| function.name.clone());
+            frame.set_return_slot(slot, initial_value);
+
+            match self.exec_block(&function.body, &mut frame)? {
+                ControlFlow::Continue | ControlFlow::ExitSub | ControlFlow::ExitFunction => {}
+                ControlFlow::Return(value) => {
+                    let slot = function
+                        .return_slot
+                        .clone()
+                        .unwrap_or_else(|| function.name.clone());
+                    frame.set_return_slot(slot, value);
+                }
+                ControlFlow::GoTo(label) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        format!("Label '{}' not found in function", label),
+                        Some(span),
+                    ));
+                }
+                ControlFlow::ExitFor | ControlFlow::ExitDo | ControlFlow::ExitWhile => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Exit loop statement outside of a loop",
+                        Some(span),
+                    ));
+                }
+                ControlFlow::Resume(_) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Resume statement outside of an error handler",
+                        Some(span),
+                    ));
+                }
+                ControlFlow::Terminate => return Ok(Value::Empty),
+            }
+            let slot = function.return_slot.as_ref().unwrap_or(&function.name);
+            Ok(frame.get_return_slot(slot).unwrap_or(Value::Empty))
+        })();
+        self.scope_stack.pop();
+        self.call_stack.pop();
+        result
+    }
+
+    pub(crate) fn bind_parameter_values(
+        &mut self,
+        params: &[crate::Parameter],
+        args: &[Value],
+        callee_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if args.len() != params.len() {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::PARSE,
+                format!("Expected {} argument(s), got {}", params.len(), args.len()),
+                Some(span),
+            ));
+        }
+        for (param, value) in params.iter().zip(args.iter()) {
+            let param_ty = self.resolve_type_name(&param.ty, callee_frame, param.span)?;
+            let value = crate::coerce_assignment(&param_ty, value.clone(), span)?;
+            callee_frame.declare(
+                &param.name,
+                param_ty,
+                None,
+                self.option_base,
+                param.span,
+                self,
+            )?;
+            let _ = callee_frame.assign(&param.name, value, param.span)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn call_function(
         &mut self,
         name: &str,
@@ -579,6 +669,108 @@ impl Interpreter {
         self.scope_stack.pop();
         self.call_stack.pop();
         result
+    }
+
+    pub(crate) fn call_overloaded_binary_operator(
+        &mut self,
+        left: Value,
+        op: crate::OperatorKind,
+        right: Value,
+        span: Span,
+    ) -> Result<Option<Value>, Diagnostic> {
+        // Try left operand
+        let left_type_name = match &left {
+            Value::Object(obj) => Some(obj.borrow().class_name.clone()),
+            Value::Record(record) => Some(record.type_name.clone()),
+            Value::BoxedRecord(record, _) => Some(record.type_name.clone()),
+            _ => None,
+        };
+        if let Some(class_name) = left_type_name {
+            if let Some(class) = self.classes.get(&key(&class_name))
+                && let Some(operator) = class.operators.get(&op)
+            {
+                return Ok(Some(self.call_function_value(
+                    operator.clone(),
+                    &[left.clone(), right.clone()],
+                    span,
+                )?));
+            }
+            if let Some(type_sig) = self.types.get(&key(&class_name))
+                && let Some(operator) = type_sig.operators.get(&op)
+            {
+                return Ok(Some(self.call_function_value(
+                    operator.clone(),
+                    &[left.clone(), right.clone()],
+                    span,
+                )?));
+            }
+        }
+
+        // Try right operand
+        let right_type_name = match &right {
+            Value::Object(obj) => Some(obj.borrow().class_name.clone()),
+            Value::Record(record) => Some(record.type_name.clone()),
+            Value::BoxedRecord(record, _) => Some(record.type_name.clone()),
+            _ => None,
+        };
+        if let Some(class_name) = right_type_name {
+            if let Some(class) = self.classes.get(&key(&class_name))
+                && let Some(operator) = class.operators.get(&op)
+            {
+                return Ok(Some(self.call_function_value(
+                    operator.clone(),
+                    &[left.clone(), right.clone()],
+                    span,
+                )?));
+            }
+            if let Some(type_sig) = self.types.get(&key(&class_name))
+                && let Some(operator) = type_sig.operators.get(&op)
+            {
+                return Ok(Some(self.call_function_value(
+                    operator.clone(),
+                    &[left, right],
+                    span,
+                )?));
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub(crate) fn call_overloaded_unary_operator(
+        &mut self,
+        op: crate::OperatorKind,
+        value: Value,
+        span: Span,
+    ) -> Result<Option<Value>, Diagnostic> {
+        let type_name = match &value {
+            Value::Object(obj) => Some(obj.borrow().class_name.clone()),
+            Value::Record(record) => Some(record.type_name.clone()),
+            Value::BoxedRecord(record, _) => Some(record.type_name.clone()),
+            _ => None,
+        };
+        if let Some(class_name) = type_name {
+            if let Some(class) = self.classes.get(&key(&class_name))
+                && let Some(operator) = class.operators.get(&op)
+            {
+                return Ok(Some(self.call_function_value(
+                    operator.clone(),
+                    std::slice::from_ref(&value),
+                    span,
+                )?));
+            }
+            if let Some(type_sig) = self.types.get(&key(&class_name))
+                && let Some(operator) = type_sig.operators.get(&op)
+            {
+                return Ok(Some(self.call_function_value(
+                    operator.clone(),
+                    &[value],
+                    span,
+                )?));
+            }
+        }
+
+        Ok(None)
     }
 
     pub(crate) fn call_sub(
@@ -1111,9 +1303,22 @@ impl Interpreter {
                     } else {
                         None
                     };
-                    collection.borrow_mut().add(item, key).map_err(|e| {
-                        Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, e, Some(span))
-                    })?;
+                    let before = if args.len() >= 3 && !matches!(args[2], Value::Missing) {
+                        Some(args[2].clone())
+                    } else {
+                        None
+                    };
+                    let after = if args.len() == 4 && !matches!(args[3], Value::Missing) {
+                        Some(args[3].clone())
+                    } else {
+                        None
+                    };
+                    collection
+                        .borrow_mut()
+                        .add(item, key, before, after)
+                        .map_err(|e| {
+                            Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, e, Some(span))
+                        })?;
                     return Ok(());
                 }
                 "remove" => {
@@ -1222,10 +1427,22 @@ impl Interpreter {
                     } else {
                         None
                     };
-                    // simplified: ignore before/after for now
-                    collection.borrow_mut().add(item, key).map_err(|e| {
-                        Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, e, Some(span))
-                    })?;
+                    let before = if args.len() >= 3 && !matches!(args[2].kind, ExprKind::Missing) {
+                        Some(self.eval_expr(&args[2], caller_frame)?)
+                    } else {
+                        None
+                    };
+                    let after = if args.len() == 4 && !matches!(args[3].kind, ExprKind::Missing) {
+                        Some(self.eval_expr(&args[3], caller_frame)?)
+                    } else {
+                        None
+                    };
+                    collection
+                        .borrow_mut()
+                        .add(item, key, before, after)
+                        .map_err(|e| {
+                            Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, e, Some(span))
+                        })?;
                     return Ok(Value::Empty);
                 }
                 "count" => {
@@ -2103,35 +2320,6 @@ impl Interpreter {
                     }
                 }
             }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn bind_parameter_values(
-        &mut self,
-        params: &[crate::Parameter],
-        args: &[Value],
-        callee_frame: &mut Frame,
-        span: Span,
-    ) -> Result<(), Diagnostic> {
-        if args.len() != params.len() {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::PARSE,
-                format!("Expected {} argument(s), got {}", params.len(), args.len()),
-                Some(span),
-            ));
-        }
-        for (param, value) in params.iter().zip(args.iter()) {
-            let param_ty = self.resolve_type_name(&param.ty, callee_frame, param.span)?;
-            callee_frame.declare(
-                &param.name,
-                param_ty,
-                None,
-                self.option_base,
-                param.span,
-                self,
-            )?;
-            let _ = callee_frame.assign(&param.name, value.clone(), param.span)?;
         }
         Ok(())
     }

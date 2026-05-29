@@ -412,6 +412,17 @@ impl Interpreter {
             }
             ExprKind::Unary { op, expr: inner } => {
                 let value = self.eval_expr(inner, frame)?;
+                let operator_kind = match op {
+                    crate::UnaryOp::Positive => Some(crate::OperatorKind::UnaryPlus),
+                    crate::UnaryOp::Negate => Some(crate::OperatorKind::UnaryMinus),
+                    crate::UnaryOp::LogicalNot => Some(crate::OperatorKind::Not),
+                };
+                if let Some(kind) = operator_kind
+                    && let Some(res) =
+                        self.call_overloaded_unary_operator(kind, value.clone(), expr.span)?
+                {
+                    return Ok(res);
+                }
                 match (op, value) {
                     (UnaryOp::Positive, value) => unary_positive(value, expr.span),
                     (UnaryOp::Negate, value) => unary_negate(value, expr.span),
@@ -447,7 +458,6 @@ impl Interpreter {
                         Some(left.span),
                     ));
                 }
-                let left = self.resolve_default_value(left_value, frame, expr.span)?;
                 let right_value = self.eval_expr(right, frame)?;
                 if matches!(right_value, Value::Missing) {
                     return Err(Diagnostic::new(
@@ -456,6 +466,42 @@ impl Interpreter {
                         Some(right.span),
                     ));
                 }
+
+                // Check for overloaded operators
+                let operator_kind = match op {
+                    crate::BinaryOp::Add => Some(crate::OperatorKind::Add),
+                    crate::BinaryOp::Subtract => Some(crate::OperatorKind::Subtract),
+                    crate::BinaryOp::Multiply => Some(crate::OperatorKind::Multiply),
+                    crate::BinaryOp::Divide => Some(crate::OperatorKind::Divide),
+                    crate::BinaryOp::IntegerDivide => Some(crate::OperatorKind::IntegerDivide),
+                    crate::BinaryOp::Exponent => Some(crate::OperatorKind::Exponent),
+                    crate::BinaryOp::Modulo => Some(crate::OperatorKind::Modulo),
+                    crate::BinaryOp::LogicalAnd => Some(crate::OperatorKind::And),
+                    crate::BinaryOp::LogicalOr => Some(crate::OperatorKind::Or),
+                    crate::BinaryOp::LogicalXor => Some(crate::OperatorKind::Xor),
+                    crate::BinaryOp::Equal => Some(crate::OperatorKind::Equal),
+                    crate::BinaryOp::NotEqual => Some(crate::OperatorKind::NotEqual),
+                    crate::BinaryOp::Less => Some(crate::OperatorKind::Less),
+                    crate::BinaryOp::Greater => Some(crate::OperatorKind::Greater),
+                    crate::BinaryOp::LessEqual => Some(crate::OperatorKind::LessEqual),
+                    crate::BinaryOp::GreaterEqual => Some(crate::OperatorKind::GreaterEqual),
+                    crate::BinaryOp::Like => Some(crate::OperatorKind::Like),
+                    crate::BinaryOp::Concat => Some(crate::OperatorKind::Concatenate),
+                    _ => None,
+                };
+
+                if let Some(kind) = operator_kind
+                    && let Some(value) = self.call_overloaded_binary_operator(
+                        left_value.clone(),
+                        kind,
+                        right_value.clone(),
+                        expr.span,
+                    )?
+                {
+                    return Ok(value);
+                }
+
+                let left = self.resolve_default_value(left_value, frame, expr.span)?;
                 let right = self.resolve_default_value(right_value, frame, expr.span)?;
                 let runtime_op = match op {
                     crate::BinaryOp::Add => RuntimeBinaryOp::Add,

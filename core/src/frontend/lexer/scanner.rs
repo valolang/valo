@@ -262,6 +262,7 @@ impl<'a> Lexer<'a> {
             "lset" if hint.is_none() => TokenKind::LSet,
             "rset" if hint.is_none() => TokenKind::RSet,
             "collection" if hint.is_none() => TokenKind::Collection,
+            "operator" if hint.is_none() => TokenKind::Operator,
             "console" if hint.is_none() => TokenKind::Console,
             "writeline" if hint.is_none() => TokenKind::WriteLine,
             _ => TokenKind::Identifier(text, hint),

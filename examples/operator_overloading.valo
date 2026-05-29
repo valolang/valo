@@ -1,0 +1,55 @@
+' Operator Overloading Example
+'
+' Demonstrates overloading operators for custom structures.
+
+Structure Vector2
+    Public X As Double
+    Public Y As Double
+
+    Public Sub New(ByVal x As Double, ByVal y As Double)
+        Me.X = x
+        Me.Y = y
+    End Sub
+
+    ' Binary Plus Operator
+    Public Shared Operator +(ByVal v1 As Vector2, ByVal v2 As Vector2) As Vector2
+        Return New Vector2(v1.X + v2.X, v1.Y + v2.Y)
+    End Operator
+
+    ' Binary Minus Operator
+    Public Shared Operator -(ByVal v1 As Vector2, ByVal v2 As Vector2) As Vector2
+        Return New Vector2(v1.X - v2.X, v1.Y - v2.Y)
+    End Operator
+
+    ' Unary Minus Operator
+    Public Shared Operator -(ByVal v1 As Vector2) As Vector2
+        Return New Vector2(-v1.X, -v1.Y)
+    End Operator
+
+    ' Multiplication by Scalar
+    Public Shared Operator *(ByVal v1 As Vector2, ByVal scalar As Double) As Vector2
+        Return New Vector2(v1.X * scalar, v1.Y * scalar)
+    End Operator
+
+    Public Function ToString() As String
+        Return "(" & Me.X & ", " & Me.Y & ")"
+    End Function
+End Structure
+
+Sub Main()
+    Dim a As New Vector2(10, 20)
+    Dim b As New Vector2(5, 5)
+    
+    Dim c As Vector2
+    c = a + b
+    Console.WriteLine("a + b = " & c.ToString()) ' Should be (15, 25)
+    
+    c = a - b
+    Console.WriteLine("a - b = " & c.ToString()) ' Should be (5, 15)
+    
+    c = -a
+    Console.WriteLine("-a    = " & c.ToString()) ' Should be (-10, -20)
+    
+    c = a * 2.5
+    Console.WriteLine("a * 2.5 = " & c.ToString()) ' Should be (25, 50)
+End Sub

@@ -130,6 +130,7 @@ pub enum TokenKind {
     LSet,
     RSet,
     Collection,
+    Operator,
     Console,
     WriteLine,
     Hex(String),

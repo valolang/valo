@@ -291,6 +291,7 @@ pub enum ClassMember {
     Function(ClassFunction),
     Iterator(ClassIterator),
     Property(ClassProperty),
+    Operator(OperatorDecl),
     Type(TypeDecl),
     Declare(DeclareDecl),
     Enum(EnumDecl),
@@ -393,6 +394,43 @@ pub enum OverrideKind {
     Overrides,
     MustOverride,
     Shadows,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OperatorDecl {
+    pub visibility: Visibility,
+    pub kind: OperatorKind,
+    pub params: Vec<Parameter>,
+    pub return_type: TypeName,
+    pub body: Vec<Stmt>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OperatorKind {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    IntegerDivide,
+    Exponent,
+    Modulo,
+    And,
+    Or,
+    Xor,
+    Not,
+    UnaryMinus,
+    UnaryPlus,
+    Equal,
+    NotEqual,
+    Less,
+    Greater,
+    LessEqual,
+    GreaterEqual,
+    Like,
+    Concatenate,
+    True,
+    False,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -25,6 +25,36 @@ pub(super) fn validate_class(
             | ClassMember::Declare(_)
             | ClassMember::Enum(_)
             | ClassMember::Class(_) => {}
+            ClassMember::Operator(op) => {
+                let mut symbols = HashMap::new();
+                add_module_symbols(module_symbols, &mut symbols);
+                add_module_symbols(&class_consts, &mut symbols);
+                symbols.insert(
+                    "me".to_string(),
+                    VarType::Scalar(Visibility::Public, TypeName::User(class_decl.name.clone())),
+                );
+                add_parameters(&op.params, &mut symbols)?;
+                let mut saw_return = false;
+                let mut saw_yield = false;
+                validate_statements(
+                    &op.body,
+                    &mut StmtValidation {
+                        symbols: &mut symbols,
+                        types,
+                        signatures,
+                        context: &mut Context::Function {
+                            return_type: op.return_type.clone(),
+                            return_slot: None,
+                            is_iterator: false,
+                            saw_return: &mut saw_return,
+                            saw_yield: &mut saw_yield,
+                        },
+                        loop_context: LoopContext::default(),
+                        in_with: false,
+                        option_explicit,
+                    },
+                )?;
+            }
             ClassMember::Event(_) => {}
             ClassMember::Sub(method) => {
                 let mut symbols = HashMap::new();
@@ -645,6 +675,7 @@ fn class_constant_symbols(class_decl: &crate::ClassDecl) -> HashMap<String, VarT
             | ClassMember::Type(_)
             | ClassMember::Declare(_)
             | ClassMember::Enum(_)
+            | ClassMember::Operator(_)
             | ClassMember::Class(_) => None,
         })
         .collect()
@@ -675,6 +706,35 @@ pub(super) fn validate_structure(
             | ClassMember::Declare(_)
             | ClassMember::Enum(_)
             | ClassMember::Class(_) => {}
+            ClassMember::Operator(op) => {
+                let mut symbols = HashMap::new();
+                add_module_symbols(module_symbols, &mut symbols);
+                symbols.insert(
+                    "me".to_string(),
+                    VarType::Scalar(Visibility::Public, TypeName::User(type_decl.name.clone())),
+                );
+                add_parameters(&op.params, &mut symbols)?;
+                let mut saw_return = false;
+                let mut saw_yield = false;
+                validate_statements(
+                    &op.body,
+                    &mut StmtValidation {
+                        symbols: &mut symbols,
+                        types,
+                        signatures,
+                        context: &mut Context::Function {
+                            return_type: op.return_type.clone(),
+                            return_slot: None,
+                            is_iterator: false,
+                            saw_return: &mut saw_return,
+                            saw_yield: &mut saw_yield,
+                        },
+                        loop_context: LoopContext::default(),
+                        in_with: false,
+                        option_explicit,
+                    },
+                )?;
+            }
             ClassMember::Sub(method) => {
                 let mut symbols = HashMap::new();
                 add_module_symbols(module_symbols, &mut symbols);

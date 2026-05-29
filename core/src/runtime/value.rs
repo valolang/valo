@@ -66,7 +66,13 @@ pub struct CollectionValue {
 }
 
 impl CollectionValue {
-    pub fn add(&mut self, value: Value, key: Option<String>) -> Result<(), String> {
+    pub fn add(
+        &mut self,
+        value: Value,
+        key: Option<String>,
+        before: Option<Value>,
+        after: Option<Value>,
+    ) -> Result<(), String> {
         if let Some(ref k) = key {
             let lower_key = k.to_lowercase();
             if self.key_map.contains_key(&lower_key) {
@@ -75,9 +81,31 @@ impl CollectionValue {
                     k
                 ));
             }
-            self.key_map.insert(lower_key, self.items.len());
         }
-        self.items.push(CollectionItem { key, value });
+
+        let index = if let Some(b) = before {
+            if after.is_some() {
+                return Err("Cannot specify both Before and After".to_string());
+            }
+            self.resolve_index(&b)?
+        } else if let Some(a) = after {
+            self.resolve_index(&a)? + 1
+        } else {
+            self.items.len()
+        };
+
+        if let Some(ref k) = key {
+            self.key_map.insert(k.to_lowercase(), index);
+        }
+
+        // Shift existing key indices
+        for idx in self.key_map.values_mut() {
+            if *idx >= index && (key.is_none() || *idx != index) {
+                *idx += 1;
+            }
+        }
+
+        self.items.insert(index, CollectionItem { key, value });
         Ok(())
     }
 

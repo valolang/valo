@@ -28,6 +28,7 @@ pub(super) struct TypeSig {
     pub(super) subs: HashMap<String, ClassMethodSig>,
     pub(super) functions: HashMap<String, ClassMethodSig>,
     pub(super) properties: HashMap<String, ClassPropertySig>,
+    pub(super) operators: HashMap<crate::OperatorKind, ClassMethodSig>,
     pub(super) default_property: Option<String>,
 }
 
@@ -137,6 +138,7 @@ pub(super) struct ClassSig {
     pub(super) functions: HashMap<String, ClassMethodSig>,
     pub(super) iterator: Option<ClassMethodSig>,
     pub(super) properties: HashMap<String, ClassPropertySig>,
+    pub(super) operators: HashMap<crate::OperatorKind, ClassMethodSig>,
     pub(super) enumerator: Option<String>,
     pub(super) default_property: Option<String>,
 }

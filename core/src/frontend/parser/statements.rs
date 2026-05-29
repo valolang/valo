@@ -1017,16 +1017,25 @@ impl Parser {
         let mut args = Vec::new();
         let mut saw_named = false;
         while !self.at_statement_separator() {
-            let arg = self.parse_argument()?;
-            if matches!(arg.kind, ExprKind::NamedArg { .. }) {
-                saw_named = true;
-            } else if saw_named {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::GENERIC,
-                    "Positional arguments cannot appear after named arguments",
-                    Some(arg.span),
-                ));
-            }
+            let arg = if self.check_simple(&TokenKind::Comma) || self.at_statement_separator() {
+                // Omitted argument
+                Expr {
+                    kind: ExprKind::Missing,
+                    span: self.peek().span,
+                }
+            } else {
+                let arg = self.parse_argument()?;
+                if matches!(arg.kind, ExprKind::NamedArg { .. }) {
+                    saw_named = true;
+                } else if saw_named {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        "Positional arguments cannot appear after named arguments",
+                        Some(arg.span),
+                    ));
+                }
+                arg
+            };
             args.push(arg);
             if !self.match_simple(&TokenKind::Comma) {
                 break;
@@ -1933,6 +1942,10 @@ impl Parser {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Class))
             }
+            BlockEnd::EndOperator => {
+                matches!(self.peek_kind(), TokenKind::End)
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Operator))
+            }
             BlockEnd::EndEnum => {
                 matches!(self.peek_kind(), TokenKind::End)
                     && matches!(self.peek_next_kind(), Some(TokenKind::Enum))
@@ -1980,6 +1993,7 @@ impl Parser {
                         | TokenKind::Structure
                         | TokenKind::Enum
                         | TokenKind::Class
+                        | TokenKind::Operator
                         | TokenKind::With
                         | TokenKind::Using
                         | TokenKind::Try

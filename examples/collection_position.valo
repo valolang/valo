@@ -1,0 +1,33 @@
+' Collection Position Example
+'
+' Demonstrates adding items with Before and After parameters.
+
+Sub Main()
+    Dim coll As New Collection
+    
+    ' Add initial items
+    coll.Add "B"
+    coll.Add "D"
+    
+    ' Add "A" before "B" (index 1)
+    coll.Add "A", , 1
+    
+    ' Add "C" after "B" (now at index 2)
+    coll.Add "C", , , 2
+    
+    ' Add "E" after "D" (using key-based After)
+    ' First we need a key for D
+    coll.Remove 4 ' Remove D
+    coll.Add "D", "d_key"
+    coll.Add "E", "e_key", , "d_key"
+    
+    Console.WriteLine("Count: " & coll.Count)
+    
+    Dim v As Variant
+    Dim s As String
+    s = ""
+    For Each v In coll
+        s = s & v
+    Next v
+    Console.WriteLine("Sequence: " & s) ' Should be ABCDE
+End Sub
