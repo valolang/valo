@@ -25,6 +25,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 s.insert(
                     key("Add"),
                     ClassMethodSig {
+                        attributes: Vec::new(),
                         visibility: Visibility::Public,
                         name: "Add".to_string(),
                         type_params: Vec::new(),
@@ -54,6 +55,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                 s.insert(
                     key("Remove"),
                     ClassMethodSig {
+                        attributes: Vec::new(),
                         visibility: Visibility::Public,
                         name: "Remove".to_string(),
                         type_params: Vec::new(),
@@ -393,6 +395,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     operators.insert(
                         op.kind,
                         ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: op.visibility,
                             name: format!("{:?}", op.kind),
                             type_params: Vec::new(),
@@ -465,6 +468,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     subs.insert(
                         method_key,
                         ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: method.visibility,
                             name: method.procedure.name.clone(),
                             type_params: method.procedure.type_params.clone(),
@@ -503,6 +507,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     functions.insert(
                         method_key,
                         ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: method.visibility,
                             name: method.function.name.clone(),
                             type_params: method.function.type_params.clone(),
@@ -703,6 +708,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     subs.insert(
                         member_key,
                         ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: Visibility::Public,
                             name: method.name.clone(),
                             type_params: Vec::new(),
@@ -734,6 +740,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     functions.insert(
                         member_key,
                         ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: Visibility::Public,
                             name: method.name.clone(),
                             type_params: Vec::new(),
@@ -765,6 +772,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     events.insert(
                         member_key,
                         ClassEventSig {
+                            attributes: Vec::new(),
                             visibility: Visibility::Public,
                             name: event.name.clone(),
                             type_params: Vec::new(),
@@ -930,6 +938,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     events.insert(
                         event_key,
                         ClassEventSig {
+                            attributes: Vec::new(),
                             visibility: event.visibility,
                             name: event.name.clone(),
                             type_params: Vec::new(),
@@ -994,6 +1003,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     subs.insert(
                         method_key,
                         ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: method.visibility,
                             name: method.procedure.name.clone(),
                             type_params: method.procedure.type_params.clone(),
@@ -1037,6 +1047,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             ));
                         }
                         iterator = Some(ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: method.visibility,
                             name: method.function.name.clone(),
                             type_params: method.function.type_params.clone(),
@@ -1066,6 +1077,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     functions.insert(
                         method_key,
                         ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: method.visibility,
                             name: method.function.name.clone(),
                             type_params: method.function.type_params.clone(),
@@ -1109,7 +1121,8 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             Some(method.function.span),
                         ));
                     }
-                    let _sig = ClassMethodSig {
+                    iterator = Some(ClassMethodSig {
+                        attributes: Vec::new(),
                         visibility: method.visibility,
                         name: method.function.name.clone(),
                         type_params: method.function.type_params.clone(),
@@ -1119,7 +1132,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         is_declare: false,
                         params: params_to_sigs(&method.function.params),
                         return_type: Some(method.function.return_type.clone()),
-                    };
+                    });
 
                     default_iterator_span = Some(method.function.span);
                 }
@@ -1180,6 +1193,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                             ));
                         }
                         iterator = Some(ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: property.visibility,
                             name: property.name.clone(),
                             type_params: Vec::new(),
@@ -1276,6 +1290,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     operators.insert(
                         op.kind,
                         ClassMethodSig {
+                            attributes: Vec::new(),
                             visibility: op.visibility,
                             name: format!("{:?}", op.kind),
                             type_params: Vec::new(),
@@ -1345,6 +1360,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                     &Signatures {
                         subs: HashMap::new(),
                         functions: HashMap::new(),
+                        extension_methods: HashMap::new(),
                     },
                     &Context::Sub,
                     program.option_explicit,
@@ -1937,6 +1953,7 @@ fn validate_class_field_type(
                 &Signatures {
                     subs: HashMap::new(),
                     functions: HashMap::new(),
+                    extension_methods: HashMap::new(),
                 },
                 &Context::Sub,
                 false,
@@ -2129,6 +2146,7 @@ pub(super) fn collect_signatures(
         }
 
         let signature = CallableSig {
+            attributes: Vec::new(),
             visibility: declare.visibility,
             name: declare.name.clone(),
             type_params: Vec::new(),
@@ -2167,6 +2185,7 @@ pub(super) fn collect_signatures(
         subs.insert(
             name_key,
             CallableSig {
+                attributes: procedure.attributes.clone(),
                 visibility: Visibility::Public,
                 name: procedure.name.clone(),
                 type_params: procedure.type_params.clone(),
@@ -2199,6 +2218,7 @@ pub(super) fn collect_signatures(
         functions.insert(
             name_key,
             CallableSig {
+                attributes: function.attributes.clone(),
                 visibility: Visibility::Public,
                 name: function.name.clone(),
                 type_params: function.type_params.clone(),
@@ -2212,7 +2232,24 @@ pub(super) fn collect_signatures(
         );
     }
 
-    Ok(Signatures { subs, functions })
+    let mut extension_methods: HashMap<String, Vec<CallableSig>> = HashMap::new();
+    for sig in subs.values().chain(functions.values()) {
+        if sig.is_extension_method()
+            && let Some(first_param) = sig.params.first()
+        {
+            let type_key = first_param.ty.display_name().to_lowercase();
+            extension_methods
+                .entry(type_key)
+                .or_default()
+                .push(sig.clone());
+        }
+    }
+
+    Ok(Signatures {
+        subs,
+        functions,
+        extension_methods,
+    })
 }
 
 fn validate_parameter_list(params: &[Parameter], types: &TypeRegistry) -> Result<(), Diagnostic> {

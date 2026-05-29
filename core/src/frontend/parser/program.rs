@@ -172,6 +172,7 @@ impl Parser {
                     }
 
                     saw_declarations = true;
+                    let modern_attributes = self.parse_modern_attributes()?;
                     let inheritance = self.parse_optional_class_inheritance();
                     let explicit_visibility = self.parse_optional_visibility();
                     let is_iterator = self.match_simple(&TokenKind::Iterator);
@@ -182,11 +183,15 @@ impl Parser {
                             if is_iterator {
                                 return Err(self.error_here("Iterator is not supported on Sub"));
                             }
-                            procedures.push(self.parse_procedure(visibility)?);
+                            procedures.push(self.parse_procedure(visibility, modern_attributes)?);
                         }
                         TokenKind::Function => {
                             let visibility = explicit_visibility.unwrap_or(Visibility::Public);
-                            functions.push(self.parse_function(visibility, is_iterator)?);
+                            functions.push(self.parse_function(
+                                visibility,
+                                is_iterator,
+                                modern_attributes,
+                            )?);
                         }
                         TokenKind::Property => {
                             let visibility = explicit_visibility.unwrap_or(Visibility::Public);
@@ -357,6 +362,7 @@ impl Parser {
                 TokenKind::End if matches!(self.peek_next_kind(), Some(TokenKind::Module))
             )
         {
+            let modern_attributes = self.parse_modern_attributes()?;
             let inheritance = self.parse_optional_class_inheritance();
             let explicit_visibility = self.parse_optional_visibility();
             let is_iterator = self.match_simple(&TokenKind::Iterator);
@@ -372,7 +378,7 @@ impl Parser {
                     if is_iterator {
                         return Err(self.error_here("Iterator is not supported on Sub"));
                     }
-                    let procedure = self.parse_procedure(visibility)?;
+                    let procedure = self.parse_procedure(visibility, modern_attributes)?;
                     shared_members.push(ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind: OverrideKind::None,
@@ -388,7 +394,8 @@ impl Parser {
                         return Err(self
                             .error_here("Function declarations cannot use inheritance modifiers"));
                     }
-                    let function = self.parse_function(visibility, is_iterator)?;
+                    let function =
+                        self.parse_function(visibility, is_iterator, modern_attributes)?;
                     shared_members.push(ClassMember::Function(ClassFunction {
                         visibility,
                         override_kind: OverrideKind::None,

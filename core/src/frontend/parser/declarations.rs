@@ -307,14 +307,8 @@ impl Parser {
     }
 
     pub(super) fn parse_class_member(&mut self) -> Result<Vec<ClassMember>, Diagnostic> {
-        let peek1 = self.peek().clone();
-        let peek2 = self.tokens.get(self.current + 1).cloned();
-        let peek3 = self.tokens.get(self.current + 2).cloned();
-        let peek4 = self.tokens.get(self.current + 3).cloned();
-        eprintln!(
-            "parse_class_member starting at:\n  1: {:?}\n  2: {:?}\n  3: {:?}\n  4: {:?}",
-            peek1, peek2, peek3, peek4
-        );
+        self.skip_newlines();
+        let modern_attributes = self.parse_modern_attributes()?;
         let explicit_visibility = self.parse_optional_visibility();
         let visibility = explicit_visibility.unwrap_or(Visibility::Public);
         let override_kind = self.parse_optional_override_kind();
@@ -363,6 +357,7 @@ impl Parser {
                             visibility,
                             "New",
                             "Initialize",
+                            modern_attributes,
                         )?,
                     })])
                 } else if matches!(
@@ -378,10 +373,12 @@ impl Parser {
                             visibility,
                             "Terminate",
                             "Terminate",
+                            modern_attributes,
                         )?,
                     })])
                 } else {
-                    let (procedure, implements) = self.parse_class_procedure(visibility)?;
+                    let (procedure, implements) =
+                        self.parse_class_procedure(visibility, modern_attributes)?;
                     Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind,
@@ -392,7 +389,8 @@ impl Parser {
                 }
             }
             TokenKind::Function => {
-                let mut function = self.parse_class_function(visibility, is_iterator)?;
+                let mut function =
+                    self.parse_class_function(visibility, is_iterator, modern_attributes)?;
                 function.override_kind = override_kind;
                 function.is_shared = is_shared;
                 Ok(vec![ClassMember::Function(function)])
@@ -926,6 +924,53 @@ impl Parser {
         Ok(members)
     }
 
+    pub(super) fn parse_modern_attributes(
+        &mut self,
+    ) -> Result<Vec<crate::frontend::ast::ModernAttribute>, Diagnostic> {
+        let mut attributes = Vec::new();
+        while self.match_simple(&TokenKind::Less) {
+            loop {
+                let name_start = self.peek().span;
+                let mut name = self.expect_identifier("Expected attribute name")?;
+                while self.match_simple(&TokenKind::Dot) {
+                    name.push('.');
+                    name.push_str(&self.expect_identifier("Expected attribute name after '.'")?);
+                }
+
+                let mut args = None;
+                if self.match_simple(&TokenKind::LeftParen) {
+                    if !self.check_simple(&TokenKind::RightParen) {
+                        let mut arg_list = Vec::new();
+                        loop {
+                            arg_list.push(self.parse_expression()?);
+                            if !self.match_simple(&TokenKind::Comma) {
+                                break;
+                            }
+                        }
+                        args = Some(arg_list);
+                    } else {
+                        args = Some(Vec::new());
+                    }
+                    self.expect_simple(
+                        TokenKind::RightParen,
+                        "Expected ')' after attribute arguments",
+                    )?;
+                }
+
+                let span = Span::new(self.file_id, name_start.start, self.previous().span.end);
+                attributes.push(crate::frontend::ast::ModernAttribute { name, args, span });
+
+                if self.match_simple(&TokenKind::Comma) {
+                    continue;
+                }
+                break;
+            }
+            self.expect_simple(TokenKind::Greater, "Expected '>' after attribute list")?;
+            self.skip_newlines();
+        }
+        Ok(attributes)
+    }
+
     pub(super) fn parse_optional_visibility(&mut self) -> Option<Visibility> {
         if self.match_simple(&TokenKind::Private) {
             Some(Visibility::Private)
@@ -1346,6 +1391,8 @@ impl Parser {
     }
 
     fn parse_structure_member(&mut self) -> Result<Vec<ClassMember>, Diagnostic> {
+        self.skip_newlines();
+        let modern_attributes = self.parse_modern_attributes()?;
         let explicit_visibility = self.parse_optional_visibility();
         let visibility = explicit_visibility.unwrap_or(Visibility::Public);
         let is_shared = self.match_simple(&TokenKind::Shared);
@@ -1377,10 +1424,12 @@ impl Parser {
                             visibility,
                             "New",
                             "Initialize",
+                            modern_attributes,
                         )?,
                     })])
                 } else {
-                    let (procedure, implements) = self.parse_class_procedure(visibility)?;
+                    let (procedure, implements) =
+                        self.parse_class_procedure(visibility, modern_attributes)?;
                     Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind: OverrideKind::None,
@@ -1391,7 +1440,8 @@ impl Parser {
                 }
             }
             TokenKind::Function => {
-                let mut function = self.parse_class_function(visibility, false)?;
+                let mut function =
+                    self.parse_class_function(visibility, false, modern_attributes)?;
                 function.is_shared = is_shared;
                 Ok(vec![ClassMember::Function(function)])
             }
@@ -1428,6 +1478,7 @@ impl Parser {
     pub(super) fn parse_procedure(
         &mut self,
         visibility: Visibility,
+        attributes: Vec<crate::frontend::ast::ModernAttribute>,
     ) -> Result<Procedure, Diagnostic> {
         let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
         if self.match_simple(&TokenKind::New) {
@@ -1457,6 +1508,7 @@ impl Parser {
         self.consume_statement_end();
 
         Ok(Procedure {
+            attributes,
             visibility,
             name,
             type_params,
@@ -1470,6 +1522,7 @@ impl Parser {
     fn parse_class_procedure(
         &mut self,
         visibility: Visibility,
+        attributes: Vec<crate::frontend::ast::ModernAttribute>,
     ) -> Result<(Procedure, Vec<ImplementsClause>), Diagnostic> {
         let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
         let name = self.expect_identifier("Expected procedure name after 'Sub'")?;
@@ -1494,6 +1547,7 @@ impl Parser {
 
         Ok((
             Procedure {
+                attributes,
                 visibility,
                 name,
                 type_params,
@@ -1511,6 +1565,7 @@ impl Parser {
         visibility: Visibility,
         syntax_name: &str,
         canonical_name: &str,
+        attributes: Vec<crate::frontend::ast::ModernAttribute>,
     ) -> Result<Procedure, Diagnostic> {
         let start_span = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
         let matched_name = if syntax_name.eq_ignore_ascii_case("New") {
@@ -1551,6 +1606,7 @@ impl Parser {
         self.consume_statement_end();
 
         Ok(Procedure {
+            attributes,
             visibility,
             name: canonical_name.to_string(),
             type_params: Vec::new(),
@@ -1565,6 +1621,7 @@ impl Parser {
         &mut self,
         visibility: Visibility,
         is_iterator: bool,
+        attributes: Vec<crate::frontend::ast::ModernAttribute>,
     ) -> Result<Function, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Function, "Expected 'Function'")?
@@ -1601,6 +1658,7 @@ impl Parser {
         self.consume_statement_end();
 
         Ok(Function {
+            attributes,
             visibility,
             name,
             is_iterator,
@@ -1618,6 +1676,7 @@ impl Parser {
         &mut self,
         visibility: Visibility,
         is_iterator: bool,
+        attributes: Vec<crate::frontend::ast::ModernAttribute>,
     ) -> Result<ClassFunction, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Function, "Expected 'Function'")?
@@ -1674,6 +1733,7 @@ impl Parser {
             implements,
             is_enumerator,
             function: Function {
+                attributes,
                 visibility,
                 name,
                 is_iterator,

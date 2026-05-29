@@ -773,6 +773,100 @@ impl Interpreter {
         Ok(None)
     }
 
+    pub(crate) fn call_extension_method(
+        &mut self,
+        object: Value,
+        method: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<Option<Value>, Diagnostic> {
+        let type_name = match &object {
+            Value::Object(obj) => obj.borrow().class_name.clone(),
+            Value::Record(record) => record.type_name.clone(),
+            Value::BoxedRecord(record, _) => record.type_name.clone(),
+            _ => object.type_name().display_name(),
+        };
+        let type_key = type_name.to_lowercase();
+
+        if let Some(qualified_names) = self.extension_methods.get(&type_key).cloned() {
+            for qualified_name in qualified_names {
+                if let Some(func) = self.functions.get(&qualified_name).cloned()
+                    && func.name.eq_ignore_ascii_case(method)
+                {
+                    let mut eval_args = Vec::with_capacity(args.len() + 1);
+                    eval_args.push(object.clone());
+                    for arg in args {
+                        eval_args.push(self.eval_expr(arg, caller_frame)?);
+                    }
+                    return Ok(Some(self.call_function_value(func, &eval_args, span)?));
+                }
+                if let Some(proc) = self.procedures.get(&qualified_name).cloned()
+                    && proc.name.eq_ignore_ascii_case(method)
+                {
+                    let mut eval_args = Vec::with_capacity(args.len() + 1);
+                    eval_args.push(object.clone());
+                    for arg in args {
+                        eval_args.push(self.eval_expr(arg, caller_frame)?);
+                    }
+                    self.call_sub_value(proc, &eval_args, span)?;
+                    return Ok(Some(Value::Empty));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    pub(crate) fn call_sub_value(
+        &mut self,
+        procedure: crate::frontend::ast::Procedure,
+        args: &[Value],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        self.call_stack.push(format!("Sub '{}'", procedure.name));
+        self.scope_stack.push(format!("Sub {}", procedure.name));
+        let result = (|| {
+            let mut frame = Frame::default();
+            self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
+            match self.exec_block(&procedure.body, &mut frame)? {
+                ControlFlow::Continue | ControlFlow::ExitSub | ControlFlow::ExitFunction => {}
+                ControlFlow::Return(_) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Return with value is not allowed in Sub",
+                        Some(span),
+                    ));
+                }
+                ControlFlow::GoTo(label) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        format!("Label '{}' not found in procedure", label),
+                        Some(span),
+                    ));
+                }
+                ControlFlow::ExitFor | ControlFlow::ExitDo | ControlFlow::ExitWhile => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Exit loop statement outside of a loop",
+                        Some(span),
+                    ));
+                }
+                ControlFlow::Resume(_) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Resume statement outside of an error handler",
+                        Some(span),
+                    ));
+                }
+                ControlFlow::Terminate => {}
+            }
+            Ok(())
+        })();
+        self.scope_stack.pop();
+        self.call_stack.pop();
+        result
+    }
+
     pub(crate) fn call_sub(
         &mut self,
         name: &str,
@@ -1205,6 +1299,12 @@ impl Interpreter {
                 )
             }
             _ => {
+                if let Some(_val) =
+                    self.call_extension_method(object.clone(), method, args, caller_frame, span)?
+                {
+                    // call_extension_method returns Value::Empty for Subs
+                    return Ok(());
+                }
                 let instance = ensure_object(object, span)?;
                 let class_name = instance.borrow().class_name.clone();
                 self.call_method_sub_on_runtime_class(
@@ -1514,6 +1614,11 @@ impl Interpreter {
                 span,
             ),
             _ => {
+                if let Some(val) =
+                    self.call_extension_method(object.clone(), method, args, caller_frame, span)?
+                {
+                    return Ok(val);
+                }
                 let instance = ensure_object(object.clone(), span)?;
                 let class_name = instance.borrow().class_name.clone();
                 let class = self

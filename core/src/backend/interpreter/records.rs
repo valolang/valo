@@ -271,6 +271,7 @@ impl From<&TypeDecl> for RuntimeType {
                     ClassMember::Operator(op) => Some((
                         op.kind,
                         crate::Function {
+                            attributes: Vec::new(),
                             visibility: op.visibility,
                             name: format!("{:?}", op.kind),
                             is_iterator: false,

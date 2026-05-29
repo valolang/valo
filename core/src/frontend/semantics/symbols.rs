@@ -103,6 +103,7 @@ impl ParamSig {
 
 #[derive(Debug, Clone)]
 pub(super) struct CallableSig {
+    pub(super) attributes: Vec<crate::frontend::ast::ModernAttribute>,
     pub(super) visibility: Visibility,
     pub(super) name: String,
     pub(super) type_params: Vec<String>,
@@ -115,8 +116,15 @@ pub(super) struct CallableSig {
 }
 
 impl CallableSig {
+    pub(super) fn is_extension_method(&self) -> bool {
+        self.attributes
+            .iter()
+            .any(|attr| attr.name.eq_ignore_ascii_case("Extension"))
+    }
+
     pub(super) fn substitute_generics(&self, bindings: &[(String, TypeName)]) -> Self {
         CallableSig {
+            attributes: self.attributes.clone(),
             visibility: self.visibility,
             name: self.name.clone(),
             type_params: self.type_params.clone(),
@@ -141,6 +149,7 @@ impl CallableSig {
 pub(super) struct Signatures {
     pub(super) subs: HashMap<String, CallableSig>,
     pub(super) functions: HashMap<String, CallableSig>,
+    pub(super) extension_methods: HashMap<String, Vec<CallableSig>>,
 }
 
 pub(super) fn key(name: &str) -> String {

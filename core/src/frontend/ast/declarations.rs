@@ -434,7 +434,15 @@ pub enum OperatorKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ModernAttribute {
+    pub name: String,
+    pub args: Option<Vec<crate::frontend::ast::Expr>>,
+    pub span: crate::runtime::Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Procedure {
+    pub attributes: Vec<ModernAttribute>,
     pub visibility: Visibility,
     pub name: String,
     pub type_params: Vec<String>,
@@ -446,6 +454,7 @@ pub struct Procedure {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
+    pub attributes: Vec<ModernAttribute>,
     pub visibility: Visibility,
     pub name: String,
     pub is_iterator: bool,

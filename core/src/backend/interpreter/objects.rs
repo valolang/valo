@@ -1198,6 +1198,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                         && property.kind == PropertyKind::Get
                     {
                         iterator = Some(crate::Function {
+                            attributes: Vec::new(),
                             visibility: property.visibility,
                             name: property.name.clone(),
                             is_iterator: true,
@@ -1229,6 +1230,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                     operators.insert(
                         op.kind,
                         crate::Function {
+                            attributes: Vec::new(),
                             visibility: op.visibility,
                             name: format!("{:?}", op.kind),
                             is_iterator: false,

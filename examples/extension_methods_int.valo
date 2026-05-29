@@ -1,0 +1,17 @@
+' Extension Methods on Primitives Example
+
+Module IntExtensions
+    <Extension()>
+    Public Function DoubleMe(ByVal i As Integer) As Integer
+        Return i * 2
+    End Function
+End Module
+
+Sub Main()
+    Dim x As Integer = 21
+    Console.WriteLine("21 * 2 = " & x.DoubleMe())
+    
+    ' Even literal?
+    ' Console.WriteLine("42 * 2 = " & 42.DoubleMe()) 
+    ' Literal might need parenthesizing in some parsers, but let's see.
+End Sub

@@ -42,6 +42,7 @@ pub struct Interpreter {
     pub(crate) module_imports: HashMap<String, Vec<RuntimeImport>>,
     pub(crate) function_modules: HashMap<String, Vec<String>>,
     pub(crate) sub_modules: HashMap<String, Vec<String>>,
+    pub(crate) extension_methods: HashMap<String, Vec<String>>, // Type name -> Qualified method names
     pub(crate) class_modules: HashMap<String, Vec<String>>,
     pub(crate) type_modules: HashMap<String, Vec<String>>,
     pub(crate) enum_modules: HashMap<String, Vec<String>>,
@@ -89,6 +90,7 @@ impl Default for Interpreter {
             module_imports: HashMap::new(),
             function_modules: HashMap::new(),
             sub_modules: HashMap::new(),
+            extension_methods: HashMap::new(),
             class_modules: HashMap::new(),
             type_modules: HashMap::new(),
             enum_modules: HashMap::new(),
@@ -739,27 +741,47 @@ impl Interpreter {
                 crate::runtime::FileId::default(),
             ))?;
             for procedure in &module.program.procedures {
-                self.procedures.insert(
-                    format!("{}::{}", module_key, super::values::key(&procedure.name)),
-                    procedure.clone(),
-                );
+                let qualified = format!("{}::{}", module_key, super::values::key(&procedure.name));
+                self.procedures.insert(qualified.clone(), procedure.clone());
                 if module_key == entry_key || crate::modules::is_public(procedure.visibility) {
                     self.sub_modules
                         .entry(super::values::key(&procedure.name))
                         .or_default()
                         .push(module_key.clone());
                 }
+                if procedure
+                    .attributes
+                    .iter()
+                    .any(|a| a.name.eq_ignore_ascii_case("Extension"))
+                    && let Some(first_param) = procedure.params.first()
+                {
+                    let type_key = first_param.ty.display_name().to_lowercase();
+                    self.extension_methods
+                        .entry(type_key)
+                        .or_default()
+                        .push(qualified);
+                }
             }
             for function in &module.program.functions {
-                self.functions.insert(
-                    format!("{}::{}", module_key, super::values::key(&function.name)),
-                    function.clone(),
-                );
+                let qualified = format!("{}::{}", module_key, super::values::key(&function.name));
+                self.functions.insert(qualified.clone(), function.clone());
                 if module_key == entry_key || crate::modules::is_public(function.visibility) {
                     self.function_modules
                         .entry(super::values::key(&function.name))
                         .or_default()
                         .push(module_key.clone());
+                }
+                if function
+                    .attributes
+                    .iter()
+                    .any(|a| a.name.eq_ignore_ascii_case("Extension"))
+                    && let Some(first_param) = function.params.first()
+                {
+                    let type_key = first_param.ty.display_name().to_lowercase();
+                    self.extension_methods
+                        .entry(type_key)
+                        .or_default()
+                        .push(qualified);
                 }
             }
             self.register_declares(&module.program.declares, Some(&module_key));

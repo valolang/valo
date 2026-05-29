@@ -1,0 +1,31 @@
+' Extension Methods Example
+'
+' Demonstrates modern VB.NET-style extension methods.
+
+Module StringExtensions
+    <Extension()>
+    Public Function ToUpperEx(ByVal s As String) As String
+        ' Just a simple test; in real apps we'd call String.ToUpper()
+        Return s & " (EXTENDED)"
+    End Function
+    
+    <Extension()>
+    Public Sub PrintEx(ByVal s As String)
+        Console.WriteLine("String printed via extension: " & s)
+    End Sub
+End Module
+
+Sub Main()
+    Dim myStr As String = "Hello"
+    
+    ' Call as extension function
+    Dim res As String
+    res = myStr.ToUpperEx()
+    Console.WriteLine("Result: " & res)
+    
+    ' Call as extension sub
+    myStr.PrintEx()
+    
+    ' Explicit call via module still works
+    Console.WriteLine("Explicit: " & StringExtensions.ToUpperEx("World"))
+End Sub

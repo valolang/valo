@@ -529,6 +529,7 @@ pub(super) fn validate_expr(
                         && let Some(get) = &prop_sig.get
                     {
                         let callable = CallableSig {
+                            attributes: Vec::new(),
                             visibility: Visibility::Public,
                             name: prop_sig.name.clone(),
                             type_params: Vec::new(),
@@ -587,6 +588,7 @@ pub(super) fn validate_expr(
                         && let Some(get) = &prop_sig.get
                     {
                         let callable = CallableSig {
+                            attributes: Vec::new(),
                             visibility: Visibility::Public,
                             name: prop_sig.name.clone(),
                             type_params: Vec::new(),
@@ -799,6 +801,7 @@ pub(super) fn validate_expr(
                     && let Some(get) = &property_sig.get
                 {
                     let callable = CallableSig {
+                        attributes: Vec::new(),
                         visibility: Visibility::Public,
                         name: property_sig.name.clone(),
                         type_params: Vec::new(),
@@ -1066,6 +1069,7 @@ pub(super) fn validate_expr(
                     && (prop_sig.is_shared || symbols.contains_key("me"))
                 {
                     function = Some(CallableSig {
+                        attributes: Vec::new(),
                         visibility: Visibility::Public,
                         name: prop_sig.name.clone(),
                         type_params: Vec::new(),
@@ -2654,6 +2658,17 @@ pub(super) fn validate_method_call(
         object_type,
         TypeName::User(_) | TypeName::GenericInstance { .. }
     ) {
+        if let Some(res_ty) = resolve_extension_method(
+            object_type,
+            method,
+            args,
+            as_expression,
+            span,
+            ExprValidation::new(symbols, types, signatures, context, option_explicit),
+        )? {
+            return Ok(res_ty);
+        }
+
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
             "Method call requires a class instance",
@@ -2661,6 +2676,17 @@ pub(super) fn validate_method_call(
         ));
     }
     let Some(class_sig) = types.get_class(&class_name) else {
+        if let Some(res_ty) = resolve_extension_method(
+            object_type,
+            method,
+            args,
+            as_expression,
+            span,
+            ExprValidation::new(symbols, types, signatures, context, option_explicit),
+        )? {
+            return Ok(res_ty);
+        }
+
         return validate_structure_method_call(
             object_type,
             method,
@@ -2714,6 +2740,7 @@ pub(super) fn validate_method_call(
             if get.params.len() == args.len() {
                 // Try to validate arguments for the property Get
                 let dummy_sig = CallableSig {
+                    attributes: Vec::new(),
                     visibility: get.visibility,
                     name: method.to_string(),
                     type_params: Vec::new(),
@@ -2776,6 +2803,17 @@ pub(super) fn validate_method_call(
                 Some(span),
             ));
         }
+        if let Some(res_ty) = resolve_extension_method(
+            object_type,
+            method,
+            args,
+            as_expression,
+            span,
+            ExprValidation::new(symbols, types, signatures, context, option_explicit),
+        )? {
+            return Ok(res_ty);
+        }
+
         Err(unknown_class_member(class_sig, method, as_expression, span))
     } else {
         if let Some(method_sig) = class_sig.subs.get(&key(method)) {
@@ -2799,6 +2837,17 @@ pub(super) fn validate_method_call(
         // This is complex because MemberCall is usually for reads.
         // But some VBA code might use MemberCall as a statement for something that returns an object and then calls a default sub?
         // Actually MemberSubCall is used for subs.
+
+        if let Some(res_ty) = resolve_extension_method(
+            object_type,
+            method,
+            args,
+            as_expression,
+            span,
+            ExprValidation::new(symbols, types, signatures, context, option_explicit),
+        )? {
+            return Ok(res_ty);
+        }
 
         if class_sig.functions.contains_key(&key(method)) {
             return Err(Diagnostic::new(
@@ -2897,6 +2946,7 @@ fn validate_structure_method_call(
                     .expect("property return type")
                     .substitute_generics(&bindings);
                 let dummy_sig = CallableSig {
+                    attributes: Vec::new(),
                     visibility: get.visibility,
                     name: method.to_string(),
                     type_params: Vec::new(),
@@ -2940,6 +2990,7 @@ fn validate_structure_method_call(
                 .and_then(|p| p.let_.as_ref().or(p.set.as_ref()))
             {
                 let dummy_sig = CallableSig {
+                    attributes: Vec::new(),
                     visibility: property_accessor.visibility,
                     name: method.to_string(),
                     type_params: Vec::new(),
@@ -3017,6 +3068,7 @@ fn validate_structure_method_call(
                 .expect("property return type")
                 .substitute_generics(&bindings);
             let dummy_sig = CallableSig {
+                attributes: Vec::new(),
                 visibility: get.visibility,
                 name: method.to_string(),
                 type_params: Vec::new(),
@@ -3043,6 +3095,17 @@ fn validate_structure_method_call(
                 Some(span),
             ));
         }
+        if let Some(res_ty) = resolve_extension_method(
+            object_type,
+            method,
+            args,
+            as_expression,
+            span,
+            ExprValidation::new(symbols, types, signatures, context, option_explicit),
+        )? {
+            return Ok(res_ty);
+        }
+
         Err(unknown_structure_member(
             type_sig,
             method,
@@ -3077,6 +3140,17 @@ fn validate_structure_method_call(
             )?;
             return Ok(TypeName::Variant);
         }
+        if let Some(res_ty) = resolve_extension_method(
+            object_type,
+            method,
+            args,
+            as_expression,
+            span,
+            ExprValidation::new(symbols, types, signatures, context, option_explicit),
+        )? {
+            return Ok(res_ty);
+        }
+
         if type_sig.functions.contains_key(&key(method)) {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -4160,4 +4234,42 @@ fn validate_err_raise_args(
         ensure_assignable(&expected[index], &actual, arg.span)?;
     }
     Ok(())
+}
+
+fn resolve_extension_method(
+    object_type: &TypeName,
+    method: &str,
+    args: &[Expr],
+    as_expression: bool,
+    span: crate::runtime::Span,
+    validation: ExprValidation<'_, '_>,
+) -> Result<Option<TypeName>, Diagnostic> {
+    let type_key = object_type.display_name().to_lowercase();
+    if let Some(methods) = validation.signatures.extension_methods.get(&type_key) {
+        for sig in methods {
+            if sig.name.eq_ignore_ascii_case(method) {
+                if sig.params.is_empty() {
+                    continue;
+                }
+
+                let mut shifted_sig = sig.clone();
+                shifted_sig.params.remove(0);
+
+                validate_arguments(
+                    if as_expression { "Function" } else { "Sub" },
+                    &shifted_sig,
+                    args,
+                    span,
+                    validation,
+                )?;
+
+                if as_expression {
+                    return Ok(Some(sig.return_type.clone().unwrap_or(TypeName::Variant)));
+                } else {
+                    return Ok(Some(TypeName::Variant));
+                }
+            }
+        }
+    }
+    Ok(None)
 }

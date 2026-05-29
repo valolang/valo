@@ -515,6 +515,7 @@ fn find_explicit_sub_impl(
                 .any(|clause| implements_matches(clause, interface_name, member_name, bindings))
         {
             return Ok(CallableSig {
+                attributes: Vec::new(),
                 visibility: method.visibility,
                 name: method.procedure.name.clone(),
                 type_params: method.procedure.type_params.clone(),
@@ -553,6 +554,7 @@ fn find_explicit_function_impl(
                 .any(|clause| implements_matches(clause, interface_name, member_name, bindings))
         {
             return Ok(CallableSig {
+                attributes: Vec::new(),
                 visibility: method.visibility,
                 name: method.function.name.clone(),
                 type_params: method.function.type_params.clone(),
@@ -593,6 +595,7 @@ fn find_explicit_property_impl(
                 .any(|clause| implements_matches(clause, interface_name, member_name, bindings))
         {
             return Ok(CallableSig {
+                attributes: Vec::new(),
                 visibility: property.visibility,
                 name: property.name.clone(),
                 type_params: Vec::new(),
