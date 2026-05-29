@@ -1,0 +1,38 @@
+' Collection Class Example
+'
+' Demonstrates the native VBA-compatible Collection class for dynamic list
+' management with support for adding, removing, counting, and keyed access.
+
+Sub Main()
+    ' Instantiate a new Collection
+    Dim coll As New Collection
+    
+    ' Add items
+    coll.Add "Apple"
+    coll.Add "Banana", "yellow"
+    coll.Add "Cherry", "red"
+    
+    Console.WriteLine("Count after Add: " & coll.Count)
+    
+    ' Access by 1-based index
+    Console.WriteLine("Item 1: " & coll.Item(1))
+    Console.WriteLine("Item 2: " & coll.Item(2))
+    
+    ' Access by Key
+    Console.WriteLine("Item 'yellow': " & coll.Item("yellow"))
+    Console.WriteLine("Item 'red':    " & coll("red")) ' Default property access
+    
+    ' For Each iteration
+    Console.WriteLine("--- Iteration ---")
+    Dim fruit As Variant
+    For Each fruit In coll
+        Console.WriteLine("Fruit: " & fruit)
+    Next fruit
+    
+    ' Remove an item
+    coll.Remove "yellow"
+    Console.WriteLine("Count after Remove: " & coll.Count)
+    
+    ' Show that indices shifted
+    Console.WriteLine("New Item 2: " & coll(2))
+End Sub

@@ -183,6 +183,14 @@ pub(crate) fn dispatch_function(
                 let ptr = std::rc::Rc::as_ptr(&obj) as usize;
                 return Ok(Some(Value::Ptr(ptr)));
             }
+            Value::Collection(coll) => {
+                let ptr = std::rc::Rc::as_ptr(&coll) as usize;
+                return Ok(Some(Value::Ptr(ptr)));
+            }
+            Value::ComObject(com) => {
+                let ptr = std::rc::Rc::as_ptr(&com) as usize;
+                return Ok(Some(Value::Ptr(ptr)));
+            }
             Value::Nothing => {
                 return Ok(Some(Value::Ptr(0)));
             }
@@ -766,8 +774,13 @@ fn expect_value_count(
     if args.len() == expected {
         Ok(())
     } else {
+        let code = if args.len() < expected {
+            crate::runtime::DiagnosticCode::ARGUMENT_NOT_OPTIONAL
+        } else {
+            crate::runtime::DiagnosticCode::GENERIC
+        };
         Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::GENERIC,
+            code,
             format!("{name} expects exactly {expected} argument(s)"),
             Some(span),
         ))

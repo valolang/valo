@@ -63,3 +63,36 @@ fn test_builtins_parity() {
     assert_eq!(output[1], "2:True");
     assert_eq!(output[2], "3:a,b,c");
 }
+
+#[test]
+fn test_collection() {
+    let source = r#"
+        Sub Main()
+            Dim c As New Collection
+            c.Add "item1", "key1"
+            c.Add "item2"
+            Console.WriteLine("C1:" & c.Count)
+            Console.WriteLine("C2:" & c("key1"))
+            Console.WriteLine("C3:" & c(2))
+            
+            Dim s As String
+            s = ""
+            Dim v As Variant
+            For Each v In c
+                s = s & v & ","
+            Next v
+            Console.WriteLine("C4:" & s)
+            
+            c.Remove "key1"
+            Console.WriteLine("C5:" & c.Count)
+            Console.WriteLine("C6:" & c(1))
+        End Sub
+    "#;
+    let output = exec(source);
+    assert_eq!(output[0], "C1:2");
+    assert_eq!(output[1], "C2:item1");
+    assert_eq!(output[2], "C3:item2");
+    assert_eq!(output[3], "C4:item1,item2,");
+    assert_eq!(output[4], "C5:1");
+    assert_eq!(output[5], "C6:item2");
+}

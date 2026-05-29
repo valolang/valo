@@ -63,11 +63,16 @@ pub(crate) fn eval_arrays(
         } else {
             " ".to_string()
         };
-        // Simplified implementation: ignore limit and compare for now
-        let parts: Vec<Value> = expression
-            .split(&delimiter)
-            .map(|s| Value::String(s.to_string()))
-            .collect();
+
+        let parts: Vec<Value> = if delimiter.is_empty() {
+            vec![Value::String(expression)]
+        } else {
+            expression
+                .split(&delimiter)
+                .map(|s| Value::String(s.to_string()))
+                .collect()
+        };
+
         let len = parts.len() as i64;
         return Ok(Some(Value::Array(Rc::new(ArrayValue {
             element_type: crate::runtime::TypeName::String,

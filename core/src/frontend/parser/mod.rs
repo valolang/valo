@@ -89,6 +89,8 @@ impl Parser {
         match token.kind {
             TokenKind::Identifier(name, _) => Ok(name),
             TokenKind::Version => Ok("VERSION".to_string()),
+            TokenKind::Collection => Ok("Collection".to_string()),
+            TokenKind::Error => Ok("Error".to_string()),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
                 message,

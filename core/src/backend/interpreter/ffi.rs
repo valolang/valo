@@ -862,7 +862,7 @@ fn marshal_byval(
             "ByVal structures are not supported; pass structures ByRef",
             span,
         ))?,
-        Value::Object(_) | Value::ComObject(_) => Err(unsupported(
+        Value::Object(_) | Value::ComObject(_) | Value::Collection(_) => Err(unsupported(
             "object pointer marshaling is not enabled for this value",
             span,
         ))?,
@@ -936,6 +936,7 @@ fn marshal_byref(
         Value::Null | Value::Nothing | Value::Empty => ArgumentStorage::Ptr(Box::new(0)),
         Value::Object(_)
         | Value::ComObject(_)
+        | Value::Collection(_)
         | Value::Decimal(_)
         | Value::Date(_)
         | Value::Error(_)

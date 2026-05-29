@@ -153,8 +153,12 @@ pub fn validate_statements(
                         Some(*span),
                     ));
                 }
-                let var_type = if array.is_some() {
-                    VarType::Array(Visibility::Public, ty)
+                let var_type = if let Some(array_decl) = array {
+                    VarType::Array(
+                        Visibility::Public,
+                        ty,
+                        matches!(array_decl, ArrayDecl::Dynamic),
+                    )
                 } else {
                     VarType::Scalar(Visibility::Public, ty)
                 };
@@ -216,8 +220,12 @@ pub fn validate_statements(
                             Some(decl.span),
                         ));
                     }
-                    let var_type = if decl.array.is_some() {
-                        VarType::Array(Visibility::Public, ty)
+                    let var_type = if let Some(array_decl) = &decl.array {
+                        VarType::Array(
+                            Visibility::Public,
+                            ty,
+                            matches!(array_decl, ArrayDecl::Dynamic),
+                        )
                     } else {
                         VarType::Scalar(Visibility::Public, ty)
                     };
@@ -955,19 +963,30 @@ pub fn validate_statements(
                 span,
                 ..
             } => {
-                if !redim_target_is_dynamic_array(
+                let array_info = get_redim_target_array_info(
                     target,
                     symbols,
                     types,
                     signatures,
                     context,
                     option_explicit,
-                )? {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::ARRAY,
-                        "ReDim target must be a dynamic array",
-                        Some(*span),
-                    ));
+                )?;
+                match array_info {
+                    Some(true) => {} // Dynamic array, OK
+                    Some(false) => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "ReDim cannot be used on fixed-size arrays",
+                            Some(*span),
+                        ));
+                    }
+                    None => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::ARRAY,
+                            "ReDim target must be a dynamic array or Variant",
+                            Some(*span),
+                        ));
+                    }
                 }
                 for (lower, upper) in dims {
                     let upper_type = class_field_expr_type(upper, symbols, types, context)
@@ -1006,14 +1025,16 @@ pub fn validate_statements(
                 }
             }
             Stmt::Erase { target, span } => {
-                if !redim_target_is_dynamic_array(
+                if get_redim_target_array_info(
                     target,
                     symbols,
                     types,
                     signatures,
                     context,
                     option_explicit,
-                )? {
+                )?
+                .is_none()
+                {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::ARRAY,
                         "Erase target must be an array or Variant",
@@ -1031,6 +1052,23 @@ pub fn validate_statements(
                     context,
                     option_explicit,
                 )?;
+                if !target_ty.same_type(&TypeName::String)
+                    && !target_ty.same_type(&TypeName::Variant)
+                {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!(
+                            "{} requires a String or Variant variable, not {}",
+                            if matches!(stmt, Stmt::LSet { .. }) {
+                                "LSet"
+                            } else {
+                                "RSet"
+                            },
+                            target_ty.display_name()
+                        ),
+                        Some(*span),
+                    ));
+                }
                 let expr_ty = super::validate_expressions::validate_expr(
                     expr,
                     symbols,
@@ -1039,7 +1077,6 @@ pub fn validate_statements(
                     context,
                     option_explicit,
                 )?;
-                ensure_assignable(&TypeName::String, &target_ty, *span)?;
                 ensure_assignable(&TypeName::String, &expr_ty, expr.span)?;
             }
             Stmt::Label { .. } => {}
@@ -1485,22 +1522,28 @@ fn class_field_expr_type(
         .map(|field| field.ty.clone())
 }
 
-fn redim_target_is_dynamic_array(
+fn get_redim_target_array_info(
     target: &ReDimTarget,
     symbols: &HashMap<String, VarType>,
     types: &TypeRegistry,
     signatures: &Signatures,
     context: &Context<'_>,
     option_explicit: bool,
-) -> Result<bool, Diagnostic> {
+) -> Result<Option<bool>, Diagnostic> {
     match target {
         ReDimTarget::Variable { name, span } => {
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
-                return Ok(matches!(var_type, VarType::Array(Visibility::Public, _)));
+                return match var_type {
+                    VarType::Array(_, _, is_dynamic) => Ok(Some(is_dynamic)),
+                    VarType::Scalar(_, TypeName::Variant)
+                    | VarType::Optional(_, TypeName::Variant)
+                    | VarType::Const(_, TypeName::Variant) => Ok(Some(true)), // Variant can hold dynamic array
+                    _ => Ok(None),
+                };
             }
             let Some(class_name) = context.current_class() else {
                 if !option_explicit {
-                    return Ok(true);
+                    return Ok(Some(true));
                 }
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -1513,7 +1556,7 @@ fn redim_target_is_dynamic_array(
                 .expect("current class validated");
             let Some(field_sig) = class_sig.fields.get(&key(name)) else {
                 if !option_explicit {
-                    return Ok(true);
+                    return Ok(Some(true));
                 }
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -1521,8 +1564,13 @@ fn redim_target_is_dynamic_array(
                     Some(*span),
                 ));
             };
-            Ok(matches!(field_sig.array, Some(ArrayDecl::Dynamic))
-                || field_sig.ty.same_type(&TypeName::Variant))
+            if field_sig.ty.same_type(&TypeName::Variant) {
+                return Ok(Some(true));
+            }
+            Ok(field_sig
+                .array
+                .as_ref()
+                .map(|a| matches!(a, ArrayDecl::Dynamic)))
         }
         ReDimTarget::Member {
             object,
@@ -1531,16 +1579,21 @@ fn redim_target_is_dynamic_array(
         } => {
             let object_type =
                 validate_expr(object, symbols, types, signatures, context, option_explicit)?;
-            let member_type =
+            let _member_type =
                 member_read_type(&object_type, field, types, *span, context.current_class())?;
             if let TypeName::User(class_name) = &object_type
                 && let Some(class_sig) = types.get_class(class_name)
                 && let Some(field_sig) = class_sig.fields.get(&key(field))
             {
-                return Ok(matches!(field_sig.array, Some(ArrayDecl::Dynamic))
-                    || field_sig.ty.same_type(&TypeName::Variant));
+                if field_sig.ty.same_type(&TypeName::Variant) {
+                    return Ok(Some(true));
+                }
+                return Ok(field_sig
+                    .array
+                    .as_ref()
+                    .map(|a| matches!(a, ArrayDecl::Dynamic)));
             }
-            Ok(member_type.same_type(&TypeName::Variant))
+            Ok(Some(true)) // Assume dynamic if late-bound or Variant
         }
     }
 }

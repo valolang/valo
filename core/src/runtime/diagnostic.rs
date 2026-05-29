@@ -548,6 +548,7 @@ impl DiagnosticCode {
     pub const MEMBER_IS_PRIVATE: Self = Self("V1003");
     pub const TYPE_MISMATCH: Self = Self("V1100");
     pub const INVALID_ASSIGNMENT: Self = Self("V1101");
+    pub const ARGUMENT_NOT_OPTIONAL: Self = Self("V1102");
     pub const ARRAY: Self = Self("V1200");
     pub const CONTROL_FLOW: Self = Self("V1300");
     pub const MEMBER_ACCESS: Self = Self("V1400");

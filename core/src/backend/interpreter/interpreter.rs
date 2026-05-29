@@ -196,6 +196,27 @@ impl Interpreter {
                 default_member: None,
             },
         );
+        self.classes.insert(
+            key("Collection"),
+            RuntimeClass {
+                name: "Collection".to_string(),
+                type_params: Vec::new(),
+                inheritance: crate::ClassInheritance::Normal,
+                base_class: None,
+                fields: Vec::new(),
+                shared_fields: Vec::new(),
+                constants: Vec::new(),
+                events: HashMap::new(),
+                subs: HashMap::new(),
+                shared_subs: HashMap::new(),
+                functions: HashMap::new(),
+                shared_functions: HashMap::new(),
+                iterator: None,
+                properties: HashMap::new(),
+                enumerator_member: None,
+                default_member: Some("Item".to_string()),
+            },
+        );
     }
 
     pub(crate) fn clear_err(&mut self) {

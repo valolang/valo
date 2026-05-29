@@ -129,6 +129,7 @@ pub enum TokenKind {
     Erase,
     LSet,
     RSet,
+    Collection,
     Console,
     WriteLine,
     Hex(String),

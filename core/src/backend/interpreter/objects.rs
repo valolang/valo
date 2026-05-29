@@ -297,6 +297,13 @@ impl Interpreter {
     ) -> Result<Value, Diagnostic> {
         let class_ty = self.resolve_type_name(class_ty, caller_frame, span)?;
         let class_name = class_ty.display_name();
+
+        if class_name.eq_ignore_ascii_case("Collection") {
+            return Ok(Value::Collection(Rc::new(RefCell::new(
+                crate::runtime::CollectionValue::default(),
+            ))));
+        }
+
         if !self.classes.contains_key(&key(&class_name))
             && !self.types.contains_key(&key(&class_name))
         {
@@ -470,6 +477,28 @@ impl Interpreter {
             let class_name = obj.borrow().class_name.clone();
             if let Ok(val) = self.read_shared_member(&class_name, member, frame, span) {
                 return Ok(val);
+            }
+        }
+        if let Value::Collection(collection) = value {
+            match member.to_ascii_lowercase().as_str() {
+                "count" => return Ok(Value::Int64(collection.borrow().count())),
+                "item" => {
+                    // Item without args shouldn't normally happen, but maybe it does in some contexts
+                    // For now, if no args are provided to Item, we could return an error or something,
+                    // but typically Item needs an argument. However, we'll let it pass or fail later.
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        "Collection.Item requires an argument",
+                        Some(span),
+                    ));
+                }
+                _ => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                        format!("Collection has no member '{}'", member),
+                        Some(span),
+                    ));
+                }
             }
         }
         if matches!(value, Value::Nothing) {

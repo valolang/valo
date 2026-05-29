@@ -437,7 +437,13 @@ impl Parser {
                 }
             }
             TokenKind::New => {
-                let mut class_name = self.expect_identifier("Expected class name after 'New'")?;
+                let mut class_name = if self.match_simple(&TokenKind::Error) {
+                    "Error".to_string()
+                } else if self.match_simple(&TokenKind::Collection) {
+                    "Collection".to_string()
+                } else {
+                    self.expect_identifier("Expected class name after 'New'")?
+                };
                 if self.match_simple(&TokenKind::Dot) {
                     let member =
                         self.expect_identifier("Expected class name after module qualifier")?;

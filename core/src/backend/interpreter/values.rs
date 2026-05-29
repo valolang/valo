@@ -169,5 +169,5 @@ fn eval_const_default(
 }
 
 pub(crate) fn key(name: &str) -> String {
-    name.to_ascii_lowercase()
+    name.to_lowercase()
 }

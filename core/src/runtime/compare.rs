@@ -49,7 +49,7 @@ pub fn compare_values(
     let ordering = match (left, right) {
         (Value::String(a), Value::String(b)) => {
             if compare == RuntimeOptionCompare::Text {
-                a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
+                a.to_lowercase().cmp(&b.to_lowercase())
             } else {
                 a.cmp(&b)
             }
@@ -114,8 +114,8 @@ pub fn like_values(
         ));
     };
     if compare == RuntimeOptionCompare::Text {
-        value = value.to_ascii_lowercase();
-        pattern = pattern.to_ascii_lowercase();
+        value = value.to_lowercase();
+        pattern = pattern.to_lowercase();
     }
     Ok(Value::Boolean(like_match(
         &value.chars().collect::<Vec<_>>(),

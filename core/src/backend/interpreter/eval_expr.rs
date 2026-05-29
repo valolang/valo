@@ -277,6 +277,15 @@ impl Interpreter {
                             }
                             return frame.get_array_element(name, &dims, expr.span);
                         }
+                        Value::Collection(_) => {
+                            return self.call_method_function(
+                                value.clone(),
+                                "Item",
+                                args,
+                                frame,
+                                expr.span,
+                            );
+                        }
                         Value::Object(ref object) => {
                             let class_name = object.borrow().class_name.clone();
                             if let Some(default_member) = self
@@ -494,6 +503,19 @@ impl Interpreter {
                     dims.push(self.eval_integer_expr(arg, frame, "Array index must be Integer")?);
                 }
                 super::arrays::read_array_element(&target, &dims, span)
+            }
+            Value::Collection(ref collection) => {
+                if args.len() != 1 {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        "Collection indexing requires exactly one argument",
+                        Some(span),
+                    ));
+                }
+                let index_or_key = self.eval_expr(&args[0], frame)?;
+                collection.borrow().item(&index_or_key).map_err(|e| {
+                    Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, e, Some(span))
+                })
             }
             Value::Object(ref object) => {
                 let class_name = object.borrow().class_name.clone();

@@ -1769,6 +1769,8 @@ impl Parser {
             TokenKind::IntegerType => Ok(TypeName::Integer),
             TokenKind::BooleanType => Ok(TypeName::Boolean),
             TokenKind::VariantType => Ok(TypeName::Variant),
+            TokenKind::Error => Ok(TypeName::User("Error".to_string())),
+            TokenKind::Collection => Ok(TypeName::User("Collection".to_string())),
             TokenKind::Identifier(mut name, _) => {
                 if name.eq_ignore_ascii_case("Byte") {
                     Ok(TypeName::Byte)
@@ -1798,6 +1800,8 @@ impl Parser {
                     Ok(TypeName::FuncPtr)
                 } else if name.eq_ignore_ascii_case("Object") {
                     Ok(TypeName::Variant)
+                } else if name.eq_ignore_ascii_case("Collection") {
+                    Ok(TypeName::User("Collection".to_string()))
                 } else {
                     while self.match_simple(&TokenKind::Dot) {
                         let member =

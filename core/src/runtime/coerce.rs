@@ -17,13 +17,16 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
     if matches!(ty, TypeName::User(name) if name.rsplit('.').next().is_some_and(|name| name.eq_ignore_ascii_case("Object")))
         && matches!(
             value,
-            Value::Object(_) | Value::ComObject(_) | Value::Nothing
+            Value::Object(_) | Value::ComObject(_) | Value::Nothing | Value::Collection(_)
         )
     {
         return Ok(value);
     }
     if matches!(ty, TypeName::User(_) | TypeName::GenericInstance { .. })
-        && matches!(value, Value::Object(_) | Value::Nothing)
+        && matches!(
+            value,
+            Value::Object(_) | Value::Nothing | Value::Collection(_)
+        )
     {
         return Ok(value);
     }

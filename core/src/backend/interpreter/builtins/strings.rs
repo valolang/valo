@@ -9,59 +9,6 @@ pub(crate) fn eval_strings(
     args: &[Value],
     span: crate::runtime::Span,
 ) -> Result<Option<Value>, Diagnostic> {
-    if name.eq_ignore_ascii_case("Split") {
-        if args.is_empty() || args.len() > 2 {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::GENERIC,
-                "Split expects 1 to 2 arguments",
-                Some(span),
-            ));
-        }
-        let text = args[0].to_output_string();
-        let delimiter = if args.len() == 2 {
-            args[1].to_output_string()
-        } else {
-            " ".to_string()
-        };
-        let elements: Vec<Value> = if delimiter.is_empty() {
-            vec![Value::String(text)]
-        } else {
-            text.split(&delimiter)
-                .map(|s| Value::String(s.to_string()))
-                .collect()
-        };
-        let len = elements.len() as i64;
-        return Ok(Some(Value::Array(Rc::new(ArrayValue {
-            element_type: crate::runtime::TypeName::String,
-            elements,
-            bounds: vec![crate::runtime::ArrayBound {
-                lower: 0,
-                upper: len - 1,
-            }],
-            allocated: true,
-            dynamic: true,
-        }))));
-    }
-
-    if name.eq_ignore_ascii_case("Join") {
-        if args.is_empty() || args.len() > 2 {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::GENERIC,
-                "Join expects 1 to 2 arguments",
-                Some(span),
-            ));
-        }
-        let array_value = &args[0];
-        let delimiter = if args.len() == 2 {
-            args[1].to_output_string()
-        } else {
-            " ".to_string()
-        };
-        let elements = super::super::arrays::array_values(array_value, span)?;
-        let strings: Vec<String> = elements.iter().map(|v| v.to_output_string()).collect();
-        return Ok(Some(Value::String(strings.join(&delimiter))));
-    }
-
     if name.eq_ignore_ascii_case("Filter") {
         if args.len() < 2 || args.len() > 4 {
             return Err(Diagnostic::new(
@@ -94,8 +41,7 @@ pub(crate) fn eval_strings(
         for val in elements {
             let s = val.to_output_string();
             let contains = if compare {
-                s.to_ascii_lowercase()
-                    .contains(&match_text.to_ascii_lowercase())
+                s.to_lowercase().contains(&match_text.to_lowercase())
             } else {
                 s.contains(&match_text)
             };
@@ -397,7 +343,7 @@ pub(crate) fn eval_strings(
             interpreter.option_compare == crate::OptionCompare::Text
         };
         let (left, right) = if text_compare {
-            (left.to_ascii_lowercase(), right.to_ascii_lowercase())
+            (left.to_lowercase(), right.to_lowercase())
         } else {
             (left, right)
         };

@@ -41,6 +41,7 @@ pub enum Value {
     Ptr(usize),
     FuncPtr(usize),
     Array(Rc<ArrayValue>),
+    Collection(Rc<RefCell<CollectionValue>>),
     Record(Rc<RecordValue>),
     BoxedRecord(Rc<RecordValue>, String),
     Object(Rc<RefCell<ObjectValue>>),
@@ -50,6 +51,90 @@ pub enum Value {
     Null,
     Missing,
     Empty,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CollectionItem {
+    pub key: Option<String>,
+    pub value: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CollectionValue {
+    pub items: Vec<CollectionItem>,
+    pub key_map: HashMap<String, usize>,
+}
+
+impl CollectionValue {
+    pub fn add(&mut self, value: Value, key: Option<String>) -> Result<(), String> {
+        if let Some(ref k) = key {
+            let lower_key = k.to_lowercase();
+            if self.key_map.contains_key(&lower_key) {
+                return Err(format!(
+                    "This key is already associated with an element of this collection: '{}'",
+                    k
+                ));
+            }
+            self.key_map.insert(lower_key, self.items.len());
+        }
+        self.items.push(CollectionItem { key, value });
+        Ok(())
+    }
+
+    pub fn count(&self) -> i64 {
+        self.items.len() as i64
+    }
+
+    pub fn remove(&mut self, index_or_key: &Value) -> Result<(), String> {
+        let index = self.resolve_index(index_or_key)?;
+        if index < self.items.len() {
+            let removed = self.items.remove(index);
+            if let Some(k) = removed.key {
+                self.key_map.remove(&k.to_lowercase());
+            }
+            // Update indices for all keys pointing to items after the removed one
+            for idx in self.key_map.values_mut() {
+                if *idx > index {
+                    *idx -= 1;
+                }
+            }
+            Ok(())
+        } else {
+            Err("Index out of range".to_string())
+        }
+    }
+
+    pub fn item(&self, index_or_key: &Value) -> Result<Value, String> {
+        let index = self.resolve_index(index_or_key)?;
+        self.items
+            .get(index)
+            .map(|item| item.value.clone())
+            .ok_or_else(|| "Index out of range".to_string())
+    }
+
+    fn resolve_index(&self, index_or_key: &Value) -> Result<usize, String> {
+        match index_or_key {
+            Value::String(k) => {
+                let lower_key = k.to_lowercase();
+                self.key_map
+                    .get(&lower_key)
+                    .copied()
+                    .ok_or_else(|| format!("Key '{}' not found in collection", k))
+            }
+            _ => {
+                let idx = crate::runtime::numeric::value_to_i64(index_or_key)
+                    .ok_or_else(|| "Collection index must be Integer or String".to_string())?;
+                if idx < 1 {
+                    return Err("Collection index must be 1-based".to_string());
+                }
+                let usize_idx = (idx - 1) as usize;
+                if usize_idx >= self.items.len() {
+                    return Err("Index out of range".to_string());
+                }
+                Ok(usize_idx)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,6 +215,7 @@ impl Value {
             Value::Record(record) => TypeName::User(record.type_name.clone()),
             Value::BoxedRecord(_, interface_name) => TypeName::User(interface_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
+            Value::Collection(_) => TypeName::User("Collection".to_string()),
             Value::ComObject(com) => TypeName::User(com.prog_id.clone()),
             Value::Error(_) => TypeName::Variant,
             Value::Nothing | Value::Null | Value::Missing => TypeName::Variant,
@@ -155,6 +241,7 @@ impl Value {
             Value::FuncPtr(value) => *value != 0,
             Value::String(value) => !value.is_empty(),
             Value::Array(array) => array.allocated && !array.elements.is_empty(),
+            Value::Collection(collection) => !collection.borrow().items.is_empty(),
             Value::Record(_) | Value::BoxedRecord(_, _) => true,
             Value::Object(_) | Value::ComObject(_) => true,
             Value::Error(code) => *code != 0,
@@ -187,10 +274,35 @@ impl Value {
                     "False".to_string()
                 }
             }
-            Value::Date(value) => format!("<Date: {}>", value),
+            Value::Date(value) => {
+                // VBA serial date to YYYY-MM-DD HH:MM:SS (simplified)
+                let days = value.floor() as i64;
+                let seconds =
+                    ((value.fract().rem_euclid(1.0) * 86400.0).round() as i64).rem_euclid(86400);
+
+                // Base date: 1899-12-30
+                // For now, let's just output the serial date if it's too complex,
+                // but a simple "Date: serial" is better than nothing.
+                if *value == 0.0 {
+                    "00:00:00".to_string()
+                } else if seconds == 0 {
+                    format!("{days} (serial days)")
+                } else if days == 0 {
+                    let h = seconds / 3600;
+                    let m = (seconds % 3600) / 60;
+                    let s = seconds % 60;
+                    format!("{:02}:{:02}:{:02}", h, m, s)
+                } else {
+                    let h = seconds / 3600;
+                    let m = (seconds % 3600) / 60;
+                    let s = seconds % 60;
+                    format!("{days} {:02}:{:02}:{:02}", h, m, s)
+                }
+            }
             Value::Ptr(value) => format!("0x{:X}", value),
             Value::FuncPtr(value) => format!("<FuncPtr: 0x{:X}>", value),
             Value::Array(_) => "<Array>".to_string(),
+            Value::Collection(_) => "<Collection>".to_string(),
             Value::Record(record) => format!("<{}>", record.type_name),
             Value::BoxedRecord(record, interface) => {
                 format!("<{} as {}>", record.type_name, interface)

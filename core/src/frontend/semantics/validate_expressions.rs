@@ -98,8 +98,12 @@ pub(super) fn validate_assignment_target(
                     && let Some(field_sig) = class_sig.fields.get(&key(name))
                 {
                     if field_sig.is_shared || symbols.contains_key("me") {
-                        if field_sig.array.is_some() {
-                            VarType::Array(Visibility::Public, field_sig.ty.clone())
+                        if let Some(ref array_decl) = field_sig.array {
+                            VarType::Array(
+                                Visibility::Public,
+                                field_sig.ty.clone(),
+                                matches!(array_decl, ArrayDecl::Dynamic),
+                            )
                         } else if field_sig.ty.same_type(&TypeName::Variant) {
                             VarType::Scalar(Visibility::Public, TypeName::Variant)
                         } else {
@@ -122,8 +126,12 @@ pub(super) fn validate_assignment_target(
                 } else if let Some(type_sig) = types.get(owner_name)
                     && let Some(field_sig) = type_sig.fields.get(&key(name))
                 {
-                    if field_sig.array.is_some() {
-                        VarType::Array(Visibility::Public, field_sig.ty.clone())
+                    if let Some(ref array_decl) = field_sig.array {
+                        VarType::Array(
+                            Visibility::Public,
+                            field_sig.ty.clone(),
+                            matches!(array_decl, ArrayDecl::Dynamic),
+                        )
                     } else if field_sig.ty.same_type(&TypeName::Variant) {
                         VarType::Scalar(Visibility::Public, TypeName::Variant)
                     } else {
@@ -148,11 +156,12 @@ pub(super) fn validate_assignment_target(
                 ));
             };
             let element_type = match var_type {
-                VarType::Array(_, ty) => ty,
+                VarType::Array(_, ty, _) => ty,
                 VarType::Scalar(_, TypeName::User(class_name))
                 | VarType::Optional(_, TypeName::User(class_name))
                 | VarType::Const(_, TypeName::User(class_name))
-                    if class_name.eq_ignore_ascii_case("Object") =>
+                    if class_name.eq_ignore_ascii_case("Object")
+                        || class_name.eq_ignore_ascii_case("Collection") =>
                 {
                     for index in indices {
                         validate_expr(index, symbols, types, signatures, context, option_explicit)?;
@@ -349,6 +358,11 @@ pub(super) fn validate_expr(
         },
         ExprKind::WithTarget => Ok(TypeName::Variant),
         ExprKind::New { class_name, args } => {
+            if let TypeName::User(name) = class_name
+                && name.eq_ignore_ascii_case("Collection")
+            {
+                return Ok(TypeName::User("Collection".to_string()));
+            }
             ensure_known_type(class_name, types, expr.span)?;
             let (base_name, bindings) = generic_bindings_for_type(class_name, types);
             if let Some(type_sig) = types.get(&base_name) {
@@ -420,7 +434,7 @@ pub(super) fn validate_expr(
                     | VarType::FunctionReturn(ty) => {
                         return Ok(ty);
                     }
-                    VarType::Array(_, _) => {
+                    VarType::Array(..) => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
                             format!("Array variable '{}' cannot be used as a scalar", name),
@@ -703,6 +717,14 @@ pub(super) fn validate_expr(
             }
             let object_type =
                 validate_expr(object, symbols, types, signatures, context, option_explicit)?;
+            if object_type.same_type(&TypeName::Variant) {
+                return Ok(TypeName::Variant);
+            }
+            if let TypeName::User(name) = &object_type
+                && name.eq_ignore_ascii_case("Object")
+            {
+                return Ok(TypeName::Variant);
+            }
             let current_class = member_access_class(object, &object_type);
             member_read_type(
                 &object_type,
@@ -897,7 +919,7 @@ pub(super) fn validate_expr(
             }
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
                 match var_type {
-                    VarType::Array(Visibility::Public, element_type) => {
+                    VarType::Array(Visibility::Public, element_type, _) => {
                         for arg in args {
                             ensure_assignable(
                                 &TypeName::Integer,
@@ -914,9 +936,9 @@ pub(super) fn validate_expr(
                         }
                         return Ok(element_type);
                     }
-                    VarType::Scalar(Visibility::Public, TypeName::User(class_name))
-                    | VarType::Optional(Visibility::Public, TypeName::User(class_name))
-                    | VarType::Const(Visibility::Public, TypeName::User(class_name)) => {
+                    VarType::Scalar(_, TypeName::User(class_name))
+                    | VarType::Optional(_, TypeName::User(class_name))
+                    | VarType::Const(_, TypeName::User(class_name)) => {
                         if class_name.eq_ignore_ascii_case("Object") {
                             for arg in args {
                                 validate_expr(
@@ -975,9 +997,9 @@ pub(super) fn validate_expr(
                             Some(expr.span),
                         ));
                     }
-                    VarType::Scalar(Visibility::Public, TypeName::Variant)
-                    | VarType::Optional(Visibility::Public, TypeName::Variant)
-                    | VarType::Const(Visibility::Public, TypeName::Variant) => {
+                    VarType::Scalar(_, TypeName::Variant)
+                    | VarType::Optional(_, TypeName::Variant)
+                    | VarType::Const(_, TypeName::Variant) => {
                         for arg in args {
                             validate_expr(
                                 arg,
@@ -1285,10 +1307,17 @@ pub(super) fn validate_array_expr(
 ) -> Result<TypeName, Diagnostic> {
     match &expr.kind {
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
-            Some(VarType::Array(_, element_type)) => Ok(element_type),
+            Some(VarType::Array(_, element_type, _)) => Ok(element_type),
             Some(VarType::Scalar(_, TypeName::Variant))
             | Some(VarType::Optional(_, TypeName::Variant))
             | Some(VarType::Const(_, TypeName::Variant)) => Ok(TypeName::Variant),
+            Some(VarType::Scalar(_, TypeName::User(class_name)))
+            | Some(VarType::Optional(_, TypeName::User(class_name)))
+            | Some(VarType::Const(_, TypeName::User(class_name)))
+                if class_name.eq_ignore_ascii_case("Object") =>
+            {
+                Ok(TypeName::Variant)
+            }
             Some(VarType::Scalar(_, _ty))
             | Some(VarType::Optional(_, _ty))
             | Some(VarType::Const(_, _ty)) => Err(Diagnostic::new(
@@ -2147,8 +2176,13 @@ fn validate_arg_count(
     if args.len() == expected {
         Ok(())
     } else {
+        let code = if args.len() < expected {
+            crate::runtime::DiagnosticCode::ARGUMENT_NOT_OPTIONAL
+        } else {
+            crate::runtime::DiagnosticCode::GENERIC
+        };
         Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::GENERIC,
+            code,
             format!("{name} expects exactly {expected} argument(s)"),
             Some(span),
         ))
@@ -2570,7 +2604,12 @@ pub(super) fn validate_method_call(
     context: &Context<'_>,
     option_explicit: bool,
 ) -> Result<TypeName, Diagnostic> {
-    if object_type.same_type(&TypeName::Variant) {
+    if object_type.same_type(&TypeName::Variant)
+        || matches!(object_type, TypeName::User(name) if name.eq_ignore_ascii_case("Object"))
+    {
+        for arg in args {
+            validate_expr(arg, symbols, types, signatures, context, option_explicit)?;
+        }
         return Ok(TypeName::Variant);
     }
     let (class_name, bindings) = generic_bindings_for_type(object_type, types);
@@ -3069,7 +3108,9 @@ pub(super) fn member_read_type(
     span: crate::runtime::Span,
     current_class: Option<&str>,
 ) -> Result<TypeName, Diagnostic> {
-    if object_type.same_type(&TypeName::Variant) {
+    if object_type.same_type(&TypeName::Variant)
+        || matches!(object_type, TypeName::User(name) if name.eq_ignore_ascii_case("Object"))
+    {
         return Ok(TypeName::Variant);
     }
     let (type_name, bindings) = generic_bindings_for_type(object_type, types);
@@ -3353,7 +3394,10 @@ pub(super) fn ensure_known_type(
         | TypeName::Ptr
         | TypeName::FuncPtr => Ok(()),
         TypeName::User(name) => {
-            if types.generic_params.contains(&key(name)) || name.eq_ignore_ascii_case("Object") {
+            if types.generic_params.contains(&key(name))
+                || name.eq_ignore_ascii_case("Object")
+                || name.eq_ignore_ascii_case("Collection")
+            {
                 Ok(())
             } else if let Some(sig) = types.get(name)
                 && !sig.type_params.is_empty()
@@ -3552,6 +3596,7 @@ fn is_reference_type(ty: &TypeName, types: &TypeRegistry) -> bool {
         TypeName::String | TypeName::Array(_) => true,
         TypeName::User(name) => {
             name.eq_ignore_ascii_case("Object")
+                || name.eq_ignore_ascii_case("Collection")
                 || types.get_class(name).is_some()
                 || types.get_interface(name).is_some()
         }
@@ -3778,6 +3823,7 @@ pub(super) fn is_class_type(ty: &TypeName, types: &TypeRegistry) -> bool {
             types.get_class(name).is_some()
                 || types.get_interface(name).is_some()
                 || name.eq_ignore_ascii_case("Object")
+                || name.eq_ignore_ascii_case("Collection")
         }
         TypeName::GenericInstance { name, .. } => {
             types.get_class(name).is_some() || types.get_interface(name).is_some()

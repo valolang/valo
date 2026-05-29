@@ -8,7 +8,7 @@ use crate::{GenericParamConstraint, PassingMode, Visibility};
 pub(super) enum VarType {
     Scalar(Visibility, TypeName),
     Optional(Visibility, TypeName),
-    Array(Visibility, TypeName),
+    Array(Visibility, TypeName, bool), // Visibility, element type, is_dynamic
     Const(Visibility, TypeName),
     FunctionReturn(TypeName),
     Module(String),
@@ -21,12 +21,14 @@ impl VarType {
             (VarType::Scalar(_, left), VarType::Scalar(_, right))
             | (VarType::Optional(_, left), VarType::Scalar(_, right))
             | (VarType::Scalar(_, left), VarType::Optional(_, right))
-            | (VarType::Optional(_, left), VarType::Optional(_, right))
-            | (VarType::Const(_, left), VarType::Scalar(_, right))
-            | (VarType::Scalar(_, left), VarType::Const(_, right))
-            | (VarType::Const(_, left), VarType::Const(_, right))
-            | (VarType::Array(_, left), VarType::Array(_, right))
-            | (VarType::FunctionReturn(left), VarType::Scalar(_, right))
+            | (VarType::Optional(_, left), VarType::Optional(_, right)) => left.same_type(right),
+            (VarType::Const(left_v, left), VarType::Const(right_v, right)) => {
+                left_v == right_v && left.same_type(right)
+            }
+            (VarType::Array(left_v, left, left_d), VarType::Array(right_v, right, right_d)) => {
+                left_v == right_v && left_d == right_d && left.same_type(right)
+            }
+            (VarType::FunctionReturn(left), VarType::Scalar(_, right))
             | (VarType::Scalar(_, left), VarType::FunctionReturn(right))
             | (VarType::FunctionReturn(left), VarType::FunctionReturn(right)) => {
                 left.same_type(right)
@@ -42,7 +44,13 @@ impl VarType {
                 ty.display_name()
             }
             VarType::Const(_, ty) => ty.display_name(),
-            VarType::Array(_, ty) => format!("{}()", ty.display_name()),
+            VarType::Array(_, ty, is_dynamic) => {
+                if *is_dynamic {
+                    format!("{}()", ty.display_name())
+                } else {
+                    format!("{} (fixed array)", ty.display_name())
+                }
+            }
             VarType::Module(name) => format!("Module {}", name),
         }
     }
@@ -53,7 +61,7 @@ impl VarType {
             | VarType::Optional(_, ty)
             | VarType::Const(_, ty)
             | VarType::FunctionReturn(ty) => Some(ty.clone()),
-            VarType::Array(_, _) | VarType::Module(_) => None,
+            VarType::Array(_, _, _) | VarType::Module(_) => None,
         }
     }
 
@@ -65,7 +73,7 @@ impl VarType {
         match self {
             VarType::Scalar(v, _)
             | VarType::Optional(v, _)
-            | VarType::Array(v, _)
+            | VarType::Array(v, _, _)
             | VarType::Const(v, _) => *v,
             VarType::FunctionReturn(_) | VarType::Module(_) => Visibility::Public,
         }
@@ -136,5 +144,5 @@ pub(super) struct Signatures {
 }
 
 pub(super) fn key(name: &str) -> String {
-    name.to_ascii_lowercase()
+    name.to_lowercase()
 }

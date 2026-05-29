@@ -7,6 +7,124 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
     let mut enums = HashMap::new();
     let mut interfaces = HashMap::new();
     let mut classes = HashMap::new();
+
+    // Add built-in Collection class
+    classes.insert(
+        key("Collection"),
+        ClassSig {
+            name: "Collection".to_string(),
+            type_params: Vec::new(),
+            generic_constraints: Vec::new(),
+            inheritance: crate::ClassInheritance::Normal,
+            base_class: None,
+            implements: Vec::new(),
+            visibility: Visibility::Public,
+            fields: HashMap::new(),
+            subs: {
+                let mut s = HashMap::new();
+                s.insert(
+                    key("Add"),
+                    ClassMethodSig {
+                        visibility: Visibility::Public,
+                        name: "Add".to_string(),
+                        type_params: Vec::new(),
+                        generic_constraints: Vec::new(),
+                        is_shared: false,
+                        is_declare: false,
+                        _is_iterator: false,
+                        params: vec![
+                            ParamSig {
+                                name: "Item".to_string(),
+                                ty: TypeName::Variant,
+                                mode: PassingMode::ByVal,
+                                is_optional: false,
+                                is_param_array: false,
+                            },
+                            ParamSig {
+                                name: "Key".to_string(),
+                                ty: TypeName::String,
+                                mode: PassingMode::ByVal,
+                                is_optional: true,
+                                is_param_array: false,
+                            },
+                        ],
+                        return_type: None,
+                    },
+                );
+                s.insert(
+                    key("Remove"),
+                    ClassMethodSig {
+                        visibility: Visibility::Public,
+                        name: "Remove".to_string(),
+                        type_params: Vec::new(),
+                        generic_constraints: Vec::new(),
+                        is_shared: false,
+                        is_declare: false,
+                        _is_iterator: false,
+                        params: vec![ParamSig {
+                            name: "Index".to_string(),
+                            ty: TypeName::Variant,
+                            mode: PassingMode::ByVal,
+                            is_optional: false,
+                            is_param_array: false,
+                        }],
+                        return_type: None,
+                    },
+                );
+                s
+            },
+            functions: HashMap::new(),
+            properties: {
+                let mut p = HashMap::new();
+                p.insert(
+                    key("Item"),
+                    ClassPropertySig {
+                        name: "Item".to_string(),
+                        is_shared: false,
+                        is_readonly: true,
+                        is_writeonly: false,
+                        get: Some(PropertyAccessorSig {
+                            visibility: Visibility::Public,
+                            is_iterator: false,
+                            params: vec![ParamSig {
+                                name: "Index".to_string(),
+                                ty: TypeName::Variant,
+                                mode: PassingMode::ByVal,
+                                is_optional: false,
+                                is_param_array: false,
+                            }],
+                            return_type: Some(TypeName::Variant),
+                        }),
+                        let_: None,
+                        set: None,
+                    },
+                );
+                p.insert(
+                    key("Count"),
+                    ClassPropertySig {
+                        name: "Count".to_string(),
+                        is_shared: false,
+                        is_readonly: true,
+                        is_writeonly: false,
+                        get: Some(PropertyAccessorSig {
+                            visibility: Visibility::Public,
+                            is_iterator: false,
+                            params: Vec::new(),
+                            return_type: Some(TypeName::Long),
+                        }),
+                        let_: None,
+                        set: None,
+                    },
+                );
+                p
+            },
+            events: HashMap::new(),
+            iterator: None,
+            enumerator: Some("_NewEnum".to_string()), // Native collection is always enumerable
+            default_property: Some("Item".to_string()),
+        },
+    );
+
     let mut generic_params = std::collections::HashSet::new();
 
     // Add built-in Error class
@@ -1119,6 +1237,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
         generic_params,
     };
     apply_class_sig_inheritance(&mut registry)?;
+
     validate_oop_semantics(program, &registry)?;
     for type_decl in &program.types {
         for field in &type_decl.fields {
@@ -2135,8 +2254,8 @@ pub(super) fn collect_module_symbols(
                 Some(var.span),
             ));
         }
-        let var_type = if var.array.is_some() {
-            VarType::Array(var.visibility, ty)
+        let var_type = if let Some(ref array_decl) = var.array {
+            VarType::Array(var.visibility, ty, matches!(array_decl, ArrayDecl::Dynamic))
         } else {
             VarType::Scalar(var.visibility, ty)
         };
@@ -2274,7 +2393,7 @@ pub(super) fn validate_procedure(
     module_symbols: &HashMap<String, VarType>,
     option_explicit: bool,
 ) -> Result<(), Diagnostic> {
-    let mut symbols = HashMap::new();
+    let mut symbols = module_symbols.clone();
     add_module_symbols(module_symbols, &mut symbols);
     add_parameters(&procedure.params, &mut symbols)?;
     validate_statements(
@@ -2419,7 +2538,7 @@ pub(super) fn add_parameters(
             ));
         }
         let var_type = if param.is_param_array {
-            VarType::Array(Visibility::Public, param.ty.clone())
+            VarType::Array(Visibility::Public, param.ty.clone(), true)
         } else if param.is_optional {
             VarType::Optional(Visibility::Public, param.ty.clone())
         } else {

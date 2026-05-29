@@ -980,6 +980,13 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        if let Value::Collection(_) = object {
+            let mut eval_args = Vec::with_capacity(args.len());
+            for arg in args {
+                eval_args.push(self.eval_expr(arg, caller_frame)?);
+            }
+            return self.call_method_sub_values(object, method, &eval_args, caller_frame, span);
+        }
         match object {
             Value::ComObject(ref com_obj) => {
                 let mut eval_args = Vec::with_capacity(args.len());
@@ -1088,6 +1095,44 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        if let Value::Collection(ref collection) = object {
+            match method.to_ascii_lowercase().as_str() {
+                "add" => {
+                    if args.is_empty() || args.len() > 4 {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Collection.Add expects 1 to 4 arguments",
+                            Some(span),
+                        ));
+                    }
+                    let item = args[0].clone();
+                    let key = if args.len() >= 2 && !matches!(args[1], Value::Missing) {
+                        Some(args[1].to_output_string())
+                    } else {
+                        None
+                    };
+                    collection.borrow_mut().add(item, key).map_err(|e| {
+                        Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, e, Some(span))
+                    })?;
+                    return Ok(());
+                }
+                "remove" => {
+                    if args.len() != 1 {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Collection.Remove expects exactly 1 argument",
+                            Some(span),
+                        ));
+                    }
+                    collection.borrow_mut().remove(&args[0]).map_err(|e| {
+                        Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, e, Some(span))
+                    })?;
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
         if let Value::ComObject(ref com_obj) = object {
             crate::runtime::com::invoke_com(
                 com_obj, method, args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
@@ -1161,6 +1206,69 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
+        if let Value::Collection(ref collection) = object {
+            match method.to_ascii_lowercase().as_str() {
+                "add" => {
+                    if args.is_empty() || args.len() > 4 {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Collection.Add expects 1 to 4 arguments",
+                            Some(span),
+                        ));
+                    }
+                    let item = self.eval_expr(&args[0], caller_frame)?;
+                    let key = if args.len() >= 2 && !matches!(args[1].kind, ExprKind::Missing) {
+                        Some(self.eval_expr(&args[1], caller_frame)?.to_output_string())
+                    } else {
+                        None
+                    };
+                    // simplified: ignore before/after for now
+                    collection.borrow_mut().add(item, key).map_err(|e| {
+                        Diagnostic::new(crate::runtime::DiagnosticCode::GENERIC, e, Some(span))
+                    })?;
+                    return Ok(Value::Empty);
+                }
+                "count" => {
+                    if !args.is_empty() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Collection.Count expects no arguments",
+                            Some(span),
+                        ));
+                    }
+                    return Ok(Value::Int64(collection.borrow().count()));
+                }
+                "item" => {
+                    if args.len() != 1 {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Collection.Item expects exactly 1 argument",
+                            Some(span),
+                        ));
+                    }
+                    let index_or_key = self.eval_expr(&args[0], caller_frame)?;
+                    return collection.borrow().item(&index_or_key).map_err(|e| {
+                        Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, e, Some(span))
+                    });
+                }
+                "remove" => {
+                    if args.len() != 1 {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "Collection.Remove expects exactly 1 argument",
+                            Some(span),
+                        ));
+                    }
+                    let index_or_key = self.eval_expr(&args[0], caller_frame)?;
+                    collection.borrow_mut().remove(&index_or_key).map_err(|e| {
+                        Diagnostic::new(crate::runtime::DiagnosticCode::ARRAY, e, Some(span))
+                    })?;
+                    return Ok(Value::Empty);
+                }
+                _ => {}
+            }
+        }
+
         // Handle VBA namespace: VBA.Join etc.
         // VBA evaluates to Empty in our current implementation of global objects.
         if matches!(object, Value::Empty)

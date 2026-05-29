@@ -11,6 +11,3 @@ Sub Main()
     Console.WriteLine(ObjPtr(c) <> 0)
     Console.WriteLine(ObjPtr(Nothing) = 0)
 End Sub
-
-Class Collection
-End Class

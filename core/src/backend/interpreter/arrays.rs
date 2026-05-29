@@ -214,6 +214,15 @@ fn enumerable_values_with_depth(
         return crate::runtime::com::enumerable_com_values(com_obj, span);
     }
 
+    if let Value::Collection(ref collection) = value {
+        return Ok(collection
+            .borrow()
+            .items
+            .iter()
+            .map(|item| item.value.clone())
+            .collect());
+    }
+
     let Value::Object(object) = value.clone() else {
         return Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::ARRAY,

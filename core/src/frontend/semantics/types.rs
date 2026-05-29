@@ -84,6 +84,9 @@ impl TypeRegistry {
                 if name.eq_ignore_ascii_case("Object") {
                     return TypeName::User("Object".to_string());
                 }
+                if name.eq_ignore_ascii_case("Collection") {
+                    return TypeName::User("Collection".to_string());
+                }
                 TypeName::User(name.clone())
             }
             TypeName::GenericInstance { name, args } => {
