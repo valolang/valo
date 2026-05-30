@@ -60,8 +60,38 @@ impl Interpreter {
             }
             ExprKind::Me | ExprKind::MyBase | ExprKind::MyClass => frame.get("me", expr.span),
             ExprKind::WithTarget => frame.current_with_target(expr.span),
-            ExprKind::New { class_name, args } => {
-                self.new_object(class_name, args, frame, expr.span)
+            ExprKind::New {
+                class_name,
+                args,
+                initializer,
+            } => {
+                let obj = self.new_object(class_name, args, frame, expr.span)?;
+                if let Some(init_list) = initializer {
+                    for init_expr in init_list {
+                        let val = self.eval_expr(init_expr, frame)?;
+                        match &obj {
+                            Value::Collection(coll) => {
+                                coll.borrow_mut().add(val, None, None, None).map_err(|e| {
+                                    Diagnostic::new(
+                                        crate::runtime::DiagnosticCode::ARRAY,
+                                        e,
+                                        Some(init_expr.span),
+                                    )
+                                })?;
+                            }
+                            _ => {
+                                // In VB.NET, this would call the 'Add' method if available.
+                                // For now, we only support Collection.
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                    "Collection initializer is only supported for Collection types",
+                                    Some(expr.span),
+                                ));
+                            }
+                        }
+                    }
+                }
+                Ok(obj)
             }
             ExprKind::IIf {
                 condition,
@@ -472,6 +502,15 @@ impl Interpreter {
                         Some(left.span),
                     ));
                 }
+
+                if *op == crate::BinaryOp::LogicalAndAlso {
+                    if !left_value.is_truthy() {
+                        return Ok(Value::Boolean(false));
+                    }
+                } else if *op == crate::BinaryOp::LogicalOrElse && left_value.is_truthy() {
+                    return Ok(Value::Boolean(true));
+                }
+
                 let right_value = self.eval_expr(right, frame)?;
                 if matches!(right_value, Value::Missing) {
                     return Err(Diagnostic::new(
@@ -526,8 +565,12 @@ impl Interpreter {
                     crate::BinaryOp::IntegerDivide => RuntimeBinaryOp::IntegerDivide,
                     crate::BinaryOp::Modulo => RuntimeBinaryOp::Modulo,
                     crate::BinaryOp::Concat => RuntimeBinaryOp::Concat,
-                    crate::BinaryOp::LogicalAnd => RuntimeBinaryOp::LogicalAnd,
-                    crate::BinaryOp::LogicalOr => RuntimeBinaryOp::LogicalOr,
+                    crate::BinaryOp::LogicalAnd | crate::BinaryOp::LogicalAndAlso => {
+                        RuntimeBinaryOp::LogicalAnd
+                    }
+                    crate::BinaryOp::LogicalOr | crate::BinaryOp::LogicalOrElse => {
+                        RuntimeBinaryOp::LogicalOr
+                    }
                     crate::BinaryOp::LogicalXor => RuntimeBinaryOp::LogicalXor,
                     crate::BinaryOp::LogicalEqv => RuntimeBinaryOp::LogicalEqv,
                     crate::BinaryOp::LogicalImp => RuntimeBinaryOp::LogicalImp,
@@ -538,6 +581,7 @@ impl Interpreter {
                     crate::BinaryOp::LessEqual => RuntimeBinaryOp::LessEqual,
                     crate::BinaryOp::GreaterEqual => RuntimeBinaryOp::GreaterEqual,
                     crate::BinaryOp::Is => RuntimeBinaryOp::Is,
+                    crate::BinaryOp::IsNot => RuntimeBinaryOp::IsNot,
                     crate::BinaryOp::Like => RuntimeBinaryOp::Like,
                 };
                 let runtime_compare = match self.option_compare {

@@ -119,6 +119,7 @@ impl Parser {
         &mut self,
         visibility: Visibility,
         inheritance: ClassInheritance,
+        is_partial: bool,
     ) -> Result<ClassDecl, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Class, "Expected 'Class'")?
@@ -178,6 +179,7 @@ impl Parser {
         Ok(ClassDecl {
             visibility,
             inheritance,
+            is_partial,
             name,
             type_params,
             generic_constraints,
@@ -432,10 +434,11 @@ impl Parser {
                 .parse_type_decl(visibility)
                 .map(ClassMember::Type)
                 .map(|member| vec![member]),
-            TokenKind::Class => self
-                .parse_class_decl(visibility, ClassInheritance::Normal)
-                .map(|member| ClassMember::Class(Box::new(member)))
-                .map(|member| vec![member]),
+            TokenKind::Class => {
+                let is_partial = self.match_simple(&TokenKind::Partial);
+                self.parse_class_decl(visibility, ClassInheritance::Normal, is_partial)
+                    .map(|c| vec![ClassMember::Class(Box::new(c))])
+            }
             TokenKind::Enum => self
                 .parse_enum_decl(visibility)
                 .map(ClassMember::Enum)

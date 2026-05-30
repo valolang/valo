@@ -38,6 +38,7 @@ pub enum ExprKind {
     New {
         class_name: TypeName,
         args: Vec<Expr>,
+        initializer: Option<Vec<Expr>>,
     },
     Call {
         name: String,
@@ -107,12 +108,21 @@ impl ExprKind {
                     class_name: ty.display_name(),
                 }
             }
-            ExprKind::New { class_name, args } => ExprKind::New {
+            ExprKind::New {
+                class_name,
+                args,
+                initializer,
+            } => ExprKind::New {
                 class_name: class_name.substitute_generics(bindings),
                 args: args
                     .iter()
                     .map(|arg| arg.substitute_generics(bindings))
                     .collect(),
+                initializer: initializer.as_ref().map(|init| {
+                    init.iter()
+                        .map(|arg| arg.substitute_generics(bindings))
+                        .collect()
+                }),
             },
             ExprKind::Call {
                 name,
@@ -203,7 +213,9 @@ pub enum BinaryOp {
     Modulo,
     Concat,
     LogicalAnd,
+    LogicalAndAlso,
     LogicalOr,
+    LogicalOrElse,
     LogicalXor,
     LogicalEqv,
     LogicalImp,
@@ -214,6 +226,7 @@ pub enum BinaryOp {
     LessEqual,
     GreaterEqual,
     Is,
+    IsNot,
     Like,
 }
 

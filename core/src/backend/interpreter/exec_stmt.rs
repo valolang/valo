@@ -90,6 +90,7 @@ impl Interpreter {
                 as_new,
                 new_args,
                 initializer,
+                collection_initializer,
                 span,
             } => {
                 self.exec_variable_declaration(
@@ -99,6 +100,7 @@ impl Interpreter {
                     *as_new,
                     new_args,
                     initializer,
+                    collection_initializer,
                     frame,
                     *span,
                 )?;
@@ -113,6 +115,7 @@ impl Interpreter {
                         decl.as_new,
                         &decl.new_args,
                         &decl.initializer,
+                        &decl.collection_initializer,
                         frame,
                         decl.span,
                     )?;
@@ -126,6 +129,7 @@ impl Interpreter {
                 as_new,
                 new_args,
                 initializer,
+                collection_initializer,
                 span,
             } => {
                 self.exec_static_declaration(
@@ -135,6 +139,7 @@ impl Interpreter {
                     *as_new,
                     new_args,
                     initializer,
+                    collection_initializer,
                     frame,
                     *span,
                 )?;
@@ -149,6 +154,7 @@ impl Interpreter {
                         decl.as_new,
                         &decl.new_args,
                         &decl.initializer,
+                        &decl.collection_initializer,
                         frame,
                         decl.span,
                     )?;
@@ -825,6 +831,7 @@ impl Interpreter {
                     decl.as_new,
                     &decl.new_args,
                     &decl.initializer,
+                    &decl.collection_initializer,
                     frame,
                     decl.span,
                 )?;
@@ -910,6 +917,7 @@ impl Interpreter {
         as_new: bool,
         new_args: &[crate::Expr],
         initializer: &Option<crate::Expr>,
+        collection_initializer: &Option<Vec<crate::Expr>>,
         frame: &mut Frame,
         span: crate::runtime::Span,
     ) -> Result<(), Diagnostic> {
@@ -932,6 +940,29 @@ impl Interpreter {
             match &ty_for_new {
                 TypeName::User(_) | TypeName::GenericInstance { .. } => {
                     let value = self.new_object(&ty_for_new, new_args, frame, span)?;
+                    if let Some(init_list) = collection_initializer {
+                        for init_expr in init_list {
+                            let val = self.eval_expr(init_expr, frame)?;
+                            match &value {
+                                Value::Collection(coll) => {
+                                    coll.borrow_mut().add(val, None, None, None).map_err(|e| {
+                                        Diagnostic::new(
+                                            crate::runtime::DiagnosticCode::ARRAY,
+                                            e,
+                                            Some(init_expr.span),
+                                        )
+                                    })?;
+                                }
+                                _ => {
+                                    return Err(Diagnostic::new(
+                                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                        "Collection initializer is only supported for Collection types",
+                                        Some(span),
+                                    ));
+                                }
+                            }
+                        }
+                    }
                     let _ = frame.assign(name, value, span)?;
                 }
                 _ => {
@@ -962,6 +993,7 @@ impl Interpreter {
         as_new: bool,
         _new_args: &[crate::Expr],
         initializer: &Option<crate::Expr>,
+        _collection_initializer: &Option<Vec<crate::Expr>>,
         frame: &mut Frame,
         span: crate::runtime::Span,
     ) -> Result<(), Diagnostic> {

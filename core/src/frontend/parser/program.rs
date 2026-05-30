@@ -155,6 +155,7 @@ impl Parser {
                         classes.push(ClassDecl {
                             visibility: Visibility::Public,
                             inheritance: ClassInheritance::Normal,
+                            is_partial: false,
                             name,
                             type_params: Vec::new(),
                             generic_constraints: Vec::new(),
@@ -176,6 +177,7 @@ impl Parser {
                     let inheritance = self.parse_optional_class_inheritance();
                     let explicit_visibility = self.parse_optional_visibility();
                     let is_async = self.match_simple(&TokenKind::Async);
+                    let is_partial = self.match_simple(&TokenKind::Partial);
                     let is_iterator = self.match_simple(&TokenKind::Iterator);
 
                     match self.peek_kind() {
@@ -247,7 +249,8 @@ impl Parser {
                             if is_iterator {
                                 return Err(self.error_here("Iterator is not supported on Class"));
                             }
-                            let mut c = self.parse_class_decl(visibility, inheritance)?;
+                            let mut c =
+                                self.parse_class_decl(visibility, inheritance, is_partial)?;
                             if let Some(ns) = &namespace
                                 && !c.name.starts_with(ns)
                             {
@@ -372,6 +375,7 @@ impl Parser {
             let inheritance = self.parse_optional_class_inheritance();
             let explicit_visibility = self.parse_optional_visibility();
             let is_async = self.match_simple(&TokenKind::Async);
+            let is_partial = self.match_simple(&TokenKind::Partial);
             let is_iterator = self.match_simple(&TokenKind::Iterator);
 
             match self.peek_kind() {
@@ -489,7 +493,7 @@ impl Parser {
                     if is_iterator {
                         return Err(self.error_here("Iterator is not supported on Class"));
                     }
-                    classes.push(self.parse_class_decl(visibility, inheritance)?);
+                    classes.push(self.parse_class_decl(visibility, inheritance, is_partial)?);
                 }
                 TokenKind::Module => {
                     let visibility = explicit_visibility.unwrap_or(Visibility::Public);
@@ -587,6 +591,7 @@ impl Parser {
         classes.push(ClassDecl {
             visibility: Visibility::Public,
             inheritance: ClassInheritance::NotInheritable,
+            is_partial: false,
             name,
             type_params: Vec::new(),
             generic_constraints: Vec::new(),

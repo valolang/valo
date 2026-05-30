@@ -93,6 +93,36 @@ impl Program {
         self.types.append(&mut new_types);
         self.enums.append(&mut new_enums);
         self.classes.append(&mut new_classes);
+
+        self.merge_partial_classes();
+    }
+
+    pub fn merge_partial_classes(&mut self) {
+        use std::collections::HashMap;
+        let mut merged: HashMap<String, ClassDecl> = HashMap::new();
+        let mut order: Vec<String> = Vec::new();
+
+        for mut c in self.classes.drain(..) {
+            let key = c.name.to_lowercase();
+            if let Some(existing) = merged.get_mut(&key)
+                && existing.is_partial
+                && c.is_partial
+            {
+                existing.members.append(&mut c.members);
+                existing.implements.append(&mut c.implements);
+                if existing.base_class.is_none() {
+                    existing.base_class = c.base_class;
+                }
+                // Keep the earlier span or expand it? For now just keep earlier.
+                continue;
+            }
+            order.push(key.clone());
+            merged.insert(key, c);
+        }
+
+        for key in order {
+            self.classes.push(merged.remove(&key).unwrap());
+        }
     }
 }
 
@@ -212,6 +242,7 @@ pub struct FieldDecl {
 pub struct ClassDecl {
     pub visibility: Visibility,
     pub inheritance: ClassInheritance,
+    pub is_partial: bool,
     pub name: String,
     pub type_params: Vec<String>,
     pub generic_constraints: Vec<GenericParamConstraint>,

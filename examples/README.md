@@ -86,3 +86,10 @@ valo run examples/vba_file_io.valo
 
 *   **[Conditional Compilation](conditional_compilation.valo):** Using `#If` and `#Const`.
 *   **[Options](options.valo):** `Option Explicit`, `Option Base`, and `Option Compare`.
+*   **[Operator Overloading](operator_overloading.valo):** Defining custom behavior for operators (`+`, `-`, `=`, etc.) on classes and structures.
+*   **[Extension Methods](extension_methods.valo):** Extending existing types with new methods using the `<Extension()>` attribute.
+*   **[Partial Classes](partial_classes.valo):** Splitting class definitions across multiple blocks or files.
+*   **[Nullable Types](nullable_types.valo):** Using `T?` for value and reference types, checking `Is Nothing`, `.HasValue`, and `.Value`.
+*   **[Collection Initializers](collection_initializers.valo):** Populating collections inline using `New Collection() From { ... }`.
+*   **[LINQ-style APIs](linq_demo.valo):** Fluent querying of collections using Lambda expressions (`Function(n) ...`) and Extension Methods (`Where`, `Select`, `Any`, etc.).
+*   **[Async/Await](async_demo.valo):** Asynchronous programming syntax with `Async Function` and `Await`.

@@ -174,6 +174,7 @@ impl Parser {
                 as_new: decl.as_new,
                 new_args: decl.new_args,
                 initializer: decl.initializer,
+                collection_initializer: decl.collection_initializer,
                 span: Span::new(self.file_id, start.start, end.end),
             })
         } else {
@@ -197,6 +198,7 @@ impl Parser {
                 as_new: decl.as_new,
                 new_args: decl.new_args,
                 initializer: decl.initializer,
+                collection_initializer: decl.collection_initializer,
                 span: Span::new(self.file_id, start.start, end.end),
             })
         } else {
@@ -310,6 +312,27 @@ impl Parser {
         } else {
             None
         };
+        let mut collection_initializer = None;
+        if as_new && self.match_simple(&TokenKind::From) {
+            self.expect_simple(
+                TokenKind::LeftBrace,
+                "Expected '{' after 'From' in collection initializer",
+            )?;
+            let mut init_args = Vec::new();
+            if !self.check_simple(&TokenKind::RightBrace) {
+                loop {
+                    init_args.push(self.parse_expression()?);
+                    if !self.match_simple(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+            }
+            self.expect_simple(
+                TokenKind::RightBrace,
+                "Expected '}' after collection initializer",
+            )?;
+            collection_initializer = Some(init_args);
+        }
         let ty = if let Some(as_ty) = as_ty {
             if let Some(type_char) = &type_char
                 && !type_char.same_type(&as_ty)
@@ -340,9 +363,10 @@ impl Parser {
         } else {
             None
         };
-        let end = initializer
+        let end = collection_initializer
             .as_ref()
-            .map(|expr| expr.span)
+            .map(|_| self.previous().span)
+            .or_else(|| initializer.as_ref().map(|expr| expr.span))
             .unwrap_or_else(|| self.previous().span);
         Ok(VariableDecl {
             name,
@@ -351,6 +375,7 @@ impl Parser {
             as_new,
             new_args,
             initializer,
+            collection_initializer,
             span: Span::new(self.file_id, start.start, end.end),
         })
     }

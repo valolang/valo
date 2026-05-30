@@ -45,10 +45,10 @@ impl Parser {
     }
 
     fn parse_xor(&mut self) -> Result<Expr, Diagnostic> {
-        let mut expr = self.parse_or()?;
+        let mut expr = self.parse_orelse()?;
 
         while self.match_simple(&TokenKind::Xor) {
-            let right = self.parse_or()?;
+            let right = self.parse_orelse()?;
             let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
@@ -63,16 +63,54 @@ impl Parser {
         Ok(expr)
     }
 
+    fn parse_orelse(&mut self) -> Result<Expr, Diagnostic> {
+        let mut expr = self.parse_or()?;
+
+        while self.match_simple(&TokenKind::OrElse) {
+            let right = self.parse_or()?;
+            let span = Span::new(self.file_id, expr.span.start, right.span.end);
+            expr = Expr {
+                kind: ExprKind::Binary {
+                    left: Box::new(expr),
+                    op: BinaryOp::LogicalOrElse,
+                    right: Box::new(right),
+                },
+                span,
+            };
+        }
+
+        Ok(expr)
+    }
+
     fn parse_or(&mut self) -> Result<Expr, Diagnostic> {
-        let mut expr = self.parse_and()?;
+        let mut expr = self.parse_andalso()?;
 
         while self.match_simple(&TokenKind::Or) {
-            let right = self.parse_and()?;
+            let right = self.parse_andalso()?;
             let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
                     left: Box::new(expr),
                     op: BinaryOp::LogicalOr,
+                    right: Box::new(right),
+                },
+                span,
+            };
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_andalso(&mut self) -> Result<Expr, Diagnostic> {
+        let mut expr = self.parse_and()?;
+
+        while self.match_simple(&TokenKind::AndAlso) {
+            let right = self.parse_and()?;
+            let span = Span::new(self.file_id, expr.span.start, right.span.end);
+            expr = Expr {
+                kind: ExprKind::Binary {
+                    left: Box::new(expr),
+                    op: BinaryOp::LogicalAndAlso,
                     right: Box::new(right),
                 },
                 span,
@@ -484,9 +522,34 @@ impl Parser {
                 } else {
                     Vec::new()
                 };
+                let mut initializer = None;
+                if self.match_simple(&TokenKind::From) {
+                    self.expect_simple(
+                        TokenKind::LeftBrace,
+                        "Expected '{' after 'From' in collection initializer",
+                    )?;
+                    let mut init_args = Vec::new();
+                    if !self.check_simple(&TokenKind::RightBrace) {
+                        loop {
+                            init_args.push(self.parse_expression()?);
+                            if !self.match_simple(&TokenKind::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect_simple(
+                        TokenKind::RightBrace,
+                        "Expected '}' after collection initializer",
+                    )?;
+                    initializer = Some(init_args);
+                }
                 let end = self.previous().span;
                 Expr {
-                    kind: ExprKind::New { class_name, args },
+                    kind: ExprKind::New {
+                        class_name,
+                        args,
+                        initializer,
+                    },
                     span: Span::new(self.file_id, span.start, end.end),
                 }
             }
@@ -824,6 +887,7 @@ impl Parser {
             TokenKind::LessEqual => BinaryOp::LessEqual,
             TokenKind::GreaterEqual => BinaryOp::GreaterEqual,
             TokenKind::Is => BinaryOp::Is,
+            TokenKind::IsNot => BinaryOp::IsNot,
             TokenKind::Like => BinaryOp::Like,
             _ => return None,
         };

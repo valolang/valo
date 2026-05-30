@@ -11,6 +11,7 @@ pub enum Stmt {
         as_new: bool,
         new_args: Vec<Expr>,
         initializer: Option<Expr>,
+        collection_initializer: Option<Vec<Expr>>,
         span: Span,
     },
     DimMany {
@@ -24,6 +25,7 @@ pub enum Stmt {
         as_new: bool,
         new_args: Vec<Expr>,
         initializer: Option<Expr>,
+        collection_initializer: Option<Vec<Expr>>,
         span: Span,
     },
     StaticMany {
@@ -340,6 +342,7 @@ pub struct VariableDecl {
     pub as_new: bool,
     pub new_args: Vec<Expr>,
     pub initializer: Option<Expr>,
+    pub collection_initializer: Option<Vec<Expr>>,
     pub span: Span,
 }
 
@@ -439,6 +442,7 @@ impl Stmt {
                 as_new,
                 new_args,
                 initializer,
+                collection_initializer,
                 span,
             } => Stmt::Dim {
                 name: name.clone(),
@@ -452,6 +456,11 @@ impl Stmt {
                 initializer: initializer
                     .as_ref()
                     .map(|init| init.substitute_generics(bindings)),
+                collection_initializer: collection_initializer.as_ref().map(|init| {
+                    init.iter()
+                        .map(|arg| arg.substitute_generics(bindings))
+                        .collect()
+                }),
                 span: *span,
             },
             Stmt::DimMany { decls, span } => Stmt::DimMany {
@@ -468,6 +477,7 @@ impl Stmt {
                 as_new,
                 new_args,
                 initializer,
+                collection_initializer,
                 span,
             } => Stmt::Static {
                 name: name.clone(),
@@ -481,6 +491,11 @@ impl Stmt {
                 initializer: initializer
                     .as_ref()
                     .map(|init| init.substitute_generics(bindings)),
+                collection_initializer: collection_initializer.as_ref().map(|init| {
+                    init.iter()
+                        .map(|arg| arg.substitute_generics(bindings))
+                        .collect()
+                }),
                 span: *span,
             },
             Stmt::StaticMany { decls, span } => Stmt::StaticMany {
@@ -881,6 +896,11 @@ impl VariableDecl {
                 .initializer
                 .as_ref()
                 .map(|init| init.substitute_generics(bindings)),
+            collection_initializer: self.collection_initializer.as_ref().map(|init| {
+                init.iter()
+                    .map(|arg| arg.substitute_generics(bindings))
+                    .collect()
+            }),
             span: self.span,
         }
     }

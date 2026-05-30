@@ -56,4 +56,83 @@ Module EnumerableExtensions
         Return Nothing
     End Function
 
+    <Extension()>
+    Public Function Count(ByVal coll As Collection, ByVal predicate As Variant) As Long
+        Dim c As Long = 0
+        Dim item As Variant
+        For Each item In coll
+            If predicate(item) Then
+                c = c + 1
+            End If
+        Next
+        Return c
+    End Function
+
+    <Extension()>
+    Public Function Sum(ByVal coll As Collection) As Double
+        Dim s As Double = 0
+        Dim item As Variant
+        For Each item In coll
+            s = s + item
+        Next
+        Return s
+    End Function
+
+    <Extension()>
+    Public Function Average(ByVal coll As Collection) As Double
+        If coll.Count = 0 Then Return 0
+        Return Sum(coll) / coll.Count
+    End Function
+
+    <Extension()>
+    Public Function Min(ByVal coll As Collection) As Variant
+        Dim m As Variant = Nothing
+        Dim item As Variant
+        For Each item In coll
+            If m Is Nothing OrElse item < m Then
+                m = item
+            End If
+        Next
+        Return m
+    End Function
+
+    <Extension()>
+    Public Function Max(ByVal coll As Collection) As Variant
+        Dim m As Variant = Nothing
+        Dim item As Variant
+        For Each item In coll
+            If m Is Nothing OrElse item > m Then
+                m = item
+            End If
+        Next
+        Return m
+    End Function
+
+    <Extension()>
+    Public Function Take(ByVal coll As Collection, ByVal n As Integer) As Collection
+        Dim result As New Collection()
+        Dim item As Variant
+        Dim i As Integer = 0
+        For Each item In coll
+            If i >= n Then Exit For
+            result.Add(item)
+            i = i + 1
+        Next
+        Return result
+    End Function
+
+    <Extension()>
+    Public Function Skip(ByVal coll As Collection, ByVal n As Integer) As Collection
+        Dim result As New Collection()
+        Dim item As Variant
+        Dim i As Integer = 0
+        For Each item In coll
+            If i >= n Then
+                result.Add(item)
+            End If
+            i = i + 1
+        Next
+        Return result
+    End Function
+
 End Module

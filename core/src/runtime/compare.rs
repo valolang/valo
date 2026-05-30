@@ -92,8 +92,16 @@ pub fn values_equal(left: &Value, right: &Value, compare: RuntimeOptionCompare) 
     }
 }
 
+fn unwrap_nullable(v: &Value) -> &Value {
+    if let Value::Nullable(inner) = v {
+        inner.as_ref()
+    } else {
+        v
+    }
+}
+
 pub fn values_identical(left: &Value, right: &Value) -> bool {
-    match (left, right) {
+    match (unwrap_nullable(left), unwrap_nullable(right)) {
         (Value::Nothing, Value::Nothing) => true,
         (Value::Object(left), Value::Object(right)) => Rc::ptr_eq(left, right),
         _ => false,

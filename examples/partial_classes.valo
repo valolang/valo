@@ -1,0 +1,18 @@
+' Partial Classes Example
+' Demonstrates modern VB.NET-style Partial keyword.
+
+Partial Class Person
+    Public Name As String
+End Class
+
+Partial Class Person
+    Public Sub SayHello()
+        Console.WriteLine("Hello, my name is " & Me.Name)
+    End Sub
+End Class
+
+Sub Main()
+    Dim p As New Person()
+    p.Name = "Alice"
+    p.SayHello()
+End Sub

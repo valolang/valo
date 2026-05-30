@@ -1291,6 +1291,7 @@ fn validate_as_new(
         kind: ExprKind::New {
             class_name,
             args: args.to_vec(),
+            initializer: None,
         },
         span,
     };
@@ -1950,9 +1951,15 @@ fn do_condition_uses_with_target(condition: &DoLoopCondition, _context: &Context
 fn expr_uses_with_target(expr: &Expr, _context: &Context<'_>) -> bool {
     match &expr.kind {
         ExprKind::WithTarget => true,
-        ExprKind::New { args, .. } | ExprKind::Call { args, .. } => {
+        ExprKind::New {
+            args, initializer, ..
+        } => {
             args.iter().any(|arg| expr_uses_with_target(arg, _context))
+                || initializer
+                    .as_ref()
+                    .is_some_and(|init| init.iter().any(|arg| expr_uses_with_target(arg, _context)))
         }
+        ExprKind::Call { args, .. } => args.iter().any(|arg| expr_uses_with_target(arg, _context)),
         ExprKind::Index { target, args } => {
             expr_uses_with_target(target, _context)
                 || args.iter().any(|arg| expr_uses_with_target(arg, _context))

@@ -357,7 +357,17 @@ pub(super) fn validate_expr(
             )),
         },
         ExprKind::WithTarget => Ok(TypeName::Variant),
-        ExprKind::New { class_name, args } => {
+        ExprKind::New {
+            class_name,
+            args,
+            initializer,
+        } => {
+            if let Some(init) = initializer {
+                for item in init {
+                    validate_expr(item, symbols, types, signatures, context, option_explicit)?;
+                }
+            }
+
             if let TypeName::User(name) = class_name
                 && name.eq_ignore_ascii_case("Collection")
             {
@@ -1181,8 +1191,8 @@ pub(super) fn validate_expr(
                 BinaryOp::IntegerDivide => Some(crate::OperatorKind::IntegerDivide),
                 BinaryOp::Exponent => Some(crate::OperatorKind::Exponent),
                 BinaryOp::Modulo => Some(crate::OperatorKind::Modulo),
-                BinaryOp::LogicalAnd => Some(crate::OperatorKind::And),
-                BinaryOp::LogicalOr => Some(crate::OperatorKind::Or),
+                BinaryOp::LogicalAnd | BinaryOp::LogicalAndAlso => Some(crate::OperatorKind::And),
+                BinaryOp::LogicalOr | BinaryOp::LogicalOrElse => Some(crate::OperatorKind::Or),
                 BinaryOp::LogicalXor => Some(crate::OperatorKind::Xor),
                 BinaryOp::Equal => Some(crate::OperatorKind::Equal),
                 BinaryOp::NotEqual => Some(crate::OperatorKind::NotEqual),
@@ -1226,7 +1236,9 @@ pub(super) fn validate_expr(
                 }
                 BinaryOp::Concat => Ok(TypeName::String),
                 BinaryOp::LogicalAnd
+                | BinaryOp::LogicalAndAlso
                 | BinaryOp::LogicalOr
+                | BinaryOp::LogicalOrElse
                 | BinaryOp::LogicalXor
                 | BinaryOp::LogicalEqv
                 | BinaryOp::LogicalImp => {
@@ -1263,7 +1275,7 @@ pub(super) fn validate_expr(
                     ensure_assignable(&TypeName::String, &right_type, right.span)?;
                     Ok(TypeName::Boolean)
                 }
-                BinaryOp::Is => {
+                BinaryOp::Is | BinaryOp::IsNot => {
                     if is_object_reference_expr(left, &left_type, types)
                         && is_object_reference_expr(right, &right_type, types)
                     {
@@ -1271,7 +1283,14 @@ pub(super) fn validate_expr(
                     } else {
                         Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                            "'Is' requires class object operands or Nothing",
+                            format!(
+                                "'{}' requires class object operands or Nothing",
+                                match op {
+                                    BinaryOp::Is => "Is",
+                                    BinaryOp::IsNot => "IsNot",
+                                    _ => unreachable!(),
+                                }
+                            ),
                             Some(expr.span),
                         ))
                     }
@@ -3220,6 +3239,19 @@ pub(super) fn member_read_type(
     span: crate::runtime::Span,
     current_class: Option<&str>,
 ) -> Result<TypeName, Diagnostic> {
+    if let TypeName::Nullable(inner) = object_type {
+        if member.eq_ignore_ascii_case("Value") {
+            return Ok((**inner).clone());
+        }
+        if member.eq_ignore_ascii_case("HasValue") {
+            return Ok(TypeName::Boolean);
+        }
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+            format!("Nullable type has no member '{}'", member),
+            Some(span),
+        ));
+    }
     if object_type.same_type(&TypeName::Variant)
         || matches!(object_type, TypeName::User(name) if name.eq_ignore_ascii_case("Object"))
     {

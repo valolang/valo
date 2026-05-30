@@ -1,0 +1,26 @@
+' Nullable Types Example
+' Demonstrates modern VB.NET-style T? syntax.
+
+Sub Main()
+    ' Nullable Integer
+    Dim x As Integer? = Nothing
+    
+    If x Is Nothing Then
+        Console.WriteLine("x is null")
+    End If
+    
+    x = 42
+    
+    If x IsNot Nothing Then
+        Console.WriteLine("x is now: " & x)
+    End If
+    
+    ' Assigning back to non-nullable (Value types)
+    ' In VB.NET this requires .Value or a check
+    Dim y As Integer = x.Value
+    Console.WriteLine("y is: " & y)
+    
+    ' Nullable String (Reference type)
+    Dim s As String? = Nothing
+    Console.WriteLine("s is nothing? " & (s Is Nothing))
+End Sub

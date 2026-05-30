@@ -1,0 +1,18 @@
+' Collection Initializers Example
+' Demonstrates modern VB.NET-style From { ... } syntax for Collection.
+
+Sub Main()
+    ' Initialize a collection with inline values
+    Dim fruit As New Collection() From {"Apple", "Banana", "Orange"}
+    
+    Console.WriteLine("Count: " & fruit.Count)
+    
+    Dim item As Variant
+    For Each item In fruit
+        Console.WriteLine("Fruit: " & item)
+    Next
+    
+    ' Mix types (since Collection stores Variants)
+    Dim mixed As New Collection() From {1, "Two", 3.5, True}
+    Console.WriteLine("Mixed count: " & mixed.Count)
+End Sub

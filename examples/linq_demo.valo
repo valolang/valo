@@ -26,4 +26,17 @@ Sub Main()
     
     Dim hasFive As Boolean = nums.Any(Function(n) n = 5)
     Console.WriteLine("Contains 5: " & hasFive)
+    
+    ' Advanced methods
+    Console.WriteLine("Sum:     " & nums.Sum())
+    Console.WriteLine("Average: " & nums.Average())
+    Console.WriteLine("Min:     " & nums.Min())
+    Console.WriteLine("Max:     " & nums.Max())
+    
+    ' Skip/Take
+    Dim subset As Collection = nums.Skip(2).Take(2)
+    Console.WriteLine("Subset count: " & subset.Count)
+    For Each item In subset
+        Console.WriteLine("Subset item: " & item)
+    Next
 End Sub

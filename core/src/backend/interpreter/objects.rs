@@ -501,6 +501,26 @@ impl Interpreter {
                 }
             }
         }
+        if let Value::Nullable(inner) = value {
+            if member.eq_ignore_ascii_case("Value") {
+                if matches!(**inner, Value::Nothing) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::RUNTIME,
+                        "Nullable object must have a value",
+                        Some(span),
+                    ));
+                }
+                return Ok((**inner).clone());
+            }
+            if member.eq_ignore_ascii_case("HasValue") {
+                return Ok(Value::Boolean(!matches!(**inner, Value::Nothing)));
+            }
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Nullable type has no member '{}'", member),
+                Some(span),
+            ));
+        }
         if matches!(value, Value::Nothing) {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
