@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::runtime::{Diagnostic, TypeName, Value};
-use crate::{DeclareDecl, Function, Procedure, Program};
+use crate::{ClassDecl, DeclareDecl, Function, Procedure, Program};
 
 use super::records::{RuntimeInterface, RuntimeType};
 use super::values::key;
@@ -44,6 +44,7 @@ pub struct Interpreter {
     pub(crate) sub_modules: HashMap<String, Vec<String>>,
     pub(crate) extension_methods: HashMap<String, Vec<String>>, // Type name -> Qualified method names
     pub(crate) class_modules: HashMap<String, Vec<String>>,
+    pub(crate) merged_partial_class_modules: HashMap<String, HashSet<String>>,
     pub(crate) type_modules: HashMap<String, Vec<String>>,
     pub(crate) enum_modules: HashMap<String, Vec<String>>,
     pub(crate) interface_modules: HashMap<String, Vec<String>>,
@@ -92,6 +93,7 @@ impl Default for Interpreter {
             sub_modules: HashMap::new(),
             extension_methods: HashMap::new(),
             class_modules: HashMap::new(),
+            merged_partial_class_modules: HashMap::new(),
             type_modules: HashMap::new(),
             enum_modules: HashMap::new(),
             interface_modules: HashMap::new(),
@@ -637,6 +639,7 @@ impl Interpreter {
             );
         }
         let entry_key = super::values::key(&project.modules[project.entry].name);
+        let mut partial_class_groups: HashMap<String, Vec<(String, ClassDecl)>> = HashMap::new();
         for module in &project.modules {
             self.option_base = module.program.option_base;
             self.option_compare = module.program.option_compare;
@@ -737,6 +740,14 @@ impl Interpreter {
                 }
             }
             for class_decl in &module.program.classes {
+                if class_decl.is_partial
+                    && (module_key == entry_key || crate::modules::is_public(class_decl.visibility))
+                {
+                    partial_class_groups
+                        .entry(super::values::key(&class_decl.name))
+                        .or_default()
+                        .push((module_key.clone(), class_decl.clone()));
+                }
                 let qualified = qualified_symbol_key(&module_key, &class_decl.name);
                 let mut runtime_class = RuntimeClass::from(class_decl);
                 runtime_class.name = qualified_display_name(&module.name, &class_decl.name);
@@ -804,6 +815,10 @@ impl Interpreter {
             }
             self.register_declares(&module.program.declares, Some(&module_key));
         }
+        self.register_merged_partial_classes(partial_class_groups);
+        self.apply_class_inheritance(crate::runtime::Span::empty(
+            crate::runtime::FileId::default(),
+        ))?;
         self.initialize_shared_class_fields(crate::runtime::Span::empty(
             crate::runtime::FileId::default(),
         ))?;
@@ -871,6 +886,32 @@ pub(crate) fn qualified_symbol_key(module_key: &str, name: &str) -> String {
 
 fn qualified_display_name(module_name: &str, name: &str) -> String {
     format!("{module_name}.{name}")
+}
+
+fn merge_partial_runtime_class(target: &mut RuntimeClass, mut source: RuntimeClass) {
+    target.fields.append(&mut source.fields);
+    target.shared_fields.append(&mut source.shared_fields);
+    target.constants.append(&mut source.constants);
+    target.events.extend(source.events);
+    target.subs.extend(source.subs);
+    target.shared_subs.extend(source.shared_subs);
+    target.functions.extend(source.functions);
+    target.shared_functions.extend(source.shared_functions);
+    target.properties.extend(source.properties);
+    target.operators.extend(source.operators);
+
+    if target.base_class.is_none() {
+        target.base_class = source.base_class;
+    }
+    if target.iterator.is_none() {
+        target.iterator = source.iterator;
+    }
+    if target.enumerator_member.is_none() {
+        target.enumerator_member = source.enumerator_member;
+    }
+    if target.default_member.is_none() {
+        target.default_member = source.default_member;
+    }
 }
 
 pub fn run(program: &Program) -> Result<Vec<String>, Diagnostic> {
@@ -1016,14 +1057,52 @@ impl Interpreter {
                 self.ensure_public_qualified_type(&qualified, frame, module_key, name, span)?;
                 Ok(qualified)
             }
-            _ => Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT,
-                format!(
-                    "Type '{}' is imported from multiple modules; use a module qualifier",
-                    name
-                ),
-                Some(span),
-            )),
+            _ => {
+                let name_key = super::values::key(name);
+                if self
+                    .merged_partial_class_modules
+                    .get(&name_key)
+                    .is_some_and(|modules| candidates.iter().all(|module| modules.contains(module)))
+                {
+                    Ok(name_key)
+                } else {
+                    Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT,
+                        format!(
+                            "Type '{}' is imported from multiple modules; use a module qualifier",
+                            name
+                        ),
+                        Some(span),
+                    ))
+                }
+            }
+        }
+    }
+
+    fn register_merged_partial_classes(
+        &mut self,
+        partial_class_groups: HashMap<String, Vec<(String, ClassDecl)>>,
+    ) {
+        for (class_key, partials) in partial_class_groups {
+            if partials.len() < 2 {
+                continue;
+            }
+
+            let mut partials = partials.into_iter();
+            let Some((first_module, first)) = partials.next() else {
+                continue;
+            };
+            let mut modules = HashSet::from([first_module]);
+            let mut merged = RuntimeClass::from(&first);
+            merged.name = first.name.clone();
+            for (module, partial) in partials {
+                modules.insert(module);
+                merge_partial_runtime_class(&mut merged, RuntimeClass::from(&partial));
+            }
+            self.classes.insert(class_key.clone(), merged);
+            self.merged_partial_class_modules
+                .insert(class_key.clone(), modules);
+            self.public_classes.insert(class_key);
         }
     }
 

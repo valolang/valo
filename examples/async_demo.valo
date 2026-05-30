@@ -8,7 +8,7 @@ Async Function FetchDataAsync(ByVal id As Integer) As String
     Return "Data for " & id
 End Function
 
-Sub Main()
+Async Sub Main()
     Dim data As String
     data = Await FetchDataAsync(42)
     Console.WriteLine("Received: " & data)

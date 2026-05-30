@@ -604,13 +604,22 @@ pub fn validate_statements(
                 let _ = span;
             }
             Stmt::Await { expr, .. } => {
+                if !context.allows_await() {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Await is only allowed inside Async Sub or Async Function",
+                        Some(expr.span),
+                    ));
+                }
                 validate_expr(expr, symbols, types, signatures, context, option_explicit)?;
             }
             Stmt::Return { expr, span } => {
                 let expr_type =
                     validate_expr(expr, symbols, types, signatures, context, option_explicit)?;
                 match &mut context {
-                    Context::Sub | Context::MethodSub { .. } | Context::PropertyLetSet { .. } => {
+                    Context::Sub { .. }
+                    | Context::MethodSub { .. }
+                    | Context::PropertyLetSet { .. } => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::CONTROL_FLOW,
                             "Return is only allowed inside Function or Property Get",

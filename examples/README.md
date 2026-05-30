@@ -94,4 +94,4 @@ valo run examples/vba_file_io.valo
 *   **[Nullable Types](nullable_types.valo):** Using `T?` for value and reference types, checking `Is Nothing`, `.HasValue`, and `.Value`.
 *   **[Collection Initializers](collection_initializers.valo):** Populating collections inline using `New Collection() From { ... }`.
 *   **[LINQ-style APIs](linq_demo.valo):** Fluent querying of collections using Lambda expressions (`Function(n) ...`) and Extension Methods (`Where`, `Select`, `Any`, etc.).
-*   **[Async/Await](async_demo.valo):** Asynchronous programming syntax with `Async Function` and `Await`.
+*   **[Async/Await](async_demo.valo):** VB.NET-style `Async Function` and `Await` syntax with immediate interpreter evaluation.

@@ -25,10 +25,11 @@ The Valo Frontend is a multi-stage pipeline that ensures source code is syntacti
     *   Validates control flow (e.g., `Exit For` must be inside a `For` loop).
     *   Produces a "Project" structure that is ready for execution.
 
-5.  **Module Loader (`core/src/frontend/modules.rs`):**
+5.  **Package and Module Loader (`core/src/frontend/package.rs`, `core/src/frontend/modules.rs`):**
+    *   Discovers `valo.toml` when present and resolves the package entrypoint and compatibility mode.
     *   Finds `.valo`, `.bas`, and `.cls` files on disk.
     *   Decodes UTF-8, UTF-8 BOM, UTF-16 LE/BE BOM, and Windows-1252/ANSI VBA exports.
-    *   Resolves `Import` statements.
+    *   Resolves `Import` statements with case-insensitive lookup and `.valo` / `.bas` / `.cls` candidates.
     *   Ensures unique module names and handles circular dependencies.
     *   Manages the `SourceMap`, assigning a unique `FileId` to each loaded module for accurate diagnostics.
 
@@ -37,4 +38,4 @@ The Valo Frontend is a multi-stage pipeline that ensures source code is syntacti
 *   **Independence:** The Frontend should not know about the Interpreter or VM. It only knows how to build a valid representation of the code.
 *   **Diagnostic-First:** Every stage is designed to produce high-quality diagnostics with accurate source mapping.
 *   **Case Insensitivity:** The Frontend handles Valo's case-insensitive nature by normalizing keys (usually via a `key()` helper) for symbol lookups.
-*   **Compatibility Metadata:** VBA `Declare` statements are represented in the AST for future FFI lowering; parsing and validation are frontend-only today.
+*   **Compatibility Metadata:** VBA attributes, `Declare` statements, and compatibility options are represented in the AST and validated before the interpreter registers runtime and FFI call surfaces.

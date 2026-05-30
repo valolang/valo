@@ -409,7 +409,9 @@ impl Interpreter {
                             if let Ok(Value::Object(me_rc)) = frame.get("me", *span) {
                                 let class_name = me_rc.borrow().class_name.clone();
                                 if let Some(class) = self.classes.get(&key(&class_name)) {
-                                    if class.subs.contains_key(&key(name)) || class.functions.contains_key(&key(name)) {
+                                    if class.subs.contains_key(&key(name))
+                                        || class.functions.contains_key(&key(name))
+                                    {
                                         (Value::Object(me_rc), name.clone())
                                     } else {
                                         (Value::Nothing, name.clone())

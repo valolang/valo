@@ -196,6 +196,86 @@ End Sub
 }
 
 #[test]
+fn imported_partial_classes_merge_across_modules() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports PersonFields
+Imports PersonMethods
+
+Sub Main()
+    Dim p As New Person()
+    p.Name = "Ada"
+    p.SayHello()
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "PersonFields.valo",
+        r#"
+Public Partial Class Person
+    Public Name As String
+End Class
+"#,
+    );
+    write(
+        &dir,
+        "PersonMethods.valo",
+        r#"
+Public Partial Class Person
+    Public Sub SayHello()
+        Console.WriteLine("Hello, " & Me.Name)
+    End Sub
+End Class
+"#,
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["Hello, Ada".to_string()]
+    );
+}
+
+#[test]
+fn partial_class_merge_does_not_hide_non_partial_import_ambiguity() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports PersonFields
+Imports PersonMethods
+Imports OtherPerson
+
+Sub Main()
+    Dim p As New Person()
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "PersonFields.valo",
+        "Public Partial Class Person\nPublic Name As String\nEnd Class\n",
+    );
+    write(
+        &dir,
+        "PersonMethods.valo",
+        "Public Partial Class Person\nPublic Sub SayHello()\nEnd Sub\nEnd Class\n",
+    );
+    write(
+        &dir,
+        "OtherPerson.valo",
+        "Public Class Person\nPublic Id As Integer\nEnd Class\n",
+    );
+
+    let error = run_file_diagnostic(dir.join("main.valo"));
+    assert_eq!(error.code, crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT);
+}
+
+#[test]
 fn duplicate_import_alias_is_rejected_case_insensitively() {
     let dir = temp_project();
     write(

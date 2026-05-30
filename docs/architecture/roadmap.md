@@ -12,8 +12,9 @@ Valo is an evolving project aimed at providing the best standalone Basic experie
 
 ## Phase 2: Performance & Stability
 *   [ ] **Bytecode VM:** Transition from tree-walking to a stack-based or register-based virtual machine for significant performance gains.
-*   [ ] **Comprehensive Collections:** Native support for high-performance `List`, `Dictionary`, and `Queue` types.
-*   [ ] **Robust Standard Library:** File I/O, networking, JSON parsing, and string manipulation utilities.
+*   [x] **VBA Collections Foundation:** Runtime support for practical `Collection` behavior, including keyed lookup, positional access, removal, and enumeration.
+*   [x] **VBA File I/O Foundation:** File-number based `Open`, `Close`, `Input`, `Print`, `Write`, `Get`, `Put`, `EOF`, `LOF`, `Seek`, and local filesystem helpers.
+*   [ ] **Broader Standard Library:** Networking, JSON parsing, richer collections, and production-grade utility APIs.
 
 ## Phase 3: Developer Experience
 *   [ ] **LSP Support:** A Language Server for editor features like autocomplete, go-to-definition, and real-time error reporting.
@@ -21,7 +22,8 @@ Valo is an evolving project aimed at providing the best standalone Basic experie
 *   [ ] **Package Manager:** A system for managing and distributing Valo libraries.
 
 ## Phase 4: Integration
-*   [ ] **FFI (Foreign Function Interface):** Support for calling into C-compatible libraries and native OS APIs.
+*   [x] **FFI Foundation:** Support for VBA-style `Declare`, `PtrSafe`, `LongPtr`, `AddressOf`, callbacks, platform-aware library loading, and diagnostics for unsupported native shapes.
+*   [ ] **FFI Expansion:** Broader marshaling support, type-library tooling, and more complete platform integration.
 *   [ ] **Embedding API:** Allow Valo to be easily embedded as a scripting engine in other Rust applications.
 
 ## Vision

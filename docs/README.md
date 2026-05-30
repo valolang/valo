@@ -9,6 +9,7 @@ Learn how to write code in Valo.
 *   **[Syntax Overview](language/syntax.md):** Basic statements and control flow.
 *   **[Expressions](language/expressions.md):** Operators and expression evaluation.
 *   **[Types](language/types.md):** The Valo type system.
+*   **[Async and Await](language/async.md):** Async declaration syntax and await validation.
 *   **[Classes and Objects](language/classes.md):** Lifecycle, properties, events, and visibility.
 *   **[Modules and Imports](language/modules.md):** Project organization and dependency management.
 *   **[Error Handling](language/error-handling.md):** Robust runtime failure management.

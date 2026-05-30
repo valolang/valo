@@ -7,6 +7,7 @@ Documentation for the Valo language features.
 *   **[Types](types.md):** Native structures, nullable types (`T?`), compatibility types, and byte arrays.
 *   **[Generics](generics.md):** VB.NET-style generic classes, structures, functions, lambdas, and runtime strategy.
 *   **[Functions](functions.md):** Procedures, lambdas (`Function(x) ...`), argument passing, and optional arguments.
+*   **[Async and Await](async.md):** VB.NET-style async declarations, await validation, and current interpreter behavior.
 *   **[Classes and Objects](classes.md):** Lifecycle, auto-properties, events (`AddHandler`), and visibility.
 *   **[Properties](properties.md):** Property Get/Let/Set compatibility rules.
 *   **[Inheritance](inheritance.md):** Base classes, overrides, abstract members, and protected visibility.

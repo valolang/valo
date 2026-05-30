@@ -570,7 +570,8 @@ impl Interpreter {
             let value = self.field_initial_value(field, &ty, &mut frame, span)?;
             fields.insert(key(&field.name), value);
         }
-        self.shared_class_fields.insert(class_key.to_string(), fields);
+        self.shared_class_fields
+            .insert(class_key.to_string(), fields);
         Ok(())
     }
 

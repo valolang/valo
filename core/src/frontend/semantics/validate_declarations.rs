@@ -1362,7 +1362,7 @@ pub(super) fn collect_types(program: &Program) -> Result<TypeRegistry, Diagnosti
                         functions: HashMap::new(),
                         extension_methods: HashMap::new(),
                     },
-                    &Context::Sub,
+                    &Context::Sub { is_async: false },
                     program.option_explicit,
                 )?;
                 ensure_assignable_expr(
@@ -1955,7 +1955,7 @@ fn validate_class_field_type(
                     functions: HashMap::new(),
                     extension_methods: HashMap::new(),
                 },
-                &Context::Sub,
+                &Context::Sub { is_async: false },
                 false,
             )?;
             ensure_assignable_expr(
@@ -2366,7 +2366,7 @@ pub(super) fn collect_module_symbols(
                 &symbols,
                 types,
                 signatures,
-                &Context::Sub,
+                &Context::Sub { is_async: false },
                 program.option_explicit,
             )?
         } else {
@@ -2385,7 +2385,7 @@ pub(super) fn collect_module_symbols(
                 &symbols,
                 types,
                 signatures,
-                &Context::Sub,
+                &Context::Sub { is_async: false },
                 program.option_explicit,
             )?;
             ensure_assignable_expr(&ty, &source_type, initializer, types, initializer.span)?;
@@ -2413,7 +2413,7 @@ pub(super) fn collect_module_symbols(
             &symbols,
             types,
             signatures,
-            &Context::Sub,
+            &Context::Sub { is_async: false },
             program.option_explicit,
         )?;
         let const_type = const_decl.ty.clone().unwrap_or(value_type.clone());
@@ -2548,7 +2548,9 @@ pub(super) fn validate_procedure(
             symbols: &mut symbols,
             types,
             signatures,
-            context: &mut Context::Sub,
+            context: &mut Context::Sub {
+                is_async: procedure.is_async,
+            },
             loop_context: LoopContext::default(),
             in_with: false,
             option_explicit,
@@ -2586,6 +2588,7 @@ pub(super) fn validate_function(
                 return_type: function.return_type.clone(),
                 return_slot: Some(return_slot),
                 is_iterator: function.is_iterator,
+                is_async: function.is_async,
                 saw_return: &mut saw_return,
                 saw_yield: &mut saw_yield,
             },

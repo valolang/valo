@@ -1027,7 +1027,9 @@ impl Parser {
     }
 
     fn parse_await_stmt(&mut self) -> Result<Stmt, Diagnostic> {
-        let start = self.expect_simple(TokenKind::Await, "Expected 'Await'")?.span;
+        let start = self
+            .expect_simple(TokenKind::Await, "Expected 'Await'")?
+            .span;
         let expr = self.parse_expression()?;
         let end = self.previous().span;
         Ok(Stmt::Await {

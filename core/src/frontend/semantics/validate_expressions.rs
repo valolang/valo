@@ -1385,6 +1385,13 @@ pub(super) fn validate_expr(
         }
         ExprKind::Lambda { .. } => Ok(TypeName::User("Func".to_string())),
         ExprKind::Await(expr) => {
+            if !context.allows_await() {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Await is only allowed inside Async Sub or Async Function",
+                    Some(expr.span),
+                ));
+            }
             validate_expr(expr, symbols, types, signatures, context, option_explicit)
         }
         ExprKind::PassingModeOverride { expr, .. } => {
@@ -4153,7 +4160,7 @@ pub(super) fn validate_exit(
 ) -> Result<(), Diagnostic> {
     match target {
         ExitTarget::Sub => match context {
-            Context::Sub | Context::MethodSub { .. } => Ok(()),
+            Context::Sub { .. } | Context::MethodSub { .. } => Ok(()),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Sub is only valid inside Sub",
