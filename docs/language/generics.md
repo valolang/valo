@@ -82,5 +82,14 @@ End Class
 Function Create(Of T)() As T Where T : Class, New
 ```
 
-Generic method type inference, generic delegates, lambdas, overload resolution parity, and
-LINQ-style collection APIs are still roadmap items.
+Generic method type inference, generic delegates, and overload resolution parity are still roadmap items.
+
+## Lambda Expressions
+
+Valo supports modern Lambda expressions for concise function definitions, often used with LINQ-style extension methods.
+
+```vb
+Dim evens = coll.Where(Function(n) n Mod 2 = 0)
+```
+
+Lambdas can capture variables from their outer scope and follow standard Basic expression rules.

@@ -65,6 +65,47 @@ Prefer `Structure` in new `.valo` code and keep `Type` for migrated VBA code.
 - `Structure`: native value type with fields, methods, properties, constructors, and copy semantics.
 - `Type`: VBA-compatible fields-only record syntax.
 
+## Nullable Types
+
+Valo supports VB.NET-style nullable types for both value and reference types using the `?` suffix.
+
+```vb
+Dim age As Integer? = Nothing
+If age Is Nothing Then
+    Console.WriteLine("Age is unknown")
+End If
+
+age = 25
+If age.HasValue Then
+    Console.WriteLine("Age is: " & age.Value)
+End If
+```
+
+### Synthetic Properties
+
+Nullable types expose two read-only properties:
+
+- `.HasValue`: Returns `True` if the variable contains a value, `False` if it is `Nothing`.
+- `.Value`: Returns the underlying value. Accessing `.Value` when the variable is `Nothing` will result in a runtime error.
+
+### Lifted Operators
+
+Arithmetic and logical operators are "lifted" for nullable types. If either operand is `Nothing`, the result of the operation is `Nothing`.
+
+```vb
+Dim a As Integer? = 10
+Dim b As Integer? = Nothing
+Dim sum As Integer? = a + b ' Result is Nothing
+```
+
+### Reference Types
+
+Reference types (like `String` or classes) can also use the nullable suffix for clarity, though they already support `Nothing`.
+
+```vb
+Dim s As String? = Nothing
+```
+
 ## Byte Arrays
 
 Use Basic-style array syntax for byte buffers:

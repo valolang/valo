@@ -147,21 +147,99 @@ Class-scope constants are supported:
 Class MathBox
     Private Const Scale As Double = 2
 End Class
+
+## Properties
+
+Valo supports full property blocks with `Get`/`Let`/`Set` accessors as well as modern auto-implemented properties.
+
+### Auto-implemented Properties
+Auto-properties provide a concise way to declare properties that wrap a private field. The compiler automatically generates a hidden backing field.
+
+```vb
+Public Class Product
+    Public Property Name As String = "Untitled"
+    Public Property Price As Double
+    Public Shared Property InstanceCount As Integer
+End Class
 ```
+
+Shared auto-properties are shared across all instances of the class.
+
+### Full Property Blocks
+For more complex logic, use a full property block:
+
+```vb
+Public Class User
+    Private mAge As Integer
+
+    Public Property Age As Integer
+        Get
+            Return mAge
+        End Get
+        Set(ByVal value As Integer)
+            If value >= 0 Then mAge = value
+        End Set
+    End Property
+End Class
+```
+
+Valo also supports legacy `Property Get`, `Property Let` (for value types), and `Property Set` (for object types) as standalone members for compatibility.
 
 ## Events
 
 Classes can declare events that other objects or modules can handle.
 
 ```vb
-Class Timer
-    Public Event Tick(ByVal seconds As Integer)
+Class Source
+    Public Event Click(ByVal value As Integer)
 
-    Public Sub Run()
-        RaiseEvent Tick(1)
+    Public Sub DoClick(ByVal v As Integer)
+        RaiseEvent Click(v)
     End Sub
 End Class
 ```
+
+### Static Event Handling (`WithEvents`)
+Use the `WithEvents` modifier on a field to automatically handle events from an object. Event handlers must follow the `FieldName_EventName` naming convention.
+
+```vb
+Class Form
+    Private WithEvents mSource As Source
+
+    Public Sub New(ByVal src As Source)
+        mSource = src
+    End Sub
+
+    Private Sub mSource_Click(ByVal v As Integer)
+        Console.WriteLine("Clicked: " & v)
+    End Sub
+End Class
+```
+
+### Dynamic Event Handling (`AddHandler`)
+Use `AddHandler` and `RemoveHandler` to dynamically bind event handlers at runtime.
+
+```vb
+Sub Main()
+    Dim src As New Source()
+    AddHandler src.Click, AddressOf MyGlobalHandler
+    src.DoClick(42)
+End Sub
+
+Sub MyGlobalHandler(ByVal v As Integer)
+    Console.WriteLine("Dynamic handler: " & v)
+End Sub
+```
+
+## Collection Initializers
+
+Collections can be populated inline during construction using the `From { ... }` syntax.
+
+```vb
+Dim fruits As New Collection() From { "Apple", "Banana", "Orange" }
+```
+
+This syntax is equivalent to calling the `Add` method for each item in the list.
 
 ## Iterators
 

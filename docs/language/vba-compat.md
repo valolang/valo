@@ -46,6 +46,19 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 `Structure` is the native Valo value type and supports methods, properties, constructors, and copy semantics. `Type` remains the VBA-compatible fields-only record syntax.
 Structure fields may use constant-expression defaults, for example `Public X As Double = 0#`.
 
+## Modern Bridging
+
+Valo provides modern features that complement legacy VBA code, making the transition to standalone development smoother.
+
+### Short-circuiting and Null Safety
+`AndAlso` and `OrElse` allow for safer object access patterns than legacy `And` and `Or`, which always evaluate both sides. This is especially useful when bridging between nullable Valo types and legacy VBA objects.
+
+### Partial Classes
+The `Partial` keyword allows splitting large legacy classes into multiple files, making them easier to refactor into modern Valo code over time.
+
+### Collection Initializers
+`New Collection() From { ... }` simplifies the common VBA pattern of repeated `.Add` calls when initializing global or class-level state.
+
 ## Intentional Differences
 
 While Valo strives for high compatibility, it is not a "bug-for-bug" clone. Some differences are intentional to improve safety and performance:
