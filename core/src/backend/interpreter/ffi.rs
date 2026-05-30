@@ -691,7 +691,8 @@ fn callback_ffi_type(ty: &TypeName, span: Span) -> Result<FfiType, Diagnostic> {
         | TypeName::User(_)
         | TypeName::Enum(_)
         | TypeName::GenericInstance { .. }
-        | TypeName::Array(_) => Err(unsupported(
+        | TypeName::Array(_)
+        | TypeName::Nullable(_) => Err(unsupported(
             format!(
                 "callback parameter type '{}' is not supported by AddressOf marshaling",
                 ty.display_name()
@@ -760,7 +761,8 @@ unsafe fn read_callback_value(slot: *const c_void, ty: &TypeName) -> ExprKind {
         | TypeName::User(_)
         | TypeName::Enum(_)
         | TypeName::GenericInstance { .. }
-        | TypeName::Array(_) => ExprKind::Empty,
+        | TypeName::Array(_)
+        | TypeName::Nullable(_) => ExprKind::Empty,
     }
 }
 
@@ -791,7 +793,8 @@ fn write_callback_default(result: &mut c_void, return_type: &TypeName, is_sub: b
             | TypeName::User(_)
             | TypeName::Enum(_)
             | TypeName::GenericInstance { .. }
-            | TypeName::Array(_) => {}
+            | TypeName::Array(_)
+            | TypeName::Nullable(_) => {}
         }
     }
 }
@@ -866,7 +869,12 @@ fn marshal_byval(
             "object pointer marshaling is not enabled for this value",
             span,
         ))?,
-        Value::Decimal(_) | Value::Date(_) | Value::Error(_) | Value::Missing => Err(unsupported(
+        Value::Decimal(_)
+        | Value::Date(_)
+        | Value::Error(_)
+        | Value::Missing
+        | Value::Nullable(_)
+        | Value::Lambda(_) => Err(unsupported(
             "value is not supported by native marshaling",
             span,
         ))?,
@@ -934,13 +942,24 @@ fn marshal_byref(
             ArgumentStorage::Record(pack_record(ty, &record.fields, span)?)
         }
         Value::Null | Value::Nothing | Value::Empty => ArgumentStorage::Ptr(Box::new(0)),
+        Value::Nullable(value) => {
+            if matches!(*value, Value::Nothing) {
+                ArgumentStorage::Ptr(Box::new(0))
+            } else {
+                return Err(unsupported(
+                    "Nullable value marshaling is not supported",
+                    span,
+                ));
+            }
+        }
         Value::Object(_)
         | Value::ComObject(_)
         | Value::Collection(_)
         | Value::Decimal(_)
         | Value::Date(_)
         | Value::Error(_)
-        | Value::Missing => {
+        | Value::Missing
+        | Value::Lambda(_) => {
             return Err(unsupported(
                 "value is not supported by ByRef native marshaling",
                 span,
@@ -1400,7 +1419,8 @@ fn return_ffi_type(ty: &TypeName, is_sub: bool, span: Span) -> Result<FfiType, D
         | TypeName::User(_)
         | TypeName::Enum(_)
         | TypeName::GenericInstance { .. }
-        | TypeName::Array(_) => {
+        | TypeName::Array(_)
+        | TypeName::Nullable(_) => {
             return Err(unsupported(
                 format!(
                     "return type '{}' is not supported by native marshaling",
@@ -1487,7 +1507,8 @@ fn call_return_value(
         | TypeName::User(_)
         | TypeName::Enum(_)
         | TypeName::GenericInstance { .. }
-        | TypeName::Array(_) => {
+        | TypeName::Array(_)
+        | TypeName::Nullable(_) => {
             return Err(unsupported(
                 format!(
                     "return type '{}' is not supported by native marshaling",

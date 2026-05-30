@@ -2459,7 +2459,9 @@ pub(super) fn ensure_const_expr(
         | ExprKind::Boolean(_)
         | ExprKind::DateLiteral(_)
         | ExprKind::Empty
-        | ExprKind::Null => Ok(()),
+        | ExprKind::Null
+        | ExprKind::Lambda { .. }
+        | ExprKind::Await(_) => Ok(()),
         ExprKind::Variable(name) => {
             if symbols
                 .get(&key(name))

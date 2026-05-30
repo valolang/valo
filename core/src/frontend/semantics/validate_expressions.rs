@@ -942,7 +942,9 @@ pub(super) fn validate_expr(
                     VarType::Scalar(_, TypeName::User(class_name))
                     | VarType::Optional(_, TypeName::User(class_name))
                     | VarType::Const(_, TypeName::User(class_name)) => {
-                        if class_name.eq_ignore_ascii_case("Object") {
+                        if class_name.eq_ignore_ascii_case("Object")
+                            || class_name.eq_ignore_ascii_case("Func")
+                        {
                             for arg in args {
                                 validate_expr(
                                     arg,
@@ -1000,9 +1002,7 @@ pub(super) fn validate_expr(
                             Some(expr.span),
                         ));
                     }
-                    VarType::Scalar(_, TypeName::Variant)
-                    | VarType::Optional(_, TypeName::Variant)
-                    | VarType::Const(_, TypeName::Variant) => {
+                    v if v.is_variant() => {
                         for arg in args {
                             validate_expr(
                                 arg,
@@ -1018,7 +1018,11 @@ pub(super) fn validate_expr(
                     _ => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::ARRAY,
-                            format!("Variable '{}' is not an array", name),
+                            format!(
+                                "Variable '{}' of type '{}' is not an array",
+                                name,
+                                var_type.display_name()
+                            ),
                             Some(expr.span),
                         ));
                     }
@@ -1332,6 +1336,10 @@ pub(super) fn validate_expr(
             // Wait, AddressOf returns a FuncPtr or LongPtr!
             Ok(TypeName::FuncPtr)
         }
+        ExprKind::Lambda { .. } => Ok(TypeName::User("Func".to_string())),
+        ExprKind::Await(expr) => {
+            validate_expr(expr, symbols, types, signatures, context, option_explicit)
+        }
         ExprKind::PassingModeOverride { expr, .. } => {
             validate_expr(expr, symbols, types, signatures, context, option_explicit)
         }
@@ -1349,14 +1357,7 @@ pub(super) fn validate_array_expr(
     match &expr.kind {
         ExprKind::Variable(name) => match symbols.get(&key(name)).cloned() {
             Some(VarType::Array(_, element_type, _)) => Ok(element_type),
-            Some(VarType::Scalar(_, TypeName::Variant))
-            | Some(VarType::Optional(_, TypeName::Variant))
-            | Some(VarType::Const(_, TypeName::Variant)) => Ok(TypeName::Variant),
-            Some(VarType::Scalar(_, TypeName::User(class_name)))
-            | Some(VarType::Optional(_, TypeName::User(class_name)))
-            | Some(VarType::Const(_, TypeName::User(class_name)))
-                if class_name.eq_ignore_ascii_case("Object") =>
-            {
+            Some(v) if v.is_variant() || v.scalar_type().is_some_and(|ty| matches!(ty, TypeName::User(ref name) if name.eq_ignore_ascii_case("Func") || name.eq_ignore_ascii_case("Object"))) => {
                 Ok(TypeName::Variant)
             }
             Some(VarType::Scalar(_, _ty))
@@ -3616,6 +3617,7 @@ pub(super) fn ensure_known_type(
             }
         }
         TypeName::Array(inner) => ensure_known_type(inner, types, span),
+        TypeName::Nullable(inner) => ensure_known_type(inner, types, span),
     }
 }
 
@@ -3742,6 +3744,7 @@ fn is_value_type(ty: &TypeName, types: &TypeRegistry) -> bool {
             types.get(name).is_some_and(|sig| sig.is_structure)
         }
         TypeName::String | TypeName::Variant | TypeName::Array(_) => false,
+        TypeName::Nullable(inner) => is_value_type(inner, types),
     }
 }
 
@@ -3841,7 +3844,7 @@ pub(super) fn ensure_assignable_expr(
     span: crate::runtime::Span,
 ) -> Result<(), Diagnostic> {
     if matches!(source_expr.kind, ExprKind::Nothing) {
-        if target.same_type(&TypeName::Variant) {
+        if target.same_type(&TypeName::Variant) || matches!(target, TypeName::Nullable(_)) {
             return Ok(());
         }
         return ensure_class_type(target, types, span, "Nothing requires a class object type");
@@ -4149,20 +4152,21 @@ pub(super) fn validate_exit(
 }
 
 pub(super) fn is_numeric_type(ty: &TypeName) -> bool {
-    matches!(
-        ty,
+    match ty {
         TypeName::Byte
-            | TypeName::Integer
-            | TypeName::Long
-            | TypeName::Int64
-            | TypeName::UInt32
-            | TypeName::UInt64
-            | TypeName::Single
-            | TypeName::Double
-            | TypeName::Currency
-            | TypeName::Decimal
-            | TypeName::Date
-    )
+        | TypeName::Integer
+        | TypeName::Long
+        | TypeName::Int64
+        | TypeName::UInt32
+        | TypeName::UInt64
+        | TypeName::Single
+        | TypeName::Double
+        | TypeName::Currency
+        | TypeName::Decimal
+        | TypeName::Date => true,
+        TypeName::Nullable(inner) => is_numeric_type(inner),
+        _ => false,
+    }
 }
 
 pub(super) fn ensure_assignable(
@@ -4181,6 +4185,13 @@ pub(super) fn ensure_assignable(
         || matches!(target, TypeName::User(name) if name.rsplit('.').next().is_some_and(|name| name.eq_ignore_ascii_case("Object")))
             && matches!(source, TypeName::User(_))
         || is_inherited_class_assignable(target, source)
+        || (matches!(target, TypeName::Nullable(_))
+            && (matches!(source, TypeName::Variant) || matches!(source, TypeName::User(_))))
+        || (if let TypeName::Nullable(inner) = target {
+            ensure_assignable(inner, source, span).is_ok()
+        } else {
+            false
+        })
     {
         Ok(())
     } else {

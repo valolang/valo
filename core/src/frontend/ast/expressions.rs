@@ -63,6 +63,11 @@ pub enum ExprKind {
         type_args: Vec<TypeName>,
         args: Vec<Expr>,
     },
+    Lambda {
+        params: Vec<crate::frontend::ast::declarations::Parameter>,
+        body: Box<Expr>,
+    },
+    Await(Box<Expr>),
     Binary {
         left: Box<Expr>,
         op: BinaryOp,
@@ -161,6 +166,11 @@ impl ExprKind {
                     .map(|arg| arg.substitute_generics(bindings))
                     .collect(),
             },
+            ExprKind::Lambda { params, body } => ExprKind::Lambda {
+                params: params.clone(),
+                body: Box::new(body.substitute_generics(bindings)),
+            },
+            ExprKind::Await(expr) => ExprKind::Await(Box::new(expr.substitute_generics(bindings))),
             ExprKind::Binary { left, op, right } => ExprKind::Binary {
                 left: Box::new(left.substitute_generics(bindings)),
                 op: *op,

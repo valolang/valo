@@ -1978,6 +1978,8 @@ fn expr_uses_with_target(expr: &Expr, _context: &Context<'_>) -> bool {
             expr_uses_with_target(left, _context) || expr_uses_with_target(right, _context)
         }
         ExprKind::Unary { expr, .. } => expr_uses_with_target(expr, _context),
+        ExprKind::Lambda { body, .. } => expr_uses_with_target(body, _context),
+        ExprKind::Await(expr) => expr_uses_with_target(expr, _context),
         ExprKind::AddressOf(inner) => expr_uses_with_target(inner, _context),
         ExprKind::String(_)
         | ExprKind::Integer(_)

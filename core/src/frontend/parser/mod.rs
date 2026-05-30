@@ -92,6 +92,8 @@ impl Parser {
             TokenKind::Collection => Ok("Collection".to_string()),
             TokenKind::Error => Ok("Error".to_string()),
             TokenKind::Operator => Ok("Operator".to_string()),
+            TokenKind::Select => Ok("Select".to_string()),
+            TokenKind::Any => Ok("Any".to_string()),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
                 message,

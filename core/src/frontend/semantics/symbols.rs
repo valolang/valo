@@ -69,6 +69,11 @@ impl VarType {
         matches!(self, VarType::Const(_, _))
     }
 
+    pub(super) fn is_variant(&self) -> bool {
+        self.scalar_type()
+            .is_some_and(|ty| ty.same_type(&TypeName::Variant))
+    }
+
     pub(super) fn visibility(&self) -> Visibility {
         match self {
             VarType::Scalar(v, _)

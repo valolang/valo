@@ -444,6 +444,7 @@ pub struct ModernAttribute {
 pub struct Procedure {
     pub attributes: Vec<ModernAttribute>,
     pub visibility: Visibility,
+    pub is_async: bool,
     pub name: String,
     pub type_params: Vec<String>,
     pub generic_constraints: Vec<GenericParamConstraint>,
@@ -456,6 +457,7 @@ pub struct Procedure {
 pub struct Function {
     pub attributes: Vec<ModernAttribute>,
     pub visibility: Visibility,
+    pub is_async: bool,
     pub name: String,
     pub is_iterator: bool,
     pub type_params: Vec<String>,

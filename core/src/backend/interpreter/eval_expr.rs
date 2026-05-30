@@ -1,5 +1,7 @@
+use std::rc::Rc;
+
 use crate::runtime::numeric::{unary_negate, unary_positive};
-use crate::runtime::{Diagnostic, Value};
+use crate::runtime::{Diagnostic, LambdaValue, Value};
 use crate::{Expr, ExprKind, UnaryOp};
 
 use super::{Frame, Interpreter};
@@ -342,6 +344,13 @@ impl Interpreter {
                                 Some(expr.span),
                             ));
                         }
+                        Value::Lambda(lambda) => {
+                            let mut eval_args = Vec::with_capacity(args.len());
+                            for arg in args {
+                                eval_args.push(self.eval_expr(arg, frame)?);
+                            }
+                            return self.call_lambda_value(lambda, &eval_args, expr.span);
+                        }
                         _ => {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::ARRAY,
@@ -449,6 +458,11 @@ impl Interpreter {
                 Ok(Value::FuncPtr(ptr))
             }
             ExprKind::PassingModeOverride { expr: inner, .. } => self.eval_expr(inner, frame),
+            ExprKind::Lambda { params, body } => Ok(Value::Lambda(Rc::new(LambdaValue {
+                params: params.clone(),
+                body: (**body).clone(),
+            }))),
+            ExprKind::Await(expr) => self.eval_expr(expr, frame),
             ExprKind::Binary { left, op, right } => {
                 let left_value = self.eval_expr(left, frame)?;
                 if matches!(left_value, Value::Missing) {
@@ -603,6 +617,13 @@ impl Interpreter {
                     format!("Structure '{}' has no default property", record.type_name),
                     Some(span),
                 ))
+            }
+            Value::Lambda(lambda) => {
+                let mut eval_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    eval_args.push(self.eval_expr(arg, frame)?);
+                }
+                self.call_lambda_value(lambda, &eval_args, span)
             }
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::ARRAY,

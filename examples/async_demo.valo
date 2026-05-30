@@ -1,0 +1,15 @@
+' Async/Await Example
+
+Imports modules.EnumerableExtensions
+
+Async Function FetchDataAsync(ByVal id As Integer) As String
+    Console.WriteLine("Starting fetch for " & id)
+    ' In a real app, this would be non-blocking
+    Return "Data for " & id
+End Function
+
+Sub Main()
+    Dim data As String
+    data = Await FetchDataAsync(42)
+    Console.WriteLine("Received: " & data)
+End Sub

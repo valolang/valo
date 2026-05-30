@@ -273,6 +273,7 @@ impl From<&TypeDecl> for RuntimeType {
                         crate::Function {
                             attributes: Vec::new(),
                             visibility: op.visibility,
+                            is_async: false,
                             name: format!("{:?}", op.kind),
                             is_iterator: false,
                             type_params: Vec::new(),

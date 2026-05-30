@@ -1,0 +1,59 @@
+Module EnumerableExtensions
+
+    <Extension()>
+    Public Function Where(ByVal coll As Collection, ByVal predicate As Variant) As Collection
+        Dim result As New Collection()
+        Dim item As Variant
+        For Each item In coll
+            If predicate(item) Then
+                result.Add(item)
+            End If
+        Next
+        Return result
+    End Function
+
+    <Extension()>
+    Public Function Any(ByVal coll As Collection, ByVal predicate As Variant) As Boolean
+        Dim item As Variant
+        For Each item In coll
+            If predicate(item) Then
+                Return True
+            End If
+        Next
+        Return False
+    End Function
+
+    <Extension()>
+    Public Function Select(ByVal coll As Collection, ByVal selector As Variant) As Collection
+        Dim result As New Collection()
+        Dim item As Variant
+        For Each item In coll
+            result.Add(selector(item))
+        Next
+        Return result
+    End Function
+
+    <Extension()>
+    Public Function All(ByVal coll As Collection, ByVal predicate As Variant) As Boolean
+        Dim item As Variant
+        For Each item In coll
+            If Not predicate(item) Then
+                Return False
+            End If
+        Next
+        Return True
+    End Function
+
+    <Extension()>
+    Public Function First(ByVal coll As Collection, ByVal predicate As Variant) As Variant
+        Dim item As Variant
+        For Each item In coll
+            If predicate(item) Then
+                Return item
+            End If
+        Next
+        ' In a real app we'd throw an error here, but Valo doesn't have custom exceptions yet
+        Return Nothing
+    End Function
+
+End Module

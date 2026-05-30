@@ -1017,7 +1017,7 @@ impl Parser {
         let mut args = Vec::new();
         let mut saw_named = false;
         while !self.at_statement_separator() {
-            let arg = if self.check_simple(&TokenKind::Comma) || self.at_statement_separator() {
+            let arg = if self.check_simple(&TokenKind::Comma) {
                 // Omitted argument
                 Expr {
                     kind: ExprKind::Missing,
@@ -1044,7 +1044,7 @@ impl Parser {
         Ok(args)
     }
 
-    fn at_statement_separator(&self) -> bool {
+    pub(super) fn at_statement_separator(&self) -> bool {
         self.check_simple(&TokenKind::Newline)
             || self.check_simple(&TokenKind::Colon)
             || self.check_simple(&TokenKind::Eof)

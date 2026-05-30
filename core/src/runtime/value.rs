@@ -47,10 +47,19 @@ pub enum Value {
     Object(Rc<RefCell<ObjectValue>>),
     ComObject(Rc<ComObjectValue>),
     Error(i32),
+    Nullable(Box<Value>),
+    Lambda(Rc<LambdaValue>),
     Nothing,
     Null,
     Missing,
     Empty,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LambdaValue {
+    pub params: Vec<crate::Parameter>,
+    pub body: crate::frontend::ast::Expr,
+    // For now, closures are not fully implemented, we'll just store the code.
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -246,6 +255,8 @@ impl Value {
             Value::Collection(_) => TypeName::User("Collection".to_string()),
             Value::ComObject(com) => TypeName::User(com.prog_id.clone()),
             Value::Error(_) => TypeName::Variant,
+            Value::Nullable(value) => TypeName::Nullable(Box::new(value.type_name())),
+            Value::Lambda(_) => TypeName::User("Func".to_string()),
             Value::Nothing | Value::Null | Value::Missing => TypeName::Variant,
             Value::Empty => TypeName::Variant,
         }
@@ -273,6 +284,8 @@ impl Value {
             Value::Record(_) | Value::BoxedRecord(_, _) => true,
             Value::Object(_) | Value::ComObject(_) => true,
             Value::Error(code) => *code != 0,
+            Value::Nullable(value) => value.is_truthy(),
+            Value::Lambda(_) => true,
             Value::Nothing | Value::Null | Value::Missing => false,
             Value::Empty => false,
         }
@@ -337,11 +350,13 @@ impl Value {
             }
             Value::Object(object) => format!("<{}>", object.borrow().class_name),
             Value::ComObject(object) => format!("<COM:{}>", object.prog_id),
-            Value::Error(code) => format!("Error {}", code),
+            Value::Error(value) => format!("Error {}", value),
+            Value::Nullable(value) => value.to_output_string(),
+            Value::Lambda(_) => "<Lambda>".to_string(),
             Value::Nothing => "Nothing".to_string(),
             Value::Null => "Null".to_string(),
-            Value::Missing => "<Missing>".to_string(),
-            Value::Empty => String::new(),
+            Value::Missing => "Missing".to_string(),
+            Value::Empty => "".to_string(),
         }
     }
 }

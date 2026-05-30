@@ -355,6 +355,28 @@ impl Parser {
                 kind: self.parse_date_literal(span)?,
                 span: Span::new(self.file_id, span.start, self.previous().span.end),
             },
+            TokenKind::Function => {
+                let mut params = Vec::new();
+                if self.match_simple(&TokenKind::LeftParen) {
+                    params = self.parse_parameters()?;
+                    self.expect_simple(TokenKind::RightParen, "Expected ')' after parameters")?;
+                }
+                let body = self.parse_expression()?;
+                Expr {
+                    kind: ExprKind::Lambda {
+                        params,
+                        body: Box::new(body),
+                    },
+                    span: Span::new(self.file_id, span.start, self.previous().span.end),
+                }
+            }
+            TokenKind::Await => {
+                let expr = self.parse_expression()?;
+                Expr {
+                    kind: ExprKind::Await(Box::new(expr)),
+                    span: Span::new(self.file_id, span.start, self.previous().span.end),
+                }
+            }
             TokenKind::Nothing => Expr {
                 kind: ExprKind::Nothing,
                 span,
@@ -666,6 +688,9 @@ impl Parser {
                     TokenKind::Property => "Property".to_string(),
                     TokenKind::Event => "Event".to_string(),
                     TokenKind::Declare => "Declare".to_string(),
+                    TokenKind::Select => "Select".to_string(),
+                    TokenKind::Any => "Any".to_string(),
+                    TokenKind::Error => "Error".to_string(),
                     _ => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::PARSE,

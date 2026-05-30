@@ -1,5 +1,7 @@
 use crate::interpreter::values::{default_value, key};
-use crate::runtime::{ArrayValue, Diagnostic, Span, TypeName, Value, coerce_assignment};
+use crate::runtime::{
+    ArrayValue, Diagnostic, LambdaValue, Span, TypeName, Value, coerce_assignment,
+};
 use crate::{Expr, ExprKind, Function, PassingMode};
 use std::rc::Rc;
 
@@ -538,6 +540,24 @@ impl Interpreter {
         Ok(())
     }
 
+    pub(crate) fn call_lambda_value(
+        &mut self,
+        lambda: Rc<LambdaValue>,
+        args: &[Value],
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        self.call_stack.push("Lambda".to_string());
+        self.scope_stack.push("Lambda".to_string());
+        let result = (|| {
+            let mut frame = Frame::default();
+            self.bind_parameter_values(&lambda.params, args, &mut frame, span)?;
+            self.eval_expr(&lambda.body, &mut frame)
+        })();
+        self.scope_stack.pop();
+        self.call_stack.pop();
+        result
+    }
+
     pub(crate) fn call_function(
         &mut self,
         name: &str,
@@ -546,6 +566,17 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
+        if let Ok(variable) = caller_frame.variable(name, span) {
+            let value = variable.borrow().clone();
+            if let Value::Lambda(lambda) = value {
+                let mut eval_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    eval_args.push(self.eval_expr(arg, caller_frame)?);
+                }
+                return self.call_lambda_value(lambda, &eval_args, span);
+            }
+        }
+
         if let Some(value) = self.call_declared_function(name, args, caller_frame, span)? {
             return Ok(value);
         }
@@ -874,6 +905,18 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        if let Ok(variable) = caller_frame.variable(name, span) {
+            let value = variable.borrow().clone();
+            if let Value::Lambda(lambda) = value {
+                let mut eval_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    eval_args.push(self.eval_expr(arg, caller_frame)?);
+                }
+                self.call_lambda_value(lambda, &eval_args, span)?;
+                return Ok(());
+            }
+        }
+
         if self.call_declared_sub(name, args, caller_frame, span)? {
             return Ok(());
         }
@@ -1328,7 +1371,21 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let class = self.classes.get(&key(class_name)).cloned().ok_or_else(|| {
+        let class = self.classes.get(&key(class_name)).cloned();
+        if class.is_none()
+            && self
+                .call_extension_method(
+                    Value::Object(instance.clone()),
+                    method,
+                    args,
+                    caller_frame,
+                    span,
+                )?
+                .is_some()
+        {
+            return Ok(());
+        }
+        let class = class.ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                 format!("Class '{}' is not defined", class_name),

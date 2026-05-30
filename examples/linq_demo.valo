@@ -1,0 +1,29 @@
+' LINQ-style APIs Example
+' Demonstrates LINQ-style query functions on Collection using Extension Methods.
+
+Imports modules.EnumerableExtensions
+
+Sub Main()
+    Dim nums As New Collection()
+    nums.Add(1)
+    nums.Add(2)
+    nums.Add(3)
+    nums.Add(4)
+    nums.Add(5)
+    
+    ' Use LINQ-style Extension Methods
+    Dim evens As Collection = nums.Where(Function(n) n Mod 2 = 0)
+    
+    Console.WriteLine("Original count: " & nums.Count)
+    Console.WriteLine("Evens count: " & evens.Count)
+    
+    Dim doubled As Collection = evens.Select(Function(n) n * 2)
+    
+    Dim item As Variant
+    For Each item In doubled
+        Console.WriteLine("Doubled: " & item)
+    Next
+    
+    Dim hasFive As Boolean = nums.Any(Function(n) n = 5)
+    Console.WriteLine("Contains 5: " & hasFive)
+End Sub

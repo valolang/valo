@@ -66,7 +66,7 @@ pub(crate) fn eval_types(
     }
     if name.eq_ignore_ascii_case("TypeName") {
         expect_value_count(name, args, 1, span)?;
-        return Ok(Some(Value::String(value_type_name(&args[0]))));
+        return Ok(Some(Value::String(match_value_type_name(&args[0]))));
     }
     if name.eq_ignore_ascii_case("CByte") {
         expect_value_count(name, args, 1, span)?;
@@ -189,10 +189,12 @@ fn vartype(value: &Value) -> i64 {
         Value::Error(_) => 10,
         Value::Record(_) | Value::Missing | Value::BoxedRecord(_, _) => 12,
         Value::Ptr(_) | Value::UInt32(_) | Value::UInt64(_) | Value::FuncPtr(_) => 12,
+        Value::Nullable(value) => vartype(value),
+        Value::Lambda(_) => 9,
     }
 }
 
-fn value_type_name(value: &Value) -> String {
+fn match_value_type_name(value: &Value) -> String {
     match value {
         Value::Empty => "Empty".to_string(),
         Value::Null => "Null".to_string(),
@@ -214,11 +216,13 @@ fn value_type_name(value: &Value) -> String {
         Value::Nothing => "Nothing".to_string(),
         Value::Array(_) => "Array".to_string(),
         Value::Record(record) => record.type_name.clone(),
-        Value::BoxedRecord(_, interface_name) => interface_name.clone(),
+        Value::BoxedRecord(record, _) => record.type_name.clone(),
         Value::Missing => "Missing".to_string(),
-        Value::Ptr(_) => "Ptr".to_string(),
-        Value::FuncPtr(_) => "FuncPtr".to_string(),
+        Value::Nullable(value) => match_value_type_name(value),
+        Value::Lambda(_) => "Func".to_string(),
         Value::UInt32(_) => "UInt32".to_string(),
         Value::UInt64(_) => "UInt64".to_string(),
+        Value::Ptr(_) => "Ptr".to_string(),
+        Value::FuncPtr(_) => "FuncPtr".to_string(),
     }
 }

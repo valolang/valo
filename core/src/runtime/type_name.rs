@@ -20,6 +20,7 @@ pub enum TypeName {
     Enum(String),
     GenericInstance { name: String, args: Vec<TypeName> },
     Array(Box<TypeName>),
+    Nullable(Box<TypeName>),
 }
 
 impl TypeName {
@@ -40,6 +41,9 @@ impl TypeName {
             TypeName::Array(inner) => {
                 TypeName::Array(Box::new(inner.substitute_generics(bindings)))
             }
+            TypeName::Nullable(inner) => {
+                TypeName::Nullable(Box::new(inner.substitute_generics(bindings)))
+            }
             _ => self.clone(),
         }
     }
@@ -49,6 +53,7 @@ impl TypeName {
             TypeName::User(name)
             | TypeName::Enum(name)
             | TypeName::GenericInstance { name, .. } => Some(name),
+            TypeName::Nullable(inner) => inner.base_user_name(),
             _ => None,
         }
     }
@@ -83,6 +88,7 @@ impl TypeName {
                     dynamic: true,
                 },
             ))),
+            TypeName::Nullable(_) => Some(crate::Value::Nothing),
         }
     }
 
@@ -112,6 +118,7 @@ impl TypeName {
                         .all(|(left, right)| left.same_type(right))
             }
             (TypeName::Array(left), TypeName::Array(right)) => left.same_type(right),
+            (TypeName::Nullable(left), TypeName::Nullable(right)) => left.same_type(right),
             _ => self == other,
         }
     }
@@ -145,6 +152,7 @@ impl TypeName {
                     .join(", ")
             ),
             TypeName::Array(inner) => format!("{}()", inner.display_name()),
+            TypeName::Nullable(inner) => format!("{}?", inner.display_name()),
         }
     }
 

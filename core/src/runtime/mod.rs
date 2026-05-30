@@ -24,8 +24,8 @@ pub use diagnostic::{
 };
 pub use type_name::TypeName;
 pub use value::{
-    ArrayValue, CollectionItem, CollectionValue, ComObjectValue, EventBinding, ObjectValue,
-    RecordValue, Value,
+    ArrayValue, CollectionItem, CollectionValue, ComObjectValue, EventBinding, LambdaValue,
+    ObjectValue, RecordValue, Value,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

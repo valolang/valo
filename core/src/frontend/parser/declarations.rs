@@ -313,6 +313,7 @@ impl Parser {
         let visibility = explicit_visibility.unwrap_or(Visibility::Public);
         let override_kind = self.parse_optional_override_kind();
         let is_shared = self.match_simple(&TokenKind::Shared);
+        let is_async = self.match_simple(&TokenKind::Async);
         let is_readonly = self.match_simple(&TokenKind::ReadOnly);
         let is_writeonly = self.match_simple(&TokenKind::WriteOnly);
         if is_readonly && is_writeonly {
@@ -358,6 +359,7 @@ impl Parser {
                             "New",
                             "Initialize",
                             modern_attributes,
+                            is_async,
                         )?,
                     })])
                 } else if matches!(
@@ -374,11 +376,12 @@ impl Parser {
                             "Terminate",
                             "Terminate",
                             modern_attributes,
+                            is_async,
                         )?,
                     })])
                 } else {
                     let (procedure, implements) =
-                        self.parse_class_procedure(visibility, modern_attributes)?;
+                        self.parse_class_procedure(visibility, modern_attributes, is_async)?;
                     Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind,
@@ -389,8 +392,12 @@ impl Parser {
                 }
             }
             TokenKind::Function => {
-                let mut function =
-                    self.parse_class_function(visibility, is_iterator, modern_attributes)?;
+                let mut function = self.parse_class_function(
+                    visibility,
+                    is_iterator,
+                    modern_attributes,
+                    is_async,
+                )?;
                 function.override_kind = override_kind;
                 function.is_shared = is_shared;
                 Ok(vec![ClassMember::Function(function)])
@@ -1396,6 +1403,7 @@ impl Parser {
         let explicit_visibility = self.parse_optional_visibility();
         let visibility = explicit_visibility.unwrap_or(Visibility::Public);
         let is_shared = self.match_simple(&TokenKind::Shared);
+        let is_async = self.match_simple(&TokenKind::Async);
         let is_readonly = self.match_simple(&TokenKind::ReadOnly);
         let is_writeonly = self.match_simple(&TokenKind::WriteOnly);
         if is_readonly && is_writeonly {
@@ -1425,11 +1433,12 @@ impl Parser {
                             "New",
                             "Initialize",
                             modern_attributes,
+                            is_async,
                         )?,
                     })])
                 } else {
                     let (procedure, implements) =
-                        self.parse_class_procedure(visibility, modern_attributes)?;
+                        self.parse_class_procedure(visibility, modern_attributes, is_async)?;
                     Ok(vec![ClassMember::Sub(ClassSub {
                         visibility,
                         override_kind: OverrideKind::None,
@@ -1441,7 +1450,7 @@ impl Parser {
             }
             TokenKind::Function => {
                 let mut function =
-                    self.parse_class_function(visibility, false, modern_attributes)?;
+                    self.parse_class_function(visibility, false, modern_attributes, is_async)?;
                 function.is_shared = is_shared;
                 Ok(vec![ClassMember::Function(function)])
             }
@@ -1479,6 +1488,7 @@ impl Parser {
         &mut self,
         visibility: Visibility,
         attributes: Vec<crate::frontend::ast::ModernAttribute>,
+        is_async: bool,
     ) -> Result<Procedure, Diagnostic> {
         let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
         if self.match_simple(&TokenKind::New) {
@@ -1510,6 +1520,7 @@ impl Parser {
         Ok(Procedure {
             attributes,
             visibility,
+            is_async,
             name,
             type_params,
             generic_constraints,
@@ -1523,6 +1534,7 @@ impl Parser {
         &mut self,
         visibility: Visibility,
         attributes: Vec<crate::frontend::ast::ModernAttribute>,
+        is_async: bool,
     ) -> Result<(Procedure, Vec<ImplementsClause>), Diagnostic> {
         let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
         let name = self.expect_identifier("Expected procedure name after 'Sub'")?;
@@ -1549,6 +1561,7 @@ impl Parser {
             Procedure {
                 attributes,
                 visibility,
+                is_async,
                 name,
                 type_params,
                 generic_constraints,
@@ -1566,6 +1579,7 @@ impl Parser {
         syntax_name: &str,
         canonical_name: &str,
         attributes: Vec<crate::frontend::ast::ModernAttribute>,
+        is_async: bool,
     ) -> Result<Procedure, Diagnostic> {
         let start_span = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
         let matched_name = if syntax_name.eq_ignore_ascii_case("New") {
@@ -1608,6 +1622,7 @@ impl Parser {
         Ok(Procedure {
             attributes,
             visibility,
+            is_async,
             name: canonical_name.to_string(),
             type_params: Vec::new(),
             generic_constraints: Vec::new(),
@@ -1622,6 +1637,7 @@ impl Parser {
         visibility: Visibility,
         is_iterator: bool,
         attributes: Vec<crate::frontend::ast::ModernAttribute>,
+        is_async: bool,
     ) -> Result<Function, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Function, "Expected 'Function'")?
@@ -1660,6 +1676,7 @@ impl Parser {
         Ok(Function {
             attributes,
             visibility,
+            is_async,
             name,
             is_iterator,
             type_params,
@@ -1677,6 +1694,7 @@ impl Parser {
         visibility: Visibility,
         is_iterator: bool,
         attributes: Vec<crate::frontend::ast::ModernAttribute>,
+        is_async: bool,
     ) -> Result<ClassFunction, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Function, "Expected 'Function'")?
@@ -1735,6 +1753,7 @@ impl Parser {
             function: Function {
                 attributes,
                 visibility,
+                is_async,
                 name,
                 is_iterator,
                 type_params,
@@ -1758,6 +1777,9 @@ impl Parser {
         loop {
             self.skip_newlines();
             if self.check_simple(&TokenKind::RightParen) {
+                break;
+            }
+            if self.at_statement_separator() {
                 break;
             }
             let is_param_array = self.match_simple(&TokenKind::ParamArray);
@@ -1857,6 +1879,7 @@ impl Parser {
             TokenKind::Binary => Some(("Binary".to_string(), None)),
             TokenKind::Base => Some(("Base".to_string(), None)),
             TokenKind::Lib => Some(("Lib".to_string(), None)),
+            TokenKind::Function => Some(("Function".to_string(), None)),
             _ => None,
         }
     }
@@ -1960,14 +1983,12 @@ impl Parser {
                 Some(token.span),
             )),
         }?;
-        if self.check_simple(&TokenKind::LeftBracket) {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::ARRAY,
-                "Square-bracket array type syntax is not supported; use 'Dim name() As Type'",
-                Some(self.peek().span),
-            ));
+
+        if self.match_simple(&TokenKind::Question) {
+            Ok(TypeName::Nullable(Box::new(ty)))
+        } else {
+            Ok(ty)
         }
-        Ok(ty)
     }
 
     pub(super) fn parse_optional_type_params(&mut self) -> Result<Vec<String>, Diagnostic> {

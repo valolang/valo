@@ -1200,6 +1200,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                         iterator = Some(crate::Function {
                             attributes: Vec::new(),
                             visibility: property.visibility,
+                            is_async: false,
                             name: property.name.clone(),
                             is_iterator: true,
                             type_params: Vec::new(),
@@ -1232,6 +1233,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                         crate::Function {
                             attributes: Vec::new(),
                             visibility: op.visibility,
+                            is_async: false,
                             name: format!("{:?}", op.kind),
                             is_iterator: false,
                             type_params: Vec::new(),
