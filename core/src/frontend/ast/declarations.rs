@@ -154,6 +154,9 @@ pub struct ModuleVarDecl {
     pub name: String,
     pub ty: Option<TypeName>,
     pub array: Option<super::ArrayDecl>,
+    pub as_new: bool,
+    pub new_args: Vec<super::Expr>,
+    pub collection_initializer: Option<Vec<super::Expr>>,
     pub initializer: Option<super::Expr>,
     pub span: Span,
 }
@@ -337,6 +340,9 @@ pub struct ClassField {
     pub name: String,
     pub ty: Option<TypeName>,
     pub array: Option<super::ArrayDecl>,
+    pub as_new: bool,
+    pub new_args: Vec<super::Expr>,
+    pub collection_initializer: Option<Vec<super::Expr>>,
     pub initializer: Option<super::Expr>,
     pub span: Span,
 }

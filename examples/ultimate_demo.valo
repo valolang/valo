@@ -1,0 +1,149 @@
+' examples/ultimate_demo.valo
+Imports modules.EnumerableExtensions
+
+' 1. Custom Value Type (Structure)
+Public Structure SensorReading
+    Public Value As Double
+    Public Timestamp As Date
+    
+    Public Sub New(ByVal v As Double)
+        Me.Value = v
+        Me.Timestamp = Now
+    End Sub
+    
+    Public Function ToFahrenheit() As Double
+        Return (Value * 9 / 5) + 32
+    End Function
+End Structure
+
+' 2. Generic Interface
+Public Interface IDataStore(Of T)
+    Sub Store(ByVal item As T)
+    Function GetSummary() As String
+End Interface
+
+' 3. Abstract Base Class with Events and Shared Properties
+MustInherit Public Class NetworkComponent
+    Public Shared Property TotalMessages As Long = 0
+    Public Event Warning(ByVal msg As String, ByVal level As Integer)
+    
+    Protected Sub LogMessage()
+        TotalMessages = TotalMessages + 1
+    End Sub
+End Class
+
+' 4. Partial Class part 1: Fields & Interface Implementation
+Public Partial Class AnalyticsEngine(Of T) Inherits NetworkComponent Implements IDataStore(Of T)
+    
+    Private mBuffer As New Collection()
+    Public Property MaxCapacity As Integer = 100
+    
+    Public Sub New(ByVal threshold As Double)
+        Me.AlertThreshold = threshold
+    End Sub
+
+    Public Sub Store(ByVal item As T) Implements IDataStore(Of T).Store
+        mBuffer.Add(item)
+        Me.LogMessage()
+    End Sub
+End Class
+
+' 5. Partial Class part 2: Modern Properties & Logic
+Public Partial Class AnalyticsEngine(Of T)
+    Public Property AlertThreshold As Double? = Nothing
+    
+    Public Function GetSummary() As String Implements IDataStore(Of T).GetSummary
+        Return "Pipeline has " & mBuffer.Count() & " items. Total Global: " & NetworkComponent.TotalMessages
+    End Function
+    
+    Public Sub Analyze()
+        Dim item As Variant
+        For Each item In mBuffer
+            ' Short-circuiting and Nullable interaction
+            ' item is SensorReading (Variant)
+            If AlertThreshold.HasValue AndAlso item.Value > AlertThreshold.Value Then
+                RaiseEvent Warning("Threshold exceeded!", 2)
+            End If
+        Next
+    End Sub
+    
+    Public Property Get Data() As Collection
+        Return mBuffer
+    End Property
+End Class
+
+' 6. Global Event Handler
+Sub GlobalAlert(ByVal msg As String, ByVal lv As Integer)
+    Console.WriteLine("[EVENT] ALERT Level " & lv & ": " & msg)
+End Sub
+
+' 7. Main Application Logic
+Sub Main()
+    Console.WriteLine("=== Valo Ultimate Complexity Demo ===")
+    
+    ' 1. Mixed Collection Initializer
+    Dim rawData As New Collection() From {
+        New SensorReading(22.5),
+        New SensorReading(18.0),
+        New SensorReading(35.2), ' Should trigger alert
+        New SensorReading(25.0)
+    }
+    
+    ' 2. LINQ Chain (Lambda + Extension Methods)
+    ' Filter readings > 20 and map to Fahrenheit
+    Dim highTempsF = rawData.Where(Function(r) r.Value > 20) _
+                            .Select(Function(r) r.ToFahrenheit())
+    
+    Console.WriteLine("Readings > 20C (in F):")
+    Dim temp As Variant
+    For Each temp In highTempsF
+        Console.WriteLine(" - " & temp)
+    Next
+    
+    ' 3. Nullable Arithmetic (Lifted Operators)
+    Dim baseVal As Double? = 10.0
+    Dim modifier As Double? = Nothing
+    Dim result = baseVal + modifier ' Should be Nothing
+    
+    If result Is Nothing Then
+        Console.WriteLine("Lifted operator correctly produced Nothing.")
+    End If
+    
+    ' 4. Dynamic Event Attachment
+    ' Note: AnalyticsEngine(Of SensorReading)
+    Dim engine As New AnalyticsEngine(Of SensorReading)(30.0)
+    AddHandler engine.Warning, AddressOf GlobalAlert
+    
+    ' 5. Populate pipeline
+    Dim r As Variant
+    For Each r In rawData
+        engine.Store(r)
+    Next
+    
+    Console.WriteLine("Analysis starting...")
+    engine.Analyze()
+    
+    ' 6. Shared Property and Interface Summary
+    Console.WriteLine("Summary: " & engine.GetSummary())
+    
+    ' 7. Async/Await block (Conceptual)
+    RunAsyncDemo()
+    
+    ' 8. Final Null-safe check
+    Dim finalStatus As String? = "Success"
+    If finalStatus IsNot Nothing AndAlso Len(finalStatus) > 0 Then
+        Console.WriteLine("Final Status: " & finalStatus)
+    End If
+    
+    Console.WriteLine("=== End of Demo ===")
+End Sub
+
+Async Sub RunAsyncDemo()
+    Console.WriteLine("Entering async context...")
+    Await TaskNoOp()
+    Console.WriteLine("Exiting async context.")
+End Sub
+
+Function TaskNoOp() As Integer
+    Return 0
+End Function

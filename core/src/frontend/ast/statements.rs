@@ -86,6 +86,10 @@ pub enum Stmt {
         handler: Expr,
         span: Span,
     },
+    Await {
+        expr: Expr,
+        span: Span,
+    },
     Return {
         expr: Expr,
         span: Span,
@@ -603,6 +607,10 @@ impl Stmt {
             } => Stmt::RemoveHandler {
                 event: event.substitute_generics(bindings),
                 handler: handler.substitute_generics(bindings),
+                span: *span,
+            },
+            Stmt::Await { expr, span } => Stmt::Await {
+                expr: expr.substitute_generics(bindings),
                 span: *span,
             },
             Stmt::Return { expr, span } => Stmt::Return {

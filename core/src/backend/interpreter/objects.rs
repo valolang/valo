@@ -100,6 +100,20 @@ impl Interpreter {
                 .chain(instance.shared_fields.iter_mut())
             {
                 field.ty = field.ty.substitute_generics(&bindings);
+                field.new_args = field
+                    .new_args
+                    .iter()
+                    .map(|arg| arg.substitute_generics(&bindings))
+                    .collect();
+                field.collection_initializer = field.collection_initializer.as_ref().map(|init| {
+                    init.iter()
+                        .map(|arg| arg.substitute_generics(&bindings))
+                        .collect()
+                });
+                field.initializer = field
+                    .initializer
+                    .as_ref()
+                    .map(|init| init.substitute_generics(&bindings));
             }
             for procedure in instance
                 .subs
@@ -129,7 +143,9 @@ impl Interpreter {
                     substitute_property_accessor_types(set, &bindings);
                 }
             }
-            self.classes.insert(key(&instance.name), instance);
+            let instance_key = key(&instance.name);
+            self.classes.insert(instance_key.clone(), instance);
+            self.initialize_class_shared_fields(&instance_key, span)?;
             return Ok(());
         }
         if let Some(base) = self.types.get(&key(name)).cloned() {
@@ -156,6 +172,20 @@ impl Interpreter {
             instance.type_params.clear();
             for field in &mut instance.fields {
                 field.ty = field.ty.substitute_generics(&bindings);
+                field.new_args = field
+                    .new_args
+                    .iter()
+                    .map(|arg| arg.substitute_generics(&bindings))
+                    .collect();
+                field.collection_initializer = field.collection_initializer.as_ref().map(|init| {
+                    init.iter()
+                        .map(|arg| arg.substitute_generics(&bindings))
+                        .collect()
+                });
+                field.initializer = field
+                    .initializer
+                    .as_ref()
+                    .map(|init| init.substitute_generics(&bindings));
             }
             for procedure in instance.subs.values_mut() {
                 substitute_procedure_types(procedure, &bindings);
@@ -227,6 +257,33 @@ impl Interpreter {
         frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
+        if field.as_new {
+            let value = self.new_object(ty, &field.new_args, frame, span)?;
+            if let Some(init_list) = &field.collection_initializer {
+                for init_expr in init_list {
+                    let val = self.eval_expr(init_expr, frame)?;
+                    match &value {
+                        Value::Collection(coll) => {
+                            coll.borrow_mut().add(val, None, None, None).map_err(|e| {
+                                Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::ARRAY,
+                                    format!("Collection.Add failed: {}", e),
+                                    Some(span),
+                                )
+                            })?;
+                        }
+                        _ => {
+                            return Err(Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                "Collection initializer is only supported for Collection types",
+                                Some(span),
+                            ));
+                        }
+                    }
+                }
+            }
+            return Ok(value);
+        }
         if let Some(initializer) = &field.initializer {
             let value = self.eval_expr(initializer, frame)?;
             coerce_assignment(ty, value, initializer.span)
@@ -483,20 +540,37 @@ impl Interpreter {
     }
 
     pub(crate) fn initialize_shared_class_fields(&mut self, span: Span) -> Result<(), Diagnostic> {
-        let classes: Vec<_> = self.classes.values().cloned().collect();
-        for class in classes {
-            if class.shared_fields.is_empty() {
-                continue;
-            }
-            let mut fields = HashMap::new();
-            let mut frame = Frame::default();
-            for field in &class.shared_fields {
-                let ty = self.resolve_type_name(&field.ty, &frame, span)?;
-                let value = self.field_initial_value(field, &ty, &mut frame, span)?;
-                fields.insert(key(&field.name), value);
-            }
-            self.shared_class_fields.insert(key(&class.name), fields);
+        let class_names: Vec<_> = self.classes.keys().cloned().collect();
+        for name in class_names {
+            self.initialize_class_shared_fields(&name, span)?;
         }
+        Ok(())
+    }
+
+    pub(crate) fn initialize_class_shared_fields(
+        &mut self,
+        class_key: &str,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if self.shared_class_fields.contains_key(class_key) {
+            return Ok(());
+        }
+        let Some(class) = self.classes.get(class_key).cloned() else {
+            return Ok(());
+        };
+        if class.shared_fields.is_empty() {
+            return Ok(());
+        }
+
+        let mut fields = HashMap::new();
+        let mut frame = Frame::default();
+        frame.set_class_context(class.name.clone());
+        for field in &class.shared_fields {
+            let ty = self.resolve_type_name(&field.ty, &frame, span)?;
+            let value = self.field_initial_value(field, &ty, &mut frame, span)?;
+            fields.insert(key(&field.name), value);
+        }
+        self.shared_class_fields.insert(class_key.to_string(), fields);
         Ok(())
     }
 
@@ -612,30 +686,37 @@ impl Interpreter {
         frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        let class_name = self.resolve_user_type_name(class_name, frame, span)?;
-        if let Some(fields) = self.shared_class_fields.get(&key(&class_name))
-            && let Some(value) = fields.get(&key(member))
-        {
-            return Ok(value.clone());
-        }
-        if let Some(class) = self.classes.get(&key(&class_name)) {
-            if class.properties.contains_key(&key(member)) {
-                return self.call_shared_property_get(&class_name, member, &[], frame, span);
+        let mut current_name = self.resolve_user_type_name(class_name, frame, span)?;
+        loop {
+            if let Some(fields) = self.shared_class_fields.get(&key(&current_name))
+                && let Some(value) = fields.get(&key(member))
+            {
+                return Ok(value.clone());
+            }
+            let class = self.classes.get(&key(&current_name)).cloned();
+            if let Some(class) = class {
+                if class.properties.contains_key(&key(member)) {
+                    return self.call_shared_property_get(&current_name, member, &[], frame, span);
+                }
+                if let Some(base) = &class.base_class {
+                    current_name = base.display_name();
+                    continue;
+                }
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!(
+                        "Class '{}' has no Shared field or property '{}'",
+                        class_name, member
+                    ),
+                    Some(span),
+                ));
             }
             return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                format!(
-                    "Class '{}' has no Shared field or property '{}'",
-                    class.name, member
-                ),
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Class '{}' is not defined", current_name),
                 Some(span),
             ));
         }
-        Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-            format!("Class '{}' is not defined", class_name),
-            Some(span),
-        ))
     }
 
     pub(crate) fn write_shared_member(
@@ -645,38 +726,45 @@ impl Interpreter {
         value: Value,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let class_name = self.resolve_user_type_name(class_name, &Frame::default(), span)?;
-        if let Some(fields) = self.shared_class_fields.get_mut(&key(&class_name))
-            && let Some(slot) = fields.get_mut(&key(member))
-        {
-            let ty = slot.type_name();
-            *slot = coerce_assignment(&ty, value, span)?;
-            return Ok(());
-        }
-        if let Some(class) = self.classes.get(&key(&class_name)) {
-            if class.properties.contains_key(&key(member)) {
-                return self.call_shared_property_set(
-                    &class_name,
-                    member,
-                    value,
-                    &mut Frame::default(),
-                    span,
-                );
+        let mut current_name = self.resolve_user_type_name(class_name, &Frame::default(), span)?;
+        loop {
+            if let Some(fields) = self.shared_class_fields.get_mut(&key(&current_name))
+                && let Some(slot) = fields.get_mut(&key(member))
+            {
+                let ty = slot.type_name();
+                *slot = coerce_assignment(&ty, value, span)?;
+                return Ok(());
+            }
+            let class = self.classes.get(&key(&current_name)).cloned();
+            if let Some(class) = class {
+                if class.properties.contains_key(&key(member)) {
+                    return self.call_shared_property_set(
+                        &current_name,
+                        member,
+                        value,
+                        &mut Frame::default(),
+                        span,
+                    );
+                }
+                if let Some(base) = &class.base_class {
+                    current_name = base.display_name();
+                    continue;
+                }
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                    format!(
+                        "Class '{}' has no Shared field or property '{}'",
+                        class_name, member
+                    ),
+                    Some(span),
+                ));
             }
             return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                format!(
-                    "Class '{}' has no Shared field or property '{}'",
-                    class.name, member
-                ),
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Class '{}' is not defined", current_name),
                 Some(span),
             ));
         }
-        Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-            format!("Class '{}' is not defined", class_name),
-            Some(span),
-        ))
     }
 
     pub(crate) fn assign_member(
@@ -1233,6 +1321,9 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                             .clone()
                             .unwrap_or(crate::runtime::TypeName::Variant),
                         array: field.array.clone(),
+                        as_new: field.as_new,
+                        new_args: field.new_args.clone(),
+                        collection_initializer: field.collection_initializer.clone(),
                         initializer: field.initializer.clone(),
                         with_events: field.with_events,
                     });
@@ -1251,6 +1342,9 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                                 .clone()
                                 .unwrap_or(crate::runtime::TypeName::Variant),
                             array: field.array.clone(),
+                            as_new: field.as_new,
+                            new_args: field.new_args.clone(),
+                            collection_initializer: field.collection_initializer.clone(),
                             initializer: field.initializer.clone(),
                             with_events: field.with_events,
                         });

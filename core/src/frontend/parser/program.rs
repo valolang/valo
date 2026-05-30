@@ -548,6 +548,9 @@ impl Parser {
                             name: var.name.clone(),
                             ty: var.ty.clone(),
                             array: var.array.clone(),
+                            as_new: var.as_new,
+                            new_args: var.new_args.clone(),
+                            collection_initializer: var.collection_initializer.clone(),
                             initializer: var.initializer.clone(),
                             span: var.span,
                         })
@@ -572,6 +575,9 @@ impl Parser {
                             name: var.name.clone(),
                             ty: var.ty.clone(),
                             array: var.array.clone(),
+                            as_new: var.as_new,
+                            new_args: var.new_args.clone(),
+                            collection_initializer: var.collection_initializer.clone(),
                             initializer: var.initializer.clone(),
                             span: var.span,
                         })

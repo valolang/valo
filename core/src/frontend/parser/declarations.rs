@@ -477,6 +477,9 @@ impl Parser {
                         name: decl.name,
                         ty: decl.ty,
                         array: decl.array,
+                        as_new: decl.as_new,
+                        new_args: decl.new_args,
+                        collection_initializer: decl.collection_initializer,
                         initializer: decl.initializer,
                         span: decl.span,
                     })
@@ -506,6 +509,12 @@ impl Parser {
             } else {
                 match interface_name {
                     TypeName::User(ref mut name) if name.contains('.') => {
+                        let (new_name, member) = name.rsplit_once('.').unwrap();
+                        let member = member.to_string();
+                        *name = new_name.to_string();
+                        member
+                    }
+                    TypeName::GenericInstance { ref mut name, .. } if name.contains('.') => {
                         let (new_name, member) = name.rsplit_once('.').unwrap();
                         let member = member.to_string();
                         *name = new_name.to_string();
@@ -877,6 +886,9 @@ impl Parser {
             name: backing_name.clone(),
             ty: Some(header.ty.clone()),
             array: None,
+            as_new: false,
+            new_args: Vec::new(),
+            collection_initializer: None,
             initializer,
             span: header.start,
         });
@@ -1219,6 +1231,9 @@ impl Parser {
                 name: decl.name,
                 ty: decl.ty,
                 array: decl.array,
+                as_new: decl.as_new,
+                new_args: decl.new_args,
+                collection_initializer: decl.collection_initializer,
                 initializer: decl.initializer,
                 span: decl.span,
             })

@@ -2458,6 +2458,7 @@ pub(super) fn ensure_const_expr(
         | ExprKind::Decimal(_)
         | ExprKind::Boolean(_)
         | ExprKind::DateLiteral(_)
+        | ExprKind::Nothing
         | ExprKind::Empty
         | ExprKind::Null
         | ExprKind::Lambda { .. }
@@ -2498,8 +2499,7 @@ pub(super) fn ensure_const_expr(
             ensure_const_expr(left, symbols, types)?;
             ensure_const_expr(right, symbols, types)
         }
-        ExprKind::Nothing
-        | ExprKind::Missing
+        ExprKind::Missing
         | ExprKind::Me
         | ExprKind::MyBase
         | ExprKind::MyClass

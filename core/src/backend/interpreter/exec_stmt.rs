@@ -409,9 +409,7 @@ impl Interpreter {
                             if let Ok(Value::Object(me_rc)) = frame.get("me", *span) {
                                 let class_name = me_rc.borrow().class_name.clone();
                                 if let Some(class) = self.classes.get(&key(&class_name)) {
-                                    if class.subs.contains_key(&key(name))
-                                        || class.functions.contains_key(&key(name))
-                                    {
+                                    if class.subs.contains_key(&key(name)) || class.functions.contains_key(&key(name)) {
                                         (Value::Object(me_rc), name.clone())
                                     } else {
                                         (Value::Nothing, name.clone())
@@ -434,6 +432,10 @@ impl Interpreter {
                     }
                 };
                 self.remove_handler(object_val, &event_name, target_obj, &handler_name, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::Await { expr, .. } => {
+                self.eval_expr(expr, frame)?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::Return { expr, .. } => {
@@ -1468,6 +1470,7 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::RaiseEvent { span, .. }
         | Stmt::AddHandler { span, .. }
         | Stmt::RemoveHandler { span, .. }
+        | Stmt::Await { span, .. }
         | Stmt::Return { span, .. }
         | Stmt::If { span, .. }
         | Stmt::SelectCase { span, .. }

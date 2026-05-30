@@ -66,6 +66,7 @@ impl Parser {
             TokenKind::RaiseEvent => self.parse_raise_event(),
             TokenKind::AddHandler => self.parse_add_handler(),
             TokenKind::RemoveHandler => self.parse_remove_handler(),
+            TokenKind::Await => self.parse_await_stmt(),
             TokenKind::Let => self.parse_let_assignment(),
             TokenKind::Call => self.parse_call_statement(),
             TokenKind::Set => self.parse_set_assignment(),
@@ -323,12 +324,15 @@ impl Parser {
             let mut init_args = Vec::new();
             if !self.check_simple(&TokenKind::RightBrace) {
                 loop {
+                    self.skip_newlines();
                     init_args.push(self.parse_expression()?);
+                    self.skip_newlines();
                     if !self.match_simple(&TokenKind::Comma) {
                         break;
                     }
                 }
             }
+            self.skip_newlines();
             self.expect_simple(
                 TokenKind::RightBrace,
                 "Expected '}' after collection initializer",
@@ -1018,6 +1022,16 @@ impl Parser {
         Ok(Stmt::RemoveHandler {
             event,
             handler,
+            span: Span::new(self.file_id, start.start, end.end),
+        })
+    }
+
+    fn parse_await_stmt(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.expect_simple(TokenKind::Await, "Expected 'Await'")?.span;
+        let expr = self.parse_expression()?;
+        let end = self.previous().span;
+        Ok(Stmt::Await {
+            expr,
             span: Span::new(self.file_id, start.start, end.end),
         })
     }

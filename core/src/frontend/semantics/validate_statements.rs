@@ -603,6 +603,9 @@ pub fn validate_statements(
                 }
                 let _ = span;
             }
+            Stmt::Await { expr, .. } => {
+                validate_expr(expr, symbols, types, signatures, context, option_explicit)?;
+            }
             Stmt::Return { expr, span } => {
                 let expr_type =
                     validate_expr(expr, symbols, types, signatures, context, option_explicit)?;
@@ -1645,6 +1648,7 @@ fn stmt_span(stmt: &Stmt, _context: &Context<'_>) -> crate::runtime::Span {
         | Stmt::RaiseEvent { span, .. }
         | Stmt::AddHandler { span, .. }
         | Stmt::RemoveHandler { span, .. }
+        | Stmt::Await { span, .. }
         | Stmt::Return { span, .. }
         | Stmt::If { span, .. }
         | Stmt::SelectCase { span, .. }
@@ -1779,6 +1783,7 @@ fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
         Stmt::AddHandler { event, handler, .. } | Stmt::RemoveHandler { event, handler, .. } => {
             expr_uses_with_target(event, _context) || expr_uses_with_target(handler, _context)
         }
+        Stmt::Await { expr, .. } => expr_uses_with_target(expr, _context),
         Stmt::If {
             condition,
             then_body,
