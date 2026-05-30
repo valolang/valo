@@ -24,6 +24,7 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 | Array Bounds | `1 To N` (optional) | `1 To N` (optional) |
 
 ### Built-in Compatibility
+- VBA project-style module groups: importing any `.bas` or `.cls` file automatically loads sibling `.bas` and `.cls` files from the same directory. Those sibling compatibility modules can reference each other's public declarations without explicit `Imports`, matching the flat project namespace used by exported VBA projects while keeping modern `.valo` imports explicit.
 - `Debug.Print`: Available in all file modes, outputs to the standard console. Supports multiple comma-separated arguments.
 - `Err` Object: Full support for `Err.Raise`, `Err.Number`, and `Err.Description` in all modes.
 - `Array Built-ins`: `Split`, `Join`, `Filter`, `LBound`, and `UBound` behave according to standard VBA semantics.
@@ -41,7 +42,7 @@ Valo distinguishes between modern native code and legacy compatibility code prim
 - `Declare`/`PtrSafe`: `Declare Function` and `Declare Sub` are callable at runtime through the native FFI layer. Private declares are visible inside their module, public declares can be imported, and declare functions support expression calls, bare statement calls, and `Call`. `Lib`, `Alias`, `PtrSafe`, `LongPtr`, `LongLong`, `As Any`, ByVal/ByRef parameters, `StdCall`, and the `CDecl` extension are supported with clean diagnostics for unsupported marshaling.
 - Memory and Pointers: `VarPtr`, `StrPtr`, and `ObjPtr` are supported as builtins. `StrPtr` accepts string variables and temporary string expressions such as literals, `CStr(...)`, and `Left$(...)`; temporaries are owned by the interpreter for the statement call duration. `AddressOf` generates libffi closure trampolines, enabling robust, native callbacks.
 - Property procedures: `Property Let` and `Property Set` accept omitted `ByVal` on the value parameter for VBA import compatibility.
-- Source encodings: `.bas` and `.cls` imports accept UTF-8, UTF-8 BOM, UTF-16 LE/BE BOM, and Windows-1252/ANSI fallback, with normalized line endings for diagnostics.
+- Source encodings and diagnostics: `.bas` and `.cls` imports accept UTF-8, UTF-8 BOM, UTF-16 LE/BE BOM, and Windows-1252/ANSI fallback, with normalized line endings. Parser and runtime diagnostics report the exact source file path, line, and column for errors inside loaded compatibility modules.
 
 `Structure` is the native Valo value type and supports methods, properties, constructors, and copy semantics. `Type` remains the VBA-compatible fields-only record syntax.
 Structure fields may use constant-expression defaults, for example `Public X As Double = 0#`.

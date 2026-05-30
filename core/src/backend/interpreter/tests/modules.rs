@@ -447,6 +447,131 @@ Public Declare PtrSafe Function ClsLen Lib "{}" Alias "strlen" CDecl (ByVal valu
 }
 
 #[test]
+fn vba_compat_import_loads_sibling_modules_without_explicit_imports() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports MainModule
+
+Sub Main()
+    Console.WriteLine(MainModule.Start())
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "MainModule.bas",
+        r#"
+Public Function Start() As String
+    Start = HelperValue()
+End Function
+"#,
+    );
+    write(
+        &dir,
+        "Helper.bas",
+        r#"
+Public Function HelperValue() As String
+    HelperValue = "from helper"
+End Function
+"#,
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["from helper".to_string()]
+    );
+}
+
+#[test]
+fn vba_compat_sibling_modules_can_reference_each_other_without_import_cycles() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports A
+
+Sub Main()
+    Console.WriteLine(A.FromA())
+    Console.WriteLine(B.FromB())
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "A.bas",
+        r#"
+Public Function FromA() As String
+    FromA = "A:" & BValue()
+End Function
+
+Public Function AValue() As String
+    AValue = "a"
+End Function
+"#,
+    );
+    write(
+        &dir,
+        "B.bas",
+        r#"
+Public Function FromB() As String
+    FromB = "B:" & AValue()
+End Function
+
+Public Function BValue() As String
+    BValue = "b"
+End Function
+"#,
+    );
+
+    assert_eq!(
+        run_file(dir.join("main.valo")).unwrap(),
+        vec!["A:b".to_string(), "B:a".to_string()]
+    );
+}
+
+#[test]
+fn vba_compat_library_diagnostic_uses_exact_sibling_file_line() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports MainModule
+
+Sub Main()
+    MainModule.Start()
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "MainModule.bas",
+        r#"
+Public Sub Start()
+    Boom()
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Helper.bas",
+        r#"Public Sub Boom()
+    Dim x As Integer
+    x = 1 / 0
+End Sub
+"#,
+    );
+
+    let error = run_file(dir.join("main.valo")).unwrap_err();
+    assert!(error.contains("Helper.bas:3:"), "{error}");
+    assert!(error.contains("x = 1 / 0"), "{error}");
+}
+
+#[test]
 fn imported_public_constant_is_qualified_and_private_constant_is_rejected() {
     let dir = temp_project();
     write(

@@ -51,11 +51,21 @@ pub fn load_project(entry_path: impl AsRef<Path>) -> Result<Project, (Diagnostic
 struct ModuleLoader {
     modules: Vec<LoadedModule>,
     by_path: HashMap<PathBuf, usize>,
+    loaded_vba_sibling_dirs: HashSet<PathBuf>,
     source_map: SourceMap,
 }
 
 impl ModuleLoader {
     fn load(&mut self, path: &Path, stack: &mut Vec<PathBuf>) -> Result<usize, Diagnostic> {
+        self.load_with_options(path, stack, true)
+    }
+
+    fn load_with_options(
+        &mut self,
+        path: &Path,
+        stack: &mut Vec<PathBuf>,
+        load_vba_siblings: bool,
+    ) -> Result<usize, Diagnostic> {
         let canonical = fs::canonicalize(path).map_err(|err| {
             Diagnostic::new(
                 DiagnosticCode::MODULE_NOT_FOUND,
@@ -97,6 +107,9 @@ impl ModuleLoader {
             ));
         }
         if let Some(index) = self.by_path.get(&canonical).copied() {
+            if load_vba_siblings && is_vba_compat_path(&canonical) {
+                self.load_vba_sibling_group(&canonical, stack)?;
+            }
             return Ok(index);
         }
 
@@ -105,7 +118,9 @@ impl ModuleLoader {
             .map_err(|message| Diagnostic::new(DiagnosticCode::MODULE_NOT_FOUND, message, None))?;
 
         let name = module_name(&canonical);
-        let file_id = self.source_map.add(name.clone(), source_content.clone());
+        let file_id = self
+            .source_map
+            .add(canonical.display().to_string(), source_content.clone());
         let program = parse_source_with_id(&source_content, file_id)
             .map_err(|err| add_import_notes(err, &name, stack))?;
 
@@ -146,8 +161,92 @@ impl ModuleLoader {
             });
         }
         self.modules[index].imports = resolved;
+        if load_vba_siblings && is_vba_compat_path(&canonical) {
+            self.load_vba_sibling_group(&canonical, stack)?;
+        }
         stack.pop();
         Ok(index)
+    }
+
+    fn load_vba_sibling_group(
+        &mut self,
+        current: &Path,
+        stack: &mut Vec<PathBuf>,
+    ) -> Result<(), Diagnostic> {
+        let Some(dir) = current.parent() else {
+            return Ok(());
+        };
+        let dir = dir.to_path_buf();
+        if !self.loaded_vba_sibling_dirs.insert(dir.clone()) {
+            return Ok(());
+        }
+
+        let current_index = self.by_path.get(current).copied();
+        let mut module_indices = Vec::new();
+        if let Some(index) = current_index {
+            module_indices.push(index);
+        }
+
+        let mut siblings = fs::read_dir(&dir)
+            .map_err(|err| {
+                Diagnostic::new(
+                    DiagnosticCode::MODULE_NOT_FOUND,
+                    format!(
+                        "Could not read VBA compatibility module directory '{}': {err}",
+                        dir.display()
+                    ),
+                    None,
+                )
+            })?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| is_vba_compat_path(path))
+            .collect::<Vec<_>>();
+        siblings.sort();
+
+        for sibling in siblings {
+            let sibling = fs::canonicalize(&sibling).map_err(|err| {
+                Diagnostic::new(
+                    DiagnosticCode::MODULE_NOT_FOUND,
+                    format!("Module '{}' could not be found: {err}", sibling.display()),
+                    None,
+                )
+            })?;
+            if Some(&sibling)
+                == current_index.and_then(|idx| self.modules.get(idx).map(|m| &m.path))
+            {
+                continue;
+            }
+            let index = self.load_with_options(&sibling, stack, false)?;
+            if !module_indices.contains(&index) {
+                module_indices.push(index);
+            }
+        }
+
+        for &source_index in &module_indices {
+            let file_id = self.modules[source_index].file_id;
+            let existing_modules = self.modules[source_index]
+                .imports
+                .iter()
+                .map(|import| import.module)
+                .collect::<HashSet<_>>();
+            let mut implicit_imports = Vec::new();
+            for &target_index in &module_indices {
+                if target_index == source_index || existing_modules.contains(&target_index) {
+                    continue;
+                }
+                let qualifier = self.modules[target_index].name.clone();
+                implicit_imports.push(ResolvedImport {
+                    module: target_index,
+                    requested: qualifier.clone(),
+                    qualifier,
+                    span: Span::empty(file_id),
+                });
+            }
+            self.modules[source_index].imports.extend(implicit_imports);
+        }
+
+        Ok(())
     }
 }
 
@@ -246,6 +345,14 @@ fn module_name(path: &Path) -> String {
         .and_then(|stem| stem.to_str())
         .unwrap_or("module")
         .to_string()
+}
+
+fn is_vba_compat_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("bas") || extension.eq_ignore_ascii_case("cls")
+        })
 }
 
 fn resolve_case_insensitive_path(
