@@ -1,0 +1,20 @@
+' Shared Auto-implemented Property Test
+
+Class Counter
+    Public Shared Property InstanceCount As Integer = 0
+    
+    Public Sub New()
+        InstanceCount = InstanceCount + 1
+    End Sub
+End Class
+
+Sub Main()
+    Dim c1 As New Counter()
+    Console.WriteLine("Count 1: " & Counter.InstanceCount)
+    
+    Dim c2 As New Counter()
+    Console.WriteLine("Count 2: " & Counter.InstanceCount)
+    
+    Dim c3 As New Counter()
+    Console.WriteLine("Count 3: " & Counter.InstanceCount)
+End Sub

@@ -573,6 +573,36 @@ pub fn validate_statements(
                     ExprValidation::new(symbols, types, signatures, context, option_explicit),
                 )?;
             }
+            Stmt::AddHandler {
+                event,
+                handler,
+                span,
+            }
+            | Stmt::RemoveHandler {
+                event,
+                handler,
+                span,
+            } => {
+                let _event_ty =
+                    validate_expr(event, symbols, types, signatures, context, option_explicit)?;
+                let _handler_ty = validate_expr(
+                    handler,
+                    symbols,
+                    types,
+                    signatures,
+                    context,
+                    option_explicit,
+                )?;
+
+                if !matches!(event.kind, ExprKind::MemberAccess { .. }) {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::GENERIC,
+                        "Event argument must be a member access (e.g. obj.EventName)",
+                        Some(event.span),
+                    ));
+                }
+                let _ = span;
+            }
             Stmt::Return { expr, span } => {
                 let expr_type =
                     validate_expr(expr, symbols, types, signatures, context, option_explicit)?;
@@ -1613,6 +1643,8 @@ fn stmt_span(stmt: &Stmt, _context: &Context<'_>) -> crate::runtime::Span {
         | Stmt::SubCall { span, .. }
         | Stmt::MemberSubCall { span, .. }
         | Stmt::RaiseEvent { span, .. }
+        | Stmt::AddHandler { span, .. }
+        | Stmt::RemoveHandler { span, .. }
         | Stmt::Return { span, .. }
         | Stmt::If { span, .. }
         | Stmt::SelectCase { span, .. }
@@ -1743,6 +1775,9 @@ fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
         }
         Stmt::RaiseEvent { args, .. } => {
             args.iter().any(|arg| expr_uses_with_target(arg, _context))
+        }
+        Stmt::AddHandler { event, handler, .. } | Stmt::RemoveHandler { event, handler, .. } => {
+            expr_uses_with_target(event, _context) || expr_uses_with_target(handler, _context)
         }
         Stmt::If {
             condition,

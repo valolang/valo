@@ -209,6 +209,8 @@ impl<'a> Lexer<'a> {
             "end" if hint.is_none() => TokenKind::End,
             "dim" if hint.is_none() => TokenKind::Dim,
             "as" if hint.is_none() => TokenKind::As,
+            "addhandler" if hint.is_none() => TokenKind::AddHandler,
+            "removehandler" if hint.is_none() => TokenKind::RemoveHandler,
             "async" if hint.is_none() => TokenKind::Async,
             "await" if hint.is_none() => TokenKind::Await,
             "byval" if hint.is_none() => TokenKind::ByVal,

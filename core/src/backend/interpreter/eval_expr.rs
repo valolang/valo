@@ -150,6 +150,14 @@ impl Interpreter {
                                         return Ok(value);
                                     }
                                 }
+                            } else if let Some(class_name) = frame.class_context() {
+                                let class_name = class_name.to_string();
+                                // Try shared members of the current class context (for shared methods)
+                                if let Ok(value) =
+                                    self.read_shared_member(&class_name, name, frame, expr.span)
+                                {
+                                    return Ok(value);
+                                }
                             }
                             if self.functions.contains_key(&super::values::key(name))
                                 || self.has_declared_function(name)
@@ -278,9 +286,10 @@ impl Interpreter {
                 }
                 if let ExprKind::Variable(class_name) = &object.kind
                     && !frame.has_variable(class_name)
-                    && self.classes.contains_key(&super::values::key(class_name))
+                    && let Ok(resolved) = self.resolve_user_type_name(class_name, frame, expr.span)
+                    && self.classes.contains_key(&super::values::key(&resolved))
                 {
-                    return self.read_shared_member(class_name, field, frame, expr.span);
+                    return self.read_shared_member(&resolved, field, frame, expr.span);
                 }
                 let object = self.eval_expr(object, frame)?;
                 self.read_member(&object, field, frame, expr.span)

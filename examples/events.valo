@@ -1,29 +1,37 @@
-Class Button
-    Public Event Click(ByVal x As Integer, ByVal y As Integer)
+' AddHandler and RemoveHandler Test
 
-    Public Sub Press()
-        RaiseEvent Click(10, 20)
+Class Source
+    Public Event Click(ByVal value As Integer)
+
+    Public Sub DoClick(ByVal v As Integer)
+        RaiseEvent Click(v)
     End Sub
 End Class
 
-Class Form
-    Private WithEvents mButton As Button
-
-    Public Sub New()
-        mButton = New Button()
+Class Sink
+    Public Sub OnClick(ByVal v As Integer)
+        Console.WriteLine("Sink received: " & v)
     End Sub
 
-    Private Sub mButton_Click(ByVal x As Integer, ByVal y As Integer)
-        Console.WriteLine("clicked " & x & "," & y)
+    Public Sub Attach(ByVal src As Source)
+        AddHandler src.Click, AddressOf OnClick
     End Sub
 
-    Public Sub Run()
-        mButton.Press()
+    Public Sub Detach(ByVal src As Source)
+        RemoveHandler src.Click, AddressOf OnClick
     End Sub
 End Class
 
 Sub Main()
-    Dim form As Form
-    form = New Form()
-    form.Run()
+    Dim src As New Source()
+    Dim snk As New Sink()
+    
+    snk.Attach(src)
+    src.DoClick(100)
+    
+    snk.Detach(src)
+    src.DoClick(200) ' Should do nothing
+    
+    snk.Attach(src)
+    src.DoClick(300)
 End Sub

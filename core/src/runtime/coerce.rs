@@ -117,14 +117,26 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
             let v = value_to_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
             Ok(Value::FuncPtr(v as usize))
         }
-        TypeName::Nullable(inner) => {
-            if matches!(value, Value::Nothing | Value::Null | Value::Empty) {
+        TypeName::Nullable(inner) => match value {
+            Value::Nothing | Value::Null | Value::Empty => {
                 Ok(Value::Nullable(Box::new(Value::Nothing)))
-            } else {
+            }
+            Value::Nullable(inner_val) => {
+                if matches!(
+                    inner_val.as_ref(),
+                    Value::Nothing | Value::Null | Value::Empty
+                ) {
+                    Ok(Value::Nullable(Box::new(Value::Nothing)))
+                } else {
+                    let coerced_inner = coerce_assignment(inner, (*inner_val).clone(), span)?;
+                    Ok(Value::Nullable(Box::new(coerced_inner)))
+                }
+            }
+            _ => {
                 let inner_val = coerce_assignment(inner, value, span)?;
                 Ok(Value::Nullable(Box::new(inner_val)))
             }
-        }
+        },
         _ => {
             if ty.same_type(&value.type_name()) {
                 Ok(value)

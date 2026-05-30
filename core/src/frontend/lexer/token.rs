@@ -76,6 +76,8 @@ pub enum TokenKind {
     End,
     Dim,
     As,
+    AddHandler,
+    RemoveHandler,
     Async,
     Await,
     ByVal,

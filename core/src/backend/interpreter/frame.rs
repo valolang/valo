@@ -75,6 +75,7 @@ pub struct Frame {
     variables: HashMap<String, Variable>,
     return_slots: HashMap<String, Value>,
     module_key: Option<String>,
+    class_context: Option<String>,
     with_stack: Vec<Value>,
     yielded_values: Option<Vec<Value>>,
     resume_next: bool,
@@ -112,7 +113,18 @@ impl Frame {
         self.module_key.as_deref()
     }
 
+    pub(crate) fn set_class_context(&mut self, class_name: String) {
+        self.class_context = Some(class_name);
+    }
+
+    pub(crate) fn class_context(&self) -> Option<&str> {
+        self.class_context.as_deref()
+    }
+
     pub(crate) fn current_class_name(&self) -> Option<String> {
+        if let Some(context) = &self.class_context {
+            return Some(context.clone());
+        }
         self.variables
             .get("me")
             .and_then(|variable| match &variable.ty {
@@ -398,7 +410,7 @@ impl Frame {
         Ok(old)
     }
 
-    fn unknown_variable(&self, name: &str, span: Span) -> Diagnostic {
+    pub(crate) fn unknown_variable(&self, name: &str, span: Span) -> Diagnostic {
         Diagnostic::new(
             crate::runtime::DiagnosticCode::UNKNOWN_NAME,
             format!("Variable '{}' is not declared", name),

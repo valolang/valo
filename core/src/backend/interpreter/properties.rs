@@ -360,6 +360,139 @@ impl Interpreter {
         result
     }
 
+    pub(crate) fn call_property_accessor(
+        &mut self,
+        accessor: RuntimePropertyAccessor,
+        args: &[Value],
+        me: Option<Value>,
+        class_context: Option<String>,
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        self.call_stack.push(format!("Property {}", accessor.name));
+        self.scope_stack.push(format!("Property {}", accessor.name));
+        let result = (|| {
+            let mut frame = Frame::default();
+            frame.inherit_modules_from(caller_frame)?;
+            if let Some(ctx) = class_context {
+                frame.set_class_context(ctx);
+            }
+            if let Some(me_val) = me {
+                let class_name = match &me_val {
+                    Value::Object(obj) => obj.borrow().class_name.clone(),
+                    _ => "Object".to_string(), // fallback for primitives
+                };
+                if frame.class_context().is_none() {
+                    frame.set_class_context(class_name.clone());
+                }
+                if let Value::Object(obj_rc) = me_val {
+                    frame.declare_object_alias("me", &class_name, obj_rc, span)?;
+                }
+            }
+            self.bind_parameter_values(&accessor.params, args, &mut frame, span)?;
+            let return_type = self.resolve_type_name(
+                accessor.return_type.as_ref().expect("get return type"),
+                &frame,
+                span,
+            )?;
+            if !frame.has_variable(&accessor.name) {
+                frame.declare(
+                    &accessor.name,
+                    return_type.clone(),
+                    None,
+                    self.option_base,
+                    accessor.span,
+                    self,
+                )?;
+            }
+            if accessor.is_iterator {
+                frame.set_yield_mode();
+            }
+            let result = self.exec_block(&accessor.body, &mut frame);
+            match result? {
+                ControlFlow::Return(value) => {
+                    if accessor.is_iterator {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                            "Return is not allowed inside Iterator; use Yield or Exit Function",
+                            Some(accessor.span),
+                        ));
+                    }
+                    coerce_assignment(&return_type, value, span)
+                }
+                ControlFlow::Continue => {
+                    if accessor.is_iterator {
+                        let elements = frame.take_yielded_values().unwrap_or_default();
+                        let len = elements.len() as i64;
+                        Ok(Value::Array(Rc::new(crate::runtime::ArrayValue {
+                            element_type: return_type,
+                            elements,
+                            bounds: vec![crate::runtime::ArrayBound {
+                                lower: self.option_base,
+                                upper: self.option_base + len - 1,
+                            }],
+                            allocated: true,
+                            dynamic: true,
+                        })))
+                    } else {
+                        frame.get(&accessor.name, accessor.span)
+                    }
+                }
+                _ => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Exit statement escaped its block",
+                    Some(span),
+                )),
+            }
+        })();
+        self.scope_stack.pop();
+        self.call_stack.pop();
+        result
+    }
+
+    pub(crate) fn call_property_accessor_sub(
+        &mut self,
+        accessor: RuntimePropertyAccessor,
+        args: &[Value],
+        me: Option<Value>,
+        class_context: Option<String>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        self.call_stack.push(format!("Property {}", accessor.name));
+        self.scope_stack.push(format!("Property {}", accessor.name));
+        let result = (|| {
+            let mut frame = Frame::default();
+            if let Some(ctx) = class_context {
+                frame.set_class_context(ctx);
+            }
+            if let Some(me_val) = me {
+                let class_name = match &me_val {
+                    Value::Object(obj) => obj.borrow().class_name.clone(),
+                    _ => "Object".to_string(),
+                };
+                if frame.class_context().is_none() {
+                    frame.set_class_context(class_name.clone());
+                }
+                if let Value::Object(obj_rc) = me_val {
+                    frame.declare_object_alias("me", &class_name, obj_rc, span)?;
+                }
+            }
+            self.bind_parameter_values(&accessor.params, args, &mut frame, span)?;
+            let result = self.exec_block(&accessor.body, &mut frame);
+            match result? {
+                ControlFlow::Continue => Ok(()),
+                _ => Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                    "Exit statement escaped its block",
+                    Some(span),
+                )),
+            }
+        })();
+        self.scope_stack.pop();
+        self.call_stack.pop();
+        result
+    }
+
     pub(crate) fn call_property_set(
         &mut self,
         object: Value,
@@ -467,6 +600,12 @@ pub(crate) struct RuntimeProperty {
     pub(crate) get: Option<RuntimePropertyAccessor>,
     pub(crate) let_: Option<RuntimePropertyAccessor>,
     pub(crate) set: Option<RuntimePropertyAccessor>,
+}
+
+impl RuntimeProperty {
+    pub(crate) fn let_set(&self) -> Option<&RuntimePropertyAccessor> {
+        self.set.as_ref().or(self.let_.as_ref())
+    }
 }
 
 #[derive(Debug, Clone)]

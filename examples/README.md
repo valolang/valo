@@ -22,6 +22,8 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 *   **[Loops](for_loop.valo):** [For](for_loop.valo), [For Each](for_each.valo), [Do Loop](do_loop.valo), and [Exit](exit.valo) behavior.
 *   **[With Block](with_block.valo):** Ergonomic member access for objects and types.
 
+*   **[Short-circuiting](short_circuit.valo):** `AndAlso` and `OrElse` behavior.
+
 ## Procedures and Modules
 
 *   **[Subs](subs.valo) & [Functions](functions.valo):** Procedure definitions.
@@ -39,10 +41,10 @@ This directory contains a comprehensive set of examples demonstrating Valo's fea
 *   **[Generic Inheritance](generic_inheritance.valo):** Generic base classes.
 *   **[Interface Polymorphism](interface_polymorphism.valo):** Interface implementation dispatch.
 *   **[Properties](properties.valo):** Property Get/Let/Set accessors.
-*   **[VB.NET Properties](vbnet_properties.valo):** Auto-properties, full property blocks, `ReadOnly`, and `WriteOnly`.
+*   **[VB.NET Properties](vbnet_properties.valo):** Auto-properties, full property blocks, `ReadOnly`, `WriteOnly`, and [Shared Properties](shared_auto_property.valo).
 *   **[Native Lifecycle](native_class_lifecycle.valo):** `Sub New` and `Sub Terminate` support.
 *   **[Using Dispose](using_dispose.valo):** Deterministic cleanup with `Using` and `Dispose`.
-*   **[Events](events.valo):** Declaring and raising events.
+*   **[Events](events.valo):** Declaring, raising, and dynamic binding using `AddHandler` / `RemoveHandler`. [Global Handlers](events_global.valo) example.
 *   **[Default Properties](default_properties.valo):** [Native](native_default_property.valo) and [Indexer Style](indexer_style.valo) default members.
 *   **[Nothing](nothing.valo):** Object reference management and `Is Nothing` checks.
 

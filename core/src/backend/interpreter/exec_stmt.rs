@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use crate::runtime::{Diagnostic, RuntimeErrorInfo, TypeName, Value};
 use crate::{
-    AssignTarget, CaseItem, DoLoopCondition, ExitTarget, OnErrorMode, ReDimTarget, ResumeTarget,
-    Stmt, UsingResource,
+    AssignTarget, CaseItem, DoLoopCondition, ExitTarget, ExprKind, OnErrorMode, ReDimTarget,
+    ResumeTarget, Stmt, UsingResource,
 };
 
 use super::values::key;
@@ -322,6 +322,118 @@ impl Interpreter {
             }
             Stmt::RaiseEvent { name, args, span } => {
                 self.raise_event(name, args, frame, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::AddHandler {
+                event,
+                handler,
+                span,
+            } => {
+                let (object_val, event_name) = match &event.kind {
+                    ExprKind::MemberAccess { object, field } => {
+                        (self.eval_expr(object, frame)?, field.clone())
+                    }
+                    _ => unreachable!("validated in semantic phase"),
+                };
+                let (target_obj, handler_name) = match &handler.kind {
+                    ExprKind::AddressOf(inner) => match &inner.kind {
+                        ExprKind::MemberAccess { object, field } => {
+                            let obj = self.eval_expr(object, frame)?;
+                            let Value::Object(obj_rc) = obj else {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                    "Handler target must be an object",
+                                    Some(object.span),
+                                ));
+                            };
+                            (Value::Object(obj_rc), field.clone())
+                        }
+                        ExprKind::Variable(name) => {
+                            // If it's a simple variable name, we check if it's a member of "me".
+                            // If so, it's a method call. Otherwise it's global.
+                            if let Ok(Value::Object(me_rc)) = frame.get("me", *span) {
+                                let class_name = me_rc.borrow().class_name.clone();
+                                if let Some(class) = self.classes.get(&key(&class_name)) {
+                                    if class.subs.contains_key(&key(name))
+                                        || class.functions.contains_key(&key(name))
+                                    {
+                                        (Value::Object(me_rc), name.clone())
+                                    } else {
+                                        (Value::Nothing, name.clone())
+                                    }
+                                } else {
+                                    (Value::Nothing, name.clone())
+                                }
+                            } else {
+                                (Value::Nothing, name.clone())
+                            }
+                        }
+                        _ => unreachable!("validated in semantic phase"),
+                    },
+                    _ => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "AddHandler requires AddressOf for the handler argument",
+                            Some(handler.span),
+                        ));
+                    }
+                };
+                self.add_handler(object_val, &event_name, target_obj, &handler_name, *span)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::RemoveHandler {
+                event,
+                handler,
+                span,
+            } => {
+                let (object_val, event_name) = match &event.kind {
+                    ExprKind::MemberAccess { object, field } => {
+                        (self.eval_expr(object, frame)?, field.clone())
+                    }
+                    _ => unreachable!("validated in semantic phase"),
+                };
+                let (target_obj, handler_name) = match &handler.kind {
+                    ExprKind::AddressOf(inner) => match &inner.kind {
+                        ExprKind::MemberAccess { object, field } => {
+                            let obj = self.eval_expr(object, frame)?;
+                            let Value::Object(obj_rc) = obj else {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                                    "Handler target must be an object",
+                                    Some(object.span),
+                                ));
+                            };
+                            (Value::Object(obj_rc), field.clone())
+                        }
+                        ExprKind::Variable(name) => {
+                            if let Ok(Value::Object(me_rc)) = frame.get("me", *span) {
+                                let class_name = me_rc.borrow().class_name.clone();
+                                if let Some(class) = self.classes.get(&key(&class_name)) {
+                                    if class.subs.contains_key(&key(name))
+                                        || class.functions.contains_key(&key(name))
+                                    {
+                                        (Value::Object(me_rc), name.clone())
+                                    } else {
+                                        (Value::Nothing, name.clone())
+                                    }
+                                } else {
+                                    (Value::Nothing, name.clone())
+                                }
+                            } else {
+                                (Value::Nothing, name.clone())
+                            }
+                        }
+                        _ => unreachable!("validated in semantic phase"),
+                    },
+                    _ => {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::GENERIC,
+                            "RemoveHandler requires AddressOf for the handler argument",
+                            Some(handler.span),
+                        ));
+                    }
+                };
+                self.remove_handler(object_val, &event_name, target_obj, &handler_name, *span)?;
                 Ok(ControlFlow::Continue)
             }
             Stmt::Return { expr, .. } => {
@@ -1109,14 +1221,18 @@ impl Interpreter {
                 if frame.has_variable(name) {
                     let old = frame.assign(name, value, span)?;
                     self.maybe_terminate(old, span)
-                } else {
-                    let owner_variable = frame.variable("me", span)?;
+                } else if let Ok(owner_variable) = frame.variable("me", span) {
                     if matches!(&*owner_variable.borrow(), Value::Record(_)) {
                         self.assign_member_to_variable(owner_variable, name, value, span)
                     } else {
                         let owner = owner_variable.borrow().clone();
                         self.assign_bare_class_field(owner, name, value, span)
                     }
+                } else if let Some(class_name) = frame.class_context() {
+                    let class_name = class_name.to_string();
+                    self.write_shared_member(&class_name, name, value, span)
+                } else {
+                    Err(frame.unknown_variable(name, span))
                 }
             }
             AssignTarget::ArrayElement { name, indices, .. } => {
@@ -1350,6 +1466,8 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::SubCall { span, .. }
         | Stmt::MemberSubCall { span, .. }
         | Stmt::RaiseEvent { span, .. }
+        | Stmt::AddHandler { span, .. }
+        | Stmt::RemoveHandler { span, .. }
         | Stmt::Return { span, .. }
         | Stmt::If { span, .. }
         | Stmt::SelectCase { span, .. }

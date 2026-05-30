@@ -23,4 +23,15 @@ Sub Main()
     ' Nullable String (Reference type)
     Dim s As String? = Nothing
     Console.WriteLine("s is nothing? " & (s Is Nothing))
+    
+    ' Lifted Operators
+    Dim a As Integer? = 10
+    Dim b As Integer? = Nothing
+    Dim sum As Integer? = a + b
+    Console.WriteLine("10 + Nothing is nothing? " & (sum Is Nothing))
+    
+    a = 10
+    b = 20
+    sum = a + b
+    Console.WriteLine("10 + 20 = " & sum.Value)
 End Sub

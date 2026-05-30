@@ -898,6 +898,80 @@ impl Interpreter {
         result
     }
 
+    pub(crate) fn call_sub_values(
+        &mut self,
+        name: &str,
+        args: &[Value],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let module_key = self.resolve_sub_module(name, caller_frame, span)?;
+        let lookup = qualified_key(module_key.as_deref(), name);
+        let procedure = self.procedures.get(&lookup).cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Sub '{}' is not defined", name),
+                Some(span),
+            )
+        })?;
+
+        self.call_stack.push(format!("Sub '{}'", procedure.name));
+        self.scope_stack.push(format!("Sub {}", procedure.name));
+        let result = (|| {
+            let mut frame = Frame::default();
+            if let Some(module_key) = &module_key {
+                frame = self.module_frames.get(module_key).cloned().ok_or_else(|| {
+                    Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Module '{}' is not loaded", module_key),
+                        Some(span),
+                    )
+                })?;
+                frame.set_module_key(module_key.clone());
+            } else {
+                frame.inherit_modules_from(caller_frame)?;
+            }
+            self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
+
+            match self.exec_block(&procedure.body, &mut frame)? {
+                ControlFlow::Continue | ControlFlow::ExitSub | ControlFlow::ExitFunction => {}
+                ControlFlow::Return(_) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Return with value is not allowed in Sub",
+                        Some(span),
+                    ));
+                }
+                ControlFlow::GoTo(label) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        format!("Label '{}' not found in procedure", label),
+                        Some(span),
+                    ));
+                }
+                ControlFlow::ExitFor | ControlFlow::ExitDo | ControlFlow::ExitWhile => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Exit loop statement outside of a loop",
+                        Some(span),
+                    ));
+                }
+                ControlFlow::Resume(_) => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                        "Resume statement outside of an error handler",
+                        Some(span),
+                    ));
+                }
+                ControlFlow::Terminate => {}
+            }
+            Ok(())
+        })();
+        self.scope_stack.pop();
+        self.call_stack.pop();
+        result
+    }
+
     pub(crate) fn call_sub(
         &mut self,
         name: &str,
@@ -1301,6 +1375,91 @@ impl Interpreter {
         ))
     }
 
+    pub(crate) fn call_shared_property_get(
+        &mut self,
+        class_name: &str,
+        property_name: &str,
+        args: &[Expr],
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<Value, Diagnostic> {
+        let class = self.classes.get(&key(class_name)).ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Class '{}' is not defined", class_name),
+                Some(span),
+            )
+        })?;
+        let prop = class.properties.get(&key(property_name)).ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Class '{}' has no property '{}'", class_name, property_name),
+                Some(span),
+            )
+        })?;
+        let get = prop.get.as_ref().cloned().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Property '{}' has no Get accessor", property_name),
+                Some(span),
+            )
+        })?;
+
+        // Evaluate arguments before calling accessor
+        let mut eval_args = Vec::with_capacity(args.len());
+        for arg in args {
+            eval_args.push(self.eval_expr(arg, caller_frame)?);
+        }
+        let me = caller_frame.get("me", span).ok();
+        self.call_property_accessor(
+            get,
+            &eval_args,
+            me,
+            Some(class_name.to_string()),
+            caller_frame,
+            span,
+        )
+    }
+
+    pub(crate) fn call_shared_property_set(
+        &mut self,
+        class_name: &str,
+        property_name: &str,
+        value: Value,
+        caller_frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let class = self.classes.get(&key(class_name)).ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                format!("Class '{}' is not defined", class_name),
+                Some(span),
+            )
+        })?;
+        let prop = class.properties.get(&key(property_name)).ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Class '{}' has no property '{}'", class_name, property_name),
+                Some(span),
+            )
+        })?;
+        let set = prop.let_set().ok_or_else(|| {
+            Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!("Property '{}' has no Set/Let accessor", property_name),
+                Some(span),
+            )
+        })?;
+        let me = caller_frame.get("me", span).ok();
+        self.call_property_accessor_sub(
+            set.clone(),
+            &[value],
+            me,
+            Some(class_name.to_string()),
+            span,
+        )
+    }
+
     pub(crate) fn call_method_sub(
         &mut self,
         object: Value,
@@ -1405,6 +1564,7 @@ impl Interpreter {
             frame.set_module_key(module_key.to_string());
         }
         frame.declare_object_alias("me", &class.name, instance, span)?;
+        frame.set_class_context(class.name.clone());
         self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         self.scope_stack
@@ -1529,6 +1689,7 @@ impl Interpreter {
             frame.set_module_key(module_key.to_string());
         }
         frame.declare_object_alias("me", &class.name, instance, span)?;
+        frame.set_class_context(class.name.clone());
         self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
         self.scope_stack
@@ -1982,6 +2143,7 @@ impl Interpreter {
             frame.set_module_key(module_key.to_string());
         }
         frame.declare_object_alias("me", &class.name, instance, span)?;
+        frame.set_class_context(class.name.clone());
         self.bind_class_constants(&class, &mut frame)?;
         let return_type = self.resolve_type_name(&function.return_type, &frame, span)?;
         if !frame.has_variable(&function.name) {

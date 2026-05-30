@@ -1178,10 +1178,25 @@ pub(super) fn validate_expr(
             }
         }
         ExprKind::Binary { left, op, right } => {
-            let left_type =
+            let left_type_raw =
                 validate_expr(left, symbols, types, signatures, context, option_explicit)?;
-            let right_type =
+            let right_type_raw =
                 validate_expr(right, symbols, types, signatures, context, option_explicit)?;
+
+            let is_nullable = matches!(left_type_raw, TypeName::Nullable(_))
+                || matches!(right_type_raw, TypeName::Nullable(_));
+
+            let left_type = if let TypeName::Nullable(inner) = &left_type_raw {
+                (**inner).clone()
+            } else {
+                left_type_raw.clone()
+            };
+
+            let right_type = if let TypeName::Nullable(inner) = &right_type_raw {
+                (**inner).clone()
+            } else {
+                right_type_raw.clone()
+            };
 
             let operator_kind = match op {
                 BinaryOp::Add => Some(crate::OperatorKind::Add),
@@ -1205,11 +1220,19 @@ pub(super) fn validate_expr(
                 _ => None,
             };
 
+            let wrap_nullable = |ty: TypeName| -> TypeName {
+                if is_nullable {
+                    TypeName::Nullable(Box::new(ty))
+                } else {
+                    ty
+                }
+            };
+
             if let Some(kind) = operator_kind
                 && let Some(res_ty) =
                     find_overloaded_binary_operator(&left_type, kind, &right_type, types)
             {
-                return Ok(res_ty);
+                return Ok(wrap_nullable(res_ty));
             }
 
             match op {
@@ -1221,20 +1244,25 @@ pub(super) fn validate_expr(
                 | BinaryOp::IntegerDivide
                 | BinaryOp::Modulo => {
                     if is_numeric_type(&left_type) && is_numeric_type(&right_type) {
-                        if left_type == TypeName::Double || right_type == TypeName::Double {
-                            Ok(TypeName::Double)
-                        } else if left_type == TypeName::Single || right_type == TypeName::Single {
-                            Ok(TypeName::Single)
+                        let base_ty = if left_type.same_type(&TypeName::Double)
+                            || right_type.same_type(&TypeName::Double)
+                        {
+                            TypeName::Double
+                        } else if left_type.same_type(&TypeName::Single)
+                            || right_type.same_type(&TypeName::Single)
+                        {
+                            TypeName::Single
                         } else {
-                            Ok(TypeName::Int64)
-                        }
+                            TypeName::Int64
+                        };
+                        Ok(wrap_nullable(base_ty))
                     } else {
                         ensure_assignable(&TypeName::Int64, &left_type, left.span)?;
                         ensure_assignable(&TypeName::Int64, &right_type, right.span)?;
-                        Ok(TypeName::Int64)
+                        Ok(wrap_nullable(TypeName::Int64))
                     }
                 }
-                BinaryOp::Concat => Ok(TypeName::String),
+                BinaryOp::Concat => Ok(wrap_nullable(TypeName::String)),
                 BinaryOp::LogicalAnd
                 | BinaryOp::LogicalAndAlso
                 | BinaryOp::LogicalOr
@@ -4219,6 +4247,12 @@ pub(super) fn ensure_assignable(
         || is_inherited_class_assignable(target, source)
         || (matches!(target, TypeName::Nullable(_))
             && (matches!(source, TypeName::Variant) || matches!(source, TypeName::User(_))))
+        || (matches!(source, TypeName::Nullable(_)) && matches!(target, TypeName::Variant))
+        || (if let (TypeName::Nullable(t_inner), TypeName::Nullable(s_inner)) = (target, source) {
+            ensure_assignable(t_inner, s_inner, span).is_ok()
+        } else {
+            false
+        })
         || (if let TypeName::Nullable(inner) = target {
             ensure_assignable(inner, source, span).is_ok()
         } else {

@@ -37,6 +37,48 @@ pub fn eval_binary(
     compare: RuntimeOptionCompare,
     span: Span,
 ) -> Result<Value, Diagnostic> {
+    if matches!(left, Value::Nullable(_)) || matches!(right, Value::Nullable(_)) {
+        let left_inner = if let Value::Nullable(box_val) = left {
+            *box_val
+        } else {
+            left
+        };
+        let right_inner = if let Value::Nullable(box_val) = right {
+            *box_val
+        } else {
+            right
+        };
+
+        // If either is Nothing, the result of lifted arithmetic/logic is Nothing
+        // Note: logical operations (And/Or) have special three-valued logic rules in VB.NET,
+        // but for simplicity we propagate Nothing.
+        if matches!(left_inner, Value::Nothing) || matches!(right_inner, Value::Nothing) {
+            match op {
+                RuntimeBinaryOp::Is | RuntimeBinaryOp::IsNot => {
+                    // Is/IsNot compare the object references directly, so let it fall through
+                }
+                RuntimeBinaryOp::Concat => {
+                    // String concatenation treats Nothing as ""
+                }
+                _ => return Ok(Value::Nullable(Box::new(Value::Nothing))),
+            }
+        }
+
+        let result = eval_binary(left_inner, op, right_inner, compare, span)?;
+        return match op {
+            RuntimeBinaryOp::Equal
+            | RuntimeBinaryOp::NotEqual
+            | RuntimeBinaryOp::Is
+            | RuntimeBinaryOp::IsNot
+            | RuntimeBinaryOp::Like
+            | RuntimeBinaryOp::Less
+            | RuntimeBinaryOp::Greater
+            | RuntimeBinaryOp::LessEqual
+            | RuntimeBinaryOp::GreaterEqual => Ok(result),
+            _ => Ok(Value::Nullable(Box::new(result))),
+        };
+    }
+
     match op {
         RuntimeBinaryOp::Add => {
             math_binary(left, right, span, |a, b| a.wrapping_add(b), |a, b| a + b)

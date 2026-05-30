@@ -76,6 +76,16 @@ pub enum Stmt {
         args: Vec<Expr>,
         span: Span,
     },
+    AddHandler {
+        event: Expr,
+        handler: Expr,
+        span: Span,
+    },
+    RemoveHandler {
+        event: Expr,
+        handler: Expr,
+        span: Span,
+    },
     Return {
         expr: Expr,
         span: Span,
@@ -575,6 +585,24 @@ impl Stmt {
                     .iter()
                     .map(|arg| arg.substitute_generics(bindings))
                     .collect(),
+                span: *span,
+            },
+            Stmt::AddHandler {
+                event,
+                handler,
+                span,
+            } => Stmt::AddHandler {
+                event: event.substitute_generics(bindings),
+                handler: handler.substitute_generics(bindings),
+                span: *span,
+            },
+            Stmt::RemoveHandler {
+                event,
+                handler,
+                span,
+            } => Stmt::RemoveHandler {
+                event: event.substitute_generics(bindings),
+                handler: handler.substitute_generics(bindings),
                 span: *span,
             },
             Stmt::Return { expr, span } => Stmt::Return {

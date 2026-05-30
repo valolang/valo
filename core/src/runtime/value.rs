@@ -216,15 +216,20 @@ impl PartialEq for ComObjectValue {
 #[derive(Debug, Clone)]
 pub struct EventBinding {
     pub event_name: String,
-    pub target: Rc<RefCell<ObjectValue>>,
+    pub target: Value,
     pub handler_name: String,
 }
 
 impl PartialEq for EventBinding {
     fn eq(&self, other: &Self) -> bool {
         self.event_name.eq_ignore_ascii_case(&other.event_name)
-            && Rc::ptr_eq(&self.target, &other.target)
             && self.handler_name.eq_ignore_ascii_case(&other.handler_name)
+            && match (&self.target, &other.target) {
+                (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
+                (Value::Collection(a), Value::Collection(b)) => Rc::ptr_eq(a, b),
+                (Value::Nothing, Value::Nothing) => true,
+                (a, b) => a == b,
+            }
     }
 }
 

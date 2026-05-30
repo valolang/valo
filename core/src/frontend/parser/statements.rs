@@ -64,6 +64,8 @@ impl Parser {
             TokenKind::LSet => self.parse_lset(),
             TokenKind::RSet => self.parse_rset(),
             TokenKind::RaiseEvent => self.parse_raise_event(),
+            TokenKind::AddHandler => self.parse_add_handler(),
+            TokenKind::RemoveHandler => self.parse_remove_handler(),
             TokenKind::Let => self.parse_let_assignment(),
             TokenKind::Call => self.parse_call_statement(),
             TokenKind::Set => self.parse_set_assignment(),
@@ -986,6 +988,36 @@ impl Parser {
         Ok(Stmt::RaiseEvent {
             name,
             args,
+            span: Span::new(self.file_id, start.start, end.end),
+        })
+    }
+
+    fn parse_add_handler(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::AddHandler, "Expected 'AddHandler'")?
+            .span;
+        let event = self.parse_expression()?;
+        self.expect_simple(TokenKind::Comma, "Expected ',' after event expression")?;
+        let handler = self.parse_expression()?;
+        let end = self.previous().span;
+        Ok(Stmt::AddHandler {
+            event,
+            handler,
+            span: Span::new(self.file_id, start.start, end.end),
+        })
+    }
+
+    fn parse_remove_handler(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self
+            .expect_simple(TokenKind::RemoveHandler, "Expected 'RemoveHandler'")?
+            .span;
+        let event = self.parse_expression()?;
+        self.expect_simple(TokenKind::Comma, "Expected ',' after event expression")?;
+        let handler = self.parse_expression()?;
+        let end = self.previous().span;
+        Ok(Stmt::RemoveHandler {
+            event,
+            handler,
             span: Span::new(self.file_id, start.start, end.end),
         })
     }

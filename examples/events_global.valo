@@ -1,0 +1,27 @@
+' AddHandler with Global Sub Test
+
+Class Source
+    Public Event Click(ByVal value As Integer)
+
+    Public Sub DoClick(ByVal v As Integer)
+        RaiseEvent Click(v)
+    End Sub
+End Class
+
+Sub GlobalHandler(ByVal v As Integer)
+    Console.WriteLine("Global received: " & v)
+End Sub
+
+Class Sink
+    Public Sub Attach(ByVal src As Source)
+        AddHandler src.Click, AddressOf GlobalHandler
+    End Sub
+End Class
+
+Sub Main()
+    Dim src As New Source()
+    Dim snk As New Sink()
+    
+    snk.Attach(src)
+    src.DoClick(100)
+End Sub

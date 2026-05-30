@@ -276,15 +276,66 @@ impl Interpreter {
         let bindings = source.borrow().event_bindings.clone();
         for binding in bindings {
             if binding.event_name.eq_ignore_ascii_case(name) {
-                self.call_method_sub_values(
-                    Value::Object(binding.target.clone()),
-                    &binding.handler_name,
-                    &values,
-                    frame,
-                    span,
-                )?;
+                if matches!(binding.target, Value::Nothing) {
+                    self.call_sub_values(&binding.handler_name, &values, frame, span)?;
+                } else {
+                    self.call_method_sub_values(
+                        binding.target.clone(),
+                        &binding.handler_name,
+                        &values,
+                        frame,
+                        span,
+                    )?;
+                }
             }
         }
+        Ok(())
+    }
+
+    pub(crate) fn add_handler(
+        &mut self,
+        source: Value,
+        event_name: &str,
+        target: Value,
+        handler_name: &str,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Value::Object(source) = source else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Event source must be an object",
+                Some(span),
+            ));
+        };
+        source.borrow_mut().event_bindings.push(EventBinding {
+            event_name: event_name.to_string(),
+            target,
+            handler_name: handler_name.to_string(),
+        });
+        Ok(())
+    }
+
+    pub(crate) fn remove_handler(
+        &mut self,
+        source: Value,
+        event_name: &str,
+        target: Value,
+        handler_name: &str,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Value::Object(source) = source else {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                "Event source must be an object",
+                Some(span),
+            ));
+        };
+        let mut source = source.borrow_mut();
+        source.event_bindings.retain(|b| {
+            !(b.event_name.eq_ignore_ascii_case(event_name)
+                && b.target == target
+                && b.handler_name.eq_ignore_ascii_case(handler_name))
+        });
         Ok(())
     }
 
@@ -567,16 +618,22 @@ impl Interpreter {
         {
             return Ok(value.clone());
         }
-        let class = self.classes.get(&key(&class_name)).ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Class '{}' is not defined", class_name),
+        if let Some(class) = self.classes.get(&key(&class_name)) {
+            if class.properties.contains_key(&key(member)) {
+                return self.call_shared_property_get(&class_name, member, &[], frame, span);
+            }
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!(
+                    "Class '{}' has no Shared field or property '{}'",
+                    class.name, member
+                ),
                 Some(span),
-            )
-        })?;
+            ));
+        }
         Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!("Class '{}' has no Shared field '{}'", class.name, member),
+            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+            format!("Class '{}' is not defined", class_name),
             Some(span),
         ))
     }
@@ -596,9 +653,28 @@ impl Interpreter {
             *slot = coerce_assignment(&ty, value, span)?;
             return Ok(());
         }
+        if let Some(class) = self.classes.get(&key(&class_name)) {
+            if class.properties.contains_key(&key(member)) {
+                return self.call_shared_property_set(
+                    &class_name,
+                    member,
+                    value,
+                    &mut Frame::default(),
+                    span,
+                );
+            }
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
+                format!(
+                    "Class '{}' has no Shared field or property '{}'",
+                    class.name, member
+                ),
+                Some(span),
+            ));
+        }
         Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-            format!("Class '{}' has no Shared field '{}'", class_name, member),
+            crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+            format!("Class '{}' is not defined", class_name),
             Some(span),
         ))
     }
@@ -641,8 +717,10 @@ impl Interpreter {
                     let variable = frame.variable(name, target.span)?;
                     return self.assign_member_to_variable(variable, member, value, span);
                 }
-                if self.classes.contains_key(&key(name)) {
-                    self.write_shared_member(name, member, value, span)?;
+                if let Ok(resolved) = self.resolve_user_type_name(name, frame, span)
+                    && self.classes.contains_key(&key(&resolved))
+                {
+                    self.write_shared_member(&resolved, member, value, span)?;
                     return Ok(());
                 }
                 let variable = frame.variable(name, target.span)?;
@@ -818,6 +896,11 @@ impl Interpreter {
                 .is_some_and(|fields| fields.contains_key(&key(field)))
             {
                 return self.write_shared_member(&class_name, field, value, span);
+            }
+            if let Some(class) = self.classes.get(&key(&class_name))
+                && class.properties.contains_key(&key(field))
+            {
+                return self.call_property_set(owner.clone(), field, value, span);
             }
         }
         let mut owner_value = owner;
@@ -1461,31 +1544,33 @@ impl Interpreter {
         };
         if let Value::Object(source) = old_value {
             source.borrow_mut().event_bindings.retain(|binding| {
-                !(Rc::ptr_eq(&binding.target, &owner)
+                let target_matches = match (&binding.target, &Value::Object(owner.clone())) {
+                    (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
+                    (a, b) => a == b,
+                };
+                !(target_matches
                     && binding
                         .handler_name
                         .to_ascii_lowercase()
                         .starts_with(&format!("{}_", field_sig.name.to_ascii_lowercase())))
             });
         }
-        let Value::Object(source) = value else {
-            return;
-        };
-        let source_class_name = source.borrow().class_name.clone();
-        let Some(source_class) = self.classes.get(&key(&source_class_name)) else {
-            return;
-        };
-        let mut bindings = Vec::new();
-        for event in source_class.events.values() {
-            let handler_name = format!("{}_{}", field_sig.name, event.name);
-            if owner_class.subs.contains_key(&key(&handler_name)) {
-                bindings.push(EventBinding {
-                    event_name: event.name.clone(),
-                    target: owner.clone(),
-                    handler_name,
-                });
+        if let Value::Object(source) = value {
+            let mut bindings = Vec::new();
+            let source_class_name = source.borrow().class_name.clone();
+            if let Some(source_class) = self.classes.get(&key(&source_class_name)) {
+                for event in source_class.events.values() {
+                    let handler_name = format!("{}_{}", field_sig.name, event.name);
+                    if owner_class.subs.contains_key(&key(&handler_name)) {
+                        bindings.push(EventBinding {
+                            event_name: event.name.clone(),
+                            target: Value::Object(owner.clone()),
+                            handler_name,
+                        });
+                    }
+                }
             }
+            source.borrow_mut().event_bindings.extend(bindings);
         }
-        source.borrow_mut().event_bindings.extend(bindings);
     }
 }

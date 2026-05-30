@@ -148,6 +148,8 @@ pub fn value_to_i64(v: &Value) -> Option<i64> {
         Value::Date(n) => Some(*n as i64),
         Value::Ptr(n) => Some(*n as i64),
         Value::FuncPtr(n) => Some(*n as i64),
+        Value::Nothing | Value::Null | Value::Empty => Some(0),
+        Value::Nullable(inner) => value_to_i64(inner),
         _ => None,
     }
 }
@@ -167,6 +169,8 @@ pub fn value_to_u64(v: &Value) -> Option<u64> {
         Value::Boolean(b) => Some(if *b { 1 } else { 0 }),
         Value::Ptr(n) => Some(*n as u64),
         Value::FuncPtr(n) => Some(*n as u64),
+        Value::Nothing | Value::Null | Value::Empty => Some(0),
+        Value::Nullable(inner) => value_to_u64(inner),
         _ => None,
     }
 }
@@ -187,6 +191,8 @@ pub fn value_to_f64(v: &Value) -> Option<f64> {
         Value::Date(n) => Some(*n),
         Value::Ptr(n) => Some(*n as f64),
         Value::FuncPtr(n) => Some(*n as f64),
+        Value::Nothing | Value::Null | Value::Empty => Some(0.0),
+        Value::Nullable(inner) => value_to_f64(inner),
         _ => None,
     }
 }

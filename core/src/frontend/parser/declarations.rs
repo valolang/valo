@@ -4,6 +4,7 @@ use crate::runtime::{Diagnostic, Span, TypeName};
 #[derive(Clone)]
 struct VbNetPropertyHeader {
     visibility: Visibility,
+    is_shared: bool,
     is_default: bool,
     is_readonly: bool,
     is_writeonly: bool,
@@ -407,6 +408,7 @@ impl Parser {
             TokenKind::Property => {
                 let mut members = self.parse_class_property_members(
                     visibility,
+                    is_shared,
                     is_default,
                     is_iterator,
                     is_readonly,
@@ -633,6 +635,7 @@ impl Parser {
     fn parse_class_property_members(
         &mut self,
         visibility: Visibility,
+        is_shared: bool,
         is_default: bool,
         is_iterator: bool,
         is_readonly: bool,
@@ -659,12 +662,19 @@ impl Parser {
             return Ok(vec![ClassMember::Property(property)]);
         }
 
-        self.parse_vbnet_property_members(visibility, is_default, is_readonly, is_writeonly)
+        self.parse_vbnet_property_members(
+            visibility,
+            is_shared,
+            is_default,
+            is_readonly,
+            is_writeonly,
+        )
     }
 
     fn parse_vbnet_property_members(
         &mut self,
         visibility: Visibility,
+        is_shared: bool,
         is_default: bool,
         is_readonly: bool,
         is_writeonly: bool,
@@ -698,6 +708,7 @@ impl Parser {
             }
             return self.parse_vbnet_block_property(VbNetPropertyHeader {
                 visibility,
+                is_shared,
                 is_default,
                 is_readonly,
                 is_writeonly,
@@ -714,6 +725,7 @@ impl Parser {
         self.lower_auto_property(
             VbNetPropertyHeader {
                 visibility,
+                is_shared,
                 is_default,
                 is_readonly,
                 is_writeonly,
@@ -860,7 +872,7 @@ impl Parser {
         let backing_name = format!("__valo_auto_property_{}", header.name);
         let field = ClassMember::Field(ClassField {
             visibility: Visibility::Private,
-            is_shared: false,
+            is_shared: header.is_shared,
             with_events: false,
             name: backing_name.clone(),
             ty: Some(header.ty.clone()),
@@ -873,7 +885,7 @@ impl Parser {
             members.push(ClassMember::Property(ClassProperty {
                 visibility: header.visibility,
                 override_kind: OverrideKind::None,
-                is_shared: false,
+                is_shared: header.is_shared,
                 implements: Vec::new(),
                 is_default: header.is_default,
                 is_enumerator: false,
@@ -898,7 +910,7 @@ impl Parser {
             members.push(ClassMember::Property(ClassProperty {
                 visibility: header.visibility,
                 override_kind: OverrideKind::None,
-                is_shared: false,
+                is_shared: header.is_shared,
                 implements: Vec::new(),
                 is_default: false,
                 is_enumerator: false,
@@ -1460,6 +1472,7 @@ impl Parser {
             TokenKind::Property => {
                 let mut members = self.parse_class_property_members(
                     visibility,
+                    is_shared,
                     is_default,
                     false, // is_iterator
                     is_readonly,

@@ -1,0 +1,35 @@
+' Short-circuiting Operators Test
+' Demonstrates AndAlso and OrElse.
+
+Function ThrowError() As Boolean
+    Console.WriteLine("Side effect!")
+    Return True
+End Function
+
+Sub Main()
+    Dim b As Boolean = False
+    
+    ' OrElse: Second operand should NOT be evaluated if first is True
+    If True OrElse ThrowError() Then
+        Console.WriteLine("True OrElse ... worked")
+    End If
+    
+    ' AndAlso: Second operand should NOT be evaluated if first is False
+    If False AndAlso ThrowError() Then
+        ' nothing
+    Else
+        Console.WriteLine("False AndAlso ... worked")
+    End If
+    
+    ' Test with Nullables
+    Dim x As Integer? = Nothing
+    If x Is Nothing OrElse x.Value = 0 Then
+        Console.WriteLine("OrElse with Nullable worked")
+    End If
+    
+    ' This would crash if it didn't short-circuit
+    If x IsNot Nothing AndAlso x.Value = 42 Then
+        ' nothing
+    End If
+    Console.WriteLine("AndAlso with Nullable worked")
+End Sub
