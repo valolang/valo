@@ -4,6 +4,7 @@
 //! including the value system, type definitions, and diagnostics.
 //! It is designed to be independent of the execution backend.
 
+pub mod builtins;
 pub mod callable;
 mod coerce;
 pub mod com;

@@ -96,17 +96,17 @@ End Sub
 #[test]
 fn parses_structure_implements() {
     let source = r#"
-Public Interface IImprimivel
-    Sub Imprimir()
+Public Interface IPrintable
+    Sub Print()
 End Interface
 
-Public Structure DocumentoInfo
-    Implements IImprimivel
+Public Structure DocumentInfo
+    Implements IPrintable
 
-    Public Property Codigo As Integer
+    Public Property Code As Integer
 
-    Public Sub Imprimir() Implements IImprimivel.Imprimir
-        Console.WriteLine("Código: " & Codigo)
+    Public Sub Print() Implements IPrintable.Print
+        Console.WriteLine("Code: " & Code)
     End Sub
 End Structure
 
@@ -117,7 +117,7 @@ End Sub
     let program = Parser::parse_source(source, FileId::default()).unwrap();
     assert_eq!(program.types.len(), 1);
     let structure = &program.types[0];
-    assert_eq!(structure.name, "DocumentoInfo");
+    assert_eq!(structure.name, "DocumentInfo");
     assert_eq!(structure.implements.len(), 1);
     assert_eq!(structure.members.len(), 4); // Auto-property (field + Get + Let) + Sub
 }

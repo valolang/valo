@@ -1,5 +1,9 @@
 use super::*;
 use crate::runtime::Span;
+use crate::runtime::builtins::{
+    BOOLEAN_ONE_ARG_FUNCTIONS, INTEGER_ONE_ARG_FUNCTIONS, STRING_FIXED_ARG_FUNCTIONS,
+    STRING_ONE_ARG_FUNCTIONS, is_name_in, strip_vba_namespace,
+};
 
 #[derive(Clone, Copy)]
 pub(super) struct ExprValidation<'a, 'ctx> {
@@ -1475,11 +1479,7 @@ fn validate_builtin_function(
     let option_explicit = validation.option_explicit;
 
     // Handle VBA namespace fallback
-    let effective_name = if let Some(stripped) = name.strip_prefix("VBA.") {
-        stripped
-    } else {
-        name
-    };
+    let effective_name = strip_vba_namespace(name);
 
     if effective_name.eq_ignore_ascii_case("IsArray") {
         validate_arg_count(effective_name, args, 1, span)?;
@@ -1504,18 +1504,7 @@ fn validate_builtin_function(
         }
         return Ok(Some(TypeName::Boolean));
     }
-    let boolean_one_arg = [
-        "IsObject",
-        "IsNull",
-        "IsError",
-        "IsEmpty",
-        "IsNumeric",
-        "IsDate",
-    ];
-    if boolean_one_arg
-        .iter()
-        .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
-    {
+    if is_name_in(effective_name, BOOLEAN_ONE_ARG_FUNCTIONS) {
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
@@ -1609,23 +1598,8 @@ fn validate_builtin_function(
         }
         return Ok(Some(TypeName::Boolean));
     }
-    if effective_name.eq_ignore_ascii_case("VarType")
-        || effective_name.eq_ignore_ascii_case("Sgn")
-        || effective_name.eq_ignore_ascii_case("Int")
-        || effective_name.eq_ignore_ascii_case("Len")
-        || effective_name.eq_ignore_ascii_case("LenB")
-        || effective_name.eq_ignore_ascii_case("Asc")
-        || effective_name.eq_ignore_ascii_case("AscW")
+    if is_name_in(effective_name, INTEGER_ONE_ARG_FUNCTIONS)
         || effective_name.eq_ignore_ascii_case("FreeFile")
-        || effective_name.eq_ignore_ascii_case("LOF")
-        || effective_name.eq_ignore_ascii_case("Seek")
-        || effective_name.eq_ignore_ascii_case("FileLen")
-        || effective_name.eq_ignore_ascii_case("Year")
-        || effective_name.eq_ignore_ascii_case("Month")
-        || effective_name.eq_ignore_ascii_case("Day")
-        || effective_name.eq_ignore_ascii_case("Hour")
-        || effective_name.eq_ignore_ascii_case("Minute")
-        || effective_name.eq_ignore_ascii_case("Second")
     {
         let expected = if effective_name.eq_ignore_ascii_case("FreeFile") {
             0
@@ -2134,13 +2108,7 @@ fn validate_builtin_function(
         }
         return Ok(Some(TypeName::Integer));
     }
-    let string_one_arg = [
-        "Trim", "LTrim", "RTrim", "UCase", "LCase", "Chr", "ChrW", "Str", "Hex", "Oct", "Val",
-    ];
-    if string_one_arg
-        .iter()
-        .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
-    {
+    if is_name_in(effective_name, STRING_ONE_ARG_FUNCTIONS) {
         validate_arg_count(effective_name, args, 1, span)?;
         validate_expr(
             &args[0],
@@ -2157,11 +2125,7 @@ fn validate_builtin_function(
         };
         return Ok(Some(return_type));
     }
-    let string_two_arg = ["Left", "Right", "Space", "String"];
-    if string_two_arg
-        .iter()
-        .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
-    {
+    if is_name_in(effective_name, STRING_FIXED_ARG_FUNCTIONS) {
         validate_arg_count(
             effective_name,
             args,

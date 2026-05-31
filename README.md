@@ -51,7 +51,7 @@ JavaScript was once mostly tied to the browser. Node.js made it possible to use 
 
 Valo explores a similar direction for VBA-style programming.
 
-It is designed as a standalone evolution path for Basic/VBA-style development: familiar enough for VBA, VB6, and Visual Basic developers, but with modern language features, a clean runtime, professional diagnostics, modules, FFI, a REPL, release packaging, and a growing standard runtime surface.
+It is designed as a standalone evolution path for Basic/VBA-style development: familiar enough for VBA, VB6, and Visual Basic developers, but with modern language features, a clean runtime, professional diagnostics, modules, FFI, a REPL, project entrypoint discovery, and a growing standard runtime surface.
 
 Valo supports two complementary modes:
 
@@ -128,14 +128,16 @@ It already includes:
 - classes, interfaces, inheritance, structures, properties, events, and lifecycle hooks
 - generics for classes, structures, functions, and methods, including nested generic type names
 - parser support for VB.NET-style generic variance and constraint syntax
-- structures and classic VBA `Type`
+- native `Structure` value types and classic VBA `Type`
+- lambdas, extension methods, operator overloading, partial classes, iterators, nullable types, and collection initializers
+- `Option Explicit`, `Option Base`, `Option Compare`, and conditional compilation
 - deterministic cleanup and `Using`
 - VBA-compatible error handling
 - a diagnostics engine
 - a REPL and CLI
-- native FFI support
+- native FFI support through `Declare`, `PtrSafe`, callbacks, and pointer helpers
 - Windows COM/OLE Automation support through late-bound `Object`, `CreateObject`, and default-property dispatch
-- VBA compatibility runtime features
+- VBA compatibility runtime features, including string/date/time/file helpers and classic file-number I/O
 - cross-platform release packaging
 
 Valo is not yet a full production compiler. There is currently no bytecode VM, package manager, formatter, or complete standard library. Some compatibility features are intentionally pragmatic and still evolving.
@@ -293,6 +295,19 @@ End Sub
 
 Additional examples are available in the `examples/` directory.
 
+### More language features
+
+Valo also includes examples and tests for:
+
+- `AndAlso` / `OrElse` short-circuiting
+- nullable `T?` values with `.HasValue` and `.Value`
+- native and VBA-style default properties
+- static local variables
+- multidimensional arrays and `ReDim Preserve`
+- collection initializers and fluent LINQ-style extension APIs
+- async declaration syntax and immediate interpreter `Await` evaluation
+- `#If`, `#Const`, `Option Base`, and `Option Compare`
+
 ## Supported file types
 
 | Extension | Mode | Purpose |
@@ -340,7 +355,7 @@ valo> Console.WriteLine(x)
 
 ## Getting started
 
-Valo is currently experimental, but prebuilt releases are available for supported platforms.
+Valo is currently experimental. You can build from source, or use release assets when they are available for your platform.
 
 ### Install via script
 
@@ -419,8 +434,9 @@ Windows:
 
 ```sh
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test
+cargo test -p valo_core --test examples -- --nocapture
 cargo build --release
 ```
 
@@ -492,11 +508,14 @@ Currently supported areas include:
 - Windows COM/OLE Automation through `CreateObject`, late-bound calls/properties, and default-property syntax
 - file I/O compatibility runtime
 - `Dir`, `EOF`, `LOF`, `FreeFile`
+- `FileLen`, `FileDateTime`, `CurDir`, `MkDir`, `RmDir`, `ChDir`
+- `Timer`, `Now`, `DateSerial`, `TimeSerial`, `DateValue`, `TimeValue`, `Year`, `Month`, `Day`, `Hour`, `Minute`, `Second`, `Weekday`, `MonthName`, `WeekdayName`
+- string/runtime helpers such as `Len`, `LenB`, `Left$`, `Right$`, `Mid$`, `Trim$`, `Replace`, `InStr`, `InStrRev`, `Chr$`, `Asc`, `Hex$`, `Oct$`, `Val`, `Str`, `IsArray`, `IsNumeric`, `IsDate`, `VarType`, and `TypeName`
 - `Input #`, `Line Input #`
 - `Print #`, `Write #`
 - `Get #`, `Put #`
 - Random/Binary file modes
-- imported `.bas` / `.cls` compatibility improvements
+- automatic sibling loading for imported `.bas` / `.cls` compatibility modules
 
 Compatibility is pragmatic and growing.
 
@@ -544,6 +563,9 @@ Architecture docs:
 - [Runtime](docs/architecture/runtime.md)
 - [Parser](docs/architecture/parser.md)
 - [Diagnostics](docs/architecture/diagnostics.md)
+- [Module System](docs/architecture/modules.md)
+- [Platform](docs/architecture/platform.md)
+- [Roadmap](docs/architecture/roadmap.md)
 
 ## Contributing
 
@@ -565,8 +587,9 @@ Before submitting changes, run:
 
 ```sh
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test
+cargo test -p valo_core --test examples -- --nocapture
 cargo build --release
 ```
 

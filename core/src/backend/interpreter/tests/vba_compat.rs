@@ -240,7 +240,7 @@ fn ansi_and_utf16_imports_decode() {
     .unwrap();
     fs::write(
         &ansi_path,
-        b"Function AnsiText() As String\nAnsiText = \"caf\xe9\"\nEnd Function\n",
+        b"Function AnsiText() As String\nAnsiText = \"na\xefve\"\nEnd Function\n",
     )
     .unwrap();
     let mut wide = vec![0xFF, 0xFE];
@@ -251,7 +251,7 @@ fn ansi_and_utf16_imports_decode() {
     fs::write(&utf16_path, wide).unwrap();
 
     let output = crate::run_file(&main_path).unwrap();
-    assert_eq!(output, vec!["café", "wide"]);
+    assert_eq!(output, vec!["naïve", "wide"]);
     fs::remove_dir_all(&dir).unwrap();
 }
 

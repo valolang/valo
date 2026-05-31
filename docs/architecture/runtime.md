@@ -1,6 +1,6 @@
 # Runtime Architecture
 
-The Valo Runtime defines the language's "soul"—its data types, object model, and core behaviors that must remain consistent regardless of whether code is interpreted or compiled.
+The Valo Runtime defines the language's core data types, object model, and behaviors that must remain consistent regardless of whether code is interpreted or compiled.
 
 ## The Value System (`core/src/runtime/value.rs`)
 
@@ -74,11 +74,16 @@ Platform ABI notes:
 
 ## Builtins
 
-Builtins are standard library functions that are baked into the runtime environment. They are categorized into domains:
+Builtins are standard runtime functions and host services exposed without user-defined imports. Runtime dispatch lives under `core/src/backend/interpreter/builtins/`, while shared builtin-name metadata lives in `core/src/runtime/builtins.rs` so frontend validation and backend dispatch do not maintain separate hardcoded lists.
+
+Builtins are grouped by domain:
+
 *   `Math`: `Sgn`, `Int`, `Rnd`, `Randomize`.
-*   `Strings`: `Split`, `Join`, `Filter`, `CStr`, `StrComp`.
+*   `Strings`: `Split`, `Join`, `Filter`, `CStr`, `StrComp`, `Len`, `Left`, `Right`, `Mid`, `Trim`, `Replace`, `InStr`, `Chr`, `Asc`, `Val`, `Hex`, `Oct`, and related `$` aliases.
 *   `Arrays`: `Array`, `LBound`, `UBound`.
-*   `Types`: `VarType`, `TypeName`, `IsNumeric`, `IsDate`, `IsArray`.
-*   `Console`: `WriteLine`, `Write`.
-*   `Debug`: `Print`.
-*   `Err`: `Number`, `Description`, `Source`, `Raise`, `Clear`.
+*   `Types`: `VarType`, `TypeName`, `IsObject`, `IsNumeric`, `IsDate`, `IsArray`, `IsNull`, `IsEmpty`, `IsError`, `IsMissing`, and conversion helpers such as `CInt`, `CLng`, `CDbl`, `CDate`, and `CBool`.
+*   `Date/Time`: `Timer`, `Now`, `Date`, `Time`, `DateSerial`, `TimeSerial`, `DateValue`, `TimeValue`, `Year`, `Month`, `Day`, `Hour`, `Minute`, `Second`, `Weekday`, `MonthName`, and `WeekdayName`.
+*   `File I/O`: `FreeFile`, `EOF`, `LOF`, `Seek`, `Dir`, `FileLen`, `FileDateTime`, `CurDir`, `Kill`, `MkDir`, `RmDir`, and `ChDir`.
+*   `Console`: `WriteLine`, `Write`, `ReadLine`.
+*   `Debug`: `Print`, `Assert`.
+*   `Err`: `Number`, `Description`, `Source`, `HelpFile`, `HelpContext`, `Raise`, `Clear`.

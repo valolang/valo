@@ -1,5 +1,6 @@
 use super::*;
 use crate::UsingResource;
+use crate::runtime::builtins::{BUILTIN_STATEMENT_FUNCTIONS, is_name_in, strip_vba_namespace};
 use std::collections::HashSet;
 
 fn validate_const_decl(
@@ -1458,17 +1459,9 @@ fn validate_sub_call(
     span: crate::runtime::Span,
     validation: ExprValidation<'_, '_>,
 ) -> Result<(), Diagnostic> {
-    let effective_name = if let Some(stripped) = name.strip_prefix("VBA.") {
-        stripped
-    } else {
-        name
-    };
+    let effective_name = strip_vba_namespace(name);
 
-    let builtin_subs = ["Randomize", "CallByName", "Kill", "MkDir", "RmDir", "ChDir"];
-    if builtin_subs
-        .iter()
-        .any(|builtin| effective_name.eq_ignore_ascii_case(builtin))
-    {
+    if is_name_in(effective_name, BUILTIN_STATEMENT_FUNCTIONS) {
         for arg in args {
             validate_expr(
                 arg,

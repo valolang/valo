@@ -5,29 +5,29 @@ fn structure_implements_interface() {
     let output = run_source(
         r#"
 Interface ITest
-    Sub Imprimir()
+    Sub Print()
 End Interface
 
-Structure DocumentoInfo
+Structure DocumentInfo
     Implements ITest
 
-    Public Property Codigo As Integer
+    Public Property Code As Integer
 
-    Public Sub Imprimir() Implements ITest.Imprimir
-        Console.WriteLine("Código: " & Me.Codigo)
+    Public Sub Print() Implements ITest.Print
+        Console.WriteLine("Code: " & Me.Code)
     End Sub
 End Structure
 
 Sub Main()
-    Dim doc As DocumentoInfo
-    doc.Codigo = 123
+    Dim doc As DocumentInfo
+    doc.Code = 123
     
-    doc.Imprimir()
+    doc.Print()
 End Sub
 "#,
     );
 
-    assert_eq!(output, vec!["Código: 123"]);
+    assert_eq!(output, vec!["Code: 123"]);
 }
 
 #[test]
@@ -35,31 +35,31 @@ fn structure_polymorphism_through_interface() {
     let output = run_source(
         r#"
 Interface ITest
-    Sub Imprimir()
+    Sub Print()
 End Interface
 
-Structure DocumentoInfo
+Structure DocumentInfo
     Implements ITest
 
-    Public Property Codigo As Integer
+    Public Property Code As Integer
 
-    Public Sub Imprimir() Implements ITest.Imprimir
-        Console.WriteLine("Código: " & Me.Codigo)
+    Public Sub Print() Implements ITest.Print
+        Console.WriteLine("Code: " & Me.Code)
     End Sub
 End Structure
 
 Sub Main()
-    Dim doc As DocumentoInfo
-    doc.Codigo = 456
+    Dim doc As DocumentInfo
+    doc.Code = 456
     
     Dim it As ITest
     it = doc
-    it.Imprimir()
+    it.Print()
 End Sub
 "#,
     );
 
-    assert_eq!(output, vec!["Código: 456"]);
+    assert_eq!(output, vec!["Code: 456"]);
 }
 
 #[test]

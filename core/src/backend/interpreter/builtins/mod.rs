@@ -7,6 +7,10 @@
 //! (`IIf`, `CallByName`, pointer builtins, and host-owned services).
 
 use super::{ControlFlow, Frame, Interpreter};
+use crate::runtime::builtins::{
+    DATE_TIME_FUNCTIONS, DIALOG_STATEMENT_FUNCTIONS, FILE_FUNCTIONS,
+    FILE_SYSTEM_STATEMENT_FUNCTIONS, is_builtin_function, is_name_in, strip_vba_namespace,
+};
 use crate::runtime::{Diagnostic, Value};
 use crate::{Expr, ExprKind};
 
@@ -20,12 +24,7 @@ pub(crate) fn dispatch_stmt(
     frame: &mut Frame,
     span: crate::runtime::Span,
 ) -> Result<Option<ControlFlow>, Diagnostic> {
-    if object_name.is_empty()
-        && matches!(
-            method.to_ascii_lowercase().as_str(),
-            "msgbox" | "inputbox" | "doevents"
-        )
-    {
+    if object_name.is_empty() && is_name_in(method, DIALOG_STATEMENT_FUNCTIONS) {
         dispatch_function(interpreter, method, args, frame, span)?;
         return Ok(Some(ControlFlow::Continue));
     }
@@ -81,10 +80,7 @@ pub(crate) fn dispatch_stmt(
     }
 
     if effective_object_name.eq_ignore_ascii_case("VBA") {
-        if matches!(
-            method.to_ascii_lowercase().as_str(),
-            "msgbox" | "inputbox" | "doevents"
-        ) {
+        if is_name_in(method, DIALOG_STATEMENT_FUNCTIONS) {
             dispatch_function(interpreter, method, args, frame, span)?;
             return Ok(Some(ControlFlow::Continue));
         }
@@ -110,11 +106,7 @@ pub(crate) fn dispatch_function(
     span: crate::runtime::Span,
 ) -> Result<Option<Value>, Diagnostic> {
     // Handle VBA namespace fallback: VBA.Join(...) -> Join(...)
-    let effective_name = if let Some(stripped) = name.strip_prefix("VBA.") {
-        stripped
-    } else {
-        name
-    };
+    let effective_name = strip_vba_namespace(name);
 
     // Special forms that require lazy evaluation or direct Expr access
     if effective_name.eq_ignore_ascii_case("IIf") {
@@ -375,10 +367,7 @@ pub(crate) fn dispatch_function(
         )?));
     }
 
-    if matches!(
-        effective_name.to_ascii_lowercase().as_str(),
-        "freefile" | "eof" | "lof" | "seek" | "dir" | "filelen" | "filedatetime" | "curdir"
-    ) {
+    if is_name_in(effective_name, FILE_FUNCTIONS) {
         let mut values = Vec::with_capacity(args.len());
         for arg in args {
             values.push(interpreter.eval_expr(arg, frame)?);
@@ -396,26 +385,7 @@ pub(crate) fn dispatch_function(
         )?)));
     }
 
-    if matches!(
-        effective_name.to_ascii_lowercase().as_str(),
-        "timer"
-            | "now"
-            | "date"
-            | "time"
-            | "dateserial"
-            | "timeserial"
-            | "datevalue"
-            | "timevalue"
-            | "year"
-            | "month"
-            | "day"
-            | "hour"
-            | "minute"
-            | "second"
-            | "weekday"
-            | "monthname"
-            | "weekdayname"
-    ) {
+    if is_name_in(effective_name, DATE_TIME_FUNCTIONS) {
         let mut values = Vec::with_capacity(args.len());
         for arg in args {
             values.push(interpreter.eval_expr(arg, frame)?);
@@ -423,10 +393,7 @@ pub(crate) fn dispatch_function(
         return dispatch_datetime_function(effective_name, &values, span);
     }
 
-    if matches!(
-        effective_name.to_ascii_lowercase().as_str(),
-        "kill" | "mkdir" | "rmdir" | "chdir"
-    ) {
+    if is_name_in(effective_name, FILE_SYSTEM_STATEMENT_FUNCTIONS) {
         expect_arg_count(effective_name, args, 1, span)?;
         let path = interpreter.eval_expr(&args[0], frame)?.to_output_string();
         match effective_name.to_ascii_lowercase().as_str() {
@@ -474,99 +441,6 @@ pub(crate) fn dispatch_function(
     }
 
     Ok(None)
-}
-
-fn is_builtin_function(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "sgn"
-            | "int"
-            | "randomize"
-            | "rnd"
-            | "split"
-            | "join"
-            | "filter"
-            | "cstr"
-            | "strcomp"
-            | "isobject"
-            | "isarray"
-            | "isnumeric"
-            | "isdate"
-            | "isnull"
-            | "isempty"
-            | "iserror"
-            | "vartype"
-            | "typename"
-            | "createobject"
-            | "cbyte"
-            | "cint"
-            | "clng"
-            | "clnglng"
-            | "cint64"
-            | "csng"
-            | "cdbl"
-            | "cdec"
-            | "ccur"
-            | "cdate"
-            | "cbool"
-            | "array"
-            | "lbound"
-            | "ubound"
-            | "len"
-            | "lenb"
-            | "left"
-            | "right"
-            | "mid"
-            | "trim"
-            | "ltrim"
-            | "rtrim"
-            | "ucase"
-            | "lcase"
-            | "replace"
-            | "instr"
-            | "instrrev"
-            | "space"
-            | "string"
-            | "chr"
-            | "chrw"
-            | "asc"
-            | "ascw"
-            | "val"
-            | "str"
-            | "hex"
-            | "oct"
-            | "freefile"
-            | "eof"
-            | "lof"
-            | "seek"
-            | "dir"
-            | "filelen"
-            | "filedatetime"
-            | "curdir"
-            | "environ"
-            | "timer"
-            | "now"
-            | "date"
-            | "time"
-            | "dateserial"
-            | "timeserial"
-            | "datevalue"
-            | "timevalue"
-            | "year"
-            | "month"
-            | "day"
-            | "hour"
-            | "minute"
-            | "second"
-            | "weekday"
-            | "monthname"
-            | "weekdayname"
-            | "kill"
-            | "mkdir"
-            | "rmdir"
-            | "chdir"
-            | "ismissing"
-    )
 }
 
 fn dispatch_file_function(

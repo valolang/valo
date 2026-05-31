@@ -1,97 +1,103 @@
 # Valo Examples
 
-This directory contains a comprehensive set of examples demonstrating Valo's features, modern syntax, and VBA compatibility.
-
-## Core Language Features
-
-*   **[Hello World](hello.valo):** The classic starting point.
-*   **[Variables](variables.valo):** Variable declarations and assignments.
-*   **[Constants](consts.valo):** Global and module-level constants.
-*   **[Data Types](types.valo):** Native types and VBA-compatible User-Defined Types (UDT).
-*   **[Structures](structures.valo):** Native `Structure` value types.
-*   **Generics:** [Box](generic_box.valo), [Pair](generic_pair.valo), [Identity](generic_identity.valo), [Nested](generic_nested.valo), and [Runtime](generic_runtime.valo) examples.
-*   **[Enums](enums.valo):** Enumeration types and their usage.
-*   **[Arrays](arrays.valo):** Fixed and dynamic arrays.
-*   **[ReDim](redim.valo):** Dynamic memory management for arrays.
-*   **[Logical Operators](logical.valo):** Boolean logic and bitwise-style behavior.
-*   **[Like Operator](like_operator.valo):** String pattern matching.
-
-## Control Flow
-
-*   **[If / Select Case](select_case.valo):** Basic and [Advanced](select_case_advanced.valo) branching.
-*   **[Loops](for_loop.valo):** [For](for_loop.valo), [For Each](for_each.valo), [Do Loop](do_loop.valo), and [Exit](exit.valo) behavior.
-*   **[With Block](with_block.valo):** Ergonomic member access for objects and types.
-
-*   **[Short-circuiting](short_circuit.valo):** `AndAlso` and `OrElse` behavior.
-
-## Procedures and Modules
-
-*   **[Subs](subs.valo) & [Functions](functions.valo):** Procedure definitions.
-*   **[Optional Parameters](optional_params.valo):** Handling omitted arguments.
-*   **[Named Arguments](named_arguments.valo):** Calling procedures with explicit parameter names.
-*   **[Modules](modules/main.valo):** Multi-file project structure and [Module State](module_state.valo).
-
-## Object-Oriented Programming
-
-*   **[Classes](classes.valo):** Class definitions, properties, and methods.
-*   **[Inheritance Basic](inheritance_basic.valo):** Inherited fields and methods.
-*   **[Inheritance Override](inheritance_override.valo):** `Overridable` and `Overrides` dispatch.
-*   **[Abstract Animals](abstract_animals.valo):** `MustInherit` and `MustOverride`.
-*   **[Protected Members](protected_members.valo):** `Protected` member access from derived classes.
-*   **[Generic Inheritance](generic_inheritance.valo):** Generic base classes.
-*   **[Interface Polymorphism](interface_polymorphism.valo):** Interface implementation dispatch.
-*   **[Properties](properties.valo):** Property Get/Let/Set accessors.
-*   **[VB.NET Properties](vbnet_properties.valo):** Auto-properties, full property blocks, `ReadOnly`, `WriteOnly`, and [Shared Properties](shared_auto_property.valo).
-*   **[Native Lifecycle](native_class_lifecycle.valo):** `Sub New` and `Sub Terminate` support.
-*   **[Using Dispose](using_dispose.valo):** Deterministic cleanup with `Using` and `Dispose`.
-*   **[Events](events.valo):** Declaring, raising, and dynamic binding using `AddHandler` / `RemoveHandler`. [Global Handlers](events_global.valo) example.
-*   **[Default Properties](default_properties.valo):** [Native](native_default_property.valo) and [Indexer Style](indexer_style.valo) default members.
-*   **[Nothing](nothing.valo):** Object reference management and `Is Nothing` checks.
-
-## Error Handling
-
-*   **[Throw](throw_example.valo):** Throwing exceptions and `Try/Catch` block usage.
-*   **[On Error Basic](on_error_basic.valo):** Standard `On Error GoTo` usage.
-*   **[On Error Advanced](on_error_advanced.valo):** Complex error handling and recovery.
-
-## VBA Compatibility
-
-*   **[VBA Syntax](vba_syntax.valo):** Legacy Basic constructs supported by Valo.
-*   **[Exported .cls](exported_class.cls):** Compatibility with files exported from VBA.
-*   **[VBA Compat](vba_compat.valo):** Demonstrating the bridge between native and legacy features.
-*   **[VBA Constants](vba_constants.valo):** Generic VBA runtime constants such as `vbCrLf`, `vbTab`, `vbTrue`, and `vbString`.
-*   **[VBA String Functions](vba_string_functions.valo):** Safe VBA string/runtime functions such as `Len`, `Left$`, `Mid$`, `Replace`, `InStr`, `Chr$`, `Hex$`, and `Oct$`.
-*   **[VBA File I/O](vba_file_io.valo):** Classic file-number I/O using `FreeFile`, `Open`, `Print #`, `Line Input #`, `EOF`, `Close`, and `Kill`.
-*   **[VBA Property Compatibility](vba_property_compat.valo):** Property Let without explicit `ByVal`.
-*   **[VBA StrPtr](vba_strptr.valo):** `StrPtr` with variables and temporary string expressions.
-*   **[VBA Optional Forwarding](vba_optional_forwarding.valo):** Omitted optional Variant handling with `IsMissing`.
-*   **[VBA Declare Strings](vba_declare_strings.valo):** Declare string argument temporaries.
-*   **[VBA Real-World Declares](vba_realworld_declares.valo):** Keyword-like parameter names in Declare signatures.
-*   **[VBA Dir](vba_dir.valo):** Basic wildcard enumeration with `Dir(pattern)` and repeated `Dir()` calls.
-*   **[VBA Binary File I/O](vba_binary_file_io.valo):** `Open For Binary`, scalar `Put #`/`Get #`, `LOF`, `Close`, and cleanup.
-*   **[VBA Random File I/O](vba_random_file_io.valo):** Fixed-length `Open For Random Len =` records with `Put #` and `Get #`.
-*   **[VBA File Attributes](vba_file_attributes.valo):** `Dir` with `vbDirectory`, `FileLen`, `FileDateTime`, `CurDir`, `MkDir`, and `RmDir`.
-*   **[VBA Timer](vba_timer.valo):** `Timer`, `Now`, `DateSerial`, `Year`, `MonthName`, and `WeekdayName`.
-*   **[VBA Optional Arguments](vba_optional_arguments.valo):** Optional defaults and Optional Variant `IsMissing`.
-*   **[COM FileSystem](com_filesystem.valo):** Scripting.FileSystemObject for listing files and folders.
-*   **[COM Dictionary](com_dictionary.valo):** Using the Scripting.Dictionary automation object.
-*   **[COM PowerPoint](com_powerpoint.valo):** Automating Microsoft PowerPoint (requires PowerPoint).
-
+This directory contains runnable examples for Valo's native language features, VBA compatibility surface, native FFI, and Windows COM automation.
 
 Run an example with:
 
 ```sh
-valo run examples/vba_file_io.valo
+valo run examples/hello.valo
 ```
 
-## Advanced Features
+From source, use:
 
-*   **[Conditional Compilation](conditional_compilation.valo):** Using `#If` and `#Const`.
-*   **[Options](options.valo):** `Option Explicit`, `Option Base`, and `Option Compare`.
-*   **[Operator Overloading](operator_overloading.valo):** Defining custom behavior for operators (`+`, `-`, `=`, etc.) on classes and structures.
-*   **[Extension Methods](extension_methods.valo):** Extending existing types with new methods using the `<Extension()>` attribute.
-*   **[Partial Classes](partial_classes.valo):** Splitting class definitions across multiple blocks or files.
-*   **[Nullable Types](nullable_types.valo):** Using `T?` for value and reference types, checking `Is Nothing`, `.HasValue`, and `.Value`.
-*   **[Collection Initializers](collection_initializers.valo):** Populating collections inline using `New Collection() From { ... }`.
-*   **[LINQ-style APIs](linq_demo.valo):** Fluent querying of collections using Lambda expressions (`Function(n) ...`) and Extension Methods (`Where`, `Select`, `Any`, etc.).
-*   **[Async/Await](async_demo.valo):** VB.NET-style `Async Function` and `Await` syntax with immediate interpreter evaluation.
+```sh
+cargo run -p valo_cli -- run examples/hello.valo
+```
+
+The integration test discovers examples with `Sub Main` and runs the supported set:
+
+```sh
+cargo test -p valo_core --test examples -- --nocapture
+```
+
+COM examples require Windows and the relevant COM server. They are skipped by the example integration test on non-Windows hosts.
+
+## Core Language
+
+- [Hello World](hello.valo) and [VBA-style Hello](hello.bas)
+- [Variables](variables.valo), [Constants](consts.valo), and [Declaration Initializers](declaration_initializers.valo)
+- [Types](types.valo), [Type Checks](type_checks.valo), [Structures](structures.valo), and [Structure Writeback](struct_writeback_test.valo)
+- [Enums](enums.valo) and [VBA Enum Syntax](vba_new_enum.valo)
+- [Arrays](arrays.valo), [Array Builtins](array_builtins.valo), [Multidimensional Arrays](multidimensional_arrays.valo), and [ReDim](redim.valo)
+- [Logical Operators](logical.valo), [Short-circuiting](short_circuit.valo), [Like](like_operator.valo), and [Advanced Like](like_advanced.valo)
+- [Options](options.valo), [Option Base](option_base.valo), [Option Compare](option_compare.valo), [Conditional Compilation](conditional_compilation.valo), and [Conditional Platform](conditional_platform.valo)
+- [New Builtins](new_builtins.valo), [Collection](collection.valo), and [Collection Position](collection_position.valo)
+
+## Control Flow
+
+- [Control Flow](control_flow.valo)
+- [For Loop](for_loop.valo), [For Each](for_each.valo), [Do Loop](do_loop.valo), [Exit](exit.valo), and [Next Variable](next_variable.valo)
+- [Select Case](select_case.valo) and [Advanced Select Case](select_case_advanced.valo)
+- [With Block](with_block.valo)
+
+## Procedures, Modules, and Project Structure
+
+- [Subs](subs.valo), [Functions](functions.valo), and [Let / Call](let_call.valo)
+- [Optional Parameters](optional_params.valo), [Named Arguments](named_arguments.valo), and [Static Variables](static_variables.valo)
+- [Module State](module_state.valo)
+- [Multi-file Modules](modules/main.valo), with sibling module files under `examples/modules/`
+
+## Classes, Interfaces, and Object Model
+
+- [Classes](classes.valo), [Properties](properties.valo), and [VB.NET Properties](vbnet_properties.valo)
+- [Native Class Lifecycle](native_class_lifecycle.valo) and [Using / Dispose](using_dispose.valo)
+- [Nothing](nothing.valo), [Default Properties](default_properties.valo), [Native Default Property](native_default_property.valo), and [Indexer Style](indexer_style.valo)
+- [Inheritance Basic](inheritance_basic.valo), [Inheritance Override](inheritance_override.valo), [Abstract Classes](abstract_animals.valo), [Protected Members](protected_members.valo), and [Generic Inheritance](generic_inheritance.valo)
+- [Interface Polymorphism](interface_polymorphism.valo)
+- [Events](events.valo) and [Global Event Handlers](events_global.valo)
+- [Shared Auto Property](shared_auto_property.valo)
+
+## Generics, Advanced Syntax, and Modern Features
+
+- [Generic Box](generic_box.valo), [Generic Pair](generic_pair.valo), [Generic Identity](generic_identity.valo), [Generic Nested](generic_nested.valo), and [Generic Runtime](generic_runtime.valo)
+- [Operator Overloading](operator_overloading.valo)
+- [Extension Methods](extension_methods.valo) and [Extension Methods for Integer](extension_methods_int.valo)
+- [Partial Classes](partial_classes.valo)
+- [Nullable Types](nullable_types.valo)
+- [Collection Initializers](collection_initializers.valo)
+- [Iterator](iterator.valo) and [Iterator Range](iterator_range.valo)
+- [LINQ-style APIs](linq_demo.valo)
+- [Async / Await](async_demo.valo)
+- [Ultimate Demo](ultimate_demo.valo)
+
+## Error Handling
+
+- [Try / Catch](try_catch.valo)
+- [Throw](throw_example.valo)
+- [On Error](on_error.valo), [On Error Basic](on_error_basic.valo), and [On Error Advanced](on_error_advanced.valo)
+
+## VBA Compatibility
+
+- [VBA Syntax](vba_syntax.valo)
+- [Exported Class Module](exported_class.cls)
+- [VBA Compatibility Overview](vba_compat.valo)
+- [VBA Constants](vba_constants.valo)
+- [VBA String Functions](vba_string_functions.valo)
+- [VBA Optional Arguments](vba_optional_arguments.valo) and [VBA Optional Forwarding](vba_optional_forwarding.valo)
+- [VBA Property Compatibility](vba_property_compat.valo)
+- [VBA StrPtr](vba_strptr.valo)
+- [VBA Declare Strings](vba_declare_strings.valo) and [VBA Real-World Declares](vba_realworld_declares.valo)
+- [VBA File I/O](vba_file_io.valo), [VBA Binary File I/O](vba_binary_file_io.valo), [VBA Random File I/O](vba_random_file_io.valo), [VBA Dir](vba_dir.valo), and [VBA File Attributes](vba_file_attributes.valo)
+- [VBA Timer and Date/Time](vba_timer.valo)
+- [LSet / RSet](lset_rset.valo)
+
+## Native FFI and Pointer Interop
+
+- [Callback](callback.valo)
+- [Pointer Test](ptr_test.valo)
+
+## Windows COM Automation
+
+- [COM Dictionary](com_dictionary.valo)
+- [COM FileSystemObject](com_filesystem.valo)
+- [COM PowerPoint](com_powerpoint.valo)
