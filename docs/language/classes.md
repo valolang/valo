@@ -147,6 +147,7 @@ Class-scope constants are supported:
 Class MathBox
     Private Const Scale As Double = 2
 End Class
+```
 
 ## Properties
 
