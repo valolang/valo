@@ -62,14 +62,14 @@ pub(crate) fn dispatch_stmt(
                 }
             }
             if let Some(line) = console::exec_console(method, &values, span)? {
-                interpreter.output.push(line);
+                interpreter.emit_output(line);
                 return Ok(Some(ControlFlow::Continue));
             } else if method.eq_ignore_ascii_case("Write") {
                 return Ok(Some(ControlFlow::Continue));
             }
         } else {
             if let Some(line) = debug::exec_debug(method, &values, span)? {
-                interpreter.output.push(line);
+                interpreter.emit_output(line);
                 return Ok(Some(ControlFlow::Continue));
             }
         }

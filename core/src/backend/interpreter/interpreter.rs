@@ -10,7 +10,8 @@ use super::records::{RuntimeInterface, RuntimeType};
 use super::values::key;
 use super::{ControlFlow, Frame, RuntimeClass, RuntimeEnum};
 
-#[derive(Debug)]
+type OutputSink = Box<dyn FnMut(&str)>;
+
 pub struct Interpreter {
     pub(crate) types: HashMap<String, RuntimeType>,
     pub(crate) interfaces: HashMap<String, RuntimeInterface>,
@@ -27,6 +28,8 @@ pub struct Interpreter {
     pub(crate) callback_trampolines: Vec<super::ffi::CallbackTrampoline>,
     pub(crate) temporary_strings: Vec<String>,
     pub(crate) output: Vec<String>,
+    output_sink: Option<OutputSink>,
+    collect_output: bool,
     pub(crate) option_base: i64,
     pub(crate) option_compare: crate::OptionCompare,
     pub(crate) call_stack: Vec<String>,
@@ -76,6 +79,8 @@ impl Default for Interpreter {
             callback_trampolines: Vec::new(),
             temporary_strings: Vec::new(),
             output: Vec::new(),
+            output_sink: None,
+            collect_output: true,
             option_base: 0,
             option_compare: crate::OptionCompare::Binary,
             call_stack: Vec::new(),
@@ -125,6 +130,21 @@ impl Interpreter {
         interpreter.add_builtin_classes();
         interpreter.add_vba_constants();
         interpreter
+    }
+
+    pub fn with_output_sink(mut self, sink: impl FnMut(&str) + 'static) -> Self {
+        self.output_sink = Some(Box::new(sink));
+        self.collect_output = false;
+        self
+    }
+
+    pub(crate) fn emit_output(&mut self, line: String) {
+        if self.collect_output {
+            self.output.push(line.clone());
+        }
+        if let Some(sink) = &mut self.output_sink {
+            sink(&line);
+        }
     }
 
     fn add_vba_constants(&mut self) {

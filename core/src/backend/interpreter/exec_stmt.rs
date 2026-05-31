@@ -834,7 +834,7 @@ impl Interpreter {
                             .to_output_string(),
                     );
                 }
-                self.output.push(parts.join("\t"));
+                self.emit_output(parts.join("\t"));
                 Ok(ControlFlow::Continue)
             }
             Stmt::OpenFile {

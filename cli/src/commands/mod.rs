@@ -50,13 +50,10 @@ pub fn run(mut args: impl Iterator<Item = String>, color: ColorChoice) -> Result
         return Err(err.render_colored(&project.source_map, color.enabled()));
     }
 
-    let output = valo_core::Interpreter::new()
+    valo_core::Interpreter::new()
+        .with_output_sink(|line| println!("{line}"))
         .run_project(&project)
         .map_err(|err| err.render_colored(&project.source_map, color.enabled()))?;
-
-    for line in output {
-        println!("{line}");
-    }
 
     Ok(())
 }
