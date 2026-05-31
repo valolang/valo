@@ -1,0 +1,5 @@
+Sub Main()
+    Dim b As Byte
+    b = CByte("&HAA")
+    Console.WriteLine(b)
+End Sub

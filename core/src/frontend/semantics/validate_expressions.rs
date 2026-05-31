@@ -377,8 +377,9 @@ pub(super) fn validate_expr(
             {
                 return Ok(TypeName::User("Collection".to_string()));
             }
-            ensure_known_type(class_name, types, expr.span)?;
-            let (base_name, bindings) = generic_bindings_for_type(class_name, types);
+            let class_name = resolve_new_type_name(class_name, symbols, types, expr.span)?;
+            ensure_known_type(&class_name, types, expr.span)?;
+            let (base_name, bindings) = generic_bindings_for_type(&class_name, types);
             if let Some(type_sig) = types.get(&base_name) {
                 if !type_sig.is_structure {
                     return Err(Diagnostic::new(
@@ -405,7 +406,7 @@ pub(super) fn validate_expr(
                         Some(expr.span),
                     ));
                 }
-                return Ok(types.canonical_type_name(class_name));
+                return Ok(types.canonical_type_name(&class_name));
             }
             let class_sig = types.get_class(&base_name).ok_or_else(|| {
                 Diagnostic::new(
@@ -437,7 +438,7 @@ pub(super) fn validate_expr(
                 ));
             }
             let _ = bindings;
-            Ok(types.canonical_type_name(class_name))
+            Ok(types.canonical_type_name(&class_name))
         }
         ExprKind::Variable(name) => {
             if let Some(var_type) = symbols.get(&key(name)).cloned() {
@@ -1401,6 +1402,39 @@ pub(super) fn validate_expr(
         ExprKind::PassingModeOverride { expr, .. } => {
             validate_expr(expr, symbols, types, signatures, context, option_explicit)
         }
+    }
+}
+
+fn resolve_new_type_name(
+    ty: &TypeName,
+    symbols: &HashMap<String, VarType>,
+    types: &TypeRegistry,
+    span: crate::runtime::Span,
+) -> Result<TypeName, Diagnostic> {
+    let TypeName::User(name) = ty else {
+        return Ok(ty.clone());
+    };
+    let Some((qualifier, member)) = name.split_once('.') else {
+        return Ok(ty.clone());
+    };
+    let Some(VarType::Module(module_name)) = symbols.get(&key(qualifier)) else {
+        return Ok(ty.clone());
+    };
+    let qualified_name = format!("{module_name}.{member}");
+    if types
+        .get(&qualified_name)
+        .is_some_and(|type_sig| !type_sig.is_structure)
+    {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::INVALID_QUALIFIED_ACCESS,
+            format!("Qualified type '{qualified_name}' cannot be constructed with New"),
+            Some(span),
+        ));
+    }
+    if types.contains(&qualified_name) {
+        Ok(TypeName::User(qualified_name))
+    } else {
+        Ok(ty.clone())
     }
 }
 

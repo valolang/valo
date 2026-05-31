@@ -13,7 +13,7 @@ use crate::runtime::{
 use crate::{CallingConvention, DeclareDecl, DeclareKind, Expr, ExprKind, PassingMode};
 
 use super::frame::Variable;
-use super::records::RuntimeType;
+use super::records::{RuntimeField, RuntimeType};
 use super::values::key;
 use super::{Frame, Interpreter};
 
@@ -124,6 +124,7 @@ struct MarshaledArgs {
     arg_kinds: Vec<ArgKind>,
     storage: Vec<ArgumentStorage>,
     byrefs: Vec<ByRefUpdate>,
+    varptrs: Vec<VarPtrUpdate>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -133,7 +134,7 @@ enum ArgKind {
     ByRefPointer,
 }
 
-enum ArgumentStorage {
+pub(crate) enum ArgumentStorage {
     CString(CString),
     I16(Box<i16>),
     I32(Box<i32>),
@@ -147,11 +148,41 @@ enum ArgumentStorage {
     Ptr(Box<usize>),
     Record(Vec<u8>),
     Array(Vec<u8>),
+    #[cfg(windows)]
+    Variant(Box<windows::core::VARIANT>),
 }
 
 struct ByRefUpdate {
-    variable: Variable,
+    expr: Expr,
     ty: TypeName,
+    original_value: Value,
+    storage_index: usize,
+    span: Span,
+}
+
+#[derive(Clone)]
+pub(crate) enum VarPtrTarget {
+    Variable {
+        variable: Variable,
+        ty: TypeName,
+        original_value: Value,
+    },
+    Value {
+        expr: Expr,
+        ty: TypeName,
+        original_value: Value,
+    },
+    ArrayTail {
+        base_expr: Expr,
+        original_array: Rc<ArrayValue>,
+        element_type: TypeName,
+        start_index: usize,
+    },
+}
+
+#[derive(Clone)]
+pub(crate) struct VarPtrUpdate {
+    target: VarPtrTarget,
     storage_index: usize,
     span: Span,
 }
@@ -283,53 +314,78 @@ impl Interpreter {
         Ok(None)
     }
 
-    pub(crate) fn create_callback(&mut self, name: &str, span: Span) -> Result<usize, Diagnostic> {
-        if let Some(&ptr) = self.ffi_callbacks.get(&key(name)) {
-            return Ok(ptr);
-        }
-
-        // Try to find the function or sub to get its signature.
+    pub(crate) fn create_callback(
+        &mut self,
+        name: &str,
+        frame: &Frame,
+        span: Span,
+    ) -> Result<usize, Diagnostic> {
+        let lookup = key(name);
+        let mut callback_key = None;
         let mut params = None;
         let mut return_type = None;
         let mut is_sub = false;
 
-        let lookup = key(name);
-        if let Some(function) = self.functions.get(&lookup) {
-            params = Some(function.params.clone());
-            return_type = Some(function.return_type.clone());
-        } else if let Some(procedure) = self.procedures.get(&lookup) {
-            params = Some(procedure.params.clone());
-            return_type = Some(TypeName::Variant); // Subs return void
-            is_sub = true;
-        } else {
-            // Check in function/sub modules.
-            if let Some(modules) = self.function_modules.get(&lookup) {
-                if let Some(first_mod) = modules.first() {
-                    let qualified = super::calls::qualified_key(Some(first_mod), name);
-                    if let Some(function) = self.functions.get(&qualified) {
-                        params = Some(function.params.clone());
-                        return_type = Some(function.return_type.clone());
-                    }
-                }
-            } else if let Some(modules) = self.sub_modules.get(&lookup)
-                && let Some(first_mod) = modules.first()
-            {
-                let qualified = super::calls::qualified_key(Some(first_mod), name);
-                if let Some(procedure) = self.procedures.get(&qualified) {
-                    params = Some(procedure.params.clone());
-                    return_type = Some(TypeName::Variant);
-                    is_sub = true;
-                }
+        if self.functions.contains_key(&lookup) {
+            callback_key = Some(lookup.clone());
+            if let Some(function) = self.functions.get(&lookup) {
+                params = Some(function.params.clone());
+                return_type = Some(function.return_type.clone());
+            }
+        } else if self.procedures.contains_key(&lookup) {
+            callback_key = Some(lookup.clone());
+            if let Some(procedure) = self.procedures.get(&lookup) {
+                params = Some(procedure.params.clone());
+                return_type = Some(TypeName::Variant);
+                is_sub = true;
+            }
+        } else if let Some(current) = frame.module_key() {
+            let qualified = super::calls::qualified_key(Some(current), name);
+            if let Some(function) = self.functions.get(&qualified) {
+                callback_key = Some(qualified);
+                params = Some(function.params.clone());
+                return_type = Some(function.return_type.clone());
+            } else if let Some(procedure) = self.procedures.get(&qualified) {
+                callback_key = Some(qualified);
+                params = Some(procedure.params.clone());
+                return_type = Some(TypeName::Variant);
+                is_sub = true;
             }
         }
 
-        let Some(params) = params else {
+        if params.is_none()
+            && let Ok(module_key) = self.resolve_function_module(name, frame, span)
+        {
+            let qualified = super::calls::qualified_key(module_key.as_deref(), name);
+            if let Some(function) = self.functions.get(&qualified) {
+                callback_key = Some(qualified);
+                params = Some(function.params.clone());
+                return_type = Some(function.return_type.clone());
+            }
+        }
+        if params.is_none()
+            && let Ok(module_key) = self.resolve_sub_module(name, frame, span)
+        {
+            let qualified = super::calls::qualified_key(module_key.as_deref(), name);
+            if let Some(procedure) = self.procedures.get(&qualified) {
+                callback_key = Some(qualified);
+                params = Some(procedure.params.clone());
+                return_type = Some(TypeName::Variant);
+                is_sub = true;
+            }
+        }
+
+        let Some(callback_key) = callback_key else {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::UNKNOWN_NAME,
                 format!("Cannot find function or sub '{}' for AddressOf", name),
                 Some(span),
             ));
         };
+        if let Some(&ptr) = self.ffi_callbacks.get(&callback_key) {
+            return Ok(ptr);
+        }
+        let params = params.expect("callback params resolved");
         let return_type = return_type.unwrap();
 
         let mut arg_types = Vec::new();
@@ -448,7 +504,7 @@ impl Interpreter {
             userdata,
         });
 
-        self.ffi_callbacks.insert(key(name), code.0 as usize);
+        self.ffi_callbacks.insert(callback_key, code.0 as usize);
         Ok(code.0 as usize)
     }
 
@@ -503,7 +559,8 @@ impl Interpreter {
         );
 
         let value = value_result?;
-        marshaled.write_back(&self.types)?;
+        marshaled.write_back(self, frame)?;
+        self.write_persistent_varptrs(frame)?;
         if declare.kind == DeclareKind::Sub {
             return Ok(Value::Empty);
         }
@@ -533,31 +590,41 @@ impl Interpreter {
             arg_kinds: Vec::new(),
             storage: Vec::new(),
             byrefs: Vec::new(),
+            varptrs: Vec::new(),
         };
         for (param, arg) in declare.params.iter().zip(args.iter()) {
             let ty = self.resolve_type_name(&param.ty, frame, param.span)?;
             match param.mode {
                 PassingMode::ByVal => {
+                    if matches!(ty, TypeName::Ptr | TypeName::FuncPtr)
+                        && marshal_varptr(self, arg, frame, &mut marshaled, arg.span)?
+                    {
+                        continue;
+                    }
                     let value = self.eval_expr(arg, frame)?;
                     marshal_byval(&ty, value, &mut marshaled, arg.span)?;
                 }
                 PassingMode::ByRef => {
-                    let variable = if let ExprKind::Variable(name) = &arg.kind {
-                        Some(frame.variable(name, arg.span)?)
-                    } else {
-                        None
-                    };
-                    let value = if let Some(variable) = &variable {
-                        variable.borrow().clone()
-                    } else {
-                        self.eval_expr(arg, frame)?
-                    };
+                    if matches!(ty, TypeName::Variant)
+                        && marshal_byref_array_tail(self, arg, frame, &mut marshaled, arg.span)?
+                    {
+                        continue;
+                    }
+                    let value = self.eval_expr(arg, frame)?;
                     let storage_index = marshaled.storage.len();
-                    marshal_byref(&ty, value, &mut marshaled, &self.types, arg.span)?;
-                    if let Some(variable) = variable {
+                    marshal_byref(&ty, value.clone(), &mut marshaled, &self.types, arg.span)?;
+                    if matches!(
+                        arg.kind,
+                        ExprKind::Variable(_)
+                            | ExprKind::Call { .. }
+                            | ExprKind::MemberAccess { .. }
+                            | ExprKind::MemberCall { .. }
+                            | ExprKind::Me
+                    ) {
                         marshaled.byrefs.push(ByRefUpdate {
-                            variable,
+                            expr: arg.clone(),
                             ty,
+                            original_value: value,
                             storage_index,
                             span: arg.span,
                         });
@@ -566,6 +633,149 @@ impl Interpreter {
             }
         }
         Ok(marshaled)
+    }
+
+    pub(crate) fn varptr_expr(
+        &mut self,
+        expr: &Expr,
+        frame: &mut Frame,
+    ) -> Result<usize, Diagnostic> {
+        if let ExprKind::Variable(name) = &expr.kind {
+            let variable = frame.variable(name, expr.span)?;
+            let value = variable.borrow().clone();
+            let ty = match &value {
+                Value::Record(record) | Value::BoxedRecord(record, _) => {
+                    TypeName::User(record.type_name.clone())
+                }
+                Value::Array(array) => TypeName::Array(Box::new(array.element_type.clone())),
+                _ => variable.ty.clone(),
+            };
+            let storage = storage_for_varptr_value(&ty, value.clone(), &self.types, expr.span)?;
+            self.varptr_storage.push(storage);
+            let storage_index = self.varptr_storage.len() - 1;
+            self.varptr_updates.push(VarPtrUpdate {
+                target: VarPtrTarget::Variable {
+                    variable,
+                    ty,
+                    original_value: value,
+                },
+                storage_index,
+                span: expr.span,
+            });
+            return Ok(storage_byref_pointer(&self.varptr_storage[storage_index]));
+        }
+
+        if let ExprKind::Call { name, args, .. } = &expr.kind
+            && let Ok(variable) = frame.variable(name, expr.span)
+        {
+            let array_value = variable.borrow().clone();
+            if let Value::Array(array) = &array_value {
+                let mut index_values = Vec::with_capacity(args.len());
+                for index in args {
+                    index_values.push(frame.simple_index_value(index, expr.span)?);
+                }
+                let index =
+                    super::arrays::calculate_index(&index_values, &array.bounds, expr.span)?;
+                let value = array.elements[index].clone();
+                let storage = if matches!(array.element_type, TypeName::Variant) {
+                    variant_storage(value.clone())
+                } else {
+                    storage_for_varptr_value(
+                        &array.element_type,
+                        value.clone(),
+                        &self.types,
+                        expr.span,
+                    )?
+                };
+                self.varptr_storage.push(storage);
+                let storage_index = self.varptr_storage.len() - 1;
+                return Ok(storage_byref_pointer(&self.varptr_storage[storage_index]));
+            }
+        }
+
+        let value = self.eval_expr(expr, frame)?;
+        let ty = match &value {
+            Value::Record(record) | Value::BoxedRecord(record, _) => {
+                TypeName::User(record.type_name.clone())
+            }
+            Value::Array(array) => TypeName::Array(Box::new(array.element_type.clone())),
+            _ => value.type_name(),
+        };
+        let storage = storage_for_varptr_value(&ty, value.clone(), &self.types, expr.span)?;
+        self.varptr_storage.push(storage);
+        let storage_index = self.varptr_storage.len() - 1;
+        self.varptr_updates.push(VarPtrUpdate {
+            target: VarPtrTarget::Value {
+                expr: expr.clone(),
+                ty,
+                original_value: value,
+            },
+            storage_index,
+            span: expr.span,
+        });
+        Ok(storage_byref_pointer(&self.varptr_storage[storage_index]))
+    }
+
+    fn write_persistent_varptrs(&mut self, frame: &mut Frame) -> Result<(), Diagnostic> {
+        let updates = self.varptr_updates.clone();
+        for update in updates {
+            match &update.target {
+                VarPtrTarget::Variable {
+                    variable,
+                    ty,
+                    original_value,
+                } => {
+                    let Some(storage) = self.varptr_storage.get(update.storage_index) else {
+                        continue;
+                    };
+                    let value =
+                        value_from_storage(storage, ty, original_value, &self.types, update.span)?;
+                    *variable.borrow_mut() = coerce_assignment(&variable.ty, value, update.span)?;
+                }
+                VarPtrTarget::Value {
+                    expr,
+                    ty,
+                    original_value,
+                } => {
+                    let Some(storage) = self.varptr_storage.get(update.storage_index) else {
+                        continue;
+                    };
+                    let value =
+                        value_from_storage(storage, ty, original_value, &self.types, update.span)?;
+                    self.assign_expr_value(expr, value, frame, update.span)?;
+                }
+                VarPtrTarget::ArrayTail {
+                    base_expr,
+                    original_array,
+                    element_type,
+                    start_index,
+                } => {
+                    let Some(ArgumentStorage::Array(bytes)) =
+                        self.varptr_storage.get(update.storage_index)
+                    else {
+                        continue;
+                    };
+                    let tail = unpack_array(element_type, bytes, update.span)?;
+                    let mut elements = original_array.elements.clone();
+                    let available = elements.len().saturating_sub(*start_index);
+                    let count = available.min(tail.len());
+                    elements[*start_index..(*start_index + count)].clone_from_slice(&tail[..count]);
+                    self.assign_expr_value(
+                        base_expr,
+                        Value::Array(Rc::new(ArrayValue {
+                            element_type: original_array.element_type.clone(),
+                            elements,
+                            bounds: original_array.bounds.clone(),
+                            allocated: original_array.allocated,
+                            dynamic: original_array.dynamic,
+                        })),
+                        frame,
+                        update.span,
+                    )?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -644,20 +854,89 @@ impl NativeLibraries {
 }
 
 impl MarshaledArgs {
-    fn write_back(&mut self, types: &HashMap<String, RuntimeType>) -> Result<(), Diagnostic> {
+    fn write_back(
+        &mut self,
+        interpreter: &mut Interpreter,
+        frame: &mut Frame,
+    ) -> Result<(), Diagnostic> {
         for update in &self.byrefs {
-            let original_value = update.variable.borrow().clone();
             let value = value_from_storage(
                 &self.storage[update.storage_index],
                 &update.ty,
-                &original_value,
-                types,
+                &update.original_value,
+                &interpreter.types,
                 update.span,
             )?;
-            *update.variable.borrow_mut() =
-                coerce_assignment(&update.variable.ty, value, update.span)?;
+            interpreter.assign_expr_value(&update.expr, value, frame, update.span)?;
+        }
+        for update in &self.varptrs {
+            write_varptr_update(
+                update,
+                &self.storage[update.storage_index],
+                interpreter,
+                frame,
+            )?;
         }
         Ok(())
+    }
+}
+
+fn write_varptr_update(
+    update: &VarPtrUpdate,
+    storage: &ArgumentStorage,
+    interpreter: &mut Interpreter,
+    frame: &mut Frame,
+) -> Result<(), Diagnostic> {
+    match &update.target {
+        VarPtrTarget::Variable {
+            variable,
+            ty,
+            original_value,
+        } => {
+            let value =
+                value_from_storage(storage, ty, original_value, &interpreter.types, update.span)?;
+            *variable.borrow_mut() = coerce_assignment(&variable.ty, value, update.span)?;
+            Ok(())
+        }
+        VarPtrTarget::Value {
+            expr,
+            ty,
+            original_value,
+        } => {
+            let value =
+                value_from_storage(storage, ty, original_value, &interpreter.types, update.span)?;
+            interpreter.assign_expr_value(expr, value, frame, update.span)
+        }
+        VarPtrTarget::ArrayTail {
+            base_expr,
+            original_array,
+            element_type,
+            start_index,
+        } => {
+            let ArgumentStorage::Array(bytes) = storage else {
+                return Err(unsupported(
+                    "VarPtr array storage was not an array buffer",
+                    update.span,
+                ));
+            };
+            let tail = unpack_array(element_type, bytes, update.span)?;
+            let mut elements = original_array.elements.clone();
+            let available = elements.len().saturating_sub(*start_index);
+            let count = available.min(tail.len());
+            elements[*start_index..(*start_index + count)].clone_from_slice(&tail[..count]);
+            interpreter.assign_expr_value(
+                base_expr,
+                Value::Array(Rc::new(ArrayValue {
+                    element_type: original_array.element_type.clone(),
+                    elements,
+                    bounds: original_array.bounds.clone(),
+                    allocated: original_array.allocated,
+                    dynamic: original_array.dynamic,
+                })),
+                frame,
+                update.span,
+            )
+        }
     }
 }
 
@@ -906,6 +1185,15 @@ fn marshal_byref(
         coerce_assignment(ty, value, span)?
     };
     let item = match coerced {
+        value
+            if matches!(ty, TypeName::Variant)
+                && !matches!(
+                    value,
+                    Value::Array(_) | Value::Record(_) | Value::BoxedRecord(_, _)
+                ) =>
+        {
+            variant_storage(value)
+        }
         Value::Byte(v) => ArgumentStorage::U8(Box::new(v)),
         Value::Int16(v) => ArgumentStorage::I16(Box::new(v)),
         Value::Int32(v) => ArgumentStorage::I32(Box::new(v)),
@@ -972,11 +1260,201 @@ fn marshal_byref(
     Ok(())
 }
 
+fn marshal_byref_array_tail(
+    _interpreter: &mut Interpreter,
+    arg: &Expr,
+    frame: &mut Frame,
+    marshaled: &mut MarshaledArgs,
+    span: Span,
+) -> Result<bool, Diagnostic> {
+    let ExprKind::Call { name, args, .. } = &arg.kind else {
+        return Ok(false);
+    };
+    let Ok(variable) = frame.variable(name, arg.span) else {
+        return Ok(false);
+    };
+    let array_value = variable.borrow().clone();
+    let Value::Array(array) = &array_value else {
+        return Ok(false);
+    };
+    let mut index_values = Vec::with_capacity(args.len());
+    for index in args {
+        index_values.push(frame.simple_index_value(index, arg.span)?);
+    }
+    let start_index = super::arrays::calculate_index(&index_values, &array.bounds, arg.span)?;
+    let bytes = pack_array(
+        &array.element_type,
+        &array.elements[start_index..],
+        arg.span,
+    )?;
+    marshaled.storage.push(ArgumentStorage::Array(bytes));
+    marshaled.arg_types.push(FfiType::pointer());
+    marshaled.arg_kinds.push(ArgKind::ByRefPointer);
+    let _ = span;
+    Ok(true)
+}
+
+fn variant_storage(value: Value) -> ArgumentStorage {
+    #[cfg(windows)]
+    {
+        ArgumentStorage::Variant(Box::new(crate::runtime::com::value_to_variant(&value)))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = value;
+        ArgumentStorage::Ptr(Box::new(0))
+    }
+}
+
+fn marshal_varptr(
+    interpreter: &mut Interpreter,
+    arg: &Expr,
+    frame: &mut Frame,
+    marshaled: &mut MarshaledArgs,
+    span: Span,
+) -> Result<bool, Diagnostic> {
+    let ExprKind::Call { name, args, .. } = &arg.kind else {
+        return Ok(false);
+    };
+    if !name.eq_ignore_ascii_case("VarPtr") || args.len() != 1 {
+        return Ok(false);
+    }
+    let inner = &args[0];
+    let storage_index = marshaled.storage.len();
+
+    if let ExprKind::Call {
+        name: array_name,
+        args: indices,
+        ..
+    } = &inner.kind
+    {
+        let variable = frame.variable(array_name, inner.span)?;
+        let array_value = variable.borrow().clone();
+        let Value::Array(array) = &array_value else {
+            return Err(unsupported(
+                "VarPtr(array(index)) requires an array value",
+                inner.span,
+            ));
+        };
+        let mut index_values = Vec::with_capacity(indices.len());
+        for index in indices {
+            index_values.push(frame.simple_index_value(index, inner.span)?);
+        }
+        let start_index = super::arrays::calculate_index(&index_values, &array.bounds, inner.span)?;
+        let bytes = pack_array(
+            &array.element_type,
+            &array.elements[start_index..],
+            inner.span,
+        )?;
+        marshaled.storage.push(ArgumentStorage::Array(bytes));
+        marshaled.arg_types.push(FfiType::pointer());
+        marshaled.arg_kinds.push(ArgKind::PointerValue);
+        marshaled.varptrs.push(VarPtrUpdate {
+            target: VarPtrTarget::ArrayTail {
+                base_expr: Expr {
+                    kind: ExprKind::Variable(array_name.clone()),
+                    span: inner.span,
+                },
+                original_array: array.clone(),
+                element_type: array.element_type.clone(),
+                start_index,
+            },
+            storage_index,
+            span,
+        });
+        return Ok(true);
+    }
+
+    let value = interpreter.eval_expr(inner, frame)?;
+    let inferred_ty = match &value {
+        Value::Record(record) | Value::BoxedRecord(record, _) => {
+            TypeName::User(record.type_name.clone())
+        }
+        Value::Array(array) => TypeName::Array(Box::new(array.element_type.clone())),
+        _ => value.type_name(),
+    };
+    let storage =
+        storage_for_varptr_value(&inferred_ty, value.clone(), &interpreter.types, inner.span)?;
+    marshaled.storage.push(storage);
+    marshaled.arg_types.push(FfiType::pointer());
+    marshaled.arg_kinds.push(ArgKind::PointerValue);
+    marshaled.varptrs.push(VarPtrUpdate {
+        target: VarPtrTarget::Value {
+            expr: inner.clone(),
+            ty: inferred_ty,
+            original_value: value,
+        },
+        storage_index,
+        span,
+    });
+    Ok(true)
+}
+
+fn storage_for_varptr_value(
+    ty: &TypeName,
+    value: Value,
+    types: &HashMap<String, RuntimeType>,
+    span: Span,
+) -> Result<ArgumentStorage, Diagnostic> {
+    let coerced = if matches!(ty, TypeName::User(_)) {
+        value
+    } else {
+        coerce_assignment(ty, value, span)?
+    };
+    match coerced {
+        Value::Byte(v) => Ok(ArgumentStorage::U8(Box::new(v))),
+        Value::Int16(v) => Ok(ArgumentStorage::I16(Box::new(v))),
+        Value::Int32(v) => Ok(ArgumentStorage::I32(Box::new(v))),
+        Value::Int64(v) => Ok(ArgumentStorage::I64(Box::new(v))),
+        Value::UInt32(v) => Ok(ArgumentStorage::U32(Box::new(v))),
+        Value::UInt64(v) => Ok(ArgumentStorage::U64(Box::new(v))),
+        Value::Boolean(v) => Ok(ArgumentStorage::Bool(Box::new(if v { -1 } else { 0 }))),
+        Value::Ptr(v) | Value::FuncPtr(v) => Ok(ArgumentStorage::Ptr(Box::new(v))),
+        Value::Currency(v) => Ok(ArgumentStorage::I64(Box::new(v))),
+        Value::Single(v) => Ok(ArgumentStorage::F32(Box::new(v))),
+        Value::Double(v) => Ok(ArgumentStorage::F64(Box::new(v))),
+        Value::Array(array) => Ok(ArgumentStorage::Array(pack_array(
+            &array.element_type,
+            &array.elements,
+            span,
+        )?)),
+        Value::Record(record) | Value::BoxedRecord(record, _) => {
+            let runtime_type = types.get(&key(&record.type_name)).ok_or_else(|| {
+                unsupported(
+                    format!("structure type '{}' is not available", record.type_name),
+                    span,
+                )
+            })?;
+            Ok(ArgumentStorage::Record(pack_record(
+                runtime_type,
+                &record.fields,
+                span,
+            )?))
+        }
+        Value::Null | Value::Nothing | Value::Empty => Ok(ArgumentStorage::Ptr(Box::new(0))),
+        Value::String(_) => Err(unsupported("VarPtr(String) is not supported yet", span)),
+        Value::Object(_)
+        | Value::ComObject(_)
+        | Value::Collection(_)
+        | Value::Decimal(_)
+        | Value::Date(_)
+        | Value::Error(_)
+        | Value::Missing
+        | Value::Nullable(_)
+        | Value::Lambda(_) => Err(unsupported(
+            "VarPtr target is not supported by native marshaling",
+            span,
+        )),
+    }
+}
+
 fn storage_pointer_value(storage: &ArgumentStorage) -> usize {
     match storage {
         ArgumentStorage::CString(value) => value.as_ptr() as usize,
         ArgumentStorage::Ptr(value) => **value,
         ArgumentStorage::Record(bytes) | ArgumentStorage::Array(bytes) => bytes.as_ptr() as usize,
+        #[cfg(windows)]
+        ArgumentStorage::Variant(value) => (&**value as *const windows::core::VARIANT) as usize,
         _ => storage_byref_pointer(storage),
     }
 }
@@ -995,6 +1473,8 @@ fn storage_byref_pointer(storage: &ArgumentStorage) -> usize {
         ArgumentStorage::Bool(value) => (&**value as *const i16) as usize,
         ArgumentStorage::Ptr(value) => (&**value as *const usize) as usize,
         ArgumentStorage::Record(bytes) | ArgumentStorage::Array(bytes) => bytes.as_ptr() as usize,
+        #[cfg(windows)]
+        ArgumentStorage::Variant(value) => (&**value as *const windows::core::VARIANT) as usize,
     }
 }
 
@@ -1012,6 +1492,10 @@ fn storage_value_arg(storage: &ArgumentStorage) -> FfiArg<'_> {
         ArgumentStorage::F32(value) => ffi_arg(&**value),
         ArgumentStorage::F64(value) => ffi_arg(&**value),
         ArgumentStorage::Bool(value) => ffi_arg(&**value),
+        #[cfg(windows)]
+        ArgumentStorage::Variant(_) => {
+            unreachable!("VARIANT values are passed by pointer")
+        }
         ArgumentStorage::Record(_) | ArgumentStorage::Array(_) => {
             unreachable!("record and array values are passed by pointer")
         }
@@ -1025,6 +1509,9 @@ fn value_from_storage(
     types: &HashMap<String, RuntimeType>,
     span: Span,
 ) -> Result<Value, Diagnostic> {
+    if matches!(ty, TypeName::Variant) {
+        return value_from_variant_storage(storage, original_value, types, span);
+    }
     let value = match (storage, ty) {
         (ArgumentStorage::U8(v), _) => Value::Byte(**v),
         (ArgumentStorage::I16(v), TypeName::Boolean)
@@ -1033,12 +1520,17 @@ fn value_from_storage(
         (ArgumentStorage::I32(v), TypeName::UInt32) => Value::UInt32(**v as u32),
         (ArgumentStorage::I32(v), _) => Value::Int32(**v),
         (ArgumentStorage::I64(v), TypeName::UInt64) => Value::UInt64(**v as u64),
+        (ArgumentStorage::I64(v), TypeName::Currency) => Value::Currency(**v),
         (ArgumentStorage::I64(v), _) => Value::Int64(**v),
         (ArgumentStorage::U32(v), _) => Value::UInt32(**v),
         (ArgumentStorage::U64(v), _) => Value::UInt64(**v),
         (ArgumentStorage::F32(v), _) => Value::Single(**v),
         (ArgumentStorage::F64(v), _) => Value::Double(**v),
         (ArgumentStorage::Ptr(v), _) => Value::Ptr(**v),
+        #[cfg(windows)]
+        (ArgumentStorage::Variant(v), TypeName::Variant) => {
+            crate::runtime::com::variant_to_value(v)
+        }
         (ArgumentStorage::Record(bytes), TypeName::User(type_name)) => {
             let rt = types.get(&key(type_name)).ok_or_else(|| {
                 unsupported(
@@ -1066,9 +1558,103 @@ fn value_from_storage(
             return Err(unsupported("String write-back is not supported yet", span));
         }
         (ArgumentStorage::Bool(v), _) => Value::Int16(**v),
-        _ => return Err(unsupported("Invalid storage write-back", span)),
+        _ => {
+            return Err(unsupported(
+                format!(
+                    "Invalid storage write-back for {:?} from {}",
+                    ty,
+                    storage_kind_name(storage)
+                ),
+                span,
+            ));
+        }
     };
     Ok(value)
+}
+
+fn value_from_variant_storage(
+    storage: &ArgumentStorage,
+    original_value: &Value,
+    types: &HashMap<String, RuntimeType>,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    #[cfg(windows)]
+    if let ArgumentStorage::Variant(value) = storage {
+        return Ok(crate::runtime::com::variant_to_value(value));
+    }
+    match original_value {
+        Value::Boolean(_) => match storage {
+            ArgumentStorage::I16(v) | ArgumentStorage::Bool(v) => Ok(Value::Boolean(**v != 0)),
+            _ => value_from_storage(storage, &TypeName::Integer, original_value, types, span),
+        },
+        Value::Currency(_) => {
+            value_from_storage(storage, &TypeName::Currency, original_value, types, span)
+        }
+        Value::Single(_) => {
+            value_from_storage(storage, &TypeName::Single, original_value, types, span)
+        }
+        Value::Double(_) => {
+            value_from_storage(storage, &TypeName::Double, original_value, types, span)
+        }
+        Value::UInt32(_) => {
+            value_from_storage(storage, &TypeName::UInt32, original_value, types, span)
+        }
+        Value::UInt64(_) => {
+            value_from_storage(storage, &TypeName::UInt64, original_value, types, span)
+        }
+        Value::Ptr(_) => value_from_storage(storage, &TypeName::Ptr, original_value, types, span),
+        Value::FuncPtr(_) => {
+            value_from_storage(storage, &TypeName::FuncPtr, original_value, types, span)
+        }
+        Value::Record(record) | Value::BoxedRecord(record, _) => value_from_storage(
+            storage,
+            &TypeName::User(record.type_name.clone()),
+            original_value,
+            types,
+            span,
+        ),
+        _ => match storage {
+            #[cfg(windows)]
+            ArgumentStorage::Variant(v) => Ok(crate::runtime::com::variant_to_value(v)),
+            ArgumentStorage::U8(v) => Ok(Value::Byte(**v)),
+            ArgumentStorage::I16(v) => Ok(Value::Int16(**v)),
+            ArgumentStorage::I32(v) => Ok(Value::Int32(**v)),
+            ArgumentStorage::I64(v) => Ok(Value::Int64(**v)),
+            ArgumentStorage::U32(v) => Ok(Value::UInt32(**v)),
+            ArgumentStorage::U64(v) => Ok(Value::UInt64(**v)),
+            ArgumentStorage::F32(v) => Ok(Value::Single(**v)),
+            ArgumentStorage::F64(v) => Ok(Value::Double(**v)),
+            ArgumentStorage::Bool(v) => Ok(Value::Boolean(**v != 0)),
+            ArgumentStorage::Ptr(v) => Ok(Value::Ptr(**v)),
+            ArgumentStorage::Record(_) | ArgumentStorage::Array(_) => Err(unsupported(
+                "Variant write-back needs an original structured value",
+                span,
+            )),
+            ArgumentStorage::CString(_) => {
+                Err(unsupported("String write-back is not supported yet", span))
+            }
+        },
+    }
+}
+
+fn storage_kind_name(storage: &ArgumentStorage) -> &'static str {
+    match storage {
+        ArgumentStorage::CString(_) => "CString",
+        ArgumentStorage::I16(_) => "I16",
+        ArgumentStorage::I32(_) => "I32",
+        ArgumentStorage::I64(_) => "I64",
+        ArgumentStorage::U32(_) => "U32",
+        ArgumentStorage::U64(_) => "U64",
+        ArgumentStorage::U8(_) => "U8",
+        ArgumentStorage::F32(_) => "F32",
+        ArgumentStorage::F64(_) => "F64",
+        ArgumentStorage::Bool(_) => "Bool",
+        ArgumentStorage::Ptr(_) => "Ptr",
+        ArgumentStorage::Record(_) => "Record",
+        ArgumentStorage::Array(_) => "Array",
+        #[cfg(windows)]
+        ArgumentStorage::Variant(_) => "Variant",
+    }
 }
 
 fn unpack_array(
@@ -1091,10 +1677,14 @@ fn unpack_record(ty: &RuntimeType, bytes: &[u8], span: Span) -> Result<Value, Di
     let mut offset = 0;
     let mut max_align = 1;
     for field in &ty.fields {
-        let align = native_type_align(&field.ty, span)?;
+        let align = field_native_align(field, span)?;
         max_align = max_align.max(align);
         offset = align_offset(offset, align);
-        let (value, size) = read_value(&bytes[offset..], &field.ty, span)?;
+        let (value, size) = if let Some(crate::ArrayDecl::Fixed(bounds)) = &field.array {
+            read_array_field(&bytes[offset..], &field.ty, bounds, span)?
+        } else {
+            read_value(&bytes[offset..], &field.ty, span)?
+        };
         fields.insert(key(&field.name), value);
         offset += size;
     }
@@ -1220,7 +1810,7 @@ fn pack_record(
     fields: &HashMap<String, Value>,
     span: Span,
 ) -> Result<Vec<u8>, Diagnostic> {
-    if !ty.is_structure {
+    if !ty.is_native_record {
         return Err(unsupported(
             "only Structure/Type records with sequential primitive fields are supported",
             span,
@@ -1229,13 +1819,7 @@ fn pack_record(
     let mut bytes = Vec::new();
     let mut max_align = 1;
     for field in &ty.fields {
-        if field.array.is_some() {
-            return Err(unsupported(
-                "fixed arrays inside structures are not supported by native marshaling yet",
-                span,
-            ));
-        }
-        let align = native_type_align(&field.ty, span)?;
+        let align = field_native_align(field, span)?;
         max_align = max_align.max(align);
         pad_to_align(&mut bytes, align);
         let Some(value) = fields.get(&key(&field.name)) else {
@@ -1244,10 +1828,76 @@ fn pack_record(
                 span,
             ));
         };
-        append_value(&mut bytes, &field.ty, value, span)?;
+        if let Some(crate::ArrayDecl::Fixed(bounds)) = &field.array {
+            append_array_field(&mut bytes, &field.ty, value, bounds, span)?;
+        } else {
+            append_value(&mut bytes, &field.ty, value, span)?;
+        }
     }
     pad_to_align(&mut bytes, max_align);
     Ok(bytes)
+}
+
+fn fixed_array_len(bounds: &[crate::runtime::ArrayBound]) -> usize {
+    bounds
+        .iter()
+        .map(|bound| (bound.upper - bound.lower + 1) as usize)
+        .product()
+}
+
+fn field_native_align(field: &RuntimeField, span: Span) -> Result<usize, Diagnostic> {
+    native_type_align(&field.ty, span)
+}
+
+fn read_array_field(
+    bytes: &[u8],
+    element_type: &TypeName,
+    bounds: &[crate::runtime::ArrayBound],
+    span: Span,
+) -> Result<(Value, usize), Diagnostic> {
+    let count = fixed_array_len(bounds);
+    let item_size = native_type_size(element_type, span)?;
+    let total_size = item_size * count;
+    if bytes.len() < total_size {
+        return Err(unsupported("Buffer too small", span));
+    }
+    let elements = unpack_array(element_type, &bytes[..total_size], span)?;
+    Ok((
+        Value::Array(Rc::new(ArrayValue {
+            element_type: element_type.clone(),
+            elements,
+            bounds: bounds.to_vec(),
+            allocated: true,
+            dynamic: false,
+        })),
+        total_size,
+    ))
+}
+
+fn append_array_field(
+    bytes: &mut Vec<u8>,
+    element_type: &TypeName,
+    value: &Value,
+    bounds: &[crate::runtime::ArrayBound],
+    span: Span,
+) -> Result<(), Diagnostic> {
+    let Value::Array(array) = value else {
+        return Err(unsupported(
+            "fixed array field is not stored as an array value",
+            span,
+        ));
+    };
+    let expected = fixed_array_len(bounds);
+    if array.elements.len() != expected {
+        return Err(unsupported(
+            "fixed array field has an unexpected element count",
+            span,
+        ));
+    }
+    for element in &array.elements {
+        append_value(bytes, element_type, element, span)?;
+    }
+    Ok(())
 }
 
 fn native_type_align(ty: &TypeName, span: Span) -> Result<usize, Diagnostic> {

@@ -135,6 +135,7 @@ pub(crate) struct RuntimeType {
     pub(crate) name: String,
     pub(crate) type_params: Vec<String>,
     pub(crate) is_structure: bool,
+    pub(crate) is_native_record: bool,
     pub(crate) implements: Vec<TypeName>,
     pub(crate) fields: Vec<RuntimeField>,
     pub(crate) subs: std::collections::HashMap<String, crate::Procedure>,
@@ -156,6 +157,7 @@ impl From<&TypeDecl> for RuntimeType {
             name: value.name.clone(),
             type_params: value.type_params.clone(),
             is_structure: value.kind == TypeKind::Structure,
+            is_native_record: matches!(value.kind, TypeKind::Structure | TypeKind::Type),
             implements: value.implements.clone(),
             fields: value
                 .fields

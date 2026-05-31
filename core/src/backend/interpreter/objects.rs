@@ -773,6 +773,62 @@ impl Interpreter {
         }
     }
 
+    pub(crate) fn assign_expr_value(
+        &mut self,
+        expr: &Expr,
+        value: Value,
+        frame: &mut Frame,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if let ExprKind::Variable(name) = &expr.kind
+            && matches!(value, Value::Array(_))
+            && frame.has_variable(name)
+        {
+            let variable = frame.variable(name, expr.span)?;
+            *variable.borrow_mut() = value;
+            return Ok(());
+        }
+        let target = match &expr.kind {
+            ExprKind::Variable(name) => AssignTarget::Variable {
+                name: name.clone(),
+                span: expr.span,
+            },
+            ExprKind::Call { name, args, .. } => AssignTarget::ArrayElement {
+                name: name.clone(),
+                indices: args.clone(),
+                span: expr.span,
+            },
+            ExprKind::MemberAccess { object, field } => AssignTarget::Member {
+                object: object.as_ref().clone(),
+                field: field.clone(),
+                span: expr.span,
+            },
+            ExprKind::MemberCall {
+                object,
+                method,
+                args,
+                ..
+            } => AssignTarget::MemberArrayElement {
+                object: object.as_ref().clone(),
+                field: method.clone(),
+                indices: args.clone(),
+                span: expr.span,
+            },
+            ExprKind::Me => AssignTarget::Variable {
+                name: "me".to_string(),
+                span: expr.span,
+            },
+            _ => {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                    "Member array assignment target is not assignable",
+                    Some(span),
+                ));
+            }
+        };
+        self.assign_target(&target, value, frame, span)
+    }
+
     pub(crate) fn assign_member(
         &mut self,
         target: &Expr,
@@ -906,17 +962,8 @@ impl Interpreter {
                 }
                 let old = write_array_element(slot, &dims, value, span)?;
                 self.maybe_terminate(old, span)?;
-                // Records are CoW, so we need to write it back if it's in a variable
-                self.assign_target(
-                    &AssignTarget::Member {
-                        object: object.clone(),
-                        field: field.to_string(),
-                        span,
-                    },
-                    Value::Record(Rc::new(record)),
-                    frame,
-                    span,
-                )
+                // Records are CoW, so write the updated record back to the original owner.
+                self.assign_expr_value(object, Value::Record(Rc::new(record)), frame, span)
             }
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,

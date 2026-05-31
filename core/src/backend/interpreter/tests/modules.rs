@@ -585,6 +585,158 @@ End Function
 }
 
 #[test]
+fn imported_vba_function_can_be_called_as_statement() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports RiffLike
+
+Sub Main()
+    RiffOpen()
+    Console.WriteLine("done")
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "RiffLike.bas",
+        r#"
+Option Explicit
+Option Private Module
+
+Private opened As Boolean
+
+Public Function RiffOpen() As Boolean
+    opened = True
+    RiffOpen = opened
+End Function
+"#,
+    );
+
+    assert_eq!(run_file(dir.join("main.valo")).unwrap(), vec!["done"]);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn imported_vba_record_field_array_assignment_persists() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports Buffers
+
+Sub Main()
+    Console.WriteLine(Buffers.Initialize())
+    Console.WriteLine(Buffers.ReadFirst())
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Buffers.bas",
+        r#"
+Private Type BufferState
+    Values(0 To 1) As Single
+End Type
+
+Private state As BufferState
+
+Public Function Initialize() As Boolean
+    state.Values(0) = 1!
+    Initialize = True
+End Function
+
+Public Function ReadFirst() As Single
+    ReadFirst = state.Values(0)
+End Function
+"#,
+    );
+
+    assert_eq!(run_file(dir.join("main.valo")).unwrap(), vec!["True", "1"]);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn imported_vba_addressof_resolves_private_current_module_callback() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports Callbacks
+
+Sub Main()
+    Console.WriteLine(Callbacks.MakePtr() <> 0)
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "Callbacks.bas",
+        r#"
+Private Function Dummy() As Long
+    Dummy = 1
+End Function
+
+Public Function MakePtr() As LongPtr
+    MakePtr = AddressOf Dummy
+End Function
+"#,
+    );
+
+    assert_eq!(run_file(dir.join("main.valo")).unwrap(), vec!["True"]);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn imported_vba_byref_any_preserves_record_shape_on_writeback() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports GuidModule
+
+Sub Main()
+    Console.WriteLine(GuidModule.ParseGuid())
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "GuidModule.bas",
+        r#"
+Option Explicit
+
+#If VBA7 Then
+Private Declare PtrSafe Function IIDFromString Lib "ole32" (ByVal lpsz As LongPtr, ByRef lpiid As Any) As Long
+#Else
+Private Declare Function IIDFromString Lib "ole32" (ByVal lpsz As Long, ByRef lpiid As Any) As Long
+#End If
+
+Private Type GUID
+    Data1 As Long
+    Data2 As Integer
+    Data3 As Integer
+    Data4(0 To 7) As Byte
+End Type
+
+Public Function ParseGuid() As String
+    Dim value As GUID
+    IIDFromString StrPtr("{00000001-0002-0003-0405-060708090A0B}"), value
+    ParseGuid = CStr(value.Data1) & ":" & CStr(value.Data2) & ":" & CStr(value.Data3) & ":" & CStr(value.Data4(0)) & ":" & CStr(value.Data4(7))
+End Function
+"#,
+    );
+
+    assert_eq!(run_file(dir.join("main.valo")).unwrap(), vec!["1:2:3:4:11"]);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn vba_compat_library_diagnostic_uses_exact_sibling_file_line() {
     let dir = temp_project();
     write(

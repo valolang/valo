@@ -1494,16 +1494,6 @@ fn validate_sub_call(
 
     let Some(sub) = sub else {
         if let Some(func) = validation.signatures.functions.get(&key(effective_name)) {
-            if !func.is_declare {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::GENERIC,
-                    format!(
-                        "Function '{}' cannot be called as a statement",
-                        effective_name
-                    ),
-                    Some(span),
-                ));
-            }
             validate_arguments("Function", func, args, span, validation)?;
         } else {
             return Err(Diagnostic::new(

@@ -188,7 +188,14 @@ fn vartype(value: &Value) -> i64 {
         Value::Array(_) => 8192,
         Value::Error(_) => 10,
         Value::Record(_) | Value::Missing | Value::BoxedRecord(_, _) => 12,
-        Value::Ptr(_) | Value::UInt32(_) | Value::UInt64(_) | Value::FuncPtr(_) => 12,
+        Value::UInt32(_) | Value::UInt64(_) => 12,
+        Value::Ptr(_) | Value::FuncPtr(_) => {
+            if cfg!(target_pointer_width = "64") {
+                20
+            } else {
+                3
+            }
+        }
         Value::Nullable(value) => vartype(value),
         Value::Lambda(_) => 9,
     }

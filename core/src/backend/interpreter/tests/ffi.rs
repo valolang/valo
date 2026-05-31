@@ -436,3 +436,26 @@ End Sub
 
     assert_eq!(output, vec!["True", "True", "True"]);
 }
+
+#[test]
+#[cfg(windows)]
+fn varptr_saved_pointer_writes_back_to_original_variable_after_native_call() {
+    let output = run_source(
+        r#"
+Private Declare PtrSafe Sub RtlMoveMemory Lib "kernel32" (ByVal Destination As LongPtr, ByVal Source As LongPtr, ByVal Length As LongPtr)
+
+Sub Main()
+    Dim source As LongLong
+    Dim target As LongLong
+    Dim pointer As LongPtr
+    source = 123456
+    pointer = VarPtr(target)
+    RtlMoveMemory ByVal pointer, VarPtr(source), 8
+    Console.WriteLine(target)
+    Console.WriteLine(VarType(pointer))
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["123456", "20"]);
+}

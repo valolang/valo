@@ -498,7 +498,7 @@ impl Interpreter {
                         ));
                     }
                 };
-                let ptr = self.create_callback(name, expr.span)?;
+                let ptr = self.create_callback(name, frame, expr.span)?;
                 Ok(Value::FuncPtr(ptr))
             }
             ExprKind::PassingModeOverride { expr: inner, .. } => self.eval_expr(inner, frame),

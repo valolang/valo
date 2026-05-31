@@ -64,6 +64,8 @@ fn test_conversions() {
             Console.WriteLine(CInt(v))
             Console.WriteLine(CLng(v))
             Console.WriteLine(CDbl(v))
+            Console.WriteLine(CLng(\"42\"))
+            Console.WriteLine(CByte(\"&HAA\"))
             
             Dim d As Date
             d = CDate(46152.0) ' Example serial date
@@ -73,7 +75,10 @@ fn test_conversions() {
     let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
     validate(&program).unwrap();
     let output = run(&program).unwrap();
-    assert_eq!(output, vec!["123", "123", "123", "123.456", "Date"]);
+    assert_eq!(
+        output,
+        vec!["123", "123", "123", "123.456", "42", "170", "Date"]
+    );
 }
 
 #[test]

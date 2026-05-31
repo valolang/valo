@@ -1006,13 +1006,23 @@ impl Interpreter {
         }
         let module_key = self.resolve_sub_module(name, caller_frame, span)?;
         let lookup = qualified_key(module_key.as_deref(), name);
-        let procedure = self.procedures.get(&lookup).cloned().ok_or_else(|| {
-            Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                format!("Sub '{}' is not defined", name),
-                Some(span),
-            )
-        })?;
+        let Some(procedure) = self.procedures.get(&lookup).cloned() else {
+            return match self.call_function(name, &[], args, caller_frame, span) {
+                Ok(_) => Ok(()),
+                Err(err)
+                    if err.code == crate::runtime::DiagnosticCode::UNKNOWN_NAME
+                        && err.message.as_ref()
+                            == format!("Function '{}' is not defined", name) =>
+                {
+                    Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Sub '{}' is not defined", name),
+                        Some(span),
+                    ))
+                }
+                Err(err) => Err(err),
+            };
+        };
 
         self.call_stack.push(format!("Sub '{}'", procedure.name));
         self.scope_stack.push(format!("Sub {}", procedure.name));
@@ -1225,17 +1235,27 @@ impl Interpreter {
             let _ = self.call_native(&declare, args, caller_frame, span)?;
             return Ok(());
         }
-        let procedure = self
+        let Some(procedure) = self
             .procedures
             .get(&qualified_key(Some(&module_key), name))
             .cloned()
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    crate::runtime::DiagnosticCode::UNKNOWN_NAME,
-                    format!("Sub '{}.{}' is not defined", qualifier, name),
-                    Some(span),
-                )
-            })?;
+        else {
+            return match self.call_module_function(qualifier, name, args, caller_frame, span) {
+                Ok(_) => Ok(()),
+                Err(err)
+                    if err.code == crate::runtime::DiagnosticCode::UNKNOWN_NAME
+                        && err.message.as_ref()
+                            == format!("Function '{}.{}' is not defined", qualifier, name) =>
+                {
+                    Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::UNKNOWN_NAME,
+                        format!("Sub '{}.{}' is not defined", qualifier, name),
+                        Some(span),
+                    ))
+                }
+                Err(err) => Err(err),
+            };
+        };
         if caller_frame.module_key() != Some(module_key.as_str())
             && !crate::modules::is_public(procedure.visibility)
         {
@@ -1278,7 +1298,7 @@ impl Interpreter {
         }
     }
 
-    fn resolve_function_module(
+    pub(crate) fn resolve_function_module(
         &self,
         name: &str,
         frame: &Frame,
@@ -1297,7 +1317,7 @@ impl Interpreter {
         self.resolve_unqualified(name, frame, span, &self.function_modules, "Function")
     }
 
-    fn resolve_sub_module(
+    pub(crate) fn resolve_sub_module(
         &self,
         name: &str,
         frame: &Frame,

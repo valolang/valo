@@ -2066,9 +2066,10 @@ End Sub
     );
     assert_eq!(output, vec!["Valo Runtime!", "plain"]);
 
-    let call_function = source_error(
+    let call_function = run_source(
         r#"
 Function Bad() As Integer
+    Console.WriteLine("called")
     Return 1
 End Function
 
@@ -2077,7 +2078,7 @@ Sub Main()
 End Sub
 "#,
     );
-    assert!(call_function.contains("Function 'Bad' cannot be called as a statement"));
+    assert_eq!(call_function, vec!["called"]);
 
     let unknown = source_error(
         r#"

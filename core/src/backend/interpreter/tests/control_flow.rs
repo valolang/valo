@@ -555,8 +555,8 @@ End Sub
 }
 
 #[test]
-fn reports_function_called_as_statement() {
-    let error = source_error(
+fn function_called_as_statement_discards_return_value() {
+    let output = run_source(
         r#"
 Function Add(ByVal a As Integer, ByVal b As Integer) As Integer
     Return a + b
@@ -564,11 +564,12 @@ End Function
 
 Sub Main()
     Add(1, 2)
+    Console.WriteLine("done")
 End Sub
 "#,
     );
 
-    assert!(error.contains("Function 'Add' cannot be called as a statement"));
+    assert_eq!(output, vec!["done"]);
 }
 
 #[test]

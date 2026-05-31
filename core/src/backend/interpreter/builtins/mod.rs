@@ -122,35 +122,12 @@ pub(crate) fn dispatch_function(
 
     if effective_name.eq_ignore_ascii_case("VarPtr") {
         expect_arg_count(effective_name, args, 1, span)?;
-        let arg = &args[0];
-        let ptr = match &arg.kind {
-            crate::ExprKind::Variable(name) => {
-                let variable = frame.variable(name, arg.span)?;
-                if let super::frame::VariableCell::Direct(cell) = &variable.cell {
-                    std::rc::Rc::as_ptr(cell) as usize
-                } else {
-                    0
-                }
-            }
-            _ => {
-                let _ = interpreter.eval_expr(arg, frame)?;
-                0
-            }
-        };
-        return Ok(Some(Value::Ptr(ptr)));
+        return Ok(Some(Value::Ptr(interpreter.varptr_expr(&args[0], frame)?)));
     }
 
     if effective_name.eq_ignore_ascii_case("StrPtr") {
         expect_arg_count(effective_name, args, 1, span)?;
         let arg = &args[0];
-        if let crate::ExprKind::Variable(name) = &arg.kind {
-            let variable = frame.variable(name, arg.span)?;
-            let value = variable.borrow();
-            if let Value::String(s) = &*value {
-                return Ok(Some(Value::Ptr(s.as_ptr() as usize)));
-            }
-            return Ok(Some(Value::Ptr(0)));
-        }
         let value = interpreter.eval_expr(arg, frame)?;
         let text = match value {
             Value::String(text) => text,
@@ -158,9 +135,11 @@ pub(crate) fn dispatch_function(
             Value::Null | Value::Nothing | Value::Missing => return Ok(Some(Value::Ptr(0))),
             other => other.to_output_string(),
         };
-        interpreter.temporary_strings.push(text);
+        let mut wide: Vec<u16> = text.encode_utf16().collect();
+        wide.push(0);
+        interpreter.temporary_wide_strings.push(wide);
         let ptr = interpreter
-            .temporary_strings
+            .temporary_wide_strings
             .last()
             .map(|text| text.as_ptr() as usize)
             .unwrap_or(0);

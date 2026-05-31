@@ -1,5 +1,49 @@
 use crate::runtime::{Diagnostic, Span, Value};
 
+fn parse_numeric_string_i64(text: &str) -> Option<i64> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let (sign, body) = if let Some(rest) = trimmed.strip_prefix('-') {
+        (-1_i64, rest)
+    } else if let Some(rest) = trimmed.strip_prefix('+') {
+        (1_i64, rest)
+    } else {
+        (1_i64, trimmed)
+    };
+
+    if let Some(hex) = body.strip_prefix("&H").or_else(|| body.strip_prefix("&h")) {
+        let value = i64::from_str_radix(hex, 16).ok()?;
+        return value.checked_mul(sign);
+    }
+    if let Some(octal) = body.strip_prefix("&O").or_else(|| body.strip_prefix("&o")) {
+        let value = i64::from_str_radix(octal, 8).ok()?;
+        return value.checked_mul(sign);
+    }
+
+    trimmed.parse::<f64>().ok().map(|value| value as i64)
+}
+
+fn parse_numeric_string_f64(text: &str) -> Option<f64> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(value) = parse_numeric_string_i64(trimmed)
+        && (trimmed.contains("&H")
+            || trimmed.contains("&h")
+            || trimmed.contains("&O")
+            || trimmed.contains("&o"))
+    {
+        return Some(value as f64);
+    }
+
+    trimmed.parse::<f64>().ok()
+}
+
 pub fn unary_positive(value: Value, span: Span) -> Result<Value, Diagnostic> {
     if is_numeric_value(&value) {
         Ok(value)
@@ -148,6 +192,7 @@ pub fn value_to_i64(v: &Value) -> Option<i64> {
         Value::Date(n) => Some(*n as i64),
         Value::Ptr(n) => Some(*n as i64),
         Value::FuncPtr(n) => Some(*n as i64),
+        Value::String(text) => parse_numeric_string_i64(text),
         Value::Nothing | Value::Null | Value::Empty => Some(0),
         Value::Nullable(inner) => value_to_i64(inner),
         _ => None,
@@ -191,6 +236,7 @@ pub fn value_to_f64(v: &Value) -> Option<f64> {
         Value::Date(n) => Some(*n),
         Value::Ptr(n) => Some(*n as f64),
         Value::FuncPtr(n) => Some(*n as f64),
+        Value::String(text) => parse_numeric_string_f64(text),
         Value::Nothing | Value::Null | Value::Empty => Some(0.0),
         Value::Nullable(inner) => value_to_f64(inner),
         _ => None,

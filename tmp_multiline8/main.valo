@@ -1,0 +1,5 @@
+Sub Main()
+    Dim x As Long
+    x = Len("AABBCC") \ 2
+    Console.WriteLine(x)
+End Sub

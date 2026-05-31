@@ -1,0 +1,8 @@
+Imports Riff
+
+Sub Main()
+    Dim ok As Boolean
+    ok = RiffOpen()
+    Console.WriteLine(ok)
+End Sub
+

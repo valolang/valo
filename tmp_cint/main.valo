@@ -1,0 +1,3 @@
+Sub Main()
+    Console.WriteLine(CLng("42"))
+End Sub

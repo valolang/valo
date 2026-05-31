@@ -25,6 +25,7 @@ impl Interpreter {
         let mut ip = 0;
         while ip < statements.len() {
             self.temporary_strings.clear();
+            self.temporary_wide_strings.clear();
             match self.exec_stmt(&statements[ip], frame) {
                 Ok(ControlFlow::Continue) => ip += 1,
                 Ok(ControlFlow::GoTo(label)) => {

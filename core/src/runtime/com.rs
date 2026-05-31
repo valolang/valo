@@ -228,7 +228,7 @@ fn invoke_com_dispid(
 }
 
 #[cfg(windows)]
-fn value_to_variant(value: &Value) -> windows::core::VARIANT {
+pub(crate) fn value_to_variant(value: &Value) -> windows::core::VARIANT {
     use windows::Win32::System::Variant::{VT_DATE, VT_DISPATCH, VT_ERROR, VT_NULL};
     use windows::core::{BSTR, VARIANT};
 
@@ -236,6 +236,9 @@ fn value_to_variant(value: &Value) -> windows::core::VARIANT {
         Value::Int16(n) => VARIANT::from(*n),
         Value::Int32(n) => VARIANT::from(*n),
         Value::Int64(n) => VARIANT::from(*n),
+        Value::Ptr(n) | Value::FuncPtr(n) => VARIANT::from(*n as i64),
+        Value::UInt32(n) => VARIANT::from(*n as i64),
+        Value::UInt64(n) => VARIANT::from(*n as i64),
         Value::Double(n) => VARIANT::from(*n),
         Value::String(s) => VARIANT::from(BSTR::from(s.as_str())),
         Value::Boolean(b) => VARIANT::from(*b),
@@ -299,7 +302,7 @@ fn get_com_type_name(dispatch: &windows::Win32::System::Com::IDispatch) -> Strin
 }
 
 #[cfg(windows)]
-fn variant_to_value(var: &windows::core::VARIANT) -> Value {
+pub(crate) fn variant_to_value(var: &windows::core::VARIANT) -> Value {
     use windows::Win32::System::Com::IDispatch;
     use windows::Win32::System::Variant::*;
     use windows::core::{BSTR, IUnknown, Interface};

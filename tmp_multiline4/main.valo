@@ -1,0 +1,7 @@
+Sub Main()
+    Dim hexStr As String
+    Dim opcodes() As Byte
+    hexStr = "AABBCC"
+    ReDim opcodes(0 To 3 - 1)
+    Console.WriteLine(UBound(opcodes))
+End Sub
