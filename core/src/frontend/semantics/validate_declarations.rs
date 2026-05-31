@@ -2468,6 +2468,7 @@ pub(super) fn ensure_const_expr(
                 .get(&key(name))
                 .is_some_and(|var_type| var_type.is_const())
                 || enum_member_value_type(name, types).is_some()
+                || crate::runtime::vba::vba_constant(name).is_some()
             {
                 Ok(())
             } else {

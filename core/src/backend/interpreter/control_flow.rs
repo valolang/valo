@@ -7,6 +7,7 @@ pub(crate) enum ControlFlow {
     Return(Value),
     ExitSub,
     ExitFunction,
+    ExitProperty,
     ExitFor,
     ExitWhile,
     ExitDo,

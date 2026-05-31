@@ -48,6 +48,7 @@ impl TypeRegistry {
             || self.enums.contains_key(&key(name))
             || self.interfaces.contains_key(&key(name))
             || self.classes.contains_key(&key(name))
+            || self.unique_nested_type_name(name).is_some()
     }
 
     pub(super) fn get(&self, name: &str) -> Option<&TypeSig> {
@@ -81,6 +82,9 @@ impl TypeRegistry {
                 if let Some(sig) = self.interfaces.get(&key(name)) {
                     return TypeName::User(sig.name.clone());
                 }
+                if let Some(canonical) = self.unique_nested_type_name(name) {
+                    return TypeName::User(canonical);
+                }
                 // Handle Object
                 if name.eq_ignore_ascii_case("Object") {
                     return TypeName::User("Object".to_string());
@@ -111,6 +115,57 @@ impl TypeRegistry {
             TypeName::Array(inner) => TypeName::Array(Box::new(self.canonical_type_name(inner))),
             _ => ty.clone(),
         }
+    }
+
+    fn unique_nested_type_name(&self, name: &str) -> Option<String> {
+        if name.contains('.') {
+            return None;
+        }
+        let name_key = key(name);
+        let mut matches = Vec::new();
+        for sig in self.types.values() {
+            if sig
+                .name
+                .rsplit('.')
+                .next()
+                .is_some_and(|short| key(short) == name_key)
+            {
+                matches.push(sig.name.clone());
+            }
+        }
+        for sig in self.enums.values() {
+            if sig
+                .name
+                .rsplit('.')
+                .next()
+                .is_some_and(|short| key(short) == name_key)
+            {
+                matches.push(sig.name.clone());
+            }
+        }
+        for sig in self.interfaces.values() {
+            if sig
+                .name
+                .rsplit('.')
+                .next()
+                .is_some_and(|short| key(short) == name_key)
+            {
+                matches.push(sig.name.clone());
+            }
+        }
+        for sig in self.classes.values() {
+            if sig
+                .name
+                .rsplit('.')
+                .next()
+                .is_some_and(|short| key(short) == name_key)
+            {
+                matches.push(sig.name.clone());
+            }
+        }
+        matches.sort();
+        matches.dedup();
+        (matches.len() == 1).then(|| matches.remove(0))
     }
 }
 

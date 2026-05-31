@@ -58,6 +58,20 @@ End Sub
 }
 
 #[test]
+fn environ_builtin_supports_string_suffix_and_numeric_lookup() {
+    let output = run_source(
+        r#"
+Sub Main()
+    Console.WriteLine("missing=" & Environ$("VALO_TEST_ENV_THAT_SHOULD_NOT_EXIST"))
+    Console.WriteLine("zero=" & Environ(0))
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["missing=", "zero="]);
+}
+
+#[test]
 fn test_callbyname() {
     let source = "
         Class Target

@@ -288,12 +288,28 @@ fn push_function(
 ) -> Result<(), Diagnostic> {
     let id = FunctionId(index.functions.len());
     let qualified_name = qualified_name(scope.module_name, scope.namespace, name);
-    insert_symbol(
-        &mut index.by_qualified_name,
-        &qualified_name,
-        SymbolId::Function(id),
-        Some(span),
-    )?;
+    let symbol_key = key(&qualified_name);
+    if let Some(existing) = index.by_qualified_name.get(&symbol_key).copied() {
+        let existing_is_property = matches!(
+            existing,
+            SymbolId::Function(existing_id)
+                if index
+                    .functions
+                    .get(existing_id.0)
+                    .is_some_and(|function| function.kind == FunctionSymbolKind::Property)
+        );
+        if !(existing_is_property && kind == FunctionSymbolKind::Property) {
+            return Err(Diagnostic::new(
+                DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Symbol '{qualified_name}' is already declared in this project"),
+                Some(span),
+            ));
+        }
+    } else {
+        index
+            .by_qualified_name
+            .insert(symbol_key, SymbolId::Function(id));
+    }
     index.functions.push(FunctionSymbol {
         id,
         module: scope.module,

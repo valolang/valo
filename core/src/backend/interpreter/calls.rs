@@ -486,7 +486,10 @@ impl Interpreter {
                         Some(span),
                     ));
                 }
-                ControlFlow::ExitFor | ControlFlow::ExitDo | ControlFlow::ExitWhile => {
+                ControlFlow::ExitProperty
+                | ControlFlow::ExitFor
+                | ControlFlow::ExitDo
+                | ControlFlow::ExitWhile => {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::CONTROL_FLOW,
                         "Exit loop statement outside of a loop",
@@ -683,7 +686,8 @@ impl Interpreter {
                     "Exit Sub is only valid inside Sub",
                     Some(function.span),
                 )),
-                ControlFlow::ExitFor
+                ControlFlow::ExitProperty
+                | ControlFlow::ExitFor
                 | ControlFlow::ExitWhile
                 | ControlFlow::ExitDo
                 | ControlFlow::GoTo(_)
@@ -875,7 +879,10 @@ impl Interpreter {
                         Some(span),
                     ));
                 }
-                ControlFlow::ExitFor | ControlFlow::ExitDo | ControlFlow::ExitWhile => {
+                ControlFlow::ExitProperty
+                | ControlFlow::ExitFor
+                | ControlFlow::ExitDo
+                | ControlFlow::ExitWhile => {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::CONTROL_FLOW,
                         "Exit loop statement outside of a loop",
@@ -949,7 +956,10 @@ impl Interpreter {
                         Some(span),
                     ));
                 }
-                ControlFlow::ExitFor | ControlFlow::ExitDo | ControlFlow::ExitWhile => {
+                ControlFlow::ExitProperty
+                | ControlFlow::ExitFor
+                | ControlFlow::ExitDo
+                | ControlFlow::ExitWhile => {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::CONTROL_FLOW,
                         "Exit loop statement outside of a loop",
@@ -1035,7 +1045,8 @@ impl Interpreter {
                     "Exit Function is only valid inside Function",
                     Some(procedure.span),
                 )),
-                ControlFlow::ExitFor
+                ControlFlow::ExitProperty
+                | ControlFlow::ExitFor
                 | ControlFlow::ExitWhile
                 | ControlFlow::ExitDo
                 | ControlFlow::GoTo(_)
@@ -1156,7 +1167,8 @@ impl Interpreter {
                 "Exit Sub is only valid inside Sub",
                 Some(function.span),
             )),
-            ControlFlow::ExitFor
+            ControlFlow::ExitProperty
+            | ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
@@ -1253,7 +1265,8 @@ impl Interpreter {
                 "Exit Function is only valid inside Function",
                 Some(procedure.span),
             )),
-            ControlFlow::ExitFor
+            ControlFlow::ExitProperty
+            | ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
@@ -1584,7 +1597,8 @@ impl Interpreter {
                 "Exit Function is only valid inside Function",
                 Some(procedure.span),
             )),
-            ControlFlow::ExitFor
+            ControlFlow::ExitProperty
+            | ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
@@ -1709,7 +1723,8 @@ impl Interpreter {
                 "Exit Function is only valid inside Function",
                 Some(procedure.span),
             )),
-            ControlFlow::ExitFor
+            ControlFlow::ExitProperty
+            | ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
@@ -1929,7 +1944,8 @@ impl Interpreter {
                             "Exit Sub is only valid inside Sub",
                             Some(function.span),
                         )),
-                        ControlFlow::ExitFor
+                        ControlFlow::ExitProperty
+                        | ControlFlow::ExitFor
                         | ControlFlow::ExitWhile
                         | ControlFlow::ExitDo
                         | ControlFlow::GoTo(_)
@@ -2198,7 +2214,8 @@ impl Interpreter {
                 "Exit Sub is only valid inside Sub",
                 Some(function.span),
             )),
-            ControlFlow::ExitFor
+            ControlFlow::ExitProperty
+            | ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)

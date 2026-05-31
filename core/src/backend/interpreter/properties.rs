@@ -92,7 +92,7 @@ impl Interpreter {
                 }
                 coerce_assignment(&return_type, value, span)
             }
-            ControlFlow::Continue => {
+            ControlFlow::Continue | ControlFlow::ExitProperty => {
                 if accessor.is_iterator {
                     let elements = frame.take_yielded_values().unwrap_or_default();
                     let len = elements.len() as i64;
@@ -215,7 +215,7 @@ impl Interpreter {
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
         match result? {
-            ControlFlow::Continue => Ok(()),
+            ControlFlow::Continue | ControlFlow::ExitProperty => Ok(()),
             ControlFlow::Terminate => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
@@ -317,7 +317,7 @@ impl Interpreter {
                 }
                 coerce_assignment(&return_type, value, span)
             }
-            ControlFlow::Continue => {
+            ControlFlow::Continue | ControlFlow::ExitProperty => {
                 if accessor.is_iterator {
                     let elements = frame.take_yielded_values().unwrap_or_default();
                     let len = elements.len() as i64;
@@ -563,7 +563,7 @@ impl Interpreter {
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
         let result = match result? {
-            ControlFlow::Continue => Ok(()),
+            ControlFlow::Continue | ControlFlow::ExitProperty => Ok(()),
             ControlFlow::Terminate => Ok(()),
             ControlFlow::Return(_) => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,

@@ -22,7 +22,7 @@ pub use frontend::parser::{self, Parser, parse_source, parse_source_with_id};
 pub use frontend::preprocessor;
 pub use frontend::semantics::{
     self, FunctionId, MemberId, ModuleId, ProjectIndex, SymbolId, TypeId, build_project_index,
-    validate, validate_project, validate_snippet,
+    validate, validate_project, validate_project_for_check, validate_snippet,
 };
 pub use runtime::*;
 

@@ -1489,8 +1489,17 @@ impl Parser {
 
     fn parse_case_body(&mut self, newline_message: &str) -> Result<Vec<Stmt>, Diagnostic> {
         if self.match_simple(&TokenKind::Colon) {
-            let stmt = self.parse_stmt()?;
-            Ok(vec![stmt])
+            let mut body = Vec::new();
+            while !self.check_simple(&TokenKind::Newline)
+                && !self.check_simple(&TokenKind::Eof)
+                && !self.matches_block_end(&[BlockEnd::Case, BlockEnd::EndSelect])
+            {
+                body.push(self.parse_stmt()?);
+                if !self.match_simple(&TokenKind::Colon) {
+                    break;
+                }
+            }
+            Ok(body)
         } else {
             self.expect_newline(newline_message)?;
             self.parse_block_until(&[BlockEnd::Case, BlockEnd::EndSelect])
@@ -1946,13 +1955,14 @@ impl Parser {
         let target = match token.kind {
             TokenKind::Sub => ExitTarget::Sub,
             TokenKind::Function => ExitTarget::Function,
+            TokenKind::Property => ExitTarget::Property,
             TokenKind::For => ExitTarget::For,
             TokenKind::While => ExitTarget::While,
             TokenKind::Do => ExitTarget::Do,
             _ => {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::PARSE,
-                    "Expected 'Sub', 'Function', 'For', 'While', or 'Do' after 'Exit'",
+                    "Expected 'Sub', 'Function', 'Property', 'For', 'While', or 'Do' after 'Exit'",
                     Some(token.span),
                 ));
             }

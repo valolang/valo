@@ -780,6 +780,7 @@ impl Interpreter {
             Stmt::Exit { target, .. } => match target {
                 ExitTarget::Sub => Ok(ControlFlow::ExitSub),
                 ExitTarget::Function => Ok(ControlFlow::ExitFunction),
+                ExitTarget::Property => Ok(ControlFlow::ExitProperty),
                 ExitTarget::For => Ok(ControlFlow::ExitFor),
                 ExitTarget::While => Ok(ControlFlow::ExitWhile),
                 ExitTarget::Do => Ok(ControlFlow::ExitDo),

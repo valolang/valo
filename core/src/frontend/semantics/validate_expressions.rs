@@ -1768,6 +1768,18 @@ fn validate_builtin_function(
         }
         return Ok(Some(TypeName::String));
     }
+    if effective_name.eq_ignore_ascii_case("Environ") {
+        validate_arg_count(effective_name, args, 1, span)?;
+        validate_expr(
+            &args[0],
+            validation.symbols,
+            validation.types,
+            validation.signatures,
+            validation.context,
+            validation.option_explicit,
+        )?;
+        return Ok(Some(TypeName::String));
+    }
     if effective_name.eq_ignore_ascii_case("VarPtr")
         || effective_name.eq_ignore_ascii_case("StrPtr")
         || effective_name.eq_ignore_ascii_case("ObjPtr")
@@ -3576,6 +3588,8 @@ pub(super) fn ensure_known_type(
             if types.generic_params.contains(&key(name))
                 || name.eq_ignore_ascii_case("Object")
                 || name.eq_ignore_ascii_case("Collection")
+                || name.contains('.')
+                || is_builtin_vba_enum_type(name)
             {
                 Ok(())
             } else if let Some(sig) = types.get(name)
@@ -3686,6 +3700,24 @@ pub(super) fn ensure_known_type(
         TypeName::Array(inner) => ensure_known_type(inner, types, span),
         TypeName::Nullable(inner) => ensure_known_type(inner, types, span),
     }
+}
+
+fn is_builtin_vba_enum_type(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "vbvartype"
+            | "vbcomparemethod"
+            | "vbcalltype"
+            | "vbmsgboxstyle"
+            | "vbmsgboxresult"
+            | "vbfileattribute"
+            | "vbdatetimeformat"
+            | "vbdayofweek"
+            | "vbfirstweekofyear"
+            | "vbstrconv"
+            | "vbtristate"
+            | "vbappwinstyle"
+    )
 }
 
 fn validate_generic_constraints(
@@ -4178,6 +4210,16 @@ pub(super) fn validate_exit(
             )
             .with_primary_label("invalid Exit Function")
             .with_help("use Exit Function only inside a Function body")),
+        },
+        ExitTarget::Property => match context {
+            Context::PropertyGet { .. } | Context::PropertyLetSet { .. } => Ok(()),
+            _ => Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::CONTROL_FLOW,
+                "Exit Property is only valid inside Property",
+                Some(span),
+            )
+            .with_primary_label("invalid Exit Property")
+            .with_help("use Exit Property only inside a Property Get, Let, or Set body")),
         },
         ExitTarget::For => {
             if loop_context.for_depth > 0 {

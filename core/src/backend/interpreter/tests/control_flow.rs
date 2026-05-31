@@ -1475,6 +1475,70 @@ End Sub
 }
 
 #[test]
+fn exit_property_outside_property_is_rejected() {
+    let error = source_error(
+        r#"
+Sub Main()
+    Exit Property
+End Sub
+"#,
+    );
+
+    assert!(error.contains("Exit Property is only valid inside Property"));
+}
+
+#[test]
+fn exit_property_in_get_returns_current_property_value() {
+    let output = run_source(
+        r#"
+Class User
+    Public Property Get Name() As String
+        Name = "before"
+        Exit Property
+        Name = "after"
+    End Property
+End Class
+
+Sub Main()
+    Dim u As New User
+    Console.WriteLine(u.Name)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["before"]);
+}
+
+#[test]
+fn exit_property_in_let_stops_assignment_body() {
+    let output = run_source(
+        r#"
+Class User
+    Private m_Name As String
+
+    Public Property Let Name(value As String)
+        m_Name = value
+        Exit Property
+        m_Name = "after"
+    End Property
+
+    Public Property Get Name() As String
+        Name = m_Name
+    End Property
+End Class
+
+Sub Main()
+    Dim u As New User
+    u.Name = "before"
+    Console.WriteLine(u.Name)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["before"]);
+}
+
+#[test]
 fn exit_function_in_integer_function_returns_zero() {
     let output = run_source(
         r#"

@@ -121,9 +121,24 @@ fn validate_internal(program: &Program, require_main: bool) -> Result<(), Diagno
 }
 
 pub fn validate_project(project: &crate::modules::Project) -> Result<(), Diagnostic> {
+    validate_project_with_entry_requirement(project, true)
+}
+
+pub fn validate_project_for_check(project: &crate::modules::Project) -> Result<(), Diagnostic> {
+    let _project_index = crate::frontend::semantics::hir::build_project_index(project)?;
+    for module in &project.modules {
+        validate_import_aliases(module, project)?;
+    }
+    Ok(())
+}
+
+fn validate_project_with_entry_requirement(
+    project: &crate::modules::Project,
+    require_entry_main: bool,
+) -> Result<(), Diagnostic> {
     let _project_index = crate::frontend::semantics::hir::build_project_index(project)?;
     for (index, module) in project.modules.iter().enumerate() {
-        let require_main = index == project.entry;
+        let require_main = require_entry_main && index == project.entry;
         validate_module(&module.program, require_main, &module.imports)?;
         validate_import_aliases(module, project)?;
     }

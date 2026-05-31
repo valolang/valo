@@ -93,6 +93,10 @@ impl Parser {
             TokenKind::Error => Ok("Error".to_string()),
             TokenKind::Operator => Ok("Operator".to_string()),
             TokenKind::Select => Ok("Select".to_string()),
+            TokenKind::Text => Ok("Text".to_string()),
+            TokenKind::Next => Ok("Next".to_string()),
+            TokenKind::Exit => Ok("Exit".to_string()),
+            TokenKind::Namespace => Ok("Namespace".to_string()),
             TokenKind::Any => Ok("Any".to_string()),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::GENERIC,
@@ -174,6 +178,12 @@ impl Parser {
 
     pub(super) fn peek_next_kind(&self) -> Option<&TokenKind> {
         self.tokens.get(self.current + 1).map(|token| &token.kind)
+    }
+
+    pub(super) fn peek_kind_at(&self, offset: usize) -> Option<&TokenKind> {
+        self.tokens
+            .get(self.current + offset)
+            .map(|token| &token.kind)
     }
 
     pub(super) fn expect_identifier_with(

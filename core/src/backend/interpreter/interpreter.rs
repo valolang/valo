@@ -412,7 +412,8 @@ impl Interpreter {
                 "Exit Function is only valid inside Function",
                 Some(main.span),
             )),
-            ControlFlow::ExitFor
+            ControlFlow::ExitProperty
+            | ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)
@@ -608,7 +609,8 @@ impl Interpreter {
                 "Exit Function is only valid inside Function",
                 Some(main.span),
             )),
-            ControlFlow::ExitFor
+            ControlFlow::ExitProperty
+            | ControlFlow::ExitFor
             | ControlFlow::ExitWhile
             | ControlFlow::ExitDo
             | ControlFlow::GoTo(_)

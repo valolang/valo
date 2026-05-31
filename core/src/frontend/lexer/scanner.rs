@@ -57,6 +57,7 @@ impl<'a> Lexer<'a> {
                         tokens.push(self.identifier());
                     }
                 }
+                ch if is_identifier_start(ch) => tokens.push(self.identifier()),
                 '[' => tokens.push(self.bracketed_identifier()?),
                 '.' => {
                     if self.peek_next().is_some_and(|c| c.is_ascii_digit()) {
@@ -120,7 +121,7 @@ impl<'a> Lexer<'a> {
         let mut text = String::new();
 
         while let Some(ch) = self.peek() {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
+            if is_identifier_continue(ch) {
                 text.push(ch);
                 self.advance();
             } else {
@@ -608,6 +609,14 @@ impl<'a> Lexer<'a> {
     }
 }
 
+fn is_identifier_start(ch: char) -> bool {
+    ch == '_' || ch.is_alphabetic() || ch == '\u{fffd}'
+}
+
+fn is_identifier_continue(ch: char) -> bool {
+    ch == '_' || ch.is_alphanumeric() || ch == '\u{fffd}'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -660,5 +669,19 @@ mod scanner_tests {
         } else {
             panic!("Expected string token");
         }
+    }
+
+    #[test]
+    fn tokenizes_international_and_replacement_identifier_characters() {
+        let tokens = Lexer::new("Dim Código As String\nDim Orienta��o As Integer")
+            .tokenize()
+            .unwrap();
+
+        assert!(tokens.iter().any(|token| {
+            matches!(&token.kind, TokenKind::Identifier(name, _) if name == "Código")
+        }));
+        assert!(tokens.iter().any(|token| {
+            matches!(&token.kind, TokenKind::Identifier(name, _) if name == "Orienta��o")
+        }));
     }
 }

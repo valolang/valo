@@ -386,6 +386,16 @@ pub(crate) fn dispatch_function(
         return dispatch_file_function(interpreter, effective_name, &values, span);
     }
 
+    if effective_name.eq_ignore_ascii_case("Environ") {
+        expect_arg_count(effective_name, args, 1, span)?;
+        let value = interpreter.eval_expr(&args[0], frame)?;
+        return Ok(Some(Value::String(environ_value(
+            effective_name,
+            &value,
+            span,
+        )?)));
+    }
+
     if matches!(
         effective_name.to_ascii_lowercase().as_str(),
         "timer"
@@ -533,6 +543,7 @@ fn is_builtin_function(name: &str) -> bool {
             | "filelen"
             | "filedatetime"
             | "curdir"
+            | "environ"
             | "timer"
             | "now"
             | "date"
@@ -762,6 +773,27 @@ fn dispatch_datetime_function(
             )?)))
         }
         _ => Ok(None),
+    }
+}
+
+fn environ_value(
+    name: &str,
+    value: &Value,
+    span: crate::runtime::Span,
+) -> Result<String, Diagnostic> {
+    match value {
+        Value::String(key) => Ok(std::env::var(key).unwrap_or_default()),
+        Value::Empty | Value::Missing => Ok(String::new()),
+        _ => {
+            let index = integer_arg(name, value, span)?;
+            if index <= 0 {
+                return Ok(String::new());
+            }
+            Ok(std::env::vars()
+                .nth((index - 1) as usize)
+                .map(|(key, value)| format!("{key}={value}"))
+                .unwrap_or_default())
+        }
     }
 }
 

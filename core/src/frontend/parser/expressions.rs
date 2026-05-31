@@ -259,7 +259,7 @@ impl Parser {
                 break;
             };
 
-            let right = self.parse_power()?;
+            let right = self.parse_unary()?;
             let span = Span::new(self.file_id, expr.span.start, right.span.end);
             expr = Expr {
                 kind: ExprKind::Binary {
@@ -553,6 +553,24 @@ impl Parser {
                     span: Span::new(self.file_id, span.start, end.end),
                 }
             }
+            TokenKind::StringType => {
+                let name = "String".to_string();
+                let kind = if self.match_simple(&TokenKind::LeftParen) {
+                    let args = self.finish_call_arguments()?;
+                    ExprKind::Call {
+                        name,
+                        type_args: Vec::new(),
+                        args,
+                    }
+                } else {
+                    ExprKind::Variable(name)
+                };
+                let end = self.previous().span;
+                Expr {
+                    kind,
+                    span: Span::new(self.file_id, span.start, end.end),
+                }
+            }
             TokenKind::Identifier(name, _) => {
                 if name.eq_ignore_ascii_case("MyBase") {
                     Expr {
@@ -725,42 +743,12 @@ impl Parser {
         loop {
             if self.match_simple(&TokenKind::Dot) {
                 let field_token = self.advance();
-                let field = match &field_token.kind {
-                    TokenKind::Identifier(field, _) => field.clone(),
-                    TokenKind::Version => "VERSION".to_string(),
-                    TokenKind::WriteLine => "WriteLine".to_string(),
-                    TokenKind::Text => "Text".to_string(),
-                    TokenKind::Binary => "Binary".to_string(),
-                    TokenKind::Compare => "Compare".to_string(),
-                    TokenKind::Base => "Base".to_string(),
-                    TokenKind::Lib => "Lib".to_string(),
-                    TokenKind::New => "New".to_string(),
-                    TokenKind::Type => "Type".to_string(),
-                    TokenKind::Class => "Class".to_string(),
-                    TokenKind::Module => "Module".to_string(),
-                    TokenKind::Enum => "Enum".to_string(),
-                    TokenKind::Interface => "Interface".to_string(),
-                    TokenKind::Structure => "Structure".to_string(),
-                    TokenKind::Get => "Get".to_string(),
-                    TokenKind::Let => "Let".to_string(),
-                    TokenKind::Set => "Set".to_string(),
-                    TokenKind::Option => "Option".to_string(),
-                    TokenKind::Explicit => "Explicit".to_string(),
-                    TokenKind::Sub => "Sub".to_string(),
-                    TokenKind::Function => "Function".to_string(),
-                    TokenKind::Property => "Property".to_string(),
-                    TokenKind::Event => "Event".to_string(),
-                    TokenKind::Declare => "Declare".to_string(),
-                    TokenKind::Select => "Select".to_string(),
-                    TokenKind::Any => "Any".to_string(),
-                    TokenKind::Error => "Error".to_string(),
-                    _ => {
-                        return Err(Diagnostic::new(
-                            crate::runtime::DiagnosticCode::PARSE,
-                            "Expected field name after '.'",
-                            Some(field_token.span),
-                        ));
-                    }
+                let Some(field) = contextual_identifier_name(&field_token.kind) else {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::PARSE,
+                        "Expected field name after '.'",
+                        Some(field_token.span),
+                    ));
                 };
                 let span = Span::new(self.file_id, expr.span.start, field_token.span.end);
                 if self.check_simple(&TokenKind::LeftParen)
@@ -856,13 +844,12 @@ impl Parser {
     }
 
     pub(super) fn parse_argument(&mut self) -> Result<Expr, Diagnostic> {
-        if matches!(self.peek_kind(), TokenKind::Identifier(_, _))
-            && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
+        if matches!(self.peek_next_kind(), Some(TokenKind::Colon))
+            && matches!(self.peek_kind_at(2), Some(TokenKind::Equal))
+            && contextual_identifier_name(self.peek_kind()).is_some()
         {
             let name_token = self.advance();
-            let TokenKind::Identifier(name, _) = name_token.kind else {
-                unreachable!("peek checked");
-            };
+            let name = contextual_identifier_name(&name_token.kind).expect("peek checked");
             self.expect_simple(TokenKind::Colon, "Expected ':' in named argument")?;
             self.expect_simple(TokenKind::Equal, "Expected '=' in named argument")?;
             let expr = self.parse_expression()?;
@@ -894,6 +881,43 @@ impl Parser {
         self.advance();
         Some(op)
     }
+}
+
+fn contextual_identifier_name(kind: &TokenKind) -> Option<String> {
+    Some(match kind {
+        TokenKind::Identifier(name, _) => name.clone(),
+        TokenKind::Version => "VERSION".to_string(),
+        TokenKind::WriteLine => "WriteLine".to_string(),
+        TokenKind::Text => "Text".to_string(),
+        TokenKind::Binary => "Binary".to_string(),
+        TokenKind::Compare => "Compare".to_string(),
+        TokenKind::Base => "Base".to_string(),
+        TokenKind::Lib => "Lib".to_string(),
+        TokenKind::New => "New".to_string(),
+        TokenKind::Type => "Type".to_string(),
+        TokenKind::Class => "Class".to_string(),
+        TokenKind::Module => "Module".to_string(),
+        TokenKind::Enum => "Enum".to_string(),
+        TokenKind::Interface => "Interface".to_string(),
+        TokenKind::Structure => "Structure".to_string(),
+        TokenKind::Get => "Get".to_string(),
+        TokenKind::Let => "Let".to_string(),
+        TokenKind::Set => "Set".to_string(),
+        TokenKind::Option => "Option".to_string(),
+        TokenKind::Explicit => "Explicit".to_string(),
+        TokenKind::Sub => "Sub".to_string(),
+        TokenKind::Function => "Function".to_string(),
+        TokenKind::Property => "Property".to_string(),
+        TokenKind::Event => "Event".to_string(),
+        TokenKind::Declare => "Declare".to_string(),
+        TokenKind::Select => "Select".to_string(),
+        TokenKind::Next => "Next".to_string(),
+        TokenKind::Exit => "Exit".to_string(),
+        TokenKind::Namespace => "Namespace".to_string(),
+        TokenKind::Any => "Any".to_string(),
+        TokenKind::Error => "Error".to_string(),
+        _ => return None,
+    })
 }
 
 fn parse_vba_hex(text: &str) -> i64 {

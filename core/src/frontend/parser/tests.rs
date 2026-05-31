@@ -147,6 +147,127 @@ End Sub
 }
 
 #[test]
+fn parses_keyword_named_vba_enum_members() {
+    let source = r#"
+Enum FETypeJ: DeleteShp = 0: Text = 1: End Enum
+
+Sub Main()
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.enums.len(), 1);
+    assert_eq!(program.enums[0].members[1].name, "Text");
+}
+
+#[test]
+fn parses_keyword_named_member_access() {
+    let source = r#"
+Sub Main()
+    ActivePresentation.SlideShowWindow.View.Next
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.procedures[0].body.len(), 1);
+}
+
+#[test]
+fn parses_unary_rhs_after_multiplicative_operator() {
+    let source = r#"
+Sub Main()
+    Dim x As Integer
+    x = 4 * -1
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.procedures[0].body.len(), 2);
+}
+
+#[test]
+fn parses_keyword_named_arguments() {
+    let source = r#"
+Sub Main()
+    Set dlgOpen = Application.FileDialog(Type:=msoFileDialogFilePicker)
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.procedures[0].body.len(), 1);
+}
+
+#[test]
+fn parses_inline_case_body_with_multiple_colon_statements() {
+    let source = r#"
+Sub Main()
+    Dim i As Integer
+    Select Case "u"
+        Case "u": i = 1: i = i + 4
+        Case Else: i = 0
+    End Select
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.procedures[0].body.len(), 2);
+}
+
+#[test]
+fn parses_enum_member_identifier_in_conditions_and_optional_defaults() {
+    let source = r#"
+Public Enum LineBreaks: NeverBreak = 0: AlwaysBreak = 1: BreakOnMain = 2: End Enum
+
+Private Function GetInd(Optional Ignore As Boolean) As String
+    If lb = AlwaysBreak Then
+        GetInd = " "
+    ElseIf lb = BreakOnMain Then
+        GetInd = ""
+    End If
+End Function
+
+Public Function StringJson(Optional LineBreaks As LineBreaks = AlwaysBreak) As String
+End Function
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.enums.len(), 1);
+    assert_eq!(program.functions.len(), 2);
+}
+
+#[test]
+fn parses_string_builtin_call_despite_type_keyword() {
+    let source = r#"
+Sub Main()
+    Console.WriteLine(String(4, " "))
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.procedures[0].body.len(), 1);
+}
+
+#[test]
+fn does_not_treat_plain_colon_as_named_argument() {
+    let source = r#"
+Sub Main()
+    Debug.Print value: value = 1
+End Sub
+"#;
+
+    let program = Parser::parse_source(source, FileId::default()).unwrap();
+
+    assert_eq!(program.procedures[0].body.len(), 2);
+}
+
+#[test]
 fn visibility_defaults() {
     let source = r#"
 Dim x As Integer

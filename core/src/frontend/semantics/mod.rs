@@ -12,4 +12,4 @@ mod validate;
 
 pub use hir::{ProjectIndex, build_project_index};
 pub use ids::{FunctionId, MemberId, ModuleId, SymbolId, TypeId};
-pub use validate::{validate, validate_project, validate_snippet};
+pub use validate::{validate, validate_project, validate_project_for_check, validate_snippet};

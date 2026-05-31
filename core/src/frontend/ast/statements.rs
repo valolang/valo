@@ -441,6 +441,7 @@ pub enum DoLoopCondition {
 pub enum ExitTarget {
     Sub,
     Function,
+    Property,
     For,
     While,
     Do,

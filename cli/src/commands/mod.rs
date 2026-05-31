@@ -72,7 +72,7 @@ pub fn check(mut args: impl Iterator<Item = String>, color: ColorChoice) -> Resu
 
     match valo_core::load_project(&path) {
         Ok(project) => {
-            if let Err(err) = valo_core::validate_project(&project) {
+            if let Err(err) = valo_core::validate_project_for_check(&project) {
                 return Err(err.render_colored(&project.source_map, color.enabled()));
             }
         }
