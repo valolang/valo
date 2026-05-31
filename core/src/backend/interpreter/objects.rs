@@ -590,6 +590,11 @@ impl Interpreter {
         {
             return read_field_member(value, member, span);
         }
+        if let Value::Record(record) = value
+            && record.fields.contains_key(&key(member))
+        {
+            return read_field_member(value, member, span);
+        }
         if let Value::ComObject(com_obj) = value {
             return crate::runtime::com::invoke_com(
                 com_obj,

@@ -453,6 +453,11 @@ impl Interpreter {
                     return self.call_shared_function(class_name, method, args, frame, expr.span);
                 }
                 let object = self.eval_expr(object, frame)?;
+                if let Ok(field_value) = self.read_member(&object, method, frame, expr.span)
+                    && matches!(field_value, Value::Array(_))
+                {
+                    return self.eval_index_expr(field_value, args, frame, expr.span);
+                }
                 if matches!(object, Value::Record(_) | Value::BoxedRecord(_, _)) {
                     return self.call_record_function(object, method, args, frame, expr.span);
                 }

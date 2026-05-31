@@ -534,6 +534,57 @@ End Function
 }
 
 #[test]
+fn vba_compat_private_udts_resolve_inside_imported_module_runtime_state() {
+    let dir = temp_project();
+    write(
+        &dir,
+        "main.valo",
+        r#"
+Imports RiffLike
+
+Sub Main()
+    Console.WriteLine(RiffLike.BufferIsInactive())
+End Sub
+"#,
+    );
+    write(
+        &dir,
+        "RiffLike.bas",
+        r#"
+Option Explicit
+Option Private Module
+
+#If VBA7 Then
+Private Type RiffBuffer
+    Active As Boolean
+End Type
+
+Private Type RiffContext
+    Buffers(0 To 1) As RiffBuffer
+End Type
+#Else
+Private Type RiffBuffer
+    Active As Boolean
+End Type
+
+Private Type RiffContext
+    Buffers(0 To 1) As RiffBuffer
+End Type
+#End If
+
+Private rCtx As RiffContext
+
+Public Function BufferIsInactive() As Boolean
+    BufferIsInactive = Not rCtx.Buffers(0).Active
+End Function
+"#,
+    );
+
+    assert_eq!(run_file(dir.join("main.valo")).unwrap(), vec!["True"]);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn vba_compat_library_diagnostic_uses_exact_sibling_file_line() {
     let dir = temp_project();
     write(

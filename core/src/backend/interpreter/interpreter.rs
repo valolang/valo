@@ -1041,6 +1041,17 @@ impl Interpreter {
         frame: &Frame,
         span: crate::runtime::Span,
     ) -> Result<String, Diagnostic> {
+        if let Some(current) = frame.module_key() {
+            let qualified = qualified_symbol_key(current, name);
+            if self.classes.contains_key(&qualified)
+                || self.types.contains_key(&qualified)
+                || self.interfaces.contains_key(&qualified)
+                || self.enums.contains_key(&qualified)
+            {
+                return Ok(qualified);
+            }
+        }
+
         let mut candidates = Vec::new();
         candidates.extend(self.imported_type_candidates(name, frame, &self.class_modules));
         candidates.extend(self.imported_type_candidates(name, frame, &self.type_modules));

@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::runtime::numeric::{unary_negate, unary_positive};
-use crate::runtime::{Diagnostic, RecordValue, Span, TypeName, Value, coerce_assignment};
+use crate::runtime::{
+    ArrayValue, Diagnostic, RecordValue, Span, TypeName, Value, coerce_assignment,
+};
 use crate::{BinaryOp, Expr, ExprKind, UnaryOp};
 
 use super::Interpreter;
@@ -71,12 +73,15 @@ pub(crate) fn default_value(
 
     let mut fields = HashMap::new();
     for field in &type_def.fields {
-        let value = if let Some(initializer) = &field.initializer {
+        let field_ty = resolve_record_field_type(&field.ty, &type_def.name, interpreter);
+        let field_ty = field_ty.substitute_generics(&bindings);
+        let value = if let Some(array) = &field.array {
+            default_array_value(&field_ty, array, interpreter, span)?
+        } else if let Some(initializer) = &field.initializer {
             let value = eval_const_default(initializer, &interpreter.enums, span)?;
-            let field_ty = field.ty.substitute_generics(&bindings);
             coerce_assignment(&field_ty, value, initializer.span)?
         } else {
-            default_value(&field.ty.substitute_generics(&bindings), interpreter, span)?
+            default_value(&field_ty, interpreter, span)?
         };
         fields.insert(key(&field.name), value);
     }
@@ -85,6 +90,85 @@ pub(crate) fn default_value(
         type_name: display_name,
         fields,
     })))
+}
+
+fn default_array_value(
+    element_type: &TypeName,
+    array: &crate::ArrayDecl,
+    interpreter: &Interpreter,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let mut elements = Vec::new();
+    let mut bounds = Vec::new();
+    let allocated = match array {
+        crate::ArrayDecl::Fixed(fixed_bounds) => {
+            let mut total_len: usize = 1;
+            for bound in fixed_bounds {
+                total_len *= (bound.upper - bound.lower + 1) as usize;
+                bounds.push(*bound);
+            }
+            for _ in 0..total_len {
+                elements.push(default_value(element_type, interpreter, span)?);
+            }
+            true
+        }
+        crate::ArrayDecl::Dynamic => false,
+    };
+
+    Ok(Value::Array(Rc::new(ArrayValue {
+        element_type: element_type.clone(),
+        elements,
+        bounds,
+        allocated,
+        dynamic: matches!(array, crate::ArrayDecl::Dynamic),
+    })))
+}
+
+fn resolve_record_field_type(
+    ty: &TypeName,
+    owner_type_name: &str,
+    interpreter: &Interpreter,
+) -> TypeName {
+    match ty {
+        TypeName::User(name) if !name.contains('.') => owner_type_name
+            .rsplit_once('.')
+            .map(|(module, _)| format!("{module}.{name}"))
+            .filter(|qualified| {
+                let key = key(qualified);
+                interpreter.types.contains_key(&key)
+                    || interpreter.classes.contains_key(&key)
+                    || interpreter.interfaces.contains_key(&key)
+                    || interpreter.enums.contains_key(&key)
+            })
+            .map(TypeName::User)
+            .unwrap_or_else(|| ty.clone()),
+        TypeName::GenericInstance { name, args } if !name.contains('.') => {
+            let resolved_name = owner_type_name
+                .rsplit_once('.')
+                .map(|(module, _)| format!("{module}.{name}"))
+                .filter(|qualified| {
+                    let key = key(qualified);
+                    interpreter.types.contains_key(&key)
+                        || interpreter.classes.contains_key(&key)
+                        || interpreter.interfaces.contains_key(&key)
+                        || interpreter.enums.contains_key(&key)
+                })
+                .unwrap_or_else(|| name.clone());
+            TypeName::GenericInstance {
+                name: resolved_name,
+                args: args
+                    .iter()
+                    .map(|arg| resolve_record_field_type(arg, owner_type_name, interpreter))
+                    .collect(),
+            }
+        }
+        TypeName::Array(inner) => TypeName::Array(Box::new(resolve_record_field_type(
+            inner,
+            owner_type_name,
+            interpreter,
+        ))),
+        _ => ty.clone(),
+    }
 }
 
 fn eval_const_default(
