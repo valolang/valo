@@ -118,6 +118,14 @@ Do While condition
     ' Logic
 Loop
 
+Do
+    ' Logic
+Loop While condition
+
+Do
+    ' Logic
+Loop Until condition
+
 ' Deterministic cleanup
 Using resource As New Resource()
     resource.Use()

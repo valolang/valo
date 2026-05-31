@@ -14,4 +14,9 @@ Sub Main()
         Console.WriteLine(i)
         i = i + 1
     Loop
+
+    Do
+        Console.WriteLine(i)
+        i = i + 1
+    Loop While i < 8
 End Sub
