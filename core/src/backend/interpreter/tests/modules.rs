@@ -692,6 +692,7 @@ End Function
 }
 
 #[test]
+#[cfg(windows)]
 fn imported_vba_byref_any_preserves_record_shape_on_writeback() {
     let dir = temp_project();
     write(
