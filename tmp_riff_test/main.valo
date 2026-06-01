@@ -1,6 +1,0 @@
-Imports Riff
-
-Sub Main()
-    Console.WriteLine(RiffOpen())
-End Sub
-

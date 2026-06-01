@@ -1,5 +1,0 @@
-Sub Main()
-    Dim opcodes() As Byte
-    ReDim opcodes(0 To Len("AABBCC") - 1)
-    Console.WriteLine(UBound(opcodes))
-End Sub

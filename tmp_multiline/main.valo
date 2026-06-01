@@ -1,7 +1,0 @@
-Sub Main()
-    Dim hexStr As String
-    hexStr = "AA" & _
-             "BB" & _
-             "CC"
-    Console.WriteLine(hexStr)
-End Sub

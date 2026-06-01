@@ -1,8 +1,0 @@
-Imports riff_probe
-
-Sub Main()
-    Console.WriteLine("probe-build")
-    Console.WriteLine(BuildThunkOnly())
-    Console.WriteLine("probe-timer")
-    Console.WriteLine(BuildAndArmTimer())
-End Sub
