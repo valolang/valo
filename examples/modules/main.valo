@@ -23,4 +23,6 @@ Sub Main()
     Dim day As Enums.Days
     day = Enums.Days.Friday
     Console.WriteLine(day)
+
+    Console.WriteLine(State.History())
 End Sub

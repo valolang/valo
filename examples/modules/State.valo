@@ -9,6 +9,16 @@ Public Function Count() As Integer
     Return Total
 End Function
 
+' A local named after this module is the local. Calling a method on it used to
+' reach the module instead, because the receiver was read as a qualifier before
+' anyone asked whether it was declared.
+Public Function History() As Long
+    Dim state As New Collection()
+    state.Add("saved")
+    state.Add("loaded")
+    Return state.Count
+End Function
+
 Sub Main()
     Console.WriteLine(999)
 End Sub

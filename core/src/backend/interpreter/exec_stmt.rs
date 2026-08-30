@@ -301,7 +301,15 @@ impl Interpreter {
                 {
                     return Ok(flow);
                 }
-                if let crate::ExprKind::Variable(module_name) = &object.kind
+                // A declared variable shadows a module or a class of the same
+                // name, and is what the receiver of a method call almost always
+                // is. The class branch below has always asked; the module one
+                // did not, so a Collection named after an imported module had
+                // its calls sent to the module.
+                let receiver_is_variable = matches!(&object.kind, crate::ExprKind::Variable(name)
+                    if frame.has_variable(name));
+                if !receiver_is_variable
+                    && let crate::ExprKind::Variable(module_name) = &object.kind
                     && self
                         .resolve_module_qualifier(module_name, frame, *span)
                         .is_ok()
@@ -309,8 +317,8 @@ impl Interpreter {
                     self.call_module_sub(module_name, method, args, frame, *span)?;
                     return Ok(ControlFlow::Continue);
                 }
-                if let crate::ExprKind::Variable(class_name) = &object.kind
-                    && !frame.has_variable(class_name)
+                if !receiver_is_variable
+                    && let crate::ExprKind::Variable(class_name) = &object.kind
                     && self.classes.contains_key(&super::values::key(class_name))
                 {
                     self.call_shared_sub(class_name, method, args, frame, *span)?;
