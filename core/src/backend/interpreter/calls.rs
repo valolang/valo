@@ -10,6 +10,7 @@ use std::rc::Rc;
 use super::frame::{Variable, VariableCell};
 use super::objects::ensure_object;
 use super::{ControlFlow, Frame, Interpreter, RuntimeClass};
+use super::interpreter::ScopeName;
 
 fn instantiate_function(
     function: &mut Function,
@@ -322,7 +323,7 @@ impl Interpreter {
         )?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         self.scope_stack
-            .push(format!("{}.{}", structure.name, procedure.name));
+            .push(ScopeName::Text(format!("{}.{}", structure.name, procedure.name)));
         let result = self.exec_block(&procedure.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -411,7 +412,7 @@ impl Interpreter {
                 )?;
             }
             self.scope_stack
-                .push(format!("{}.{}", structure.name, function.name));
+                .push(ScopeName::Text(format!("{}.{}", structure.name, function.name)));
             if function.is_iterator {
                 frame.set_yield_mode();
             }
@@ -484,8 +485,9 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value, Diagnostic> {
         self.call_stack
-            .push(format!("Function '{}'", function.name));
-        self.scope_stack.push(format!("Function {}", function.name));
+            .push(ScopeName::Function(Rc::clone(&function)));
+        self.scope_stack
+            .push(ScopeName::Function(Rc::clone(&function)));
         let result = (|| {
             let mut frame = Frame::default();
             self.bind_parameter_values(&function.params, args, &mut frame, span)?;
@@ -789,7 +791,7 @@ impl Interpreter {
             )?;
         }
         self.scope_stack
-            .push(format!("{}.{}", class.name, function.name));
+            .push(ScopeName::Text(format!("{}.{}", class.name, function.name)));
         if function.is_iterator {
             frame.set_yield_mode();
         }
@@ -874,15 +876,7 @@ impl Interpreter {
         for (param, value) in params.iter().zip(args.iter()) {
             let param_ty = self.resolve_type_name(&param.ty, callee_frame, param.span)?;
             let value = crate::coerce_assignment(&param_ty, value.clone(), span)?;
-            callee_frame.declare(
-                &param.name,
-                param_ty,
-                None,
-                self.option_base,
-                param.span,
-                self,
-            )?;
-            let _ = callee_frame.assign(&param.name, value, param.span)?;
+            callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
         }
         Ok(())
     }
@@ -893,8 +887,8 @@ impl Interpreter {
         args: &[Value],
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        self.call_stack.push("Lambda".to_string());
-        self.scope_stack.push("Lambda".to_string());
+        self.call_stack.push(ScopeName::Text("Lambda".to_string()));
+        self.scope_stack.push(ScopeName::Text("Lambda".to_string()));
         let result = (|| {
             let mut frame = Frame::default();
             // The captured scope goes in first so that a parameter, or a
@@ -1012,8 +1006,9 @@ impl Interpreter {
         };
 
         self.call_stack
-            .push(format!("Function '{}'", function.name));
-        self.scope_stack.push(format!("Function {}", function.name));
+            .push(ScopeName::Function(Rc::clone(&function)));
+        self.scope_stack
+            .push(ScopeName::Function(Rc::clone(&function)));
         let result = (|| {
             let mut frame = Frame::default();
             if let Some(module_key) = &module_key {
@@ -1304,8 +1299,10 @@ impl Interpreter {
         args: &[Value],
         span: Span,
     ) -> Result<(), Diagnostic> {
-        self.call_stack.push(format!("Sub '{}'", procedure.name));
-        self.scope_stack.push(format!("Sub {}", procedure.name));
+        self.call_stack
+            .push(ScopeName::Sub(Rc::clone(&procedure)));
+        self.scope_stack
+            .push(ScopeName::Sub(Rc::clone(&procedure)));
         let result = (|| {
             let mut frame = Frame::default();
             self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
@@ -1381,8 +1378,10 @@ impl Interpreter {
             )?
             .clone();
 
-        self.call_stack.push(format!("Sub '{}'", procedure.name));
-        self.scope_stack.push(format!("Sub {}", procedure.name));
+        self.call_stack
+            .push(ScopeName::Sub(Rc::clone(&procedure)));
+        self.scope_stack
+            .push(ScopeName::Sub(Rc::clone(&procedure)));
         let result = (|| {
             let mut frame = Frame::default();
             if let Some(module_key) = &module_key {
@@ -1518,8 +1517,10 @@ impl Interpreter {
             };
         };
 
-        self.call_stack.push(format!("Sub '{}'", procedure.name));
-        self.scope_stack.push(format!("Sub {}", procedure.name));
+        self.call_stack
+            .push(ScopeName::Sub(Rc::clone(&procedure)));
+        self.scope_stack
+            .push(ScopeName::Sub(Rc::clone(&procedure)));
         let result = (|| {
             let mut frame = Frame::default();
             if let Some(module_key) = &module_key {
@@ -2133,7 +2134,7 @@ impl Interpreter {
         self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         self.scope_stack
-            .push(format!("{}.{}", class.name, procedure.name));
+            .push(ScopeName::Text(format!("{}.{}", class.name, procedure.name)));
         let result = self.exec_block(&procedure.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -2272,7 +2273,7 @@ impl Interpreter {
         self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
         self.scope_stack
-            .push(format!("{}.{}", class.name, procedure.name));
+            .push(ScopeName::Text(format!("{}.{}", class.name, procedure.name)));
         let result = self.exec_block(&procedure.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -2575,7 +2576,7 @@ impl Interpreter {
             )?;
         }
         self.scope_stack
-            .push(format!("{}.{}", class.name, function.name));
+            .push(ScopeName::Text(format!("{}.{}", class.name, function.name)));
         let result = self.exec_block(&function.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -2641,7 +2642,7 @@ impl Interpreter {
         self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
         self.scope_stack
-            .push(format!("{}.{}", class.name, procedure.name));
+            .push(ScopeName::Text(format!("{}.{}", class.name, procedure.name)));
         let result = self.exec_block(&procedure.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -2707,7 +2708,7 @@ impl Interpreter {
             )?;
         }
         self.scope_stack
-            .push(format!("{}.{}", class.name, function.name));
+            .push(ScopeName::Text(format!("{}.{}", class.name, function.name)));
         if function.is_iterator {
             frame.set_yield_mode();
         }
@@ -2785,6 +2786,7 @@ impl Interpreter {
                 args.first().map(|arg| arg.span),
             ));
         }
+        callee_frame.reserve(params.len() + 2);
         let mut ordered: Vec<Option<&Expr>> = vec![None; params.len()];
         let mut paramarray_args = Vec::new();
         let mut positional_index = 0;
@@ -2885,19 +2887,7 @@ impl Interpreter {
                     } else {
                         Value::Missing
                     };
-                    callee_frame.declare(
-                        &param.name,
-                        param_ty,
-                        None,
-                        self.option_base,
-                        param.span,
-                        self,
-                    )?;
-                    if matches!(value, Value::Missing) {
-                        callee_frame.assign_missing(&param.name, param.span)?;
-                    } else {
-                        let _ = callee_frame.assign(&param.name, value, param.span)?;
-                    }
+                    callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                 }
                 PassingMode::ByRef => {
                     let Some(arg) = arg else {
@@ -2906,19 +2896,7 @@ impl Interpreter {
                         } else {
                             Value::Missing
                         };
-                        callee_frame.declare(
-                            &param.name,
-                            param_ty.clone(),
-                            None,
-                            self.option_base,
-                            param.span,
-                            self,
-                        )?;
-                        if matches!(value, Value::Missing) {
-                            callee_frame.assign_missing(&param.name, param.span)?;
-                        } else {
-                            let _ = callee_frame.assign(&param.name, value, param.span)?;
-                        }
+                        callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                         continue;
                     };
                     match &arg.kind {
@@ -2935,15 +2913,7 @@ impl Interpreter {
                                 )?;
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
-                                callee_frame.declare(
-                                    &param.name,
-                                    param_ty,
-                                    None,
-                                    self.option_base,
-                                    param.span,
-                                    self,
-                                )?;
-                                let _ = callee_frame.assign(&param.name, value, param.span)?;
+                                callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                             }
                         }
                         ExprKind::Call { name, args, .. } if caller_frame.holds_array(name) => {
@@ -2993,28 +2963,12 @@ impl Interpreter {
                                 )?;
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
-                                callee_frame.declare(
-                                    &param.name,
-                                    param_ty,
-                                    None,
-                                    self.option_base,
-                                    param.span,
-                                    self,
-                                )?;
-                                let _ = callee_frame.assign(&param.name, value, param.span)?;
+                                callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                             }
                         }
                         ExprKind::Call { .. } => {
                             let value = self.eval_expr(arg, caller_frame)?;
-                            callee_frame.declare(
-                                &param.name,
-                                param_ty,
-                                None,
-                                self.option_base,
-                                param.span,
-                                self,
-                            )?;
-                            let _ = callee_frame.assign(&param.name, value, param.span)?;
+                            callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                         }
                         ExprKind::Index { target, args } => {
                             if let ExprKind::Variable(name) = &target.kind
@@ -3089,27 +3043,11 @@ impl Interpreter {
                                     }
                                 } else {
                                     let value = self.eval_expr(arg, caller_frame)?;
-                                    callee_frame.declare(
-                                        &param.name,
-                                        param_ty.clone(),
-                                        None,
-                                        self.option_base,
-                                        param.span,
-                                        self,
-                                    )?;
-                                    let _ = callee_frame.assign(&param.name, value, param.span)?;
+                                    callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                                 }
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
-                                callee_frame.declare(
-                                    &param.name,
-                                    param_ty,
-                                    None,
-                                    self.option_base,
-                                    param.span,
-                                    self,
-                                )?;
-                                let _ = callee_frame.assign(&param.name, value, param.span)?;
+                                callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                             }
                         }
                         ExprKind::MemberAccess { object, field, .. } => {
@@ -3166,40 +3104,16 @@ impl Interpreter {
                                     }
                                 } else {
                                     let value = self.eval_expr(arg, caller_frame)?;
-                                    callee_frame.declare(
-                                        &param.name,
-                                        param_ty.clone(),
-                                        None,
-                                        self.option_base,
-                                        param.span,
-                                        self,
-                                    )?;
-                                    let _ = callee_frame.assign(&param.name, value, param.span)?;
+                                    callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                                 }
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
-                                callee_frame.declare(
-                                    &param.name,
-                                    param_ty,
-                                    None,
-                                    self.option_base,
-                                    param.span,
-                                    self,
-                                )?;
-                                let _ = callee_frame.assign(&param.name, value, param.span)?;
+                                callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                             }
                         }
                         _ => {
                             let value = self.eval_expr(arg, caller_frame)?;
-                            callee_frame.declare(
-                                &param.name,
-                                param_ty,
-                                None,
-                                self.option_base,
-                                param.span,
-                                self,
-                            )?;
-                            let _ = callee_frame.assign(&param.name, value, param.span)?;
+                            callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                         }
                     }
                 }

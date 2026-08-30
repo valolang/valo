@@ -87,8 +87,8 @@ pub struct Interpreter {
     collect_output: bool,
     pub(crate) option_base: i64,
     pub(crate) option_compare: crate::OptionCompare,
-    pub(crate) call_stack: Vec<String>,
-    pub(crate) scope_stack: Vec<String>,
+    pub(crate) call_stack: Vec<ScopeName>,
+    pub(crate) scope_stack: Vec<ScopeName>,
     pub(crate) static_frames: HashMap<String, Frame>,
     pub(crate) err_number: i64,
     pub(crate) err_description: String,
@@ -489,7 +489,8 @@ impl Interpreter {
             ));
         };
 
-        self.scope_stack.push(format!("Sub {}", main.name));
+        self.scope_stack
+            .push(ScopeName::Text(format!("Sub '{}'", main.name)));
         let result = self.exec_block(&main.body, &mut frame);
         self.scope_stack.pop();
         self.terminate_frame_variables(frame, main.span)?;
@@ -692,7 +693,8 @@ impl Interpreter {
             .cloned()
             .expect("module frame initialized");
         frame.set_module_key(module_key);
-        self.scope_stack.push(format!("Sub {}", main.name));
+        self.scope_stack
+            .push(ScopeName::Text(format!("Sub '{}'", main.name)));
         let result = self.exec_block(&main.body, &mut frame);
         self.scope_stack.pop();
 
@@ -1041,6 +1043,32 @@ pub fn run(program: &Program) -> Result<Vec<String>, Diagnostic> {
     Interpreter::new().run(program)
 }
 
+/// What execution is inside, kept as its parts rather than as a sentence.
+///
+/// The two stacks are read in only two places: building a diagnostic, and
+/// keying a Static variable by its enclosing scope. A call that succeeds and
+/// declares nothing Static never needs the text at all, so formatting it on
+/// the way in was work done to answer a question almost nobody asks. A
+/// procedure is already behind an `Rc`, so naming one costs a refcount.
+#[derive(Clone, Debug)]
+pub(crate) enum ScopeName {
+    Function(Rc<crate::Function>),
+    Sub(Rc<crate::frontend::ast::Procedure>),
+    /// A scope whose name is not simply a procedure's, such as a property
+    /// accessor or a method reached through its class.
+    Text(String),
+}
+
+impl std::fmt::Display for ScopeName {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScopeName::Function(function) => write!(formatter, "Function '{}'", function.name),
+            ScopeName::Sub(procedure) => write!(formatter, "Sub '{}'", procedure.name),
+            ScopeName::Text(text) => formatter.write_str(text),
+        }
+    }
+}
+
 impl Interpreter {
     pub(crate) fn with_stack_context(&self, diagnostic: Diagnostic) -> Diagnostic {
         if self.call_stack.is_empty() {
@@ -1049,10 +1077,16 @@ impl Interpreter {
             let mut trace = String::from("Stack trace:");
             for frame in self.call_stack.iter().rev() {
                 trace.push_str("\n  at ");
-                trace.push_str(frame);
+                trace.push_str(&frame.to_string());
             }
+            let executing = self
+                .call_stack
+                .iter()
+                .map(ScopeName::to_string)
+                .collect::<Vec<_>>()
+                .join(" -> ");
             diagnostic
-                .with_note(format!("while executing {}", self.call_stack.join(" -> ")))
+                .with_note(format!("while executing {}", executing))
                 .with_note(trace)
         }
     }

@@ -16,6 +16,7 @@ use super::properties::{RuntimeProperty, RuntimePropertyAccessor};
 use super::records::{RuntimeField, read_field_member, write_member};
 use super::values::{default_value, key};
 use super::{Frame, Interpreter};
+use super::interpreter::ScopeName;
 
 fn substitute_procedure_types(procedure: &mut Procedure, bindings: &[(String, TypeName)]) {
     procedure.type_params.clear();
@@ -460,7 +461,7 @@ impl Interpreter {
                 )?;
                 self.bind_parameters(&init.params, args, caller_frame, &mut init_frame)?;
                 self.scope_stack
-                    .push(format!("{}.{}", type_def.name, init.name));
+                    .push(ScopeName::Text(format!("{}.{}", type_def.name, init.name)));
                 let result = self.exec_block(&init.body, &mut init_frame);
                 self.scope_stack.pop();
                 match result? {

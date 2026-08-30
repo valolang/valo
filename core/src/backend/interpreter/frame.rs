@@ -96,7 +96,12 @@ pub struct Frame {
     /// instance, and knowing that without a lookup is what keeps assigning to
     /// a local down to one.
     has_self: bool,
-    return_slots: HashMap<String, Value>,
+    /// What the running call will return, under the name it answers to.
+    ///
+    /// A frame belongs to one call, so there is at most one. Held in a map,
+    /// every call cloned the slot name twice to write it and every assignment
+    /// inside a function built a key to ask about it.
+    return_slot: Option<(String, Value)>,
     module_key: Option<String>,
     class_context: Option<String>,
     with_stack: Vec<Value>,
@@ -108,11 +113,25 @@ pub struct Frame {
 
 impl Frame {
     pub(crate) fn set_return_slot(&mut self, slot: String, value: Value) {
-        self.return_slots.insert(slot, value);
+        match &mut self.return_slot {
+            Some((held, current)) if held == &slot => *current = value,
+            _ => self.return_slot = Some((slot, value)),
+        }
+    }
+
+    /// Writes the return slot belonging to `name`, without building its key.
+    pub(crate) fn set_return_slot_for(&mut self, name: &str, value: Value) {
+        match &mut self.return_slot {
+            Some((slot, current)) if well_known::is_return_slot_for(slot, name) => *current = value,
+            _ => self.return_slot = Some((return_slot_key(name), value)),
+        }
     }
 
     pub(crate) fn get_return_slot(&self, slot: &str) -> Option<Value> {
-        self.return_slots.get(slot).cloned()
+        match &self.return_slot {
+            Some((held, value)) if held == slot => Some(value.clone()),
+            _ => None,
+        }
     }
 
     /// Reports whether this frame holds the return slot that assigning to
@@ -125,6 +144,11 @@ impl Frame {
     ///
     /// Every insertion goes through here so the flag cannot drift from what
     /// the map holds.
+    /// Makes room for `extra` more variables in one go.
+    pub(crate) fn reserve(&mut self, extra: usize) {
+        self.variables.reserve(extra);
+    }
+
     fn insert_variable(&mut self, key: String, variable: Variable) {
         if key == well_known::SELF_KEY {
             self.has_self = true;
@@ -166,7 +190,9 @@ impl Frame {
     }
 
     pub(crate) fn has_return_slot_for(&self, name: &str) -> bool {
-        !self.return_slots.is_empty() && self.return_slots.contains_key(&return_slot_key(name))
+        self.return_slot
+            .as_ref()
+            .is_some_and(|(slot, _)| well_known::is_return_slot_for(slot, name))
     }
     pub(crate) fn set_yield_mode(&mut self) {
         self.yielded_values = Some(Vec::new());
@@ -276,6 +302,55 @@ impl Frame {
                 ty: ty.clone(),
                 cell: VariableCell::Direct(Rc::new(RefCell::new(value))),
                 dynamic_array,
+                is_const: false,
+                module_level: false,
+                captured: false,
+                declared_at: Some(span),
+            },
+        );
+        Ok(())
+    }
+
+    /// Declares a parameter and gives it its argument in one step.
+    ///
+    /// Binding a parameter used to declare the name, which builds the default
+    /// value for its type, and then assign the argument over it, which folded
+    /// the name a second time and looked it up again. The default value is
+    /// never read and the second lookup always finds what the first one just
+    /// wrote, so a call was paying twice to bind each parameter once.
+    pub(crate) fn declare_bound(
+        &mut self,
+        name: &str,
+        ty: TypeName,
+        value: Value,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let key = key(name);
+        if let Some(existing) = self.variables.get(&key)
+            && existing.declared_at != Some(span)
+            && !existing.captured
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
+                format!("Variable '{}' is already declared", name),
+                Some(span),
+            ));
+        }
+
+        // A missing optional argument stays Missing, which is what tells
+        // IsMissing about it; coercing it would turn it into a zero.
+        let value = if matches!(value, Value::Missing) {
+            value
+        } else {
+            coerce_assignment(&ty, value, span)?
+        };
+        self.insert_variable(
+            key,
+            Variable {
+                name: name.to_string(),
+                ty,
+                cell: VariableCell::Direct(Rc::new(RefCell::new(value))),
+                dynamic_array: false,
                 is_const: false,
                 module_level: false,
                 captured: false,
@@ -511,14 +586,6 @@ impl Frame {
                 .values()
                 .map(|variable| variable.name.as_str()),
         )
-    }
-
-    pub(crate) fn assign_missing(&mut self, name: &str, span: Span) -> Result<(), Diagnostic> {
-        let Some(variable) = with_key(name, |k| self.variables.get_mut(k)) else {
-            return Err(self.unknown_variable(name, span));
-        };
-        *variable.borrow_mut() = Value::Missing;
-        Ok(())
     }
 
     /// The value held under a name, or `None` when there is no such variable.

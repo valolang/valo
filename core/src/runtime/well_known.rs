@@ -117,6 +117,14 @@ pub fn return_slot(name: &str) -> String {
     format!("{RETURN_SLOT_PREFIX}{name}")
 }
 
+/// Reports whether `slot` is the return slot belonging to `name`.
+///
+/// The same answer as comparing against [`return_slot`], without building the
+/// key to compare with: every assignment inside a function asks this.
+pub fn is_return_slot_for(slot: &str, name: &str) -> bool {
+    slot.strip_prefix(RETURN_SLOT_PREFIX) == Some(name)
+}
+
 /// Reports whether `name` is one a program may not declare for itself.
 pub fn is_reserved_internal(name: &str) -> bool {
     name.starts_with(RETURN_SLOT_PREFIX)

@@ -7,6 +7,7 @@ use super::frame::Variable;
 use super::objects::ensure_object;
 use super::values::key;
 use super::{ControlFlow, Frame, Interpreter};
+use super::interpreter::ScopeName;
 
 impl Interpreter {
     pub(crate) fn call_record_property_get(
@@ -76,7 +77,7 @@ impl Interpreter {
             )?;
         }
         self.scope_stack
-            .push(format!("{}.{}", structure.name, accessor.name));
+            .push(ScopeName::Text(format!("{}.{}", structure.name, accessor.name)));
         if accessor.is_iterator {
             frame.set_yield_mode();
         }
@@ -215,7 +216,7 @@ impl Interpreter {
         )?;
         let _ = frame.assign(&param.name, value, span)?;
         self.scope_stack
-            .push(format!("{}.{}", structure.name, accessor.name));
+            .push(ScopeName::Text(format!("{}.{}", structure.name, accessor.name)));
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -317,7 +318,7 @@ impl Interpreter {
             )?;
         }
         self.scope_stack
-            .push(format!("{}.{}", class.name, accessor.name));
+            .push(ScopeName::Text(format!("{}.{}", class.name, accessor.name)));
         if accessor.is_iterator {
             frame.set_yield_mode();
         }
@@ -389,8 +390,8 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        self.call_stack.push(format!("Property {}", accessor.name));
-        self.scope_stack.push(format!("Property {}", accessor.name));
+        self.call_stack.push(ScopeName::Text(format!("Property {}", accessor.name)));
+        self.scope_stack.push(ScopeName::Text(format!("Property {}", accessor.name)));
         let result = (|| {
             let mut frame = Frame::default();
             frame.inherit_modules_from(caller_frame)?;
@@ -478,8 +479,8 @@ impl Interpreter {
         class_context: Option<String>,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        self.call_stack.push(format!("Property {}", accessor.name));
-        self.scope_stack.push(format!("Property {}", accessor.name));
+        self.call_stack.push(ScopeName::Text(format!("Property {}", accessor.name)));
+        self.scope_stack.push(ScopeName::Text(format!("Property {}", accessor.name)));
         let result = (|| {
             let mut frame = Frame::default();
             if let Some(ctx) = class_context {
@@ -590,7 +591,7 @@ impl Interpreter {
         frame.declare_object_alias(well_known::SELF_KEY, &class.name, instance, span)?;
         self.bind_parameter_values(&accessor.params, values, &mut frame, span)?;
         self.scope_stack
-            .push(format!("{}.{}", class.name, accessor.name));
+            .push(ScopeName::Text(format!("{}.{}", class.name, accessor.name)));
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
         let result = match result? {

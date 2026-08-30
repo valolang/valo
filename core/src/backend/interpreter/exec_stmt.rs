@@ -1,3 +1,4 @@
+use super::interpreter::ScopeName;
 use crate::runtime::well_known;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -1224,7 +1225,7 @@ impl Interpreter {
         let scope = self
             .scope_stack
             .last()
-            .cloned()
+            .map(ScopeName::to_string)
             .unwrap_or_else(|| "<module>".to_string());
         let mut static_frame = self.static_frames.remove(&scope).unwrap_or_default();
         let already_declared = static_frame.has_variable(name);
@@ -1303,7 +1304,7 @@ impl Interpreter {
             AssignTarget::Variable { name, .. } => {
                 // Assigning to the enclosing function's own name sets its result.
                 if frame.has_return_slot_for(name) {
-                    frame.set_return_slot(super::frame::return_slot_key(name), value);
+                    frame.set_return_slot_for(name, value);
                     return Ok(());
                 }
 

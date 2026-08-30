@@ -208,20 +208,24 @@ fn merge_imported_types(
     )
 }
 
-/// The same, refusing to walk a module twice.
+/// The same, refusing to walk in a circle.
 ///
 /// Modules can import each other: a directory of `.bas` and `.cls` files is
 /// loaded as one group where each sees all the others. Following an import's
-/// own imports without remembering where it has been runs out of stack rather
-/// than out of modules.
+/// own imports without noticing runs out of stack rather than out of modules.
+///
+/// `on_path` holds the modules currently being followed, not every module
+/// already seen. The difference matters: one module can legitimately be
+/// collected twice, once into the importer's scope and once into that of
+/// another import that also names it.
 fn merge_imported_types_seen(
     imports: &[crate::modules::ResolvedImport],
     project: &crate::modules::Project,
     types: &mut TypeRegistry,
-    seen: &mut std::collections::HashSet<usize>,
+    on_path: &mut std::collections::HashSet<usize>,
 ) -> Result<(), Diagnostic> {
     for import in imports {
-        if !seen.insert(import.module) {
+        if on_path.contains(&import.module) {
             continue;
         }
         let Some(imported) = project.modules.get(import.module) else {
@@ -233,7 +237,10 @@ fn merge_imported_types_seen(
         // knowing `Thing` at all. `merge_imported_callables` does the same for
         // procedures; this is the type half of the same rule.
         let mut outer = TypeRegistry::default();
-        merge_imported_types_seen(&imported.imports, project, &mut outer, seen)?;
+        on_path.insert(import.module);
+        let followed = merge_imported_types_seen(&imported.imports, project, &mut outer, on_path);
+        on_path.remove(&import.module);
+        followed?;
         let imported_types = collect_types_in_scope(&imported.program, &outer)?;
 
         // Imported types are reachable both bare and through the import
