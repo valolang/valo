@@ -594,3 +594,46 @@ End Sub
 
     assert_eq!(output, vec!["True"]);
 }
+
+#[test]
+fn an_operator_is_found_when_both_operands_are_bare_fields() {
+    // Without Option Explicit a bare name used to type as Variant before the
+    // enclosing class was consulted, so an operand that was a field of the
+    // current class lost its type and the overloaded operator went unfound.
+    let output = run_source(
+        r#"
+Public Structure Offset_
+    Public Steps As Long
+
+    Public Sub New(ByVal steps As Long)
+        Me.Steps = steps
+    End Sub
+
+    Public Shared Operator +(ByVal left As Offset_, ByVal right As Offset_) As Offset_
+        Return New Offset_(left.Steps + right.Steps)
+    End Operator
+End Structure
+
+Public Class Walker
+    Public Here As Offset_
+    Public Stride As Offset_
+
+    Public Sub Initialize()
+        Here = New Offset_(1)
+        Stride = New Offset_(2)
+    End Sub
+
+    Public Function Ahead() As Offset_
+        Return Here + Stride
+    End Function
+End Class
+
+Sub Main()
+    Dim walker As New Walker()
+    Console.WriteLine(walker.Ahead().Steps)
+End Sub
+"#,
+    );
+
+    assert_eq!(output, vec!["3"]);
+}

@@ -763,9 +763,6 @@ pub(super) fn validate_expr(
 
                 return Ok(function.return_type.clone().expect("function return type"));
             }
-            if !options.explicit {
-                return Ok(TypeName::Variant);
-            }
             if let Some(owner_name) = context.current_class() {
                 if let Some(class_sig) = types.get_class(owner_name) {
                     let member_key = key(name);
@@ -876,6 +873,12 @@ pub(super) fn validate_expr(
                         return Ok(get.return_type.clone().unwrap_or(TypeName::Variant));
                     }
                 }
+            }
+            // Without Option Explicit an unknown name is a fresh Variant, but a
+            // name that matches a member of the enclosing type is that member, so
+            // its real type has to be worked out before falling back.
+            if !options.explicit {
+                return Ok(TypeName::Variant);
             }
             if enum_member_value_type(name, types).is_some() {
                 Ok(TypeName::Integer)
