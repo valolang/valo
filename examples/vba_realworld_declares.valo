@@ -1,13 +1,13 @@
-Private Declare PtrSafe Function MFStartup Lib "mfplat" (
-    ByVal Version As Long,
-    ByVal dwFlags As Long
-) As Long
+Private Declare Function MFStartup Lib "mfplat" (
+    ByVal Version As Int32,
+    ByVal dwFlags As Int32
+) As Int32
 
-Private Declare PtrSafe Function ExampleKeywordNames Lib "kernel32" (
-    ByVal String As Long,
-    ByVal Error As Long,
-    ByVal Lib As Long
-) As Long
+Private Declare Function ExampleKeywordNames Lib "kernel32" (
+    ByVal String As Int32,
+    ByVal Error As Int32,
+    ByVal Lib As Int32
+) As Int32
 
 Sub Main()
     Debug.Print "Declare signatures parsed"

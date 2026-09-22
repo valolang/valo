@@ -10,16 +10,8 @@ fn test_official_examples() {
 
     let mut failures = Vec::new();
     let mut count = 0;
-    let mut skipped = 0;
 
     for path in entries {
-        let file_name = path.file_name().and_then(|s| s.to_str());
-
-        if should_skip_example(file_name) {
-            skipped += 1;
-            continue;
-        }
-
         count += 1;
         match valo_core::run_file(&path) {
             Ok(output) => {
@@ -44,7 +36,7 @@ fn test_official_examples() {
         );
     }
 
-    println!("Successfully ran {} examples ({} skipped).", count, skipped);
+    println!("Successfully ran {} examples.", count);
 }
 
 fn examples_dir() -> PathBuf {
@@ -94,10 +86,7 @@ fn is_runnable_example(root: &Path, path: &Path) -> bool {
 }
 
 fn is_source_file(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|s| s.to_str()),
-        Some("valo" | "bas" | "cls")
-    )
+    matches!(path.extension().and_then(|s| s.to_str()), Some("valo"))
 }
 
 fn has_sub_main(path: &Path) -> bool {
@@ -202,14 +191,4 @@ fn transcript(output: &[String]) -> String {
         text.push('\n');
     }
     text
-}
-
-fn should_skip_example(file_name: Option<&str>) -> bool {
-    if let Some(name) = file_name
-        && cfg!(not(windows))
-        && name.starts_with("com_")
-    {
-        return true;
-    }
-    false
 }

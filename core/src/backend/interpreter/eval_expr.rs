@@ -227,6 +227,7 @@ impl Interpreter {
                 let type_name = crate::runtime::TypeName::Tuple(types);
                 Ok(Value::Record(Rc::new(crate::runtime::RecordValue {
                     type_name: type_name.display_name(),
+                    resolved_type: type_name,
                     fields,
                 })))
             }
@@ -248,9 +249,7 @@ impl Interpreter {
             ExprKind::DateLiteral(value) => parse_date_literal(value, expr.span),
             ExprKind::Integer(value) => {
                 let val = *value;
-                if val >= i16::MIN as i64 && val <= i16::MAX as i64 {
-                    Ok(Value::Int16(val as i16))
-                } else if val >= i32::MIN as i64 && val <= i32::MAX as i64 {
+                if val >= i32::MIN as i64 && val <= i32::MAX as i64 {
                     Ok(Value::Int32(val as i32))
                 } else {
                     Ok(Value::Int64(val))
@@ -571,7 +570,6 @@ impl Interpreter {
                             Value::Array(_)
                                 | Value::Collection(_)
                                 | Value::Object(_)
-                                | Value::ComObject(_)
                                 | Value::Record(_)
                                 | Value::Lambda(_)
                         )
@@ -623,15 +621,7 @@ impl Interpreter {
                                 Some(expr.span),
                             ));
                         }
-                        Value::ComObject(ref com_obj) => {
-                            let mut eval_args = Vec::with_capacity(args.len());
-                            for arg in args {
-                                eval_args.push(self.eval_expr(arg, frame)?);
-                            }
-                            return crate::runtime::com::invoke_default_com(
-                                com_obj, &eval_args, 2, expr.span,
-                            );
-                        }
+
                         Value::Record(ref record) => {
                             if let Some(default_member) = self
                                 .types
@@ -1123,7 +1113,6 @@ impl Interpreter {
             variable,
             crate::runtime::TypeName::Variant,
             None,
-            self.option_base,
             span,
             self,
         )?;

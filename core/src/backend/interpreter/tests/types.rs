@@ -402,7 +402,7 @@ End Class
 Sub Main()
     Dim thing As New Thing()
     Dim loose As Variant
-    Set loose = thing
+    loose = thing
     Console.WriteLine(loose.Name_)
 End Sub
 "#,

@@ -1,7 +1,7 @@
 ' Recursive call benchmark: exercises frame setup, parameter binding,
 ' and function dispatch.
 
-Function Fib(ByVal n As Long) As Long
+Function Fib(ByVal n As Int32) As Int32
     If n < 2 Then
         Return n
     End If

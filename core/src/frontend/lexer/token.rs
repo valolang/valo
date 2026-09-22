@@ -23,7 +23,7 @@ pub enum InterpolationSegment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind {
-    Identifier(String, Option<crate::runtime::TypeName>),
+    Identifier(String, Option<crate::frontend::type_model::TypeName>),
     String(String),
     /// An interpolated string literal, `$"total: {count}"`, already split into
     /// its literal and hole segments by the scanner.
@@ -65,7 +65,6 @@ pub enum TokenKind {
     Shadows,
     Event,
     Declare,
-    PtrSafe,
     Lib,
     Alias,
     Any,

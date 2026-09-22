@@ -13,7 +13,7 @@ Sub Main()
     Console.WriteLine(M.VERSION)
 
     Dim user As M.User
-    Set user = New M.User()
+    user = New M.User()
     Console.WriteLine(user.Id())
 
     Dim person As M.PersonRecord

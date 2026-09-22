@@ -2,25 +2,31 @@ Class User
     Private mName As String
     Private mAge As Integer
 
-    Public Property Get Name() As String
-        Return Me.mName
+    Public Property Name() As String
+        Get
+            Return Me.mName
+        End Get
+        Set(ByVal value As String)
+            Me.mName = value
+        End Set
     End Property
 
-    Public Property Let Name(ByVal value As String)
-        Me.mName = value
+
+
+    Public Property Age() As Integer
+        Get
+            Return Me.mAge
+        End Get
+        Set(ByVal value As Integer)
+            If value < 0 Then
+                Me.mAge = 0
+            Else
+                Me.mAge = value
+            End If
+        End Set
     End Property
 
-    Public Property Get Age() As Integer
-        Return Me.mAge
-    End Property
 
-    Public Property Let Age(ByVal value As Integer)
-        If value < 0 Then
-            Me.mAge = 0
-        Else
-            Me.mAge = value
-        End If
-    End Property
 End Class
 
 Sub Main()

@@ -51,11 +51,11 @@ fn collection() -> ClassSig {
     );
     sig.properties.insert(
         key("Count"),
-        read_only_property("Count", Vec::new(), TypeName::Long),
+        read_only_property("Count", Vec::new(), TypeName::Int32),
     );
 
     // A collection is always enumerable, and indexing it reaches `Item`.
-    sig.enumerator = Some("_NewEnum".to_string());
+
     sig.default_property = Some(well_known::ITEM.to_string());
     sig
 }
@@ -77,7 +77,6 @@ fn class(name: &str) -> ClassSig {
         events: HashMap::new(),
         operators: HashMap::new(),
         iterator: None,
-        enumerator: None,
         default_property: None,
     }
 }
@@ -115,7 +114,6 @@ fn read_only_property(
             params,
             return_type: Some(return_type),
         }],
-        let_: Vec::new(),
         set: Vec::new(),
     }
 }

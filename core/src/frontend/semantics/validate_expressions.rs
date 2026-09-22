@@ -1,8 +1,8 @@
 use super::*;
 use crate::ContinueTarget;
+use crate::frontend::semantics::overloads;
 use crate::runtime::Span;
 use crate::runtime::builtins::{self, strip_vba_namespace};
-use crate::runtime::overloads;
 use crate::runtime::well_known;
 
 #[derive(Clone, Copy)]
@@ -218,7 +218,7 @@ pub(super) fn validate_assignment_target(
             };
             for index in indices {
                 ensure_assignable(
-                    &TypeName::Integer,
+                    &TypeName::Int16,
                     &validate_expr(index, symbols, types, signatures, context, options)?,
                     types,
                     index.span,
@@ -335,13 +335,13 @@ fn is_bitwise_operand(ty: &TypeName, types: &TypeRegistry) -> bool {
 fn wider_bitwise_result(left: &TypeName, right: &TypeName) -> TypeName {
     let rank = |ty: &TypeName| match ty {
         TypeName::Byte => 0,
-        TypeName::Integer => 1,
-        TypeName::Long | TypeName::UInt32 => 2,
+        TypeName::Int16 => 1,
+        TypeName::Int32 | TypeName::UInt32 => 2,
         TypeName::Int64 | TypeName::UInt64 => 3,
         _ => 1,
     };
     if !left.is_integral() && !right.is_integral() {
-        return TypeName::Integer;
+        return TypeName::Int16;
     }
     if !right.is_integral() || rank(left) >= rank(right) {
         if left.is_integral() {
@@ -511,17 +511,8 @@ pub(super) fn validate_expr(
         }
         ExprKind::NameOf(_) => Ok(TypeName::String),
         ExprKind::DateLiteral(_) => Ok(TypeName::Date),
-        ExprKind::Integer(value) => {
-            let val = *value;
-            if val >= i16::MIN as i64 && val <= i16::MAX as i64 {
-                Ok(TypeName::Integer)
-            } else if val >= i32::MIN as i64 && val <= i32::MAX as i64 {
-                Ok(TypeName::Long)
-            } else {
-                Ok(TypeName::Int64)
-            }
-        }
-        ExprKind::Long(_) => Ok(TypeName::Long),
+        ExprKind::Integer(value) => Ok(TypeName::integer_literal(*value)),
+        ExprKind::Long(_) => Ok(TypeName::Int32),
         ExprKind::LongLong(_) => Ok(TypeName::Int64),
         ExprKind::Single(_) => Ok(TypeName::Single),
         ExprKind::Double(_) => Ok(TypeName::Double),
@@ -732,10 +723,10 @@ pub(super) fn validate_expr(
                 return Ok(TypeName::Variant);
             }
             if name.eq_ignore_ascii_case("Erl") {
-                return Ok(TypeName::Integer);
+                return Ok(TypeName::Int16);
             }
             if name.eq_ignore_ascii_case("FreeFile") {
-                return Ok(TypeName::Integer);
+                return Ok(TypeName::Int16);
             }
             if name.eq_ignore_ascii_case("Timer") || name.eq_ignore_ascii_case("Rnd") {
                 return Ok(TypeName::Double);
@@ -881,7 +872,7 @@ pub(super) fn validate_expr(
                 return Ok(TypeName::Variant);
             }
             if enum_member_value_type(name, types).is_some() {
-                Ok(TypeName::Integer)
+                Ok(TypeName::Int16)
             } else if name.to_ascii_lowercase().starts_with("vb") {
                 Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::UNKNOWN_NAME,
@@ -910,7 +901,7 @@ pub(super) fn validate_expr(
                 && name.eq_ignore_ascii_case(well_known::ERR)
             {
                 if field.eq_ignore_ascii_case("Number") {
-                    return Ok(TypeName::Integer);
+                    return Ok(TypeName::Int16);
                 }
                 if field.eq_ignore_ascii_case("Description")
                     || field.eq_ignore_ascii_case("Source")
@@ -919,7 +910,7 @@ pub(super) fn validate_expr(
                     return Ok(TypeName::String);
                 }
                 if field.eq_ignore_ascii_case("HelpContext") {
-                    return Ok(TypeName::Integer);
+                    return Ok(TypeName::Int16);
                 }
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -952,7 +943,7 @@ pub(super) fn validate_expr(
                 && let Some(enum_sig) = types.get_enum(enum_name)
             {
                 if enum_sig.members.contains_key(&key(field)) {
-                    return Ok(TypeName::Integer);
+                    return Ok(TypeName::Int16);
                 }
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -1156,13 +1147,13 @@ pub(super) fn validate_expr(
                 validate_array_expr(&args[0], symbols, types, signatures, context, options)?;
                 if args.len() == 2 {
                     ensure_assignable(
-                        &TypeName::Integer,
+                        &TypeName::Int16,
                         &validate_expr(&args[1], symbols, types, signatures, context, options)?,
                         types,
                         args[1].span,
                     )?;
                 }
-                return Ok(TypeName::Integer);
+                return Ok(TypeName::Int16);
             }
             // A function's own name is in scope as its implicit return variable.
             // Calling it with arguments is recursion, not indexing, unless the
@@ -1181,7 +1172,7 @@ pub(super) fn validate_expr(
                     VarType::Array(_, element_type, _) => {
                         for arg in args {
                             ensure_assignable(
-                                &TypeName::Integer,
+                                &TypeName::Int16,
                                 &validate_expr(arg, symbols, types, signatures, context, options)?,
                                 types,
                                 arg.span,
@@ -1286,7 +1277,7 @@ pub(super) fn validate_expr(
                 if field_sig.array.is_some() {
                     for arg in args {
                         ensure_assignable(
-                            &TypeName::Integer,
+                            &TypeName::Int16,
                             &validate_expr(arg, symbols, types, signatures, context, options)?,
                             types,
                             arg.span,
@@ -1464,17 +1455,15 @@ pub(super) fn validate_expr(
                 | BinaryOp::IntegerDivide
                 | BinaryOp::Modulo => {
                     if is_numeric_type(&left_type) && is_numeric_type(&right_type) {
-                        let base_ty = if left_type.same_type(&TypeName::Double)
-                            || right_type.same_type(&TypeName::Double)
-                        {
-                            TypeName::Double
-                        } else if left_type.same_type(&TypeName::Single)
-                            || right_type.same_type(&TypeName::Single)
-                        {
-                            TypeName::Single
-                        } else {
-                            TypeName::Int64
-                        };
+                        let operation = super::super::arithmetic::ArithmeticOp::from_ast(*op)
+                            .expect("arithmetic arm");
+                        let signature = super::super::arithmetic::signature(operation, &left_type, &right_type)
+                            .ok_or_else(|| Diagnostic::new(
+                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                                "Arithmetic operands have no common numeric type; use an explicit conversion",
+                                Some(expr.span),
+                            ))?;
+                        let base_ty = signature.result_type;
                         Ok(wrap_nullable(base_ty))
                     } else {
                         ensure_assignable(&TypeName::Int64, &left_type, types, left.span)?;
@@ -1779,7 +1768,7 @@ fn validate_builtin_function(
 pub(super) fn enum_member_value_type(name: &str, types: &TypeRegistry) -> Option<TypeName> {
     for enum_sig in types.enums.values() {
         if enum_sig.members.contains_key(&key(name)) {
-            return Some(TypeName::Integer);
+            return Some(TypeName::Int16);
         }
     }
     None
@@ -2112,7 +2101,7 @@ fn validate_argument_value(
                 arg.span,
             )
         }
-        PassingMode::ByRef => {
+        PassingMode::ByRef | PassingMode::ByRefReadOnly => {
             let arg_type = validate_expr(
                 arg,
                 validation.symbols,
@@ -2261,17 +2250,8 @@ fn infer_expr_type_for_generic(
     match &expr.kind {
         ExprKind::String(_) => Ok(Some(TypeName::String)),
         ExprKind::DateLiteral(_) => Ok(Some(TypeName::Date)),
-        ExprKind::Integer(value) => {
-            let ty = if *value >= i16::MIN as i64 && *value <= i16::MAX as i64 {
-                TypeName::Integer
-            } else if *value >= i32::MIN as i64 && *value <= i32::MAX as i64 {
-                TypeName::Long
-            } else {
-                TypeName::Int64
-            };
-            Ok(Some(ty))
-        }
-        ExprKind::Long(_) => Ok(Some(TypeName::Long)),
+        ExprKind::Integer(value) => Ok(Some(TypeName::integer_literal(*value))),
+        ExprKind::Long(_) => Ok(Some(TypeName::Int32)),
         ExprKind::LongLong(_) => Ok(Some(TypeName::Int64)),
         ExprKind::Single(_) => Ok(Some(TypeName::Single)),
         ExprKind::Double(_) => Ok(Some(TypeName::Double)),
@@ -3223,7 +3203,7 @@ fn pick_writer<'a>(
 ///
 /// It is the last one. A plain property has only that; an indexed one takes
 /// its indices first and the value after them, which is what
-/// `Property Let Item(index As Long, value As String)` declares.
+/// `Property Set Item(index As Long, value As String)` declares.
 fn assigned_parameter(accessor: &PropertyAccessorSig) -> Result<&ParamSig, Diagnostic> {
     accessor.params.last().ok_or_else(|| {
         Diagnostic::new(
@@ -3288,16 +3268,13 @@ fn member_assignment_type(
             if is_class_type(value_type, types) || value_type.same_type(&TypeName::Variant) {
                 property_sig.writers()
             } else {
-                &property_sig.let_
+                &property_sig.set
             };
         let accessor =
             pick_writer(candidates, index_types, value_type, member, span)?.ok_or_else(|| {
                 Diagnostic::new(
                     crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                    format!(
-                        "Property '{}' has no Let or Set accessor",
-                        property_sig.name
-                    ),
+                    format!("Property '{}' has no Set accessor", property_sig.name),
                     Some(span),
                 )
             })?;
@@ -3345,16 +3322,13 @@ fn member_assignment_type(
     {
         property_sig.writers()
     } else {
-        &property_sig.let_
+        &property_sig.set
     };
     let accessor =
         pick_writer(candidates, index_types, value_type, member, span)?.ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                format!(
-                    "Property '{}' has no Let or Set accessor",
-                    property_sig.name
-                ),
+                format!("Property '{}' has no Set accessor", property_sig.name),
                 Some(span),
             )
         })?;
@@ -3522,8 +3496,8 @@ pub(super) fn ensure_known_type(
     match ty {
         TypeName::String
         | TypeName::Byte
-        | TypeName::Integer
-        | TypeName::Long
+        | TypeName::Int16
+        | TypeName::Int32
         | TypeName::Int64
         | TypeName::UInt32
         | TypeName::UInt64
@@ -3546,6 +3520,7 @@ pub(super) fn ensure_known_type(
             if types.generic_params.contains(&key(name))
                 || name.eq_ignore_ascii_case(well_known::OBJECT)
                 || name.eq_ignore_ascii_case(well_known::COLLECTION)
+                || name.eq_ignore_ascii_case(well_known::FUNC)
                 || name.contains('.')
                 || is_builtin_vba_enum_type(name)
             {
@@ -3775,8 +3750,8 @@ fn is_reference_type(ty: &TypeName, types: &TypeRegistry) -> bool {
 fn is_value_type(ty: &TypeName, types: &TypeRegistry) -> bool {
     match ty {
         TypeName::Byte
-        | TypeName::Integer
-        | TypeName::Long
+        | TypeName::Int16
+        | TypeName::Int32
         | TypeName::Int64
         | TypeName::UInt32
         | TypeName::UInt64
@@ -3943,8 +3918,8 @@ fn ensure_strict_conversion(
 fn conversion_function(ty: &TypeName) -> Option<&'static str> {
     Some(match ty {
         TypeName::Byte => "CByte",
-        TypeName::Integer => "CInt",
-        TypeName::Long => "CLng",
+        TypeName::Int16 => "CInt",
+        TypeName::Int32 => "CLng",
         TypeName::Int64 => "CLngLng",
         TypeName::Single => "CSng",
         TypeName::Double => "CDbl",
@@ -3962,8 +3937,8 @@ fn narrows(from: &TypeName, to: &TypeName) -> bool {
     fn rank(ty: &TypeName) -> Option<u8> {
         Some(match ty {
             TypeName::Byte => 0,
-            TypeName::Integer => 1,
-            TypeName::Long => 2,
+            TypeName::Int16 => 1,
+            TypeName::Int32 => 2,
             TypeName::Int64 => 3,
             TypeName::Decimal => 4,
             TypeName::Single => 5,
@@ -4282,14 +4257,14 @@ pub(super) fn validate_exit(
             .with_help("use Exit Function only inside a Function body")),
         },
         ExitTarget::Property => match context {
-            Context::PropertyGet { .. } | Context::PropertyLetSet { .. } => Ok(()),
+            Context::PropertyGet { .. } | Context::PropertySet { .. } => Ok(()),
             _ => Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::CONTROL_FLOW,
                 "Exit Property is only valid inside Property",
                 Some(span),
             )
             .with_primary_label("invalid Exit Property")
-            .with_help("use Exit Property only inside a Property Get, Let, or Set body")),
+            .with_help("use Exit Property only inside a property accessor body")),
         },
         ExitTarget::For => {
             if loop_context.for_depth > 0 {
@@ -4333,8 +4308,8 @@ pub(super) fn validate_exit(
 pub(super) fn is_numeric_type(ty: &TypeName) -> bool {
     match ty {
         TypeName::Byte
-        | TypeName::Integer
-        | TypeName::Long
+        | TypeName::Int16
+        | TypeName::Int32
         | TypeName::Int64
         | TypeName::UInt32
         | TypeName::UInt64
@@ -4459,11 +4434,11 @@ fn validate_err_raise_args(
         ));
     }
     let expected = [
-        TypeName::Integer,
+        TypeName::Int16,
         TypeName::String,
         TypeName::String,
         TypeName::String,
-        TypeName::Integer,
+        TypeName::Int16,
     ];
     for (index, arg) in args.iter().enumerate() {
         let actual = validate_expr(arg, symbols, types, signatures, context, options)?;

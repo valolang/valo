@@ -1,6 +1,8 @@
 Class List
-    Public Default Property Get Item(ByVal index As Integer) As String
-        Return "val" & index
+    Public ReadOnly Default Property Item(ByVal index As Integer) As String
+        Get
+            Return "val" & index
+        End Get
     End Property
 End Class
 

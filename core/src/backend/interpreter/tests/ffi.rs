@@ -5,7 +5,7 @@ use crate::runtime::ffi_platform::*;
 fn declare_function_calls_libc_strlen_with_byval_string() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function lstrlen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
+Private Declare Function lstrlen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Int32
 
 Sub Main()
     Console.WriteLine(lstrlen("Valo"))
@@ -21,7 +21,7 @@ End Sub
 fn declare_function_is_callable_as_statement_with_parentheses() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function strlen Lib "{}" CDecl (ByVal value As String) As Long
+Private Declare Function strlen Lib "{}" CDecl (ByVal value As String) As Int32
 
 Sub Main()
     strlen("Valo")
@@ -38,7 +38,7 @@ End Sub
 fn declare_function_is_callable_with_call_keyword() {
     let source = format!(
         r#"
-Public Declare PtrSafe Function strlen Lib "{}" CDecl (ByVal value As String) As Long
+Public Declare Function strlen Lib "{}" CDecl (ByVal value As String) As Int32
 
 Sub Main()
     Call strlen("Valo")
@@ -55,7 +55,7 @@ End Sub
 fn declare_function_is_callable_as_bare_statement() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function strlen Lib "{}" CDecl (ByVal value As String) As Long
+Private Declare Function strlen Lib "{}" CDecl (ByVal value As String) As Int32
 
 Sub Main()
     strlen "Valo"
@@ -72,7 +72,7 @@ End Sub
 fn declare_function_statement_call_validates_arguments() {
     let diagnostic = source_diagnostic(&format!(
         r#"
-Private Declare PtrSafe Function strlen Lib "{}" CDecl (ByVal value As String) As Long
+Private Declare Function strlen Lib "{}" CDecl (ByVal value As String) As Int32
 
 Sub Main()
     strlen()
@@ -93,7 +93,7 @@ End Sub
 fn declare_sub_calls_libc_srand() {
     let source = format!(
         r#"
-Private Declare PtrSafe Sub Seed Lib "{}" Alias "srand" CDecl (ByVal value As Long)
+Private Declare Sub Seed Lib "{}" Alias "srand" CDecl (ByVal value As Int32)
 
 Sub Main()
     Seed 1
@@ -110,7 +110,7 @@ End Sub
 fn declare_function_calls_libm_with_double_argument_and_return() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function NativeCos Lib "{}" Alias "{}" CDecl (ByVal value As Double) As Double
+Private Declare Function NativeCos Lib "{}" Alias "{}" CDecl (ByVal value As Double) As Double
 
 Sub Main()
     Console.WriteLine(NativeCos(0#))
@@ -127,7 +127,7 @@ End Sub
 fn declare_function_accepts_unary_numeric_argument() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function NativeCos Lib "{}" Alias "{}" CDecl (ByVal value As Double) As Double
+Private Declare Function NativeCos Lib "{}" Alias "{}" CDecl (ByVal value As Double) As Double
 
 Sub Main()
     Console.WriteLine(NativeCos(-1#) < 1#)
@@ -144,9 +144,9 @@ End Sub
 fn ffi_vector_math_stress_completes_with_structure_array_mutation() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function NativeCos Lib "{}" Alias "{}" CDecl (ByVal value As Double) As Double
-Private Declare PtrSafe Function NativeSin Lib "{}" Alias "sin" CDecl (ByVal value As Double) As Double
-Private Declare PtrSafe Function NativeSqrt Lib "{}" Alias "sqrt" CDecl (ByVal value As Double) As Double
+Private Declare Function NativeCos Lib "{}" Alias "{}" CDecl (ByVal value As Double) As Double
+Private Declare Function NativeSin Lib "{}" Alias "sin" CDecl (ByVal value As Double) As Double
+Private Declare Function NativeSqrt Lib "{}" Alias "sqrt" CDecl (ByVal value As Double) As Double
 
 Structure Vec3
     Public X As Double
@@ -233,7 +233,7 @@ End Sub
 fn declare_alias_uses_local_name_for_semantics_and_native_symbol_for_lookup() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function MyLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
+Private Declare Function MyLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Int32
 
 Sub Main()
     Console.WriteLine(MyLen("Valo"))
@@ -249,10 +249,10 @@ End Sub
 fn declare_byref_numeric_argument_is_written_back() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function NativeTime Lib "{}" Alias "time" CDecl (value As LongPtr) As LongPtr
+Private Declare Function NativeTime Lib "{}" Alias "time" CDecl (ByRef value As Ptr) As Ptr
 
 Sub Main()
-    Dim value As LongPtr
+    Dim value As Ptr
     Console.WriteLine(NativeTime(value) <> 0)
     Console.WriteLine(value <> 0)
 End Sub
@@ -267,7 +267,7 @@ End Sub
 #[cfg(windows)]
 fn declare_windows_get_current_process_id() {
     let source = r#"
-Private Declare PtrSafe Function GetCurrentProcessId Lib "kernel32" () As Long
+Private Declare Function GetCurrentProcessId Lib "kernel32" () As Int32
 
 Sub Main()
     Console.WriteLine(GetCurrentProcessId() <> 0)
@@ -280,7 +280,7 @@ End Sub
 #[cfg(windows)]
 fn declare_windows_get_tick_count_64() {
     let source = r#"
-Private Declare PtrSafe Function GetTickCount64 Lib "kernel32" () As LongLong
+Private Declare Function GetTickCount64 Lib "kernel32" () As LongLong
 
 Sub Main()
     ' Just verify it calls correctly and returns a value
@@ -296,10 +296,10 @@ End Sub
 #[cfg(windows)]
 fn declare_windows_lstrlen_a() {
     let source = r#"
-Private Declare PtrSafe Function lstrlenA Lib "kernel32" (ByVal lpString As String) As Long
+Private Declare Function lstrlenA Lib "kernel32" (ByVal lpString As String) As Int32
 
 Sub Main()
-    Dim length As Long
+    Dim length As Int32
     length = lstrlenA("Hello")
     Console.WriteLine(length)
 End Sub
@@ -312,7 +312,7 @@ End Sub
 fn declare_unix_getpid() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function getpid Lib "{}" () As Long
+Private Declare Function getpid Lib "{}" () As Int32
 
 Sub Main()
     Console.WriteLine(getpid() <> 0)
@@ -327,7 +327,7 @@ End Sub
 fn missing_native_library_reports_v3001() {
     let diagnostic = source_diagnostic(
         r#"
-Private Declare PtrSafe Function Nope Lib "valo_missing_native_library_for_test" () As Long
+Private Declare Function Nope Lib "valo_missing_native_library_for_test" () As Int32
 
 Sub Main()
     Console.WriteLine(Nope())
@@ -347,7 +347,7 @@ End Sub
 fn missing_native_symbol_reports_v3002() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function Nope Lib "{}" Alias "valo_missing_symbol_for_test" CDecl () As Long
+Private Declare Function Nope Lib "{}" Alias "valo_missing_symbol_for_test" CDecl () As Int32
 
 Sub Main()
     Console.WriteLine(Nope())
@@ -369,7 +369,7 @@ End Sub
 fn unsupported_byref_string_reports_v3003() {
     let source = format!(
         r#"
-Private Declare PtrSafe Function lstrlen Lib "{}" Alias "strlen" CDecl (value As String) As Long
+Private Declare Function lstrlen Lib "{}" Alias "strlen" CDecl (ByRef value As String) As Int32
 
 Sub Main()
     Dim value As String
@@ -388,12 +388,12 @@ End Sub
 #[test]
 fn addressof_byval_numeric_callback_returns_stable_pointer() {
     let source = r#"
-Function MyCallback(ByVal value As Long) As Long
+Function MyCallback(ByVal value As Int32) As Int32
     MyCallback = value + 1
 End Function
 
 Sub Main()
-    Dim ptr As LongPtr
+    Dim ptr As Ptr
     ptr = AddressOf MyCallback
     Console.WriteLine(ptr <> 0)
 End Sub
@@ -408,12 +408,12 @@ fn a_callback_native_code_cannot_take_is_refused_where_it_is_handed_over() {
     // called from Valo, and a ByRef parameter is no obstacle to that.
     let output = run_source(
         r#"
-Function MyCallback(ByRef value As Long) As Long
+Function MyCallback(ByRef value As Int32) As Int32
     Return value
 End Function
 
 Sub Main()
-    Dim ptr As LongPtr
+    Dim ptr As Ptr
     ptr = AddressOf MyCallback
     Console.WriteLine("taken")
 End Sub
@@ -424,9 +424,9 @@ End Sub
     // Passing it to a library is where the marshaling has to be possible.
     let diagnostic = source_diagnostic(
         r#"
-Declare PtrSafe Sub UseCallback Lib "nosuchlib" (ByVal fn_ As LongPtr)
+Declare Sub UseCallback Lib "nosuchlib" (ByVal fn_ As Ptr)
 
-Function MyCallback(ByRef value As Long) As Long
+Function MyCallback(ByRef value As Int32) As Int32
     Return value
 End Function
 
@@ -464,12 +464,12 @@ End Sub
 fn varptr_saved_pointer_writes_back_to_original_variable_after_native_call() {
     let output = run_source(
         r#"
-Private Declare PtrSafe Sub RtlMoveMemory Lib "kernel32" (ByVal Destination As LongPtr, ByVal Source As LongPtr, ByVal Length As LongPtr)
+Private Declare Sub RtlMoveMemory Lib "kernel32" (ByVal Destination As Ptr, ByVal Source As Ptr, ByVal Length As Ptr)
 
 Sub Main()
     Dim source As LongLong
     Dim target As LongLong
-    Dim pointer As LongPtr
+    Dim pointer As Ptr
     source = 123456
     pointer = VarPtr(target)
     RtlMoveMemory ByVal pointer, VarPtr(source), 8

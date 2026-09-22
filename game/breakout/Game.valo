@@ -50,8 +50,8 @@ Public Class Bounds
     Public Size As Vector2
 
     Public Sub Initialize(ByVal x As Double, ByVal y As Double, ByVal w As Double, ByVal h As Double)
-        Set Position = New Vector2 With { .X = x, .Y = y }
-        Set Size = New Vector2 With { .X = w, .Y = h }
+        Position = New Vector2 With { .X = x, .Y = y }
+        Size = New Vector2 With { .X = w, .Y = h }
     End Sub
 
     Public Property Left As Double
@@ -121,19 +121,19 @@ End Class
 '
 ' The channels are laid out the way the renderer wants them read back, which is
 ' what the shift operators below express.
-Public Function PackColor(ByVal red As Long, ByVal green As Long, ByVal blue As Long) As Long
+Public Function PackColor(ByVal red As Int32, ByVal green As Int32, ByVal blue As Int32) As Int32
     Return (red << 16) Or (green << 8) Or blue
 End Function
 
-Public Function RedOf(ByVal packed As Long) As Long
+Public Function RedOf(ByVal packed As Int32) As Int32
     Return (packed >> 16) And 255
 End Function
 
-Public Function GreenOf(ByVal packed As Long) As Long
+Public Function GreenOf(ByVal packed As Int32) As Int32
     Return (packed >> 8) And 255
 End Function
 
-Public Function BlueOf(ByVal packed As Long) As Long
+Public Function BlueOf(ByVal packed As Int32) As Int32
     Return packed And 255
 End Function
 
@@ -144,14 +144,14 @@ End Function
 ' should be, without knowing whether it is a paddle, a ball, or a brick.
 Public Interface IDrawable
     Function Box() As Bounds
-    Function Color() As Long
+    Function Color() As Int32
     Function IsAlive() As Boolean
 End Interface
 
 ' Shared state and behaviour for everything on the playfield.
 Public Class Entity Implements IDrawable
     Public Area As Bounds
-    Public Tint As Long
+    Public Tint As Int32
     Public Alive As Boolean
 
     Public Sub Initialize()
@@ -163,7 +163,7 @@ Public Class Entity Implements IDrawable
         Return Area
     End Function
 
-    Public Function Color() As Long Implements IDrawable.Color
+    Public Function Color() As Int32 Implements IDrawable.Color
         Return Tint
     End Function
 
@@ -244,11 +244,11 @@ End Class
 
 ' A brick worth points, which announces its own destruction.
 Public Class Brick Inherits Entity
-    Public Points As Long
+    Public Points As Int32
 
     ' Raised when the brick is broken, so scoring lives with the game rather
     ' than inside the brick.
-    Public Event Destroyed(ByVal points As Long)
+    Public Event Destroyed(ByVal points As Int32)
 
     Public Sub Break()
         If Not Alive Then
@@ -268,9 +268,9 @@ End Class
 ' The running score lives beside the event that feeds it, so a brick's
 ' announcement is handled in the module that declares it.
 
-Private TotalScore As Long
+Private TotalScore As Int32
 
-Public Function CurrentScore() As Long
+Public Function CurrentScore() As Int32
     Return TotalScore
 End Function
 
@@ -279,23 +279,23 @@ Public Sub ResetScore()
 End Sub
 
 ' Runs when a brick announces it was broken.
-Public Sub OnBrickBroken(ByVal points As Long)
+Public Sub OnBrickBroken(ByVal points As Int32)
     TotalScore += points
 End Sub
 
 ' Builds the brick wall, wiring each brick's score into the running total.
 Public Function MakeBricks() As Collection
-    Const COLUMNS As Long = 10
-    Const ROWS As Long = 5
+    Const COLUMNS As Int32 = 10
+    Const ROWS As Int32 = 5
 
     Dim wall As New Collection()
-    Dim row As Long
-    Dim column As Long
+    Dim row As Int32
+    Dim column As Int32
 
     For row = 0 To ROWS - 1
         For column = 0 To COLUMNS - 1
             Dim brick As New Brick()
-            Set brick.Area = New Bounds(20 + column * 60, 50 + row * 24, 54, 18)
+            brick.Area = New Bounds(20 + column * 60, 50 + row * 24, 54, 18)
 
             ' Rows nearer the top are worth more, and are tinted to match.
             brick.Points = (ROWS - row) * 10

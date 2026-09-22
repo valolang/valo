@@ -55,13 +55,16 @@ fn parses_property_get_and_let() {
 Class User
     Private mName As String
 
-    Public Property Get Name() As String
+    Public Property Name() As String
+        Get
         Return Me.mName
+        End Get
+        Set(ByVal value As String)
+        Me.mName = value
+        End Set
     End Property
 
-    Public Property Let Name(ByVal value As String)
-        Me.mName = value
-    End Property
+
 End Class
 
 Sub Main()
@@ -123,10 +126,10 @@ End Sub
 }
 
 #[test]
-fn parses_vba_declare_frontend_metadata() {
+fn parses_native_declare_frontend_metadata() {
     let source = r#"
-Private Declare PtrSafe Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As LongPtr, ByVal lpWindowName As Any) As LongLong
-Public Declare PtrSafe Sub Sleep Lib "kernel32" (ByVal dwMilliseconds As Long)
+Private Declare Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As Ptr, ByVal lpWindowName As Any) As Int64
+Public Declare Sub Sleep Lib "kernel32" (ByVal dwMilliseconds As Long)
 
 Sub Main()
 End Sub
@@ -135,7 +138,6 @@ End Sub
     let program = Parser::parse_source(source, FileId::default()).unwrap();
 
     assert_eq!(program.declares.len(), 2);
-    assert!(program.declares[0].ptr_safe);
     assert_eq!(program.declares[0].lib, "user32");
     assert_eq!(program.declares[0].alias.as_deref(), Some("FindWindowA"));
     assert_eq!(program.declares[0].params.len(), 2);
@@ -192,7 +194,7 @@ End Sub
 fn parses_keyword_named_arguments() {
     let source = r#"
 Sub Main()
-    Set dlgOpen = Application.FileDialog(Type:=msoFileDialogFilePicker)
+    dlgOpen = Application.FileDialog(Type:=msoFileDialogFilePicker)
 End Sub
 "#;
 
@@ -359,7 +361,7 @@ Attribute VB_Name = "Module1"
 Option Explicit
 Dim x As Integer
 "#;
-    assert!(Parser::parse_source(source, FileId::default()).is_ok());
+    assert!(Parser::parse_source(source, FileId::default()).is_err());
 
     let source = r#"
 Dim x As Integer
@@ -529,7 +531,7 @@ fn test_function_set_assignment() {
         End Class
 
         Function GetObj() As MyClass
-            Set GetObj = New MyClass
+            GetObj = New MyClass
         End Function
 
         Sub Main()
@@ -540,7 +542,7 @@ fn test_function_set_assignment() {
 }
 
 #[test]
-fn test_implicit_variant_function() {
+fn test_untyped_function_parameter_is_rejected() {
     let source = r#"
         Function Soma(a, b)
             Soma = a + b
@@ -550,8 +552,23 @@ fn test_implicit_variant_function() {
             Console.WriteLine(Soma(10, 20))
         End Sub
     "#;
-    let program = Parser::parse_source(source, FileId::default());
-    assert!(program.is_ok(), "Failed to parse: {:?}", program.err());
+    let error = Parser::parse_source(source, FileId::default()).unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("Cannot infer the type of parameter 'a'")
+    );
+    assert!(!error.helps.is_empty());
+}
+
+#[test]
+fn test_untyped_function_return_is_rejected() {
+    let error = Parser::parse_source(
+        "Function Soma(a As Integer, b As Integer)\nReturn a + b\nEnd Function",
+        FileId::default(),
+    )
+    .unwrap_err();
+    assert!(error.message.contains("Cannot infer the return type"));
 }
 
 #[test]
@@ -568,21 +585,24 @@ fn test_implicit_variant_dim() {
 }
 
 #[test]
-fn test_implicit_variant_property() {
+fn test_explicit_dynamic_property() {
     let source = r#"
         Class MyClass
-            Private mValue
-            Property Get Value()
+            Private mValue As Object
+            Property Value() As Object
+                Get
                 Value = mValue
-            End Property
-            Property Let Value(v)
+                End Get
+                Set(v As Object)
                 mValue = v
+                End Set
             End Property
+
         End Class
 
         Sub Main()
             Dim obj As MyClass
-            Set obj = New MyClass
+            obj = New MyClass
             obj.Value = 100
             Console.WriteLine(obj.Value)
         End Sub
@@ -600,29 +620,36 @@ fn test_keyword_as_parameter_name() {
 }
 
 #[test]
-fn test_option_private_module() {
+fn test_option_private_module_is_removed() {
     let source = "Option Private Module\nSub Main()\nEnd Sub";
-    let program = Parser::parse_source(source, FileId::default());
-    assert!(program.is_ok(), "Failed to parse: {:?}", program.err());
+    let error = Parser::parse_source(source, FileId::default()).unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("Option Private Module has been removed")
+    );
 }
 #[test]
 fn test_module_level_property() {
     let source = r#"
         Private mValue As Integer
 
-        Public Property Get Value() As Integer
+        Public Property Value() As Integer
+            Get
             Value = mValue
+            End Get
+            Set(v As Integer)
+            mValue = v
+            End Set
         End Property
 
-        Public Property Let Value(v As Integer)
-            mValue = v
-        End Property
+
     "#;
     let program = Parser::parse_source(source, FileId::default()).unwrap();
     assert_eq!(program.properties.len(), 2);
     assert_eq!(program.properties[0].name, "Value");
     assert_eq!(program.properties[0].kind, PropertyKind::Get);
-    assert_eq!(program.properties[1].kind, PropertyKind::Let);
+    assert_eq!(program.properties[1].kind, PropertyKind::Set);
 }
 
 #[test]
@@ -666,7 +693,7 @@ fn test_option_order() {
     let source = r#"
         Option Explicit
         Dim x As Integer
-        Option Base 1
+        Option Compare Text
     "#;
     let error = Parser::parse_source(source, FileId::default()).unwrap_err();
     assert!(
@@ -677,7 +704,7 @@ fn test_option_order() {
 }
 
 #[test]
-fn test_class_module_attributes() {
+fn test_class_module_attributes_rejected() {
     let source = r#"
 VERSION 1.0 CLASS
 BEGIN
@@ -689,11 +716,12 @@ Private m_value As Integer
 Public Sub Foo()
 End Sub
 "#;
-    let program = Parser::parse_source(source, FileId::default()).unwrap();
-    assert_eq!(program.classes.len(), 1);
-    assert_eq!(program.classes[0].name, "Class1");
-    assert!(program.option_explicit);
-    assert_eq!(program.classes[0].members.len(), 2); // m_value and Foo
+    let error = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("Exported class metadata is not supported")
+    );
 }
 
 #[test]

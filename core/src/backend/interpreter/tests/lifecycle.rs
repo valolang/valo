@@ -2,7 +2,7 @@ use super::helpers::{run_source, source_error};
 use crate::frontend::parser::Parser;
 
 #[test]
-fn exported_class_envelope_ignored() {
+fn exported_class_envelope_rejected() {
     let source = r#"
 VERSION 1.0 CLASS
 BEGIN
@@ -12,9 +12,12 @@ Attribute VB_Name = "Counter"
 
 Public value As Integer
 "#;
-    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
-    assert_eq!(program.classes.len(), 1);
-    assert_eq!(program.classes[0].name, "Counter");
+    let error = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("Exported class metadata is not supported")
+    );
 }
 
 #[test]
@@ -29,7 +32,7 @@ End Class
 Sub Main()
     Dim l As New Logger
     Console.WriteLine("before")
-    Set l = Nothing
+    l = Nothing
     Console.WriteLine("after")
 End Sub
 "#;
@@ -70,7 +73,7 @@ End Class
 
 Sub Main()
     Dim box As Box
-    Set box = New Box(42)
+    box = New Box(42)
     Console.WriteLine(box.value)
 End Sub
 "#;
@@ -110,7 +113,7 @@ End Class
 Sub Main()
     Dim l As New Logger
     Console.WriteLine("before")
-    Set l = Nothing
+    l = Nothing
     Console.WriteLine("after")
 End Sub
 "#;
@@ -260,7 +263,7 @@ End Class
 Sub Main()
     Dim l As New Logger
     Console.WriteLine(l.value)
-    Set l = Nothing
+    l = Nothing
 End Sub
 "#;
     let output = run_source(source);
@@ -280,7 +283,7 @@ End Class
 Sub Main()
     Dim l As New Logger
     l.name = "first"
-    Set l = New Logger()
+    l = New Logger()
     l.name = "second"
     Console.WriteLine("end")
 End Sub
@@ -325,10 +328,10 @@ End Class
 Sub Main()
     Dim a As New Logger
     Dim b As Logger
-    Set b = a
-    Set a = Nothing
+    b = a
+    a = Nothing
     Console.WriteLine("a is nothing")
-    Set b = Nothing
+    b = Nothing
     Console.WriteLine("b is nothing")
 End Sub
 "#;
@@ -348,13 +351,13 @@ End Class
 
 Sub Main()
     Dim arr(1) As Logger
-    Set arr(0) = New Logger()
+    arr(0) = New Logger()
     arr(0).id = 0
-    Set arr(1) = New Logger()
+    arr(1) = New Logger()
     arr(1).id = 1
     
     Console.WriteLine("reassigning")
-    Set arr(0) = Nothing
+    arr(0) = Nothing
     Console.WriteLine("done")
 End Sub
 "#;

@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use crate::frontend::type_model::TypeName;
+use std::collections::{HashMap, HashSet};
 
-use crate::runtime::{Diagnostic, TypeName};
+use crate::runtime::Diagnostic;
 use crate::{
     ArrayDecl, AssignTarget, BinaryOp, CaseCompareOp, CaseItem, ClassMember, DoLoopCondition,
     ExitTarget, Expr, ExprKind, Function, OnErrorMode, Parameter, PassingMode, Procedure, Program,
@@ -18,6 +19,8 @@ use crate::frontend::semantics::types::{
 
 #[path = "builtin_types.rs"]
 mod builtin_types;
+#[path = "lower_hir.rs"]
+mod lower_hir;
 #[path = "validate_classes.rs"]
 mod validate_classes;
 #[path = "validate_declarations.rs"]
@@ -26,6 +29,7 @@ mod validate_declarations;
 mod validate_expressions;
 #[path = "validate_statements.rs"]
 mod validate_statements;
+pub use lower_hir::lower_function_body;
 
 use validate_classes::{validate_class, validate_structure};
 use validate_declarations::{
@@ -210,9 +214,8 @@ fn merge_imported_types(
 
 /// The same, refusing to walk in a circle.
 ///
-/// Modules can import each other: a directory of `.bas` and `.cls` files is
-/// loaded as one group where each sees all the others. Following an import's
-/// own imports without noticing runs out of stack rather than out of modules.
+/// Module declarations can refer to imported symbols. Following an import's
+/// own imports without tracking the current path could recurse indefinitely.
 ///
 /// `on_path` holds the modules currently being followed, not every module
 /// already seen. The difference matters: one module can legitimately be
@@ -402,9 +405,6 @@ fn merge_class(entry: std::collections::hash_map::Entry<'_, String, ClassSig>, i
             if existing.default_property.is_none() {
                 existing.default_property = imported.default_property;
             }
-            if existing.enumerator.is_none() {
-                existing.enumerator = imported.enumerator;
-            }
         }
     }
 }
@@ -421,6 +421,7 @@ fn validate_bodies(
     module_symbols: &HashMap<String, VarType>,
     options: Options,
 ) -> Result<(), Diagnostic> {
+    validate_readonly_bodies(program)?;
     // A declaration's constraints are in scope for its body and nowhere else,
     // so each body is checked against a registry that carries its own.
     for procedure in &program.procedures {
@@ -438,6 +439,165 @@ fn validate_bodies(
     }
     for class_decl in &program.classes {
         validate_class(class_decl, types, signatures, module_symbols, options)?;
+    }
+    Ok(())
+}
+
+/// A deliberately narrow source check while typed HIR does not cover every
+/// class/member body. Non-scalar readonly references are rejected below.
+fn validate_readonly_bodies(program: &Program) -> Result<(), Diagnostic> {
+    for procedure in &program.procedures {
+        validate_readonly_body(&procedure.params, &procedure.body)?;
+    }
+    for function in &program.functions {
+        validate_readonly_body(&function.params, &function.body)?;
+    }
+    for ty in &program.types {
+        validate_readonly_members(&ty.members)?;
+    }
+    for class in &program.classes {
+        validate_readonly_members(&class.members)?;
+    }
+    Ok(())
+}
+
+fn validate_readonly_members(members: &[ClassMember]) -> Result<(), Diagnostic> {
+    for member in members {
+        match member {
+            ClassMember::Sub(method) => {
+                validate_readonly_body(&method.procedure.params, &method.procedure.body)?
+            }
+            ClassMember::Function(method) => {
+                validate_readonly_body(&method.function.params, &method.function.body)?
+            }
+            ClassMember::Iterator(method) => {
+                validate_readonly_body(&method.function.params, &method.function.body)?
+            }
+            ClassMember::Property(property) => {
+                validate_readonly_body(&property.params, &property.body)?
+            }
+            ClassMember::Operator(operator) => {
+                validate_readonly_body(&operator.params, &operator.body)?
+            }
+            ClassMember::Class(nested) => validate_readonly_members(&nested.members)?,
+            ClassMember::Type(nested) => validate_readonly_members(&nested.members)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_readonly_body(params: &[Parameter], statements: &[Stmt]) -> Result<(), Diagnostic> {
+    let mut readonly = HashSet::new();
+    for param in params {
+        if param.mode != PassingMode::ByRefReadOnly {
+            continue;
+        }
+        if !(param.ty.is_integral()
+            || matches!(
+                param.ty,
+                TypeName::Boolean | TypeName::Single | TypeName::Double | TypeName::String
+            ))
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "ByRef ReadOnly currently supports scalar parameters only",
+                Some(param.span),
+            )
+            .with_help(
+                "Structure and Class borrow checking will be enabled after field/place analysis",
+            ));
+        }
+        readonly.insert(key(&param.name));
+    }
+    check_readonly_statements(statements, &readonly)
+}
+
+fn check_readonly_statements(
+    statements: &[Stmt],
+    readonly: &HashSet<String>,
+) -> Result<(), Diagnostic> {
+    for statement in statements {
+        let write = match statement {
+            Stmt::Assign {
+                target: AssignTarget::Variable { name, .. },
+                span,
+                ..
+            }
+            | Stmt::LSet {
+                target: AssignTarget::Variable { name, .. },
+                span,
+                ..
+            }
+            | Stmt::RSet {
+                target: AssignTarget::Variable { name, .. },
+                span,
+                ..
+            } => Some((name.as_str(), *span)),
+            Stmt::For { variable, span, .. } | Stmt::ForEach { variable, span, .. } => {
+                Some((variable.as_str(), *span))
+            }
+            Stmt::LineInput {
+                target: AssignTarget::Variable { name, .. },
+                span,
+                ..
+            } => Some((name.as_str(), *span)),
+            _ => None,
+        };
+        if let Some((name, span)) = write
+            && readonly.contains(&key(name))
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT,
+                format!("Cannot modify ByRef ReadOnly parameter '{name}'"),
+                Some(span),
+            ));
+        }
+        match statement {
+            Stmt::If {
+                then_body,
+                elseif_branches,
+                else_body,
+                ..
+            } => {
+                check_readonly_statements(then_body, readonly)?;
+                for branch in elseif_branches {
+                    check_readonly_statements(&branch.body, readonly)?;
+                }
+                check_readonly_statements(else_body, readonly)?;
+            }
+            Stmt::While { body, .. }
+            | Stmt::DoLoop { body, .. }
+            | Stmt::For { body, .. }
+            | Stmt::ForEach { body, .. }
+            | Stmt::With { body, .. }
+            | Stmt::Using { body, .. } => check_readonly_statements(body, readonly)?,
+            Stmt::SelectCase {
+                branches,
+                else_body,
+                ..
+            } => {
+                for branch in branches {
+                    check_readonly_statements(&branch.body, readonly)?;
+                }
+                check_readonly_statements(else_body, readonly)?;
+            }
+            Stmt::TryCatch {
+                try_body,
+                catch_block,
+                finally_body,
+                ..
+            } => {
+                check_readonly_statements(try_body, readonly)?;
+                if let Some(catch) = catch_block {
+                    check_readonly_statements(&catch.body, readonly)?;
+                }
+                if let Some(finally) = finally_body {
+                    check_readonly_statements(finally, readonly)?;
+                }
+            }
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -485,4 +645,16 @@ fn validate_import_aliases(
         let _ = imported;
     }
     Ok(())
+}
+
+/// Omitted declaration types require an initializer; absence is not a dynamic type.
+fn cannot_infer_variable(name: &str, span: crate::runtime::Span) -> Diagnostic {
+    Diagnostic::new(
+        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+        format!("cannot infer the type of '{name}'"),
+        Some(span),
+    )
+    .with_help(format!(
+        "Specify a type or provide an initializer: Dim {name} As Integer or Dim {name} = 0"
+    ))
 }

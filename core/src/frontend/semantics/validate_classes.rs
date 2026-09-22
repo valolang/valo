@@ -130,7 +130,7 @@ pub(super) fn validate_class(
                         ));
                     }
                     for param in &method.function.params {
-                        if param.mode == PassingMode::ByRef {
+                        if param.mode != PassingMode::ByVal {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                                 format!(
@@ -248,7 +248,7 @@ pub(super) fn validate_class(
                                 ));
                             }
                             for param in &property.params {
-                                if param.mode == PassingMode::ByRef {
+                                if param.mode != PassingMode::ByVal {
                                     return Err(Diagnostic::new(
                                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                                         format!(
@@ -267,14 +267,14 @@ pub(super) fn validate_class(
                             ));
                         }
                     }
-                    PropertyKind::Let | PropertyKind::Set => {
+                    PropertyKind::Set => {
                         validate_statements(
                             &property.body,
                             &mut StmtValidation {
                                 symbols: &mut symbols,
                                 types,
                                 signatures,
-                                context: &mut Context::PropertyLetSet {
+                                context: &mut Context::PropertySet {
                                     class_name: class_decl.name.clone(),
                                 },
                                 loop_context: LoopContext::default(),
@@ -430,28 +430,7 @@ fn validate_implements_common(
                     ));
                 }
             }
-            if let Some(let_) = property_bound.let_.first() {
-                let target = find_explicit_property_impl(
-                    members,
-                    decl_name,
-                    span,
-                    &interface_name,
-                    &property.name,
-                    PropertyKind::Let,
-                    &bindings,
-                )?;
-                if !signature_matches(&target.params, None, &let_.params, None) {
-                    return Err(Diagnostic::new(
-                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                        format!(
-                            "Implementation '{}.{}' signature does not match '{}.{}'",
-                            decl_name, target.name, interface.name, property.name
-                        ),
-                        Some(span),
-                    ));
-                }
-            }
-            if let Some(set) = property_bound.set.first() {
+            if let Some(setter) = property_bound.set.first() {
                 let target = find_explicit_property_impl(
                     members,
                     decl_name,
@@ -461,7 +440,7 @@ fn validate_implements_common(
                     PropertyKind::Set,
                     &bindings,
                 )?;
-                if !signature_matches(&target.params, None, &set.params, None) {
+                if !signature_matches(&target.params, None, &setter.params, None) {
                     return Err(Diagnostic::new(
                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                         format!(
@@ -815,7 +794,7 @@ pub(super) fn validate_structure(
                         ));
                     }
                     for param in &method.function.params {
-                        if param.mode == PassingMode::ByRef {
+                        if param.mode != PassingMode::ByVal {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                                 format!(
@@ -886,7 +865,7 @@ pub(super) fn validate_structure(
                                 ));
                             }
                             for param in &property.params {
-                                if param.mode == PassingMode::ByRef {
+                                if param.mode != PassingMode::ByVal {
                                     return Err(Diagnostic::new(
                                         crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                                         format!(
@@ -905,14 +884,14 @@ pub(super) fn validate_structure(
                             ));
                         }
                     }
-                    PropertyKind::Let | PropertyKind::Set => {
+                    PropertyKind::Set => {
                         validate_statements(
                             &property.body,
                             &mut StmtValidation {
                                 symbols: &mut symbols,
                                 types,
                                 signatures,
-                                context: &mut Context::PropertyLetSet {
+                                context: &mut Context::PropertySet {
                                     class_name: type_decl.name.clone(),
                                 },
                                 loop_context: LoopContext::default(),
@@ -931,10 +910,6 @@ pub(super) fn validate_structure(
 fn assigns_to_name(statements: &[Stmt], name: &str) -> bool {
     statements.iter().any(|stmt| match stmt {
         Stmt::Assign {
-            target: crate::AssignTarget::Variable { name: target, .. },
-            ..
-        }
-        | Stmt::SetAssign {
             target: crate::AssignTarget::Variable { name: target, .. },
             ..
         } => target.eq_ignore_ascii_case(name),

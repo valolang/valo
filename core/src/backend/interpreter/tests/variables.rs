@@ -185,13 +185,17 @@ Structure Point
     Public X As Integer
     Public Y As Integer
 
-    Public Property Get IsZero() As Boolean
+    Public ReadOnly Property IsZero() As Boolean
+        Get
         Return X = 0 And Y = 0
+        End Get
     End Property
 
-    Public Property Let Both(ByVal value As Integer)
+    Public WriteOnly Property Both() As Integer
+        Set(ByVal value As Integer)
         X = value
         Y = value
+        End Set
     End Property
 End Structure
 
@@ -264,7 +268,8 @@ Structure Pair
     Public A As Integer
     Public B As Integer
 
-    Public Default Property Get Item(ByVal index As Integer) As Integer
+    Public ReadOnly Default Property Item(ByVal index As Integer) As Integer
+        Get
         If index = 0 Then
             Return A
         End If
@@ -272,6 +277,7 @@ Structure Pair
             Return B
         End If
         Return -1
+        End Get
     End Property
 End Structure
 
@@ -504,8 +510,10 @@ End Sub
     let private_property = source_error(
         r#"
 Structure Point
-    Private Property Get Hidden() As Integer
+    Private ReadOnly Property Hidden() As Integer
+        Get
         Return 1
+        End Get
     End Property
 End Structure
 
@@ -622,13 +630,13 @@ End Sub
 }
 
 #[test]
-fn multiple_declarations_use_vba_per_declarator_semantics() {
+fn multiple_declarations_share_vbnet_as_clause() {
     let output = run_source(
         r#"
 Sub Main()
     Dim a, b As Integer
     Dim c As Integer = 1, d = "x", e As Double = 2.5
-    a = "variant"
+    a = 1
     b = 2
     Console.WriteLine(TypeName(a))
     Console.WriteLine(TypeName(b))
@@ -637,16 +645,16 @@ End Sub
 "#,
     );
 
-    assert_eq!(output, vec!["String", "Integer", "1x2.5"]);
+    assert_eq!(output, vec!["Integer", "Integer", "1x2.5"]);
 }
 
 #[test]
-fn type_declaration_characters_map_to_vba_types() {
+fn type_declaration_characters_preserve_defined_widths() {
     let output = run_source(
         r#"
 Sub Main()
     Dim i% = 10, l&, s$ = "Valo", x!, d#, c@
-    Dim a, b%
+    Dim a As Integer, b%
     b = 2
     Console.WriteLine(TypeName(i))
     Console.WriteLine(TypeName(l))
@@ -663,7 +671,7 @@ End Sub
     assert_eq!(
         output,
         vec![
-            "Integer", "Long", "String", "Single", "Double", "Currency", "Empty", "Integer"
+            "Integer", "Long", "String", "Single", "Double", "Currency", "Integer", "Integer"
         ]
     );
 }

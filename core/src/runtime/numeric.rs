@@ -318,3 +318,89 @@ pub fn is_integer_type(v: &Value) -> bool {
             | Value::FuncPtr(_)
     )
 }
+
+/// Execute a frontend-selected primitive operation without value-dependent promotion.
+pub(crate) fn typed_arithmetic(
+    left: Value,
+    right: Value,
+    op: crate::frontend::semantics::arithmetic::ArithmeticOp,
+    signature: &crate::frontend::semantics::arithmetic::ArithmeticSignature,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    use crate::TypeName;
+    use crate::frontend::semantics::arithmetic::ArithmeticOp as Op;
+    let zero = || {
+        Diagnostic::new(
+            crate::runtime::DiagnosticCode::ARITHMETIC,
+            if op == Op::Modulo {
+                "Modulo by zero"
+            } else {
+                "Division by zero"
+            },
+            Some(span),
+        )
+    };
+    macro_rules! integer {
+        ($a:expr, $b:expr, $variant:ident) => {{
+            let (a, b) = ($a, $b);
+            if b == 0 && matches!(op, Op::IntegerDivide | Op::Modulo) {
+                return Err(zero());
+            }
+            let result = match op {
+                Op::Add => a.wrapping_add(b),
+                Op::Subtract => a.wrapping_sub(b),
+                Op::Multiply => a.wrapping_mul(b),
+                Op::IntegerDivide => a.wrapping_div(b),
+                Op::Modulo => a.wrapping_rem(b),
+                _ => unreachable!("floating result selected"),
+            };
+            Ok(Value::$variant(result))
+        }};
+    }
+    macro_rules! floating {
+        ($a:expr, $b:expr, $variant:ident) => {{
+            let (a, b) = ($a, $b);
+            if b == 0.0 && matches!(op, Op::Divide | Op::Modulo) {
+                return Err(zero());
+            }
+            Ok(Value::$variant(match op {
+                Op::Add => a + b,
+                Op::Subtract => a - b,
+                Op::Multiply => a * b,
+                Op::Divide => a / b,
+                Op::Modulo => a % b,
+                Op::Power => a.powf(b),
+                Op::IntegerDivide => unreachable!("integer result selected"),
+            }))
+        }};
+    }
+    match signature.result_type {
+        TypeName::Int32 => {
+            let (a, b) = expect_integers(left, right, span)?;
+            integer!(a as i32, b as i32, Int32)
+        }
+        TypeName::Int64 => {
+            let (a, b) = expect_integers(left, right, span)?;
+            integer!(a, b, Int64)
+        }
+        TypeName::UInt32 => {
+            let a = value_to_u64(&left).expect("selected numeric type") as u32;
+            let b = value_to_u64(&right).expect("selected numeric type") as u32;
+            integer!(a, b, UInt32)
+        }
+        TypeName::UInt64 => {
+            let a = value_to_u64(&left).expect("selected numeric type");
+            let b = value_to_u64(&right).expect("selected numeric type");
+            integer!(a, b, UInt64)
+        }
+        TypeName::Single => {
+            let (a, b) = expect_numbers(left, right, span)?;
+            floating!(a as f32, b as f32, Single)
+        }
+        TypeName::Double => {
+            let (a, b) = expect_numbers(left, right, span)?;
+            floating!(a, b, Double)
+        }
+        _ => unreachable!("arithmetic signature only selects primitive numeric types"),
+    }
+}

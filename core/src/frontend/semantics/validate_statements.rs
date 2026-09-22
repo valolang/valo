@@ -162,6 +162,7 @@ pub fn validate_statements(
                 ..
             } => {
                 let ty = declared_variable_type(
+                    name,
                     ty,
                     initializer,
                     *span,
@@ -226,6 +227,7 @@ pub fn validate_statements(
                         ));
                     }
                     let ty = declared_variable_type(
+                        &decl.name,
                         &decl.ty,
                         &decl.initializer,
                         decl.span,
@@ -322,25 +324,7 @@ pub fn validate_statements(
                 )?;
                 ensure_assignable_expr(&target_type, &expr_type, expr, types, options, *span)?;
             }
-            Stmt::SetAssign { target, expr, span } => {
-                let expr_type = class_field_expr_type(expr, symbols, types, context)
-                    .map(Ok)
-                    .unwrap_or_else(|| {
-                        validate_expr(expr, symbols, types, signatures, context, options)
-                    })?;
-                let target_type = validate_assignment_target(
-                    target, &expr_type, symbols, types, signatures, context, options,
-                )?;
-                if !target_type.same_type(&TypeName::Variant) {
-                    ensure_class_type(
-                        &target_type,
-                        types,
-                        *span,
-                        "Set target must be a class type",
-                    )?;
-                }
-                ensure_assignable_expr(&target_type, &expr_type, expr, types, options, *span)?;
-            }
+
             Stmt::ConsoleCall { method, args, .. } => {
                 if !matches!(
                     method.to_ascii_lowercase().as_str(),
@@ -628,7 +612,7 @@ pub fn validate_statements(
                 match &mut context {
                     Context::Sub { .. }
                     | Context::MethodSub { .. }
-                    | Context::PropertyLetSet { .. } => {
+                    | Context::PropertySet { .. } => {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::CONTROL_FLOW,
                             "Return is only allowed inside Function or Property Get",
@@ -907,20 +891,20 @@ pub fn validate_statements(
                 }
 
                 ensure_assignable(
-                    &TypeName::Integer,
+                    &TypeName::Int16,
                     &validate_expr(start, symbols, types, signatures, context, options)?,
                     types,
                     start.span,
                 )?;
                 ensure_assignable(
-                    &TypeName::Integer,
+                    &TypeName::Int16,
                     &validate_expr(end, symbols, types, signatures, context, options)?,
                     types,
                     end.span,
                 )?;
                 if let Some(step) = step {
                     ensure_assignable(
-                        &TypeName::Integer,
+                        &TypeName::Int16,
                         &validate_expr(step, symbols, types, signatures, context, options)?,
                         types,
                         step.span,
@@ -1034,14 +1018,14 @@ pub fn validate_statements(
                         .unwrap_or_else(|| {
                             validate_expr(upper, symbols, types, signatures, context, options)
                         })?;
-                    ensure_assignable(&TypeName::Integer, &upper_type, types, upper.span)?;
+                    ensure_assignable(&TypeName::Int16, &upper_type, types, upper.span)?;
                     if let Some(lower) = lower {
                         let lower_type = class_field_expr_type(lower, symbols, types, context)
                             .map(Ok)
                             .unwrap_or_else(|| {
                                 validate_expr(lower, symbols, types, signatures, context, options)
                             })?;
-                        ensure_assignable(&TypeName::Integer, &lower_type, types, lower.span)?;
+                        ensure_assignable(&TypeName::Int16, &lower_type, types, lower.span)?;
                     }
                 }
                 if *preserve && dims.len() > 1 {
@@ -1128,6 +1112,7 @@ pub fn validate_statements(
                         ));
                     }
                     let ty = declared_variable_type(
+                        &decl.name,
                         &decl.ty,
                         &decl.initializer,
                         decl.span,
@@ -1271,6 +1256,7 @@ pub fn validate_statements(
 }
 
 fn declared_variable_type(
+    name: &str,
     ty: &Option<TypeName>,
     initializer: &Option<Expr>,
     span: crate::runtime::Span,
@@ -1289,8 +1275,7 @@ fn declared_variable_type(
             validation.options,
         );
     }
-    let _ = span;
-    Ok(TypeName::Variant)
+    Err(cannot_infer_variable(name, span))
 }
 
 fn validate_as_new(
@@ -1688,7 +1673,6 @@ fn stmt_span(stmt: &Stmt, _context: &Context<'_>) -> crate::runtime::Span {
         | Stmt::Const { span, .. }
         | Stmt::ConstMany { span, .. }
         | Stmt::Assign { span, .. }
-        | Stmt::SetAssign { span, .. }
         | Stmt::ConsoleCall { span, .. }
         | Stmt::SubCall { span, .. }
         | Stmt::MemberSubCall { span, .. }
@@ -1744,7 +1728,6 @@ fn stmt_uses_with_target(stmt: &Stmt, _context: &Context<'_>) -> bool {
             .iter()
             .any(|const_decl| expr_uses_with_target(&const_decl.value, _context)),
         Stmt::Assign { target, expr, .. }
-        | Stmt::SetAssign { target, expr, .. }
         | Stmt::LSet { target, expr, .. }
         | Stmt::RSet { target, expr, .. } => {
             assign_target_uses_with_target(target, _context)
@@ -1981,13 +1964,15 @@ pub(super) fn enumerable_element_type(
                     Some(expr.span),
                 ));
             };
-            if class_sig.iterator.is_some() || class_sig.enumerator.is_some() {
+            if class_sig.iterator.is_some()
+                || class_name.eq_ignore_ascii_case(well_known::COLLECTION)
+            {
                 Ok(TypeName::Variant)
             } else {
                 Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::ARRAY,
                     format!(
-                        "Class '{}' is not enumerable; define an Iterator or a VB_UserMemId = -4 _NewEnum member",
+                        "Class '{}' is not enumerable; define an Iterator member",
                         class_sig.name
                     ),
                     Some(expr.span),

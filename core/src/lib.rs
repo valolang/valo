@@ -8,6 +8,7 @@
 
 pub mod backend;
 pub mod frontend;
+pub mod mir;
 pub mod runtime;
 
 // Re-exports for compatibility and ease of use
@@ -16,7 +17,7 @@ pub use frontend::ast::*;
 pub use frontend::lexer::{self, Lexer, Token, TokenKind};
 pub use frontend::modules::{self, Project, load_project};
 pub use frontend::package::{
-    CompatibilityMode, PackageManifest, discover_manifest, load_manifest, resolve_entrypoint,
+    PackageManifest, discover_manifest, load_manifest, resolve_entrypoint,
 };
 pub use frontend::parser::{self, Parser, parse_source, parse_source_with_id};
 pub use frontend::preprocessor;

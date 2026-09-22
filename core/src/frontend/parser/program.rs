@@ -1,15 +1,25 @@
 use super::*;
 
 impl Parser {
+    fn module_property_field(field: ClassField) -> ModuleVarDecl {
+        ModuleVarDecl {
+            visibility: field.visibility,
+            name: field.name,
+            ty: field.ty,
+            array: field.array,
+            as_new: field.as_new,
+            new_args: field.new_args,
+            collection_initializer: field.collection_initializer,
+            initializer: field.initializer,
+            span: field.span,
+        }
+    }
+
     pub fn parse_program(&mut self) -> Result<Program, Diagnostic> {
         let mut option_explicit = false;
         let mut option_strict = false;
-        let mut option_private_module = false;
-        let mut option_base = 0;
-        let mut saw_option_base = false;
         let mut option_compare = OptionCompare::Binary;
         let mut saw_option_compare = false;
-        let mut attributes = Vec::new();
         let mut imports = Vec::new();
         let mut namespace = None;
         let mut last_namespace = None;
@@ -27,13 +37,12 @@ impl Parser {
         let mut procedures = Vec::new();
         let mut functions = Vec::new();
         let mut properties = Vec::new();
-        let mut is_class_module = false;
         let mut saw_declarations = false;
         self.skip_newlines();
 
         if self.check_simple(&TokenKind::Version) {
-            self.parse_cls_envelope()?;
-            is_class_module = true;
+            return Err(self
+                .error_here("Exported class metadata is not supported; use Class ... End Class"));
         }
 
         while !self.is_at_end() {
@@ -86,30 +95,11 @@ impl Parser {
                         }
                         option_strict = self.parse_option_switch(true)?;
                     } else if self.match_simple(&TokenKind::Base) {
-                        if saw_option_base {
-                            return Err(self.error_here("Option Base is already declared"));
-                        }
-                        let token = self.advance();
-                        let TokenKind::Integer(value) = token.kind else {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::OPTION,
-                                "Option Base must be 0 or 1",
-                                Some(token.span),
-                            )
-                            .with_primary_label("invalid Option Base value")
-                            .with_help("use either 'Option Base 0' or 'Option Base 1'"));
-                        };
-                        if value != 0 && value != 1 {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::OPTION,
-                                "Option Base must be 0 or 1",
-                                Some(token.span),
-                            )
-                            .with_primary_label("invalid Option Base value")
-                            .with_help("use either 'Option Base 0' or 'Option Base 1'"));
-                        }
-                        option_base = value;
-                        saw_option_base = true;
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::OPTION,
+                            "Option Base has been removed; omitted array lower bounds are always zero",
+                            Some(self.previous().span),
+                        ).with_help("Remove Option Base and use zero-based array indexing"));
                     } else if self.match_simple(&TokenKind::Compare) {
                         if saw_option_compare {
                             return Err(self.error_here("Option Compare is already declared"));
@@ -123,64 +113,21 @@ impl Parser {
                         }
                         saw_option_compare = true;
                     } else if self.match_simple(&TokenKind::Private) {
-                        if !self.match_simple(&TokenKind::Module) {
-                            self.expect_identifier_with(
-                                "Module",
-                                "Expected 'Module' after 'Option Private'",
-                            )?;
-                        }
-                        option_private_module = true;
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::OPTION,
+                            "Option Private Module has been removed; use declaration access modifiers",
+                            Some(self.previous().span),
+                        ).with_help("Declare members Private or Public and import modules explicitly"));
                     } else {
-                        return Err(self.error_here("Option must be Explicit, Base, or Compare"));
+                        return Err(self.error_here("Option must be Explicit, Strict, or Compare"));
                     }
                     self.expect_statement_end("Expected newline after Option statement")?;
                 }
                 TokenKind::Imports => imports.push(self.parse_import_decl()?),
                 TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute") => {
-                    attributes.push(self.parse_attribute_decl()?);
+                    return Err(self.error_here("Exported Attribute metadata is not supported; use modern declarations and attributes"));
                 }
                 _ => {
-                    if is_class_module {
-                        let mut class_members = Vec::new();
-                        let mut class_attributes = Vec::new();
-                        while !self.is_at_end() {
-                            if matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute"))
-                            {
-                                let attribute = self.parse_attribute_decl()?;
-                                self.apply_class_attribute(&attribute, &mut class_members);
-                                class_attributes.push(attribute);
-                            } else {
-                                class_members.extend(self.parse_class_member()?);
-                            }
-                            self.skip_newlines();
-                        }
-                        let name = attributes
-                            .iter()
-                            .find(|attr| {
-                                attr.target.is_empty() && attr.name.eq_ignore_ascii_case("VB_Name")
-                            })
-                            .map(|attr| attr.value.clone())
-                            .unwrap_or_else(|| "ClassModule".to_string());
-                        classes.push(ClassDecl {
-                            visibility: Visibility::Public,
-                            inheritance: ClassInheritance::Normal,
-                            is_partial: false,
-                            name,
-                            type_params: Vec::new(),
-                            generic_constraints: Vec::new(),
-                            base_class: None,
-                            implements: Vec::new(),
-                            attributes: class_attributes,
-                            members: class_members,
-                            span: crate::runtime::Span::new(
-                                self.file_id,
-                                crate::runtime::SourcePos::new(1, 1),
-                                self.previous().span.end,
-                            ),
-                        });
-                        break;
-                    }
-
                     saw_declarations = true;
                     let modern_attributes = self.parse_modern_attributes()?;
                     let inheritance = self.parse_optional_class_inheritance();
@@ -188,10 +135,26 @@ impl Parser {
                     let is_async = self.match_simple(&TokenKind::Async);
                     let is_partial = self.match_simple(&TokenKind::Partial);
                     let is_iterator = self.match_simple(&TokenKind::Iterator);
+                    let is_readonly = self.match_simple(&TokenKind::ReadOnly);
+                    let is_writeonly = self.match_simple(&TokenKind::WriteOnly);
+                    let is_default = self.match_simple(&TokenKind::Default);
+
                     // `Overloads` says a procedure shares its name deliberately. Valo works
                     // that out from the declarations themselves, so the word is accepted for
                     // VB.NET source compatibility and carries no meaning of its own.
                     self.match_simple(&TokenKind::Overloads);
+                    if is_readonly && is_writeonly {
+                        return Err(
+                            self.error_here("Property cannot be both ReadOnly and WriteOnly")
+                        );
+                    }
+                    if (is_readonly || is_writeonly || is_default)
+                        && !self.check_simple(&TokenKind::Property)
+                    {
+                        return Err(self.error_here(
+                            "ReadOnly, WriteOnly and Default require a property declaration here",
+                        ));
+                    }
 
                     match self.peek_kind() {
                         TokenKind::Sub => {
@@ -216,7 +179,24 @@ impl Parser {
                         }
                         TokenKind::Property => {
                             let visibility = explicit_visibility.unwrap_or(Visibility::Public);
-                            properties.push(self.parse_property(visibility, false, is_iterator)?);
+                            for member in self.parse_class_property_members(
+                                visibility,
+                                true,
+                                is_default,
+                                is_iterator,
+                                is_readonly,
+                                is_writeonly,
+                            )? {
+                                match member {
+                                    ClassMember::Property(property) => properties.push(property),
+                                    ClassMember::Field(field) => {
+                                        module_vars.push(Self::module_property_field(field))
+                                    }
+                                    _ => unreachable!(
+                                        "property lowering produces accessors or backing fields"
+                                    ),
+                                }
+                            }
                         }
                         TokenKind::Type | TokenKind::Structure => {
                             let visibility = explicit_visibility.unwrap_or(Visibility::Public);
@@ -330,12 +310,9 @@ impl Parser {
 
         Ok(Program {
             namespace: last_namespace,
-            attributes,
             imports,
             option_explicit,
             option_strict,
-            option_private_module,
-            option_base,
             option_compare,
             types,
             enums,
@@ -415,10 +392,24 @@ impl Parser {
             let is_async = self.match_simple(&TokenKind::Async);
             let is_partial = self.match_simple(&TokenKind::Partial);
             let is_iterator = self.match_simple(&TokenKind::Iterator);
+            let is_readonly = self.match_simple(&TokenKind::ReadOnly);
+            let is_writeonly = self.match_simple(&TokenKind::WriteOnly);
+            let is_default = self.match_simple(&TokenKind::Default);
+
             // `Overloads` says a procedure shares its name deliberately. Valo works
             // that out from the declarations themselves, so the word is accepted for
             // VB.NET source compatibility and carries no meaning of its own.
             self.match_simple(&TokenKind::Overloads);
+            if is_readonly && is_writeonly {
+                return Err(self.error_here("Property cannot be both ReadOnly and WriteOnly"));
+            }
+            if (is_readonly || is_writeonly || is_default)
+                && !self.check_simple(&TokenKind::Property)
+            {
+                return Err(self.error_here(
+                    "ReadOnly, WriteOnly and Default require a property declaration here",
+                ));
+            }
 
             match self.peek_kind() {
                 TokenKind::Sub => {
@@ -455,7 +446,6 @@ impl Parser {
                         override_kind: OverrideKind::None,
                         is_shared: true,
                         implements: Vec::new(),
-                        is_enumerator: false,
                         function: function.clone(),
                     }));
                     functions.push(function);
@@ -466,10 +456,26 @@ impl Parser {
                         return Err(self
                             .error_here("Property declarations cannot use inheritance modifiers"));
                     }
-                    let mut property = self.parse_property(visibility, false, is_iterator)?;
-                    property.is_shared = true;
-                    shared_members.push(ClassMember::Property(property.clone()));
-                    properties.push(property);
+                    for mut member in self.parse_class_property_members(
+                        visibility,
+                        true,
+                        is_default,
+                        is_iterator,
+                        is_readonly,
+                        is_writeonly,
+                    )? {
+                        match &mut member {
+                            ClassMember::Property(property) => {
+                                property.is_shared = true;
+                                properties.push(property.clone());
+                            }
+                            ClassMember::Field(_) => {}
+                            _ => unreachable!(
+                                "property lowering produces accessors or backing fields"
+                            ),
+                        }
+                        shared_members.push(member);
+                    }
                 }
                 TokenKind::Type | TokenKind::Structure => {
                     let visibility = explicit_visibility.unwrap_or(Visibility::Public);
@@ -650,36 +656,9 @@ impl Parser {
             generic_constraints: Vec::new(),
             base_class: None,
             implements: Vec::new(),
-            attributes: Vec::new(),
             members: shared_members,
             span: crate::runtime::Span::new(self.file_id, start.start, end.end),
         });
-        Ok(())
-    }
-
-    pub(super) fn parse_cls_envelope(&mut self) -> Result<(), Diagnostic> {
-        self.expect_simple(TokenKind::Version, "Expected 'VERSION'")?;
-        // Skip version number (e.g., 1.0)
-        while !self.is_at_end() && !self.check_simple(&TokenKind::Class) {
-            self.advance();
-        }
-        self.expect_simple(TokenKind::Class, "Expected 'CLASS'")?;
-        self.expect_statement_end("Expected newline after VERSION")?;
-
-        if self.match_simple(&TokenKind::Begin) {
-            self.skip_newlines();
-            let mut depth = 1;
-            while !self.is_at_end() && depth > 0 {
-                if self.match_simple(&TokenKind::Begin) {
-                    depth += 1;
-                } else if self.match_simple(&TokenKind::End) {
-                    depth -= 1;
-                } else {
-                    self.advance();
-                }
-            }
-            self.expect_statement_end("Expected newline after END")?;
-        }
         Ok(())
     }
 }

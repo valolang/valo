@@ -13,18 +13,18 @@ Imports Sdl
 '
 ' The cost of a frame is almost exactly this number times the work per ray, so
 ' it is the dial to turn when the frame rate matters more than the detail.
-Public Const COLUMNS As Long = 160
+Public Const COLUMNS As Int32 = 160
 
 ' How many bands each wall slice is drawn in.
 '
 ' Sampling the texture once per band rather than once per pixel is what makes a
 ' texture affordable at all here: eight rectangles instead of a few hundred.
-Public Const BANDS As Long = 8
+Public Const BANDS As Int32 = 8
 
 ' Sized COLUMNS - 1. Written as a literal because an array bound has to be one.
 Private Depth(0 To 159) As Double
 
-Public Function DepthAt(ByVal column As Long) As Double
+Public Function DepthAt(ByVal column As Int32) As Double
     Return Depth(column)
 End Function
 
@@ -34,7 +34,7 @@ Public Structure Hit
     ' perpendicular distance is what keeps walls flat instead of bowing outwards
     ' towards the edges of the view.
     Public Distance As Double
-    Public Material_ As Long
+    Public Material_ As Int32
     ' True when the ray crossed a north or south face, which is drawn darker so
     ' corners read as corners.
     Public Sideways As Boolean
@@ -49,8 +49,8 @@ End Structure
 ' hoping not to skip a cell, it jumps from grid line to grid line, so every cell
 ' the ray crosses is visited exactly once.
 Public Function Cast(ByVal origin As Vec2, ByVal direction As Vec2) As Hit
-    Dim cellX As Long = CLng(Fix(origin.X))
-    Dim cellY As Long = CLng(Fix(origin.Y))
+    Dim cellX As Int32 = CLng(Fix(origin.X))
+    Dim cellY As Int32 = CLng(Fix(origin.Y))
 
     ' How far the ray travels to cross one whole cell in each axis.
     Dim stepCostX As Double = 1000000
@@ -62,14 +62,14 @@ Public Function Cast(ByVal origin As Vec2, ByVal direction As Vec2) As Hit
         stepCostY = Abs(1 / direction.Y)
     End If
 
-    Dim stepX As Long = 1
+    Dim stepX As Int32 = 1
     Dim nextX As Double = (cellX + 1 - origin.X) * stepCostX
     If direction.X < 0 Then
         stepX = -1
         nextX = (origin.X - cellX) * stepCostX
     End If
 
-    Dim stepY As Long = 1
+    Dim stepY As Int32 = 1
     Dim nextY As Double = (cellY + 1 - origin.Y) * stepCostY
     If direction.Y < 0 Then
         stepY = -1
@@ -77,10 +77,10 @@ Public Function Cast(ByVal origin As Vec2, ByVal direction As Vec2) As Hit
     End If
 
     Dim sideways As Boolean = False
-    Dim material As Long = Material.Open_
-    Dim guard As Long = 0
+    Dim surface As Int32 = Material.Open_
+    Dim guard As Int32 = 0
 
-    Do While material = Material.Open_ And guard < 64
+    Do While surface = Material.Open_ And guard < 64
         guard = guard + 1
         If nextX < nextY Then
             nextX = nextX + stepCostX
@@ -91,11 +91,11 @@ Public Function Cast(ByVal origin As Vec2, ByVal direction As Vec2) As Hit
             cellY = cellY + stepY
             sideways = True
         End If
-        material = World.At(cellX, cellY)
+        surface = World.At(cellX, cellY)
     Loop
 
     Dim result As Hit
-    result.Material_ = material
+    result.Material_ = surface
     result.Sideways = sideways
     If sideways Then
         result.Distance = nextY - stepCostY
@@ -116,11 +116,11 @@ End Function
 '
 ' There is no image behind this: the pattern is arithmetic, which is what makes
 ' it cost a multiply instead of a memory fetch and a texture upload.
-Private Function TextureLight(ByVal material As Long, ByVal across As Double, ByVal down As Double) As Double
-    Select Case material
+Private Function TextureLight(ByVal surface As Int32, ByVal across As Double, ByVal down As Double) As Double
+    Select Case surface
         Case Material.Brick
             ' Courses of bricks, offset every other row.
-            Dim row As Long = CLng(Fix(down * 8))
+            Dim row As Int32 = CLng(Fix(down * 8))
             Dim shifted As Double = across
             If row Mod 2 = 0 Then
                 shifted = across + 0.5
@@ -164,7 +164,7 @@ Private Function Fog(ByVal distance As Double) As Double
 End Function
 
 Private Sub FillRect( _
-        ByVal renderer As LongPtr, ByVal color As Long, _
+        ByVal renderer As Ptr, ByVal color As Int32, _
         ByVal x As Double, ByVal y As Double, ByVal w As Double, ByVal h As Double)
     SDL_SetRenderDrawColor(renderer, _
         CByte(RedOf(color)), CByte(GreenOf(color)), CByte(BlueOf(color)), CByte(255))
@@ -177,21 +177,21 @@ Private Sub FillRect( _
 End Sub
 
 ' Draws the sky and the floor as bands that darken towards the horizon.
-Private Sub DrawBackdrop(ByVal renderer As LongPtr, ByVal width As Double, ByVal height As Double)
-    Const STEPS As Long = 12
+Private Sub DrawBackdrop(ByVal renderer As Ptr, ByVal width As Double, ByVal height As Double)
+    Const STEPS As Int32 = 12
     Dim half As Double = height / 2
-    Dim band As Long
+    Dim band As Int32
     For band = 0 To STEPS - 1
         Dim t As Double = band / STEPS
         Dim y As Double = t * half
 
         ' Sky: brighter overhead.
-        Dim sky As Long = PackColor( _
+        Dim sky As Int32 = PackColor( _
             CLng(28 + 40 * (1 - t)), CLng(34 + 54 * (1 - t)), CLng(58 + 74 * (1 - t)))
         FillRect(renderer, sky, 0, y, width, half / STEPS + 1)
 
         ' Floor: brighter close to the camera, which is the bottom of the view.
-        Dim floor_ As Long = PackColor( _
+        Dim floor_ As Int32 = PackColor( _
             CLng(24 + 44 * t), CLng(22 + 36 * t), CLng(20 + 30 * t))
         FillRect(renderer, floor_, 0, height - y - half / STEPS - 1, width, half / STEPS + 2)
     Next band
@@ -199,12 +199,12 @@ End Sub
 
 ' Casts every column and draws what each one hit.
 Public Sub DrawWalls( _
-        ByVal renderer As LongPtr, ByVal eye As Vec2, ByVal forward As Vec2, _
+        ByVal renderer As Ptr, ByVal eye As Vec2, ByVal forward As Vec2, _
         ByVal plane As Vec2, ByVal width As Double, ByVal height As Double)
     DrawBackdrop(renderer, width, height)
 
     Dim columnWidth As Double = width / COLUMNS
-    Dim column As Long
+    Dim column As Int32
     For column = 0 To COLUMNS - 1
         ' Where this column sits across the view, from -1 at the left edge to 1
         ' at the right.
@@ -224,7 +224,7 @@ Public Sub DrawWalls( _
             bottom = height
         End If
 
-        Dim base As Long = ColorOf(hit.Material_)
+        Dim base As Int32 = ColorOf(hit.Material_)
         Dim light As Double = Fog(hit.Distance)
         If hit.Sideways Then
             light = light * 0.72
@@ -233,7 +233,7 @@ Public Sub DrawWalls( _
         ' The slice is drawn in bands so the texture varies down the wall as
         ' well as across it.
         Dim bandHeight As Double = (bottom - top) / BANDS
-        Dim band As Long
+        Dim band As Int32
         For band = 0 To BANDS - 1
             Dim down As Double = (band + 0.5) / BANDS
             Dim patch As Double = TextureLight(hit.Material_, hit.Offset, down)

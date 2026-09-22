@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use crate::ArrayDecl;
 use crate::GenericParamConstraint;
 use crate::Visibility;
-use crate::runtime::TypeName;
+use crate::frontend::type_model::TypeName;
 
 use crate::frontend::semantics::symbols::key;
 
@@ -243,7 +243,6 @@ pub(super) struct ClassSig {
     pub(super) iterator: Option<ClassMethodSig>,
     pub(super) properties: HashMap<String, ClassPropertySig>,
     pub(super) operators: HashMap<crate::OperatorKind, ClassMethodSig>,
-    pub(super) enumerator: Option<String>,
     pub(super) default_property: Option<String>,
 }
 
@@ -291,7 +290,6 @@ pub(super) struct ClassPropertySig {
     /// arguments at the use site the way a method call is: `Item(1)` and
     /// `Item("a")` can reach different getters.
     pub(super) get: Vec<PropertyAccessorSig>,
-    pub(super) let_: Vec<PropertyAccessorSig>,
     pub(super) set: Vec<PropertyAccessorSig>,
 }
 
@@ -301,18 +299,14 @@ impl ClassPropertySig {
         self.get.first()
     }
 
-    /// The accessor a write goes through: `Set` if there is one, else `Let`.
+    /// The accessor used for a property assignment.
     pub(super) fn writer(&self) -> Option<&PropertyAccessorSig> {
-        self.set.first().or_else(|| self.let_.first())
+        self.set.first()
     }
 
     /// Every accessor a write could go through.
     pub(super) fn writers(&self) -> &[PropertyAccessorSig] {
-        if self.set.is_empty() {
-            &self.let_
-        } else {
-            &self.set
-        }
+        &self.set
     }
 
     pub(super) fn substitute_generics(&self, bindings: &[(String, TypeName)]) -> Self {
@@ -322,7 +316,6 @@ impl ClassPropertySig {
             is_readonly: self.is_readonly,
             is_writeonly: self.is_writeonly,
             get: substitute_accessors(&self.get, bindings),
-            let_: substitute_accessors(&self.let_, bindings),
             set: substitute_accessors(&self.set, bindings),
         }
     }

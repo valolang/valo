@@ -22,7 +22,7 @@ End Class
 
 Sub Main()
     Dim a As Animal
-    Set a = New Dog()
+    a = New Dog()
     a.Name = "Rex"
     Dog.Count = 3
     a.Speak()
@@ -124,26 +124,26 @@ End Sub
 }
 
 #[test]
-fn exported_class_attributes_default_member_as_new_and_class_initialize_work() {
+fn default_member_as_new_and_constructor_work() {
     let output = run_source(
         r#"
-Attribute VB_Name = "Box"
 
 Class Box
     Private stored As Integer
 
-    Private Sub Class_Initialize()
+    Public Sub New()
         stored = 11
     End Sub
 
-    Public Property Get Value() As Integer
+    Public ReadOnly Default Property Value() As Integer
+        Get
         Value = stored
+        End Get
     End Property
-    Attribute Value.VB_UserMemId = 0
 End Class
 
 Function MakeBox() As Object
-    Set MakeBox = New Box()
+    MakeBox = New Box()
 End Function
 
 Sub Main()
@@ -151,7 +151,7 @@ Sub Main()
     Console.WriteLine(a)
     Console.WriteLine(IsObject(a))
     Dim b As Object
-    Set b = MakeBox()
+    b = MakeBox()
     Console.WriteLine(TypeName(b))
 End Sub
 "#,
@@ -303,7 +303,7 @@ Class Bag
 
     Private Sub Class_Initialize()
         ReDim pItems(0 To 0)
-        Set pItems(0) = New Item()
+        pItems(0) = New Item()
         pItems(0).Name = "stored"
     End Sub
 
@@ -712,8 +712,10 @@ fn property_read_calls_get() {
 Class User
     Private mName As String
 
-    Public Property Get Name() As String
+    Public ReadOnly Property Name() As String
+        Get
         Return Me.mName & "!"
+        End Get
     End Property
 
     Public Sub SetName(ByVal value As String)
@@ -740,13 +742,16 @@ fn property_assignment_calls_let() {
 Class User
     Private mName As String
 
-    Public Property Get Name() As String
+    Public Property Name() As String
+        Get
         Return Me.mName
+        End Get
+        Set(ByVal value As String)
+        Me.mName = value & " Runtime"
+        End Set
     End Property
 
-    Public Property Let Name(ByVal value As String)
-        Me.mName = value & " Runtime"
-    End Property
+
 End Class
 
 Sub Main()
@@ -768,17 +773,20 @@ fn property_validation_logic_mutates_backing_field() {
 Class User
     Private mAge As Integer
 
-    Public Property Get Age() As Integer
+    Public Property Age() As Integer
+        Get
         Return Me.mAge
-    End Property
-
-    Public Property Let Age(ByVal value As Integer)
+        End Get
+        Set(ByVal value As Integer)
         If value < 0 Then
             Me.mAge = 0
         Else
             Me.mAge = value
         End If
+        End Set
     End Property
+
+
 End Class
 
 Sub Main()
@@ -902,7 +910,7 @@ Sub Main()
 End Sub
 "#,
     );
-    assert!(read_only_error.contains("Property 'Versao' has no Let or Set accessor"));
+    assert!(read_only_error.contains("Property 'Versao' has no Set accessor"));
 
     let write_only_error = source_error(
         r#"
@@ -929,8 +937,10 @@ fn private_property_access_outside_class_is_rejected() {
 Class User
     Private mName As String
 
-    Private Property Get Name() As String
+    Private ReadOnly Property Name() As String
+        Get
         Return Me.mName
+        End Get
     End Property
 End Class
 
@@ -952,13 +962,16 @@ fn private_property_access_inside_class_is_allowed() {
 Class User
     Private mName As String
 
-    Private Property Get Name() As String
+    Private Property Name() As String
+        Get
         Return Me.mName
+        End Get
+        Set(ByVal value As String)
+        Me.mName = value
+        End Set
     End Property
 
-    Private Property Let Name(ByVal value As String)
-        Me.mName = value
-    End Property
+
 
     Public Sub Rename(ByVal value As String)
         Me.Name = value
@@ -986,7 +999,9 @@ fn missing_get_when_reading_property_produces_error() {
     let error = source_error(
         r#"
 Class User
-    Public Property Let Name(ByVal value As String)
+    Public WriteOnly Property Name() As String
+        Set(ByVal value As String)
+        End Set
     End Property
 End Class
 
@@ -1006,8 +1021,10 @@ fn missing_let_or_set_when_assigning_property_produces_error() {
     let error = source_error(
         r#"
 Class User
-    Public Property Get Name() As String
+    Public ReadOnly Property Name() As String
+        Get
         Return "Valo"
+        End Get
     End Property
 End Class
 
@@ -1019,7 +1036,7 @@ End Sub
 "#,
     );
 
-    assert!(error.contains("Property 'Name' has no Let or Set accessor"));
+    assert!(error.contains("Property 'Name' has no Set accessor"));
 }
 
 #[test]
@@ -1027,12 +1044,16 @@ fn duplicate_property_get_is_rejected() {
     let error = source_error(
         r#"
 Class User
-    Public Property Get Name() As String
+    Public ReadOnly Property Name() As String
+        Get
         Return "a"
+        End Get
     End Property
 
-    Public Property Get Name() As String
+    Public ReadOnly Property Name() As String
+        Get
         Return "b"
+        End Get
     End Property
 End Class
 
@@ -1051,10 +1072,14 @@ fn duplicate_property_let_is_rejected() {
     let error = source_error(
         r#"
 Class User
-    Public Property Let Name(ByVal value As String)
+    Public WriteOnly Property Name() As String
+        Set(ByVal value As String)
+        End Set
     End Property
 
-    Public Property Let Name(ByVal value As String)
+    Public WriteOnly Property Name() As String
+        Set(ByVal value As String)
+        End Set
     End Property
 End Class
 
@@ -1064,7 +1089,7 @@ End Sub
     );
 
     assert!(error.contains(
-        "Property Let 'Name' in Class 'User' is already declared with these parameter types"
+        "Property Set 'Name' in Class 'User' is already declared with these parameter types"
     ));
 }
 
@@ -1075,8 +1100,10 @@ fn property_conflicts_with_field_name() {
 Class User
     Public Name As String
 
-    Public Property Get Name() As String
+    Public ReadOnly Property Name() As String
+        Get
         Return "Valo"
+        End Get
     End Property
 End Class
 
@@ -1096,8 +1123,10 @@ Class User
     Public Sub Name()
     End Sub
 
-    Public Property Get Name() As String
+    Public ReadOnly Property Name() As String
+        Get
         Return "Valo"
+        End Get
     End Property
 End Class
 
@@ -1114,7 +1143,9 @@ fn property_get_missing_return_is_rejected() {
     let error = source_error(
         r#"
 Class User
-    Public Property Get Name() As String
+    Public ReadOnly Property Name() As String
+        Get
+        End Get
     End Property
 End Class
 
@@ -1140,7 +1171,7 @@ End Sub
 "#,
     );
 
-    assert!(error.contains("Property Let 'Name' must have at least one parameter"));
+    assert!(error.contains("Legacy Property Get/Let/Set declarations have been removed"));
 }
 
 #[test]
@@ -1154,13 +1185,16 @@ End Class
 Class Item
     Private mOwner As Owner
 
-    Public Property Get Owner() As Owner
+    Public Property Owner() As Owner
+        Get
         Return Me.mOwner
+        End Get
+        Set(ByVal value As Owner)
+        Me.mOwner = value
+        End Set
     End Property
 
-    Public Property Set Owner(ByVal value As Owner)
-        Me.mOwner = value
-    End Property
+
 End Class
 
 Sub Main()
@@ -1192,7 +1226,7 @@ End Class
 
 Sub Main()
     Dim user As User
-    Set user = New User("Valo")
+    user = New User("Valo")
     Console.WriteLine(user.Name)
 End Sub
 "#,
@@ -1213,7 +1247,7 @@ Class Game
     Private mHall As Room
 
     Public Sub New()
-        Set Me.mHall = New Room()
+        Me.mHall = New Room()
         Me.mHall.North = "library"
     End Sub
 
@@ -1248,7 +1282,7 @@ End Class
 Sub Main()
     Dim holder As Holder
     holder = New Holder()
-    Set holder.Child = New Child()
+    holder.Child = New Child()
     holder.Child.Name = "Valo"
     Console.WriteLine(holder.Child.Name)
 End Sub
@@ -1269,20 +1303,23 @@ End Class
 Class Holder
     Private mChild As Child
 
-    Public Property Get Child() As Child
+    Public Property Child() As Child
+        Get
         Return Me.mChild
-    End Property
-
-    Public Property Set Child(ByVal value As Child)
+        End Get
+        Set(ByVal value As Child)
         Me.mChild = value
         Me.mChild.Name = "set"
+        End Set
     End Property
+
+
 End Class
 
 Sub Main()
     Dim holder As Holder
     holder = New Holder()
-    Set holder.Child = New Child()
+    holder.Child = New Child()
     holder.Child.Name = holder.Child.Name & " ok"
     Console.WriteLine(holder.Child.Name)
 End Sub
@@ -1414,33 +1451,6 @@ End Sub
 }
 
 #[test]
-fn set_rejects_boolean_and_type_record_targets() {
-    let boolean_error = source_error(
-        r#"
-Sub Main()
-    Dim active As Boolean
-    Set active = Nothing
-End Sub
-"#,
-    );
-    assert!(boolean_error.contains("Set target must be a class type"));
-
-    let record_error = source_error(
-        r#"
-Type Point
-    X As Integer
-End Type
-
-Sub Main()
-    Dim point As Point
-    Set point = Nothing
-End Sub
-"#,
-    );
-    assert!(record_error.contains("Set target must be a class type"));
-}
-
-#[test]
 fn normal_object_assignment_still_works() {
     let output = run_source(
         r#"
@@ -1564,8 +1574,8 @@ End Class
 
 Sub Main()
     Dim user As User
-    Set user = New User()
-    Set user = Nothing
+    user = New User()
+    user = Nothing
     If user Is Nothing Then
         Console.WriteLine("empty")
     End If
@@ -1585,7 +1595,7 @@ End Class
 
 Sub Main()
     Dim user As User
-    Set user = New User()
+    user = New User()
     If Not (user Is Nothing) Then
         Console.WriteLine("present")
     End If
@@ -1606,8 +1616,8 @@ End Class
 Sub Main()
     Dim user As User
     Dim aliasUser As User
-    Set user = New User()
-    Set aliasUser = user
+    user = New User()
+    aliasUser = user
     If user Is aliasUser Then
         Console.WriteLine("same")
     End If
@@ -1616,34 +1626,6 @@ End Sub
     );
 
     assert_eq!(output, vec!["same"]);
-}
-
-#[test]
-fn set_rejected_for_integer() {
-    let error = source_error(
-        r#"
-Sub Main()
-    Dim value As Integer
-    Set value = 1
-End Sub
-"#,
-    );
-
-    assert!(error.contains("Set target must be a class type"));
-}
-
-#[test]
-fn set_rejected_for_string() {
-    let error = source_error(
-        r#"
-Sub Main()
-    Dim value As String
-    Set value = "Valo"
-End Sub
-"#,
-    );
-
-    assert!(error.contains("Set target must be a class type"));
 }
 
 #[test]
@@ -1742,13 +1724,16 @@ Class Person
         Me.mName = value
     End Sub
 
-    Public Default Property Get Value() As String
+    Public Default Property Value() As String
+        Get
         Return Me.mName
+        End Get
+        Set(ByVal value As String)
+        Me.mName = value
+        End Set
     End Property
 
-    Public Property Let Value(ByVal value As String)
-        Me.mName = value
-    End Property
+
 End Class
 
 Sub Main()
@@ -1772,12 +1757,16 @@ fn duplicate_default_properties_are_rejected() {
     let error = source_error(
         r#"
 Class Bad
-    Public Default Property Get One() As String
+    Public ReadOnly Default Property One() As String
+        Get
         Return "one"
+        End Get
     End Property
 
-    Public Default Property Get Two() As String
+    Public ReadOnly Default Property Two() As String
+        Get
         Return "two"
+        End Get
     End Property
 End Class
 
@@ -1918,13 +1907,16 @@ Class User
     Private mName As String
     Public Profile As Profile
 
-    Public Property Get Name() As String
+    Public Property Name() As String
+        Get
         Return Me.mName
+        End Get
+        Set(ByVal value As String)
+        Me.mName = value
+        End Set
     End Property
 
-    Public Property Let Name(ByVal value As String)
-        Me.mName = value
-    End Property
+
 
     Public Sub Activate()
         Me.mName = Me.mName & "!"
@@ -2028,13 +2020,16 @@ fn let_and_call_statements_reuse_existing_assignment_and_sub_logic() {
 Class User
     Private mName As String
 
-    Public Property Get Name() As String
+    Public Property Name() As String
+        Get
         Return Me.mName
+        End Get
+        Set(ByVal value As String)
+        Me.mName = value
+        End Set
     End Property
 
-    Public Property Let Name(ByVal value As String)
-        Me.mName = value
-    End Property
+
 
     Private Sub Mark()
         Me.mName = Me.mName & "!"
@@ -2471,7 +2466,7 @@ End Class
 
 Sub Main()
     Dim known As New Customer()
-    Set known.Home = New Address With { .City = "London" }
+    known.Home = New Address With { .City = "London" }
 
     Dim unknown As New Customer()
 
@@ -2502,7 +2497,7 @@ End Class
 
 Sub Main()
     Dim known As New Customer()
-    Set known.Home = New Address With { .City = "London" }
+    known.Home = New Address With { .City = "London" }
 
     Dim unknown As New Customer()
     Console.WriteLine(known.Home?.Label())
@@ -2627,7 +2622,7 @@ Class Holder
     Public Spot As Point
 
     Public Sub Initialize()
-        Set Spot = New Point()
+        Spot = New Point()
     End Sub
 
     Public Sub MoveViaField()
@@ -2670,7 +2665,7 @@ Class Holder
     Public Slot As Leaf
 
     Public Sub Initialize()
-        Set Slot = New Leaf()
+        Slot = New Leaf()
     End Sub
 
     Public Property Reached As Leaf
@@ -2711,8 +2706,8 @@ Class Trunk
     Public Limb As Branch
 
     Public Sub Initialize()
-        Set Limb = New Branch()
-        Set Limb.Tip = New Leaf()
+        Limb = New Branch()
+        Limb.Tip = New Leaf()
     End Sub
 End Class
 
@@ -2723,7 +2718,7 @@ Sub Main()
 
     Dim graft As New Leaf()
     graft.N = 2
-    Set tree.Limb.Tip = graft
+    tree.Limb.Tip = graft
     Console.WriteLine(tree.Limb.Tip.N)
 End Sub
 "#,
@@ -2866,13 +2861,16 @@ fn an_indexed_property_can_be_written_as_well_as_read() {
 Class Store
     Private Slots(9) As String
 
-    Public Property Get Item(ByVal index As Long) As String
+    Public Property Item(ByVal index As Long) As String
+        Get
         Return Slots(index)
+        End Get
+        Set(ByVal value As String)
+        Slots(index) = value
+        End Set
     End Property
 
-    Public Property Let Item(ByVal index As Long, ByVal value As String)
-        Slots(index) = value
-    End Property
+
 End Class
 
 Sub Main()
@@ -2894,21 +2892,27 @@ Class Store
     Private Slots(9) As String
     Private Named As String
 
-    Public Property Get Item(ByVal index As Long) As String
+    Public Property Item(ByVal index As Long) As String
+        Get
         Return Slots(index)
-    End Property
-
-    Public Property Get Item(ByVal key As String) As String
-        Return Named
-    End Property
-
-    Public Property Let Item(ByVal index As Long, ByVal value As String)
+        End Get
+        Set(ByVal value As String)
         Slots(index) = value
+        End Set
     End Property
 
-    Public Property Let Item(ByVal key As String, ByVal value As String)
+    Public Property Item(ByVal key As String) As String
+        Get
+        Return Named
+        End Get
+        Set(ByVal value As String)
         Named = key & "=" & value
+        End Set
     End Property
+
+
+
+
 End Class
 
 Sub Main()
@@ -2929,12 +2933,16 @@ fn two_accessors_with_the_same_parameters_are_rejected() {
     let diagnostic = source_diagnostic(
         r#"
 Class Store
-    Public Property Get Item(ByVal index As Long) As String
+    Public ReadOnly Property Item(ByVal index As Long) As String
+        Get
         Return "a"
+        End Get
     End Property
 
-    Public Property Get Item(ByVal other As Long) As String
+    Public ReadOnly Property Item(ByVal other As Long) As String
+        Get
         Return "b"
+        End Get
     End Property
 End Class
 
@@ -2955,9 +2963,11 @@ fn a_getter_runs_once_when_the_member_is_called() {
 Class Counter
     Public Reads As Long
 
-    Public Property Get Touched() As Long
+    Public ReadOnly Property Touched() As Long
+        Get
         Reads = Reads + 1
         Return Reads
+        End Get
     End Property
 
     Public Function Look() As Long
@@ -3033,7 +3043,7 @@ Sub Main()
     Dim item As Variant
     For Each item In shapes
         Dim shape As IShape
-        Set shape = CType(item, IShape)
+        shape = CType(item, IShape)
         Console.WriteLine(shape.Name_())
     Next item
 End Sub

@@ -1,4 +1,5 @@
-use crate::runtime::{Span, TypeName};
+use crate::frontend::type_model::TypeName;
+use crate::runtime::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {

@@ -1,5 +1,5 @@
+use crate::frontend::semantics::overloads;
 use crate::interpreter::values::{default_value, key, with_key};
-use crate::runtime::overloads;
 use crate::runtime::well_known;
 use crate::runtime::{
     ArrayValue, Diagnostic, LambdaValue, Span, TypeName, Value, coerce_assignment,
@@ -8,9 +8,9 @@ use crate::{Expr, ExprKind, Function, PassingMode, Procedure};
 use std::rc::Rc;
 
 use super::frame::{Variable, VariableCell};
+use super::interpreter::ScopeName;
 use super::objects::ensure_object;
 use super::{ControlFlow, Frame, Interpreter, RuntimeClass};
-use super::interpreter::ScopeName;
 
 fn instantiate_function(
     function: &mut Function,
@@ -122,16 +122,10 @@ fn infer_expr_type_for_generic(
         ExprKind::String(_) => Ok(Some(TypeName::String)),
         ExprKind::DateLiteral(_) => Ok(Some(TypeName::Date)),
         ExprKind::Integer(value) => {
-            let ty = if *value >= i16::MIN as i64 && *value <= i16::MAX as i64 {
-                TypeName::Integer
-            } else if *value >= i32::MIN as i64 && *value <= i32::MAX as i64 {
-                TypeName::Long
-            } else {
-                TypeName::Int64
-            };
+            let ty = TypeName::integer_literal(*value);
             Ok(Some(ty))
         }
-        ExprKind::Long(_) => Ok(Some(TypeName::Long)),
+        ExprKind::Long(_) => Ok(Some(TypeName::Int32)),
         ExprKind::LongLong(_) => Ok(Some(TypeName::Int64)),
         ExprKind::Single(_) => Ok(Some(TypeName::Single)),
         ExprKind::Double(_) => Ok(Some(TypeName::Double)),
@@ -322,8 +316,10 @@ impl Interpreter {
             &self.interfaces,
         )?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
-        self.scope_stack
-            .push(ScopeName::Text(format!("{}.{}", structure.name, procedure.name)));
+        self.scope_stack.push(ScopeName::Text(format!(
+            "{}.{}",
+            structure.name, procedure.name
+        )));
         let result = self.exec_block(&procedure.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -406,13 +402,14 @@ impl Interpreter {
                     &function.name,
                     return_type.clone(),
                     None,
-                    self.option_base,
                     function.span,
                     self,
                 )?;
             }
-            self.scope_stack
-                .push(ScopeName::Text(format!("{}.{}", structure.name, function.name)));
+            self.scope_stack.push(ScopeName::Text(format!(
+                "{}.{}",
+                structure.name, function.name
+            )));
             if function.is_iterator {
                 frame.set_yield_mode();
             }
@@ -440,8 +437,8 @@ impl Interpreter {
                             element_type: function.return_type.clone(),
                             elements,
                             bounds: vec![crate::runtime::ArrayBound {
-                                lower: self.option_base,
-                                upper: self.option_base + len - 1,
+                                lower: 0,
+                                upper: len - 1,
                             }],
                             allocated: true,
                             dynamic: true,
@@ -629,8 +626,8 @@ impl Interpreter {
         match &expr.kind {
             ExprKind::NamedArg { expr, .. } => self.argument_type_without_running_it(expr, frame),
             ExprKind::String(_) | ExprKind::Interpolated(_) => Some(TypeName::String),
-            ExprKind::Integer(_) => Some(TypeName::Integer),
-            ExprKind::Long(_) => Some(TypeName::Long),
+            ExprKind::Integer(value) => Some(TypeName::integer_literal(*value)),
+            ExprKind::Long(_) => Some(TypeName::Int32),
             ExprKind::LongLong(_) => Some(TypeName::Int64),
             ExprKind::Single(_) => Some(TypeName::Single),
             ExprKind::Double(_) => Some(TypeName::Double),
@@ -659,6 +656,13 @@ impl Interpreter {
                     [only] => Some(only.return_type.clone()),
                     _ => None,
                 }
+            }
+            ExprKind::Binary { left, op, right } => {
+                let op = crate::frontend::semantics::arithmetic::ArithmeticOp::from_ast(*op)?;
+                let left = self.argument_type_without_running_it(left, frame)?;
+                let right = self.argument_type_without_running_it(right, frame)?;
+                crate::frontend::semantics::arithmetic::signature(op, &left, &right)
+                    .map(|s| s.result_type)
             }
             _ => None,
         }
@@ -785,7 +789,6 @@ impl Interpreter {
                 &function.name,
                 return_type.clone(),
                 None,
-                self.option_base,
                 function.span,
                 self,
             )?;
@@ -819,8 +822,8 @@ impl Interpreter {
                         element_type: function.return_type.clone(),
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
-                            lower: self.option_base,
-                            upper: self.option_base + len - 1,
+                            lower: 0,
+                            upper: len - 1,
                         }],
                         allocated: true,
                         dynamic: true,
@@ -1035,7 +1038,6 @@ impl Interpreter {
                     &function.name,
                     return_type.clone(),
                     None,
-                    self.option_base,
                     function.span,
                     self,
                 )?;
@@ -1067,8 +1069,8 @@ impl Interpreter {
                             element_type: function.return_type.clone(),
                             elements,
                             bounds: vec![crate::runtime::ArrayBound {
-                                lower: self.option_base,
-                                upper: self.option_base + len - 1,
+                                lower: 0,
+                                upper: len - 1,
                             }],
                             allocated: true,
                             dynamic: true,
@@ -1299,10 +1301,8 @@ impl Interpreter {
         args: &[Value],
         span: Span,
     ) -> Result<(), Diagnostic> {
-        self.call_stack
-            .push(ScopeName::Sub(Rc::clone(&procedure)));
-        self.scope_stack
-            .push(ScopeName::Sub(Rc::clone(&procedure)));
+        self.call_stack.push(ScopeName::Sub(Rc::clone(&procedure)));
+        self.scope_stack.push(ScopeName::Sub(Rc::clone(&procedure)));
         let result = (|| {
             let mut frame = Frame::default();
             self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
@@ -1378,10 +1378,8 @@ impl Interpreter {
             )?
             .clone();
 
-        self.call_stack
-            .push(ScopeName::Sub(Rc::clone(&procedure)));
-        self.scope_stack
-            .push(ScopeName::Sub(Rc::clone(&procedure)));
+        self.call_stack.push(ScopeName::Sub(Rc::clone(&procedure)));
+        self.scope_stack.push(ScopeName::Sub(Rc::clone(&procedure)));
         let result = (|| {
             let mut frame = Frame::default();
             if let Some(module_key) = &module_key {
@@ -1517,10 +1515,8 @@ impl Interpreter {
             };
         };
 
-        self.call_stack
-            .push(ScopeName::Sub(Rc::clone(&procedure)));
-        self.scope_stack
-            .push(ScopeName::Sub(Rc::clone(&procedure)));
+        self.call_stack.push(ScopeName::Sub(Rc::clone(&procedure)));
+        self.scope_stack.push(ScopeName::Sub(Rc::clone(&procedure)));
         let result = (|| {
             let mut frame = Frame::default();
             if let Some(module_key) = &module_key {
@@ -1641,7 +1637,6 @@ impl Interpreter {
                 &function.name,
                 return_type.clone(),
                 None,
-                self.option_base,
                 function.span,
                 self,
             )?;
@@ -1668,8 +1663,8 @@ impl Interpreter {
                         element_type: function.return_type.clone(),
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
-                            lower: self.option_base,
-                            upper: self.option_base + len - 1,
+                            lower: 0,
+                            upper: len - 1,
                         }],
                         allocated: true,
                         dynamic: true,
@@ -1999,10 +1994,10 @@ impl Interpreter {
                 Some(span),
             )
         })?;
-        let set = prop.let_set().ok_or_else(|| {
+        let set = prop.writer().ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                format!("Property '{}' has no Set/Let accessor", property_name),
+                format!("Property '{}' has no Set accessor", property_name),
                 Some(span),
             )
         })?;
@@ -2032,17 +2027,6 @@ impl Interpreter {
             return self.call_method_sub_values(object, method, &eval_args, caller_frame, span);
         }
         match object {
-            Value::ComObject(ref com_obj) => {
-                let mut eval_args = Vec::with_capacity(args.len());
-                for arg in args {
-                    eval_args.push(self.eval_expr(arg, caller_frame)?);
-                }
-                crate::runtime::com::invoke_com(
-                    com_obj, method, &eval_args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
-                    span,
-                )?;
-                Ok(())
-            }
             Value::BoxedRecord(record_val, _) => {
                 let mut eval_args = Vec::with_capacity(args.len());
                 for arg in args {
@@ -2133,8 +2117,10 @@ impl Interpreter {
         frame.set_class_context(class.name.clone());
         self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
-        self.scope_stack
-            .push(ScopeName::Text(format!("{}.{}", class.name, procedure.name)));
+        self.scope_stack.push(ScopeName::Text(format!(
+            "{}.{}",
+            class.name, procedure.name
+        )));
         let result = self.exec_block(&procedure.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -2225,14 +2211,6 @@ impl Interpreter {
             }
         }
 
-        if let Value::ComObject(ref com_obj) = object {
-            crate::runtime::com::invoke_com(
-                com_obj, method, args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
-                span,
-            )?;
-            return Ok(());
-        }
-
         let instance = ensure_object(object, span)?;
         let class = {
             let borrowed = instance.borrow();
@@ -2272,8 +2250,10 @@ impl Interpreter {
         frame.set_class_context(class.name.clone());
         self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameter_values(&procedure.params, args, &mut frame, span)?;
-        self.scope_stack
-            .push(ScopeName::Text(format!("{}.{}", class.name, procedure.name)));
+        self.scope_stack.push(ScopeName::Text(format!(
+            "{}.{}",
+            class.name, procedure.name
+        )));
         let result = self.exec_block(&procedure.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -2398,16 +2378,6 @@ impl Interpreter {
         }
 
         match object {
-            Value::ComObject(ref com_obj) => {
-                let mut eval_args = Vec::with_capacity(args.len());
-                for arg in args {
-                    eval_args.push(self.eval_expr(arg, caller_frame)?);
-                }
-                crate::runtime::com::invoke_com(
-                    com_obj, method, &eval_args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
-                    span,
-                )
-            }
             Value::BoxedRecord(record_val, _) => self.call_record_function(
                 Value::Record(record_val),
                 method,
@@ -2570,7 +2540,6 @@ impl Interpreter {
                 &function.name,
                 return_type.clone(),
                 None,
-                self.option_base,
                 function.span,
                 self,
             )?;
@@ -2641,8 +2610,10 @@ impl Interpreter {
         }
         self.bind_class_constants(&class, &mut frame)?;
         self.bind_parameters(&procedure.params, args, caller_frame, &mut frame)?;
-        self.scope_stack
-            .push(ScopeName::Text(format!("{}.{}", class.name, procedure.name)));
+        self.scope_stack.push(ScopeName::Text(format!(
+            "{}.{}",
+            class.name, procedure.name
+        )));
         let result = self.exec_block(&procedure.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -2702,7 +2673,6 @@ impl Interpreter {
                 &function.name,
                 return_type.clone(),
                 None,
-                self.option_base,
                 function.span,
                 self,
             )?;
@@ -2733,8 +2703,8 @@ impl Interpreter {
                         element_type: function.return_type.clone(),
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
-                            lower: self.option_base,
-                            upper: self.option_base + len - 1,
+                            lower: 0,
+                            upper: len - 1,
                         }],
                         allocated: true,
                         dynamic: true,
@@ -2851,14 +2821,7 @@ impl Interpreter {
                 for arg in &paramarray_args {
                     elements.push(self.eval_expr(arg, caller_frame)?);
                 }
-                callee_frame.declare(
-                    &param.name,
-                    param_ty.clone(),
-                    None,
-                    self.option_base,
-                    param.span,
-                    self,
-                )?;
+                callee_frame.declare(&param.name, param_ty.clone(), None, param.span, self)?;
                 let len = elements.len();
                 let _ = callee_frame.assign(
                     &param.name,
@@ -2866,8 +2829,8 @@ impl Interpreter {
                         element_type: param.ty.clone(),
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
-                            lower: self.option_base,
-                            upper: self.option_base + len as i64 - 1,
+                            lower: 0,
+                            upper: len as i64 - 1,
                         }],
                         allocated: true,
                         dynamic: true,
@@ -2889,7 +2852,7 @@ impl Interpreter {
                     };
                     callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                 }
-                PassingMode::ByRef => {
+                PassingMode::ByRef | PassingMode::ByRefReadOnly => {
                     let Some(arg) = arg else {
                         let value = if let Some(default) = &param.optional_default {
                             self.eval_expr(default, caller_frame)?
@@ -2901,6 +2864,17 @@ impl Interpreter {
                     };
                     match &arg.kind {
                         ExprKind::Variable(arg_name) => {
+                            if param.mode == PassingMode::ByRef
+                                && caller_frame.is_readonly_alias(arg_name)
+                            {
+                                return Err(Diagnostic::new(
+                                    crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT,
+                                    format!(
+                                        "Cannot pass ByRef ReadOnly parameter '{arg_name}' to a mutable ByRef parameter"
+                                    ),
+                                    Some(arg.span),
+                                ));
+                            }
                             let variable = caller_frame.variable(arg_name, arg.span)?;
                             if variable.ty.same_type(&param_ty) {
                                 callee_frame.declare_alias(
@@ -2913,7 +2887,12 @@ impl Interpreter {
                                 )?;
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
-                                callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
+                                callee_frame.declare_bound(
+                                    &param.name,
+                                    param_ty,
+                                    value,
+                                    param.span,
+                                )?;
                             }
                         }
                         ExprKind::Call { name, args, .. } if caller_frame.holds_array(name) => {
@@ -2963,7 +2942,12 @@ impl Interpreter {
                                 )?;
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
-                                callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
+                                callee_frame.declare_bound(
+                                    &param.name,
+                                    param_ty,
+                                    value,
+                                    param.span,
+                                )?;
                             }
                         }
                         ExprKind::Call { .. } => {
@@ -3034,7 +3018,6 @@ impl Interpreter {
                                             &param.name,
                                             param_ty,
                                             None,
-                                            self.option_base,
                                             param.span,
                                             self,
                                         )?;
@@ -3043,11 +3026,21 @@ impl Interpreter {
                                     }
                                 } else {
                                     let value = self.eval_expr(arg, caller_frame)?;
-                                    callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
+                                    callee_frame.declare_bound(
+                                        &param.name,
+                                        param_ty,
+                                        value,
+                                        param.span,
+                                    )?;
                                 }
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
-                                callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
+                                callee_frame.declare_bound(
+                                    &param.name,
+                                    param_ty,
+                                    value,
+                                    param.span,
+                                )?;
                             }
                         }
                         ExprKind::MemberAccess { object, field, .. } => {
@@ -3095,7 +3088,6 @@ impl Interpreter {
                                             &param.name,
                                             param_ty,
                                             None,
-                                            self.option_base,
                                             param.span,
                                             self,
                                         )?;
@@ -3104,17 +3096,30 @@ impl Interpreter {
                                     }
                                 } else {
                                     let value = self.eval_expr(arg, caller_frame)?;
-                                    callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
+                                    callee_frame.declare_bound(
+                                        &param.name,
+                                        param_ty,
+                                        value,
+                                        param.span,
+                                    )?;
                                 }
                             } else {
                                 let value = self.eval_expr(arg, caller_frame)?;
-                                callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
+                                callee_frame.declare_bound(
+                                    &param.name,
+                                    param_ty,
+                                    value,
+                                    param.span,
+                                )?;
                             }
                         }
                         _ => {
                             let value = self.eval_expr(arg, caller_frame)?;
                             callee_frame.declare_bound(&param.name, param_ty, value, param.span)?;
                         }
+                    }
+                    if param.mode == PassingMode::ByRefReadOnly {
+                        callee_frame.mark_readonly_alias(&param.name);
                     }
                 }
             }

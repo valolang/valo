@@ -53,12 +53,12 @@ fn real_main() -> Result<(), String> {
 }
 
 fn usage() -> String {
-    r#"Valo 0.1.0 - A modern, Basic-inspired language.
+    r#"Valo 0.1.0 - VB.NET-inspired syntax, native systems direction (interpreter preview).
 
 Usage: valo <command> [args]
 
 Commands:
-    run <file>      Run a Valo file (.valo, .bas, .cls)
+    run <file>      Run a Valo file (.valo)
     repl            Start an interactive REPL
     check <file>    Validate a Valo file without running
     version         Print version information

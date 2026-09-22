@@ -36,6 +36,7 @@ pub(crate) fn default_value(
         }
         return Ok(Value::Record(Rc::new(RecordValue {
             type_name: ty.display_name(),
+            resolved_type: ty.clone(),
             fields,
         })));
     }
@@ -68,7 +69,8 @@ pub(crate) fn default_value(
         }
         _ => unreachable!("builtin types are handled above"),
     };
-    if name.eq_ignore_ascii_case(well_known::OBJECT) {
+    if name.eq_ignore_ascii_case(well_known::OBJECT) || name.eq_ignore_ascii_case(well_known::FUNC)
+    {
         return Ok(Value::Nothing);
     }
     if interpreter.enums.contains_key(&key(&name)) {
@@ -114,6 +116,7 @@ pub(crate) fn default_value(
 
     Ok(Value::Record(Rc::new(RecordValue {
         type_name: display_name,
+        resolved_type: ty.clone(),
         fields,
     })))
 }

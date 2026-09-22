@@ -11,7 +11,7 @@ Public Interface IThing
     Function Where() As Vec2
     ' Half-width in world units, so a thing one unit wide has a radius of 0.5.
     Function Radius() As Double
-    Function Tint() As Long
+    Function Tint() As Int32
     ' How far off the floor the middle of the sprite sits, in wall heights.
     Function Rise() As Double
     Function IsAlive() As Boolean
@@ -22,7 +22,7 @@ End Interface
 Public Class Thing
     Public Position As Vec2
     Public Size As Double
-    Public Color As Long
+    Public Color As Int32
     Public Height As Double
     Public Alive As Boolean
 
@@ -41,7 +41,7 @@ Public Class Thing
         Return Size
     End Function
 
-    Public Overridable Function Tint() As Long
+    Public Overridable Function Tint() As Int32
         Return Color
     End Function
 
@@ -75,7 +75,7 @@ Public Class Lamp
 
     ' Brightness rides the pulse, so a lamp reads as a light source rather than
     ' a coloured post.
-    Public Overrides Function Tint() As Long
+    Public Overrides Function Tint() As Int32
         Return Shade(Color, 0.7 + 0.3 * Abs(Sin(Phase)))
     End Function
 
@@ -97,7 +97,7 @@ Public Class Wanderer
         Height = 0.05
         Speed = 1.1
         Color = PackColor(200, 90, 140)
-        Set Heading = New Vec2(1, 0)
+        Heading = New Vec2(1, 0)
     End Sub
 
     Public Overrides Sub Advance(ByVal seconds As Double, ByVal player As Vec2)
@@ -164,16 +164,16 @@ Public Function Populate() As Collection
     Dim spot As Variant
     For Each spot In lampSpots
         Dim lamp As New Lamp()
-        Set lamp.Position = CType(spot, Vec2)
+        lamp.Position = CType(spot, Vec2)
         things.Add(lamp)
     Next spot
 
     ' Wanderers, spread along the open middle band.
-    Dim i As Long
+    Dim i As Int32
     For i = 0 To 7
         Dim wanderer As New Wanderer()
-        Set wanderer.Position = New Vec2(2.5 + i * 2.6, 7.5)
-        Set wanderer.Heading = New Vec2(Cos(i * 0.8), Sin(i * 0.8))
+        wanderer.Position = New Vec2(2.5 + i * 2.6, 7.5)
+        wanderer.Heading = New Vec2(Cos(i * 0.8), Sin(i * 0.8))
         wanderer.Speed = 0.7 + 0.18 * i
         wanderer.Color = PackColor(150 + i * 12, 70 + i * 8, 150 - i * 9)
         things.Add(wanderer)
@@ -182,12 +182,12 @@ Public Function Populate() As Collection
     ' Shards, in two rows so there is always a crowd to depth-sort.
     For i = 0 To 11
         Dim shard As New Shard()
-        Set shard.Position = New Vec2(2.5 + i * 1.7, 14.5)
+        shard.Position = New Vec2(2.5 + i * 1.7, 14.5)
         shard.Color = PackColor(90 + i * 10, 200, 240 - i * 8)
         things.Add(shard)
 
         Dim high As New Shard()
-        Set high.Position = New Vec2(2.5 + i * 1.7, 19.5)
+        high.Position = New Vec2(2.5 + i * 1.7, 19.5)
         high.Height = -0.2
         high.Color = PackColor(240 - i * 9, 180, 90 + i * 11)
         things.Add(high)

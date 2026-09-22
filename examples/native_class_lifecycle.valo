@@ -5,8 +5,10 @@ Class Box
         value = initial
     End Sub
 
-    Public Default Property Get Item() As Integer
-        Return value
+    Public ReadOnly Default Property Item() As Integer
+        Get
+            Return value
+        End Get
     End Property
 
     Public Sub Terminate()
@@ -16,7 +18,7 @@ End Class
 
 Sub Main()
     Dim box As Box
-    Set box = New Box(10)
+    box = New Box(10)
     Console.WriteLine(box)
-    Set box = Nothing
+    box = Nothing
 End Sub

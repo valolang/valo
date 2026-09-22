@@ -67,8 +67,10 @@ Public Partial Class AnalyticsEngine(Of T)
         Next
     End Sub
     
-    Public Property Get Data() As Collection
-        Return mBuffer
+    Public ReadOnly Property Data() As Collection
+        Get
+            Return mBuffer
+        End Get
     End Property
 End Class
 

@@ -2,13 +2,15 @@ Class Words
     Private values As Variant
 
     Public Sub New()
-        values = Array("VBA", "_NewEnum", "works")
+        values = Array("Valo", "Iterator", "works")
     End Sub
 
-    Public Property Get _NewEnum() As Variant
-    Attribute _NewEnum.VB_UserMemId = -4
-        _NewEnum = values
-    End Property
+    Public Iterator Function Items() As Variant
+        Dim Element As Variant
+        For Each Element In values
+            Yield Element
+        Next
+    End Function
 End Class
 
 Sub Main()

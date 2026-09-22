@@ -1,6 +1,6 @@
 use crate::runtime::well_known;
 use std::cell::{Ref, RefCell, RefMut};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::ArrayDecl;
@@ -89,6 +89,7 @@ fn previous_for_termination(current: &Value) -> Value {
 #[derive(Debug, Default, Clone)]
 pub struct Frame {
     variables: HashMap<String, Variable>,
+    readonly_aliases: HashSet<String>,
     /// Whether `Me` is bound in this frame.
     ///
     /// Every assignment to a bare name has to consider that the name is a
@@ -112,6 +113,25 @@ pub struct Frame {
 }
 
 impl Frame {
+    pub(crate) fn mark_readonly_alias(&mut self, name: &str) {
+        self.readonly_aliases.insert(key(name));
+    }
+
+    pub(crate) fn is_readonly_alias(&self, name: &str) -> bool {
+        self.readonly_aliases.contains(&key(name))
+    }
+
+    fn reject_readonly_assignment(&self, name: &str, span: Span) -> Result<(), Diagnostic> {
+        if self.is_readonly_alias(name) {
+            Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT,
+                format!("Cannot modify ByRef ReadOnly parameter '{name}'"),
+                Some(span),
+            ))
+        } else {
+            Ok(())
+        }
+    }
     pub(crate) fn set_return_slot(&mut self, slot: String, value: Value) {
         match &mut self.return_slot {
             Some((held, current)) if held == &slot => *current = value,
@@ -172,6 +192,7 @@ impl Frame {
         value: Value,
         span: Span,
     ) -> Result<LocalAssign, Diagnostic> {
+        self.reject_readonly_assignment(name, span)?;
         let Some(variable) = with_key(name, |k| self.variables.get_mut(k)) else {
             return Ok(LocalAssign::NoSuchLocal(value));
         };
@@ -242,7 +263,6 @@ impl Frame {
         name: &str,
         ty: TypeName,
         array: Option<ArrayDecl>,
-        _option_base: i64,
         span: Span,
         interpreter: &Interpreter,
     ) -> Result<(), Diagnostic> {
@@ -366,14 +386,13 @@ impl Frame {
         name: &str,
         ty: TypeName,
         array: Option<ArrayDecl>,
-        option_base: i64,
         span: Span,
         interpreter: &Interpreter,
         static_frame: &mut Frame,
     ) -> Result<(), Diagnostic> {
         let key = key(name);
         if !static_frame.variables.contains_key(&key) {
-            static_frame.declare(name, ty.clone(), array, option_base, span, interpreter)?;
+            static_frame.declare(name, ty.clone(), array, span, interpreter)?;
         }
         let variable = static_frame.variable(name, span)?;
         self.declare_alias(
@@ -428,13 +447,12 @@ impl Frame {
         name: &str,
         ty: TypeName,
         array: Option<ArrayDecl>,
-        option_base: i64,
         is_const: bool,
         value: Option<Value>,
         span: Span,
         interpreter: &Interpreter,
     ) -> Result<(), Diagnostic> {
-        self.declare(name, ty.clone(), array, option_base, span, interpreter)?;
+        self.declare(name, ty.clone(), array, span, interpreter)?;
         let variable = self.variables.get_mut(&key(name)).expect("declared");
         variable.module_level = true;
         variable.is_const = is_const;
@@ -554,6 +572,7 @@ impl Frame {
         value: Value,
         span: Span,
     ) -> Result<Value, Diagnostic> {
+        self.reject_readonly_assignment(name, span)?;
         let Some(variable) = with_key(name, |k| self.variables.get_mut(k)) else {
             return Err(self.unknown_variable(name, span));
         };
@@ -661,7 +680,7 @@ impl Frame {
             .ok_or_else(|| self.unknown_variable(name, span))?;
         let current = variable.borrow();
         Ok(match &*current {
-            Value::Object(_) | Value::ComObject(_) => Some(current.clone()),
+            Value::Object(_) => Some(current.clone()),
             _ => None,
         })
     }

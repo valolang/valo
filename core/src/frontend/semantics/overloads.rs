@@ -11,14 +11,10 @@
 //! is simply not comparable, and the call is ambiguous. Saying so is more use
 //! to the author than guessing.
 //!
-//! This lives in the runtime rather than in the analyzer because both need it
-//! and they have to agree. The analyzer resolves from the types it inferred;
-//! the interpreter resolves from the types the values turned out to have.
-//! Where a `Variant` makes those differ the interpreter has the better
-//! information, but it has to reach its answer by the same rule, not a similar
-//! one.
+//! Resolution is a frontend semantic rule. The transitional interpreter uses
+//! this same implementation until it consumes resolved calls from typed IR.
 
-use crate::runtime::TypeName;
+use crate::frontend::type_model::TypeName;
 
 /// What a call resolved to, as an index into the candidates given.
 #[derive(Debug, PartialEq, Eq)]
@@ -166,8 +162,8 @@ fn fit_of(argument: Option<&TypeName>, param: &ParamShape) -> Fit {
 fn numeric_rank(ty: &TypeName) -> Option<u8> {
     Some(match ty {
         TypeName::Byte => 0,
-        TypeName::Integer => 1,
-        TypeName::Long => 2,
+        TypeName::Int16 => 1,
+        TypeName::Int32 => 2,
         TypeName::Int64 => 3,
         TypeName::Decimal => 4,
         TypeName::Single => 5,
@@ -192,7 +188,7 @@ mod tests {
     fn a_lone_candidate_wins_without_looking_at_the_arguments() {
         let candidates = vec![vec![param(TypeName::String)]];
         assert_eq!(
-            resolve(&candidates, &[Some(TypeName::Long)]),
+            resolve(&candidates, &[Some(TypeName::Int32)]),
             Resolution::Single(0)
         );
     }
@@ -218,13 +214,13 @@ mod tests {
 
     #[test]
     fn an_exact_type_beats_one_that_would_convert() {
-        let candidates = vec![vec![param(TypeName::String)], vec![param(TypeName::Long)]];
+        let candidates = vec![vec![param(TypeName::String)], vec![param(TypeName::Int32)]];
         assert_eq!(
             resolve(&candidates, &[Some(TypeName::String)]),
             Resolution::Single(0)
         );
         assert_eq!(
-            resolve(&candidates, &[Some(TypeName::Long)]),
+            resolve(&candidates, &[Some(TypeName::Int32)]),
             Resolution::Single(1)
         );
     }
@@ -232,9 +228,9 @@ mod tests {
     /// Both widen, so the one that widens less wins.
     #[test]
     fn the_nearer_widening_wins() {
-        let candidates = vec![vec![param(TypeName::Double)], vec![param(TypeName::Long)]];
+        let candidates = vec![vec![param(TypeName::Double)], vec![param(TypeName::Int32)]];
         assert_eq!(
-            resolve(&candidates, &[Some(TypeName::Integer)]),
+            resolve(&candidates, &[Some(TypeName::Int16)]),
             Resolution::Single(1)
         );
     }
@@ -243,14 +239,14 @@ mod tests {
     fn widening_beats_narrowing() {
         let candidates = vec![vec![param(TypeName::Double)], vec![param(TypeName::Byte)]];
         assert_eq!(
-            resolve(&candidates, &[Some(TypeName::Long)]),
+            resolve(&candidates, &[Some(TypeName::Int32)]),
             Resolution::Single(0)
         );
     }
 
     #[test]
     fn nothing_fitting_is_reported_rather_than_guessed() {
-        let candidates = vec![vec![param(TypeName::Long)], vec![param(TypeName::String)]];
+        let candidates = vec![vec![param(TypeName::Int32)], vec![param(TypeName::String)]];
         assert_eq!(resolve(&candidates, &[]), Resolution::NoMatch);
     }
 
@@ -258,11 +254,11 @@ mod tests {
     #[test]
     fn a_call_that_could_go_either_way_is_ambiguous() {
         let candidates = vec![
-            vec![param(TypeName::Long), param(TypeName::Double)],
-            vec![param(TypeName::Double), param(TypeName::Long)],
+            vec![param(TypeName::Int32), param(TypeName::Double)],
+            vec![param(TypeName::Double), param(TypeName::Int32)],
         ];
         assert_eq!(
-            resolve(&candidates, &[Some(TypeName::Long), Some(TypeName::Long)]),
+            resolve(&candidates, &[Some(TypeName::Int32), Some(TypeName::Int32)]),
             Resolution::Ambiguous(vec![0, 1])
         );
     }
@@ -271,9 +267,9 @@ mod tests {
     fn an_optional_parameter_lets_a_shorter_call_through() {
         let candidates = vec![
             vec![
-                param(TypeName::Long),
+                param(TypeName::Int32),
                 ParamShape {
-                    ty: TypeName::Long,
+                    ty: TypeName::Int32,
                     is_optional: true,
                     is_param_array: false,
                 },
@@ -281,7 +277,7 @@ mod tests {
             vec![param(TypeName::String)],
         ];
         assert_eq!(
-            resolve(&candidates, &[Some(TypeName::Long)]),
+            resolve(&candidates, &[Some(TypeName::Int32)]),
             Resolution::Single(0)
         );
     }
@@ -289,9 +285,9 @@ mod tests {
     #[test]
     fn a_param_array_absorbs_any_number_of_trailing_arguments() {
         let candidates = vec![
-            vec![param(TypeName::Long)],
+            vec![param(TypeName::Int32)],
             vec![ParamShape {
-                ty: TypeName::Array(Box::new(TypeName::Long)),
+                ty: TypeName::Array(Box::new(TypeName::Int32)),
                 is_optional: false,
                 is_param_array: true,
             }],
@@ -300,9 +296,9 @@ mod tests {
             resolve(
                 &candidates,
                 &[
-                    Some(TypeName::Long),
-                    Some(TypeName::Long),
-                    Some(TypeName::Long)
+                    Some(TypeName::Int32),
+                    Some(TypeName::Int32),
+                    Some(TypeName::Int32)
                 ]
             ),
             Resolution::Single(1)

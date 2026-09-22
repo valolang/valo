@@ -1,0 +1,2 @@
+fixed 0:3 total 40
+dynamic 0:2 values 7,9

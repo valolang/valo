@@ -124,14 +124,7 @@ impl Interpreter {
                             Some(*span),
                         )
                     })?;
-                    frame.declare(
-                        name,
-                        element.type_name(),
-                        None,
-                        self.option_base,
-                        *span,
-                        self,
-                    )?;
+                    frame.declare(name, element.type_name(), None, *span, self)?;
                     let _ = frame.assign(name, element.clone(), *span)?;
                 }
                 Ok(ControlFlow::Continue)
@@ -246,11 +239,7 @@ impl Interpreter {
                 self.assign_target(target, value, frame, *span)?;
                 Ok(ControlFlow::Continue)
             }
-            Stmt::SetAssign { target, expr, span } => {
-                let value = self.eval_expr(expr, frame)?;
-                self.assign_target(target, value, frame, *span)?;
-                Ok(ControlFlow::Continue)
-            }
+
             Stmt::ConsoleCall { method, args, .. } => {
                 if let Some(flow) = super::builtins::dispatch_stmt(
                     self,
@@ -718,7 +707,7 @@ impl Interpreter {
                             "ReDim lower bound must be Integer",
                         )?
                     } else {
-                        self.option_base
+                        0
                     };
                     let upper = self.eval_integer_expr(
                         upper_expr,
@@ -884,7 +873,6 @@ impl Interpreter {
                             var_name,
                             crate::runtime::TypeName::User("Error".to_string()),
                             None,
-                            self.option_base,
                             catch.span,
                             self,
                         )?;
@@ -1136,7 +1124,7 @@ impl Interpreter {
                 .unwrap_or(crate::runtime::TypeName::Variant)
         };
         let ty_for_new = ty.clone();
-        frame.declare(name, ty, array.clone(), self.option_base, span, self)?;
+        frame.declare(name, ty, array.clone(), span, self)?;
         if as_new {
             match &ty_for_new {
                 TypeName::User(_) | TypeName::GenericInstance { .. } => {
@@ -1229,15 +1217,7 @@ impl Interpreter {
             .unwrap_or_else(|| "<module>".to_string());
         let mut static_frame = self.static_frames.remove(&scope).unwrap_or_default();
         let already_declared = static_frame.has_variable(name);
-        frame.declare_static(
-            name,
-            ty,
-            array.clone(),
-            self.option_base,
-            span,
-            self,
-            &mut static_frame,
-        )?;
+        frame.declare_static(name, ty, array.clone(), span, self, &mut static_frame)?;
         if !already_declared && let Some(value) = initial_value {
             let init_span = initializer
                 .as_ref()
@@ -1377,17 +1357,6 @@ impl Interpreter {
                             )?;
                             return Ok(());
                         }
-                    }
-                    if let Some(Value::ComObject(ref com_obj)) = target {
-                        let mut property_args = index_values;
-                        property_args.push(value);
-                        crate::runtime::com::invoke_default_com(
-                            com_obj,
-                            &property_args,
-                            4, // DISPATCH_PROPERTYPUT
-                            span,
-                        )?;
-                        return Ok(());
                     }
 
                     let mut dims = Vec::new();
@@ -1580,7 +1549,6 @@ fn stmt_span(stmt: &Stmt) -> crate::runtime::Span {
         | Stmt::Const { span, .. }
         | Stmt::ConstMany { span, .. }
         | Stmt::Assign { span, .. }
-        | Stmt::SetAssign { span, .. }
         | Stmt::ConsoleCall { span, .. }
         | Stmt::SubCall { span, .. }
         | Stmt::MemberSubCall { span, .. }

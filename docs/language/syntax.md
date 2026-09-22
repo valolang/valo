@@ -21,17 +21,22 @@ Dim name As String ' Inline comment
 
 ## Data Types
 
-Valo is statically typed with an optional `Variant` type for flexibility.
+Local, static and module variables need a declared type or an initializer.
+`Dim Count = 10` infers Integer; `Dim Count` is an error. A shared `As` clause
+applies to the preceding names: `Dim A, B As Integer` declares two Integers.
+
+Valo is moving to strict static typing. Other dynamic paths and explicit Variant
+behavior remain migration debt in the [audit](../architecture/native-migration.md).
 
 *   `Byte`: 8-bit unsigned integer.
-*   `Integer`: 16-bit signed integer.
-*   `Long`: 32-bit signed integer.
+*   `Integer` / `Int32`: 32-bit signed integer.
+*   `Long` / `Int64`: 64-bit signed integer.
 *   `Int64`: 64-bit signed integer.
 *   `Double`: 64-bit floating point number.
 *   `String`: UTF-8 encoded string.
 *   `Boolean`: `True` or `False`.
 *   `Variant`: A flexible type that can hold any value.
-*   User-defined `Structure`, VBA-compatible `Type`, and `Enum`.
+*   User-defined `Structure`, transitional legacy `Type`, and `Enum`.
 
 Native Valo code should use `Structure` for simple value records:
 

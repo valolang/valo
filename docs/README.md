@@ -1,8 +1,10 @@
 # Valo Documentation
 
-Valo is a successor language to VB.NET with a standalone runtime written in Rust.
-VB.NET is the reference for syntax and semantics; VBA compatibility is a
-migration bridge, and where the two disagree, Valo follows VB.NET.
+> Native systems migration: see the [audit and status](architecture/native-migration.md). Existing VB.NET syntax is preserved; native compilation and ownership analysis are planned.
+
+
+Valo is a native systems language with VB.NET-inspired syntax, implemented in Rust.
+The current backend is an interpreter; native compilation and ownership are planned.
 
 This directory holds the language reference and the design documentation.
 
@@ -15,18 +17,18 @@ Learn how to write code in Valo.
 *   **[Strings and Interpolation](language/strings.md):** String literals, concatenation, and `$"..."` literals.
 *   **[Types and Conversions](language/types.md):** The Valo type system, `CType`, `DirectCast`, `TryCast`, `GetType`, and `NameOf`.
 *   **[Functions](language/functions.md):** Procedures, lambdas, argument passing, and optional arguments.
-*   **[Properties](language/properties.md):** Native and VBA-compatible property accessors.
+*   **[Properties](language/properties.md):** Modern property blocks and transitional accessors.
 *   **[Classes and Objects](language/classes.md):** Lifecycle, properties, events, default members, and visibility.
 *   **[Inheritance](language/inheritance.md):** Overrides, abstract members, protected access, and interfaces.
 *   **[Generics](language/generics.md):** Generic classes, structures, functions, methods, lambdas, and constraints.
 *   **[Async and Await](language/async.md):** Async declaration syntax and current interpreter behavior.
 *   **[Modules and Imports](language/modules.md):** Project organization and dependency management.
 *   **[Error Handling](language/error-handling.md):** Robust runtime failure management.
-*   **[VBA Compatibility](language/vba-compat.md):** The migration bridge from legacy VBA, including `.bas`/`.cls` imports, constants, runtime functions, file I/O, COM, and native interop. Where VBA and VB.NET disagree, Valo follows VB.NET.
-*   **[COM Automation](language/com.md):** Windows COM/OLE Automation support.
+* **[Breaking changes](language/vba-compat.md):** Removal of the legacy project and automation direction.
+* **[Platform automation](language/com.md):** The library boundary after core COM removal.
 *   **[FFI](language/ffi.md):** Calling native libraries.
 *   **[REPL](repl.md):** Interactive REPL documentation.
-*   **[Examples](../examples/README.md):** Runnable language and compatibility examples.
+*   **[Examples](../examples/README.md):** Language examples and migration fixtures.
 
 ## Reference
 

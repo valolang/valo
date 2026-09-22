@@ -11,6 +11,6 @@ End Class
 
 Sub Main()
     Dim a As Animal
-    Set a = New Dog()
+    a = New Dog()
     a.Speak()
 End Sub

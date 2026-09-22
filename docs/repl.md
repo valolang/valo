@@ -20,7 +20,7 @@ valo repl
 
 - The REPL is currently experimental.
 - Complex declaration workflows (like multi-line classes or interfaces) are not fully supported interactively.
-- We recommend using standard source files (`.valo`, `.bas`, `.cls`) for anything beyond simple experimentation.
+- We recommend using standard source files (`.valo`) for anything beyond simple experimentation.
 
 ## Examples
 

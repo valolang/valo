@@ -439,7 +439,7 @@ End Sub
 }
 
 #[test]
-fn option_base_rejects_invalid_duplicate_and_late_declarations() {
+fn option_base_is_rejected_as_removed_syntax() {
     let invalid = source_error(
         r#"
 Option Base 2
@@ -447,7 +447,7 @@ Sub Main()
 End Sub
 "#,
     );
-    assert!(invalid.contains("Option Base must be 0 or 1"));
+    assert!(invalid.contains("Option Base has been removed"));
 
     let duplicate = source_error(
         r#"
@@ -457,7 +457,7 @@ Sub Main()
 End Sub
 "#,
     );
-    assert!(duplicate.contains("Option Base is already declared"));
+    assert!(duplicate.contains("Option Base has been removed"));
 
     let late = source_error(
         r#"

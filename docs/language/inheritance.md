@@ -1,6 +1,6 @@
 # Inheritance
 
-Valo supports modern Basic-style class inheritance while preserving existing VBA-compatible class behavior.
+Valo preserves modern VB.NET-style class inheritance and dispatch in its native systems direction.
 
 ```vb
 MustInherit Class Animal

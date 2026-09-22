@@ -1,4 +1,4 @@
-use crate::runtime::TypeName;
+use crate::frontend::type_model::TypeName;
 
 pub(super) enum Context<'a> {
     Sub {
@@ -34,7 +34,7 @@ pub(super) enum Context<'a> {
         saw_return: &'a mut bool,
         saw_yield: &'a mut bool,
     },
-    PropertyLetSet {
+    PropertySet {
         class_name: String,
     },
 }
@@ -101,7 +101,7 @@ impl<'a> Context<'a> {
                 saw_return,
                 saw_yield,
             },
-            Context::PropertyLetSet { class_name } => Context::PropertyLetSet {
+            Context::PropertySet { class_name } => Context::PropertySet {
                 class_name: class_name.clone(),
             },
         }
@@ -112,7 +112,7 @@ impl<'a> Context<'a> {
             Context::MethodSub { class_name, .. }
             | Context::MethodFunction { class_name, .. }
             | Context::PropertyGet { class_name, .. }
-            | Context::PropertyLetSet { class_name } => Some(class_name),
+            | Context::PropertySet { class_name } => Some(class_name),
             _ => None,
         }
     }
@@ -124,7 +124,7 @@ impl<'a> Context<'a> {
             | Context::MethodSub { is_async, .. }
             | Context::MethodFunction { is_async, .. }
             | Context::PropertyGet { is_async, .. } => *is_async,
-            Context::PropertyLetSet { .. } => false,
+            Context::PropertySet { .. } => false,
         }
     }
 }

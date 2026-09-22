@@ -155,12 +155,12 @@ impl<'a> Lexer<'a> {
         let mut hint = None;
         if let Some(ch) = self.peek() {
             hint = match ch {
-                '%' => Some(crate::runtime::TypeName::Integer),
-                '&' => Some(crate::runtime::TypeName::Long),
-                '!' => Some(crate::runtime::TypeName::Single),
-                '#' => Some(crate::runtime::TypeName::Double),
-                '@' => Some(crate::runtime::TypeName::Currency),
-                '$' => Some(crate::runtime::TypeName::String),
+                '%' => Some(crate::frontend::type_model::TypeName::Int32),
+                '&' => Some(crate::frontend::type_model::TypeName::Int64),
+                '!' => Some(crate::frontend::type_model::TypeName::Single),
+                '#' => Some(crate::frontend::type_model::TypeName::Double),
+                '@' => Some(crate::frontend::type_model::TypeName::Currency),
+                '$' => Some(crate::frontend::type_model::TypeName::String),
                 _ => None,
             };
 
@@ -206,7 +206,6 @@ impl<'a> Lexer<'a> {
             "shadows" if hint.is_none() => TokenKind::Shadows,
             "event" if hint.is_none() => TokenKind::Event,
             "declare" if hint.is_none() => TokenKind::Declare,
-            "ptrsafe" if hint.is_none() => TokenKind::PtrSafe,
             "lib" if hint.is_none() => TokenKind::Lib,
             "alias" if hint.is_none() => TokenKind::Alias,
             "any" if hint.is_none() => TokenKind::Any,
@@ -330,12 +329,12 @@ impl<'a> Lexer<'a> {
                 let mut hint = None;
                 if let Some(ch) = self.peek() {
                     hint = match ch {
-                        '%' => Some(crate::runtime::TypeName::Integer),
-                        '&' => Some(crate::runtime::TypeName::Long),
-                        '!' => Some(crate::runtime::TypeName::Single),
-                        '#' => Some(crate::runtime::TypeName::Double),
-                        '@' => Some(crate::runtime::TypeName::Currency),
-                        '$' => Some(crate::runtime::TypeName::String),
+                        '%' => Some(crate::frontend::type_model::TypeName::Int32),
+                        '&' => Some(crate::frontend::type_model::TypeName::Int64),
+                        '!' => Some(crate::frontend::type_model::TypeName::Single),
+                        '#' => Some(crate::frontend::type_model::TypeName::Double),
+                        '@' => Some(crate::frontend::type_model::TypeName::Currency),
+                        '$' => Some(crate::frontend::type_model::TypeName::String),
                         _ => None,
                     };
 

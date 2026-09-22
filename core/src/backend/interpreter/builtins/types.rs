@@ -55,7 +55,7 @@ pub(crate) fn eval_types(
 fn is_object(_: &mut Interpreter, _: &str, args: &[Value], _: Span) -> Result<Value, Diagnostic> {
     Ok(Value::Boolean(matches!(
         args[0],
-        Value::Object(_) | Value::ComObject(_) | Value::Nothing
+        Value::Object(_) | Value::Nothing
     )))
 }
 
@@ -154,8 +154,8 @@ macro_rules! conversions {
 
 conversions! {
     c_byte => Byte,
-    c_int => Integer,
-    c_lng => Long,
+    c_int => Int32,
+    c_lng => Int64,
     c_lng_lng => Int64,
     c_sng => Single,
     c_dbl => Double,
@@ -176,7 +176,7 @@ fn vartype(value: &Value) -> i64 {
         Value::Currency(_) => 6,
         Value::Date(_) => 7,
         Value::String(_) => 8,
-        Value::Object(_) | Value::ComObject(_) | Value::Nothing | Value::Collection(_) => 9,
+        Value::Object(_) | Value::Nothing | Value::Collection(_) => 9,
         Value::Boolean(_) => 11,
         Value::Decimal(_) => 14,
         Value::Byte(_) => 17,
@@ -201,9 +201,9 @@ fn match_value_type_name(value: &Value) -> String {
     match value {
         Value::Empty => "Empty".to_string(),
         Value::Null => "Null".to_string(),
-        Value::Int16(_) => "Integer".to_string(),
-        Value::Int32(_) => "Long".to_string(),
-        Value::Int64(_) => "LongLong".to_string(),
+        Value::Int16(_) => "Short".to_string(),
+        Value::Int32(_) => "Integer".to_string(),
+        Value::Int64(_) => "Long".to_string(),
         Value::Single(_) => "Single".to_string(),
         Value::Double(_) => "Double".to_string(),
         Value::Currency(_) => "Currency".to_string(),
@@ -215,7 +215,6 @@ fn match_value_type_name(value: &Value) -> String {
         Value::Error(_) => "Error".to_string(),
         Value::Object(object) => object.borrow().class_name.clone(),
         Value::Collection(_) => well_known::COLLECTION.to_string(),
-        Value::ComObject(object) => object.prog_id.clone(),
         Value::Nothing => "Nothing".to_string(),
         Value::Array(_) => "Array".to_string(),
         Value::Record(record) => record.type_name.clone(),

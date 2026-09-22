@@ -1,17 +1,15 @@
-use crate::runtime::{Span, TypeName};
+use crate::frontend::type_model::TypeName;
+use crate::runtime::Span;
 
 use super::Stmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub namespace: Option<String>,
-    pub attributes: Vec<AttributeDecl>,
     pub imports: Vec<ImportDecl>,
     pub option_explicit: bool,
     /// `Option Strict`. See [`crate::semantics`] for what it rejects.
     pub option_strict: bool,
-    pub option_private_module: bool,
-    pub option_base: i64,
     pub option_compare: OptionCompare,
     pub types: Vec<TypeDecl>,
     pub enums: Vec<EnumDecl>,
@@ -131,14 +129,6 @@ impl Program {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct AttributeDecl {
-    pub target: String,
-    pub name: String,
-    pub value: String,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct ImportDecl {
     pub module: String,
     pub alias: Option<String>,
@@ -177,7 +167,6 @@ pub struct ConstDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeclareDecl {
     pub visibility: Visibility,
-    pub ptr_safe: bool,
     pub calling_convention: CallingConvention,
     pub kind: DeclareKind,
     pub name: String,
@@ -270,7 +259,6 @@ pub struct ClassDecl {
     pub generic_constraints: Vec<GenericParamConstraint>,
     pub base_class: Option<TypeName>,
     pub implements: Vec<TypeName>,
-    pub attributes: Vec<AttributeDecl>,
     pub members: Vec<ClassMember>,
     pub span: Span,
 }
@@ -390,7 +378,6 @@ pub struct ClassFunction {
     pub override_kind: OverrideKind,
     pub is_shared: bool,
     pub implements: Vec<ImplementsClause>,
-    pub is_enumerator: bool,
     pub function: Function,
 }
 
@@ -407,7 +394,6 @@ pub struct ClassProperty {
     pub is_shared: bool,
     pub implements: Vec<ImplementsClause>,
     pub is_default: bool,
-    pub is_enumerator: bool,
     pub is_iterator: bool,
     pub is_readonly: bool,
     pub is_writeonly: bool,
@@ -429,7 +415,6 @@ pub struct ImplementsClause {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropertyKind {
     Get,
-    Let,
     Set,
 }
 
@@ -540,4 +525,5 @@ pub struct Parameter {
 pub enum PassingMode {
     ByVal,
     ByRef,
+    ByRefReadOnly,
 }

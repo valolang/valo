@@ -71,18 +71,15 @@ impl Parser {
             TokenKind::Await => self.parse_await_stmt(),
             TokenKind::Let => self.parse_let_assignment(),
             TokenKind::Call => self.parse_call_statement(),
-            TokenKind::Set => self.parse_set_assignment(),
+            TokenKind::Set => {
+                Err(self.error_here("Set assignment has been removed; assign objects with '='"))
+            }
             TokenKind::Console => self.parse_console_writeline(),
             TokenKind::End => self.parse_end_statement(),
             TokenKind::Return => self.parse_return(),
             TokenKind::Yield => self.parse_yield(),
             TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute") => {
-                let _ = self.parse_attribute_decl()?;
-                // Return a dummy statement that does nothing
-                Ok(Stmt::Label {
-                    name: String::new(),
-                    span: self.previous().span,
-                })
+                Err(self.error_here("Exported Attribute metadata is not supported"))
             }
             TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Open") => {
                 self.parse_open_file()
@@ -257,7 +254,28 @@ impl Parser {
     ) -> Result<Vec<VariableDecl>, Diagnostic> {
         let mut decls = Vec::new();
         loop {
-            decls.push(self.parse_variable_declarator(keyword)?);
+            let (decl, has_as_clause) = self.parse_variable_declarator_with_clause(keyword)?;
+            if has_as_clause {
+                for previous in decls.iter_mut().rev() {
+                    let previous: &mut VariableDecl = previous;
+                    if previous.ty.is_some() || previous.initializer.is_some() {
+                        break;
+                    }
+                    if decl.initializer.is_some() {
+                        return Err(Diagnostic::new(
+                            crate::runtime::DiagnosticCode::PARSE,
+                            "A shared As clause cannot have an '=' initializer; initialize each variable separately",
+                            Some(decl.span),
+                        ));
+                    }
+                    previous.ty = decl.ty.clone();
+                    previous.as_new = decl.as_new;
+                    previous.new_args = decl.new_args.clone();
+                    previous.collection_initializer = decl.collection_initializer.clone();
+                    previous.member_initializer = decl.member_initializer.clone();
+                }
+            }
+            decls.push(decl);
             if !self.match_simple(&TokenKind::Comma) {
                 break;
             }
@@ -269,6 +287,14 @@ impl Parser {
         &mut self,
         keyword: &str,
     ) -> Result<VariableDecl, Diagnostic> {
+        self.parse_variable_declarator_with_clause(keyword)
+            .map(|(decl, _)| decl)
+    }
+
+    fn parse_variable_declarator_with_clause(
+        &mut self,
+        keyword: &str,
+    ) -> Result<(VariableDecl, bool), Diagnostic> {
         let start = self.peek().span;
         let token = self.advance();
         let (name, type_char) = match token.kind {
@@ -384,6 +410,7 @@ impl Parser {
         } else {
             None
         };
+        let has_as_clause = as_ty.is_some();
         let ty = if let Some(as_ty) = as_ty {
             if let Some(type_char) = &type_char
                 && !type_char.same_type(&as_ty)
@@ -400,7 +427,7 @@ impl Parser {
             }
             Some(as_ty)
         } else {
-            type_char.or(Some(crate::runtime::TypeName::Variant))
+            type_char
         };
         let initializer = if self.match_simple(&TokenKind::Equal) {
             if as_new {
@@ -420,17 +447,20 @@ impl Parser {
             .or_else(|| member_initializer.as_ref().map(|_| self.previous().span))
             .or_else(|| initializer.as_ref().map(|expr| expr.span))
             .unwrap_or_else(|| self.previous().span);
-        Ok(VariableDecl {
-            name,
-            ty,
-            array,
-            as_new,
-            new_args,
-            initializer,
-            collection_initializer,
-            member_initializer,
-            span: Span::new(self.file_id, start.start, end.end),
-        })
+        Ok((
+            VariableDecl {
+                name,
+                ty,
+                array,
+                as_new,
+                new_args,
+                initializer,
+                collection_initializer,
+                member_initializer,
+                span: Span::new(self.file_id, start.start, end.end),
+            },
+            has_as_clause,
+        ))
     }
 
     fn parse_const_stmt(&mut self) -> Result<Stmt, Diagnostic> {
@@ -792,20 +822,6 @@ impl Parser {
         let end = expr.span;
 
         Ok(Stmt::Assign {
-            target,
-            expr,
-            span: Span::new(self.file_id, start.start, end.end),
-        })
-    }
-
-    fn parse_set_assignment(&mut self) -> Result<Stmt, Diagnostic> {
-        let start = self.expect_simple(TokenKind::Set, "Expected 'Set'")?.span;
-        let target = self.parse_assignment_target()?;
-        self.expect_simple(TokenKind::Equal, "Expected '=' in Set assignment")?;
-        let expr = self.parse_expression()?;
-        let end = expr.span;
-
-        Ok(Stmt::SetAssign {
             target,
             expr,
             span: Span::new(self.file_id, start.start, end.end),

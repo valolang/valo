@@ -247,7 +247,7 @@ End Sub
 }
 
 #[test]
-fn parameters_default_to_byref() {
+fn parameters_default_to_byval() {
     let output = run_source(
         r#"
 Sub Increment(value As Integer)
@@ -263,7 +263,7 @@ End Sub
 "#,
     );
 
-    assert_eq!(output, vec!["11"]);
+    assert_eq!(output, vec!["10"]);
 }
 
 #[test]
@@ -363,7 +363,7 @@ End Sub
 }
 
 #[test]
-fn conditional_compilation_builtin_valo_and_vba_constants_work() {
+fn conditional_compilation_identifies_valo_without_vba_mode() {
     let output = run_source(
         r#"
 Sub Main()
@@ -390,10 +390,7 @@ End Sub
 "#,
     );
 
-    assert_eq!(
-        output,
-        vec!["VALO", "Valo", "ValoRuntime", "VBA7", "not VBA6"]
-    );
+    assert_eq!(output, vec!["VALO", "Valo", "ValoRuntime", "not VBA6"]);
 }
 
 #[test]

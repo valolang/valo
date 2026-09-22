@@ -48,7 +48,7 @@ pub(super) fn collect_types_in_scope(
                         visibility: Visibility::Public,
                         is_shared: false,
                         with_events: false,
-                        ty: TypeName::Integer,
+                        ty: TypeName::Int16,
                         array: None,
                     },
                 );
@@ -98,7 +98,7 @@ pub(super) fn collect_types_in_scope(
                         visibility: Visibility::Public,
                         is_shared: false,
                         with_events: false,
-                        ty: TypeName::Integer,
+                        ty: TypeName::Int16,
                         array: None,
                     },
                 );
@@ -110,7 +110,6 @@ pub(super) fn collect_types_in_scope(
             iterator: None,
             properties: HashMap::new(),
             operators: HashMap::new(),
-            enumerator: None,
             default_property: None,
         },
     );
@@ -470,12 +469,10 @@ pub(super) fn collect_types_in_scope(
                                 is_readonly: property.is_readonly,
                                 is_writeonly: property.is_writeonly,
                                 get: Vec::new(),
-                                let_: Vec::new(),
                                 set: Vec::new(),
                             });
                     let target = match property.kind {
                         PropertyKind::Get => &mut property_sig.get,
-                        PropertyKind::Let => &mut property_sig.let_,
                         PropertyKind::Set => &mut property_sig.set,
                     };
                     let accessor = PropertyAccessorSig {
@@ -733,12 +730,10 @@ pub(super) fn collect_types_in_scope(
                                 is_readonly: false,
                                 is_writeonly: false,
                                 get: Vec::new(),
-                                let_: Vec::new(),
                                 set: Vec::new(),
                             });
                     let target = match property.kind {
                         PropertyKind::Get => &mut property_sig.get,
-                        PropertyKind::Let => &mut property_sig.let_,
                         PropertyKind::Set => &mut property_sig.set,
                     };
                     let accessor = PropertyAccessorSig {
@@ -805,7 +800,6 @@ pub(super) fn collect_types_in_scope(
         let mut operators = HashMap::new();
         let mut default_member: Option<String> = None;
         let mut iterator: Option<ClassMethodSig> = None;
-        let mut enumerator_member: Option<String> = None;
         let mut constructor_spelling: Option<String> = None;
         let mut terminator_span = None;
         let mut default_iterator_span: Option<Span> = None;
@@ -955,19 +949,7 @@ pub(super) fn collect_types_in_scope(
                 }
                 ClassMember::Function(method) => {
                     let method_key = key(&method.function.name);
-                    if method.is_enumerator {
-                        if enumerator_member.is_some() {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
-                                format!(
-                                    "Class '{}' has multiple VB_UserMemId = -4 enumerator members",
-                                    class_decl.name
-                                ),
-                                Some(method.function.span),
-                            ));
-                        }
-                        enumerator_member = Some(method.function.name.clone());
-                    }
+
                     if method.function.is_iterator && method.function.params.is_empty() {
                         if iterator.is_some() {
                             return Err(Diagnostic::new(
@@ -1078,29 +1060,7 @@ pub(super) fn collect_types_in_scope(
                 }
                 ClassMember::Property(property) => {
                     let property_key = key(&property.name);
-                    if property.is_enumerator {
-                        if property.kind != PropertyKind::Get {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                                format!(
-                                    "Only Property Get can be marked as VB_UserMemId = -4 in Class '{}'",
-                                    class_decl.name
-                                ),
-                                Some(property.span),
-                            ));
-                        }
-                        if enumerator_member.is_some() {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::DUPLICATE_DECLARATION,
-                                format!(
-                                    "Class '{}' has multiple VB_UserMemId = -4 enumerator members",
-                                    class_decl.name
-                                ),
-                                Some(property.span),
-                            ));
-                        }
-                        enumerator_member = Some(property.name.clone());
-                    }
+
                     if property.is_default {
                         if default_member
                             .as_ref()
@@ -1169,12 +1129,10 @@ pub(super) fn collect_types_in_scope(
                                 is_readonly: property.is_readonly,
                                 is_writeonly: property.is_writeonly,
                                 get: Vec::new(),
-                                let_: Vec::new(),
                                 set: Vec::new(),
                             });
                     let target = match property.kind {
                         PropertyKind::Get => &mut property_sig.get,
-                        PropertyKind::Let => &mut property_sig.let_,
                         PropertyKind::Set => &mut property_sig.set,
                     };
                     let accessor = PropertyAccessorSig {
@@ -1270,7 +1228,6 @@ pub(super) fn collect_types_in_scope(
                 iterator,
                 properties,
                 operators,
-                enumerator: enumerator_member,
                 default_property: default_member,
             },
         );
@@ -1407,7 +1364,7 @@ pub(super) fn collect_types_in_scope(
                             property.span,
                         )?;
                     }
-                    PropertyKind::Let | PropertyKind::Set => {
+                    PropertyKind::Set => {
                         if property.params.is_empty() {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -1420,19 +1377,6 @@ pub(super) fn collect_types_in_scope(
                         }
                         for param in &property.params {
                             ensure_known_type(&param.ty, &registry, param.span)?;
-                        }
-                        let last_param = property.params.last().unwrap();
-                        if property.kind == PropertyKind::Set
-                            && !matches!(&last_param.ty, TypeName::User(name) if registry.get_class(name).is_some() || name.eq_ignore_ascii_case(well_known::OBJECT))
-                        {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                                format!(
-                                    "Property Set '{}' value parameter must be a class type",
-                                    property.name
-                                ),
-                                Some(last_param.span),
-                            ));
                         }
                     }
                 },
@@ -1530,7 +1474,7 @@ pub(super) fn collect_types_in_scope(
                             property.span,
                         )?;
                     }
-                    PropertyKind::Let | PropertyKind::Set => {
+                    PropertyKind::Set => {
                         if property.params.is_empty() {
                             return Err(Diagnostic::new(
                                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
@@ -1543,31 +1487,6 @@ pub(super) fn collect_types_in_scope(
                         }
                         for param in &property.params {
                             ensure_known_type(&param.ty, &registry, param.span)?;
-                        }
-                        let last_param = property.params.last().unwrap();
-                        if property.kind == PropertyKind::Set
-                            && !matches!(&last_param.ty, TypeName::User(name) if registry.get_class(name).is_some() || name.eq_ignore_ascii_case(well_known::OBJECT))
-                        {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                                format!(
-                                    "Property Set '{}' value parameter must be a class type",
-                                    property.name
-                                ),
-                                Some(last_param.span),
-                            ));
-                        }
-                        if property.kind == PropertyKind::Let
-                            && matches!(&last_param.ty, TypeName::User(name) if registry.get_class(name).is_some())
-                        {
-                            return Err(Diagnostic::new(
-                                crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                                format!(
-                                    "Property Let '{}' value parameter cannot be a class type",
-                                    property.name
-                                ),
-                                Some(last_param.span),
-                            ));
                         }
                     }
                 },
@@ -1844,9 +1763,7 @@ fn resolve_class_sig_inheritance(
     if derived.iterator.is_some() {
         merged.iterator = derived.iterator.clone();
     }
-    if derived.enumerator.is_some() {
-        merged.enumerator = derived.enumerator.clone();
-    }
+
     if derived.default_property.is_some() {
         merged.default_property = derived.default_property.clone();
     }
@@ -1880,10 +1797,7 @@ fn substitute_class_sig_types(class_sig: &mut ClassSig, bindings: &[(String, Typ
             .map(|ty| ty.substitute_generics(bindings));
     }
     for property in class_sig.properties.values_mut() {
-        for accessor in [&mut property.get, &mut property.let_, &mut property.set]
-            .into_iter()
-            .flatten()
-        {
+        for accessor in [&mut property.get, &mut property.set].into_iter().flatten() {
             for param in &mut accessor.params {
                 param.ty = param.ty.substitute_generics(bindings);
             }
@@ -2491,7 +2405,7 @@ pub(super) fn collect_module_symbols(
                 program_options(program),
             )?
         } else {
-            TypeName::Variant
+            return Err(cannot_infer_variable(&var.name, var.span));
         };
         if let Some(initializer) = &var.initializer {
             if var.array.is_some() {
@@ -2759,7 +2673,7 @@ pub(super) fn validate_function(
             ));
         }
         for param in &function.params {
-            if param.mode == PassingMode::ByRef {
+            if param.mode != PassingMode::ByVal {
                 return Err(Diagnostic::new(
                     crate::runtime::DiagnosticCode::TYPE_MISMATCH,
                     format!(
@@ -2784,10 +2698,6 @@ pub(super) fn validate_function(
 fn assigns_to_name(statements: &[Stmt], name: &str) -> bool {
     statements.iter().any(|stmt| match stmt {
         Stmt::Assign {
-            target: crate::AssignTarget::Variable { name: target, .. },
-            ..
-        }
-        | Stmt::SetAssign {
             target: crate::AssignTarget::Variable { name: target, .. },
             ..
         } => target.eq_ignore_ascii_case(name),

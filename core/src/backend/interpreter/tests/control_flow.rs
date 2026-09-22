@@ -1493,10 +1493,12 @@ fn exit_property_in_get_returns_current_property_value() {
     let output = run_source(
         r#"
 Class User
-    Public Property Get Name() As String
+    Public ReadOnly Property Name() As String
+        Get
         Name = "before"
         Exit Property
         Name = "after"
+        End Get
     End Property
 End Class
 
@@ -1517,15 +1519,18 @@ fn exit_property_in_let_stops_assignment_body() {
 Class User
     Private m_Name As String
 
-    Public Property Let Name(value As String)
+    Public Property Name() As String
+        Get
+        Name = m_Name
+        End Get
+        Set(value As String)
         m_Name = value
         Exit Property
         m_Name = "after"
+        End Set
     End Property
 
-    Public Property Get Name() As String
-        Name = m_Name
-    End Property
+
 End Class
 
 Sub Main()

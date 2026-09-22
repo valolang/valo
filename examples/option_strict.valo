@@ -34,7 +34,7 @@ Sub Main()
 
     ' A declared type carries through, so members resolve statically.
     Dim account As Account
-    Set account = Make("Ada", 120.5)
+    account = Make("Ada", 120.5)
     Console.WriteLine($"{account.Owner}: {account.Balance}")
 
     ' Holding the same object as a Variant would lose that. This would be
@@ -45,6 +45,6 @@ Sub Main()
     '
     ' Saying what it is brings it back.
     Dim loose As Variant
-    Set loose = account
+    loose = account
     Console.WriteLine(CType(loose, Account).Owner)
 End Sub

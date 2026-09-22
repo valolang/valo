@@ -1,4 +1,3 @@
-Option Base 1
 
 Sub Main()
     Dim fixed(3) As Integer
@@ -13,9 +12,9 @@ Sub Main()
     Next item
 
     ReDim dynamic(2)
-    dynamic(1) = 7
-    dynamic(2) = 9
+    dynamic(0) = 7
+    dynamic(1) = 9
 
     Console.WriteLine("fixed " & LBound(fixed) & ":" & UBound(fixed) & " total " & total)
-    Console.WriteLine("dynamic " & LBound(dynamic) & ":" & UBound(dynamic) & " values " & dynamic(1) & "," & dynamic(2))
+    Console.WriteLine("dynamic " & LBound(dynamic) & ":" & UBound(dynamic) & " values " & dynamic(0) & "," & dynamic(1))
 End Sub

@@ -10,7 +10,7 @@ End Class
 
 Sub Main()
     Dim item As Slot(Of String)
-    Set item = New Slot(Of String)("runtime")
+    item = New Slot(Of String)("runtime")
 
     Debug.Print item.Value
     Debug.Print Slot.Created

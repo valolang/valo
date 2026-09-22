@@ -1,6 +1,6 @@
-Declare PtrSafe Function lstrlenA Lib "libc" Alias "strlen" CDecl (
+Declare Function lstrlenA Lib "libc" Alias "strlen" CDecl (
     ByVal lpString As String
-) As Long
+) As Int32
 
 Sub Main()
     Debug.Print lstrlenA("hello")

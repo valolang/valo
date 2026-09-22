@@ -67,7 +67,14 @@ pub struct Interpreter {
     /// is one, so that declaring a variable of it does not look for a record.
     pub(crate) delegates: std::collections::HashSet<String>,
     pub(crate) native_libraries: super::ffi::NativeLibraries,
-    pub(crate) native_cifs: HashMap<String, Rc<libffi::middle::Cif>>,
+    /// The call interface each native call site last used, and the argument
+    /// shape it was built for.
+    ///
+    /// Keyed by the site rather than by a description of the call, because
+    /// building that description meant formatting a string per argument on
+    /// every call. A site marshals the same shape nearly every time, so
+    /// comparing the bytes it recorded settles it without building anything.
+    pub(crate) native_cifs: HashMap<crate::runtime::Span, super::ffi::NativeCifSite>,
     pub(crate) ffi_callbacks: HashMap<String, usize>,
     /// The source name each `AddressOf` address was made for.
     ///
@@ -85,7 +92,6 @@ pub struct Interpreter {
     pub(crate) output: Vec<String>,
     output_sink: Option<OutputSink>,
     collect_output: bool,
-    pub(crate) option_base: i64,
     pub(crate) option_compare: crate::OptionCompare,
     pub(crate) call_stack: Vec<ScopeName>,
     pub(crate) scope_stack: Vec<ScopeName>,
@@ -146,7 +152,6 @@ impl Default for Interpreter {
             output: Vec::new(),
             output_sink: None,
             collect_output: true,
-            option_base: 0,
             option_compare: crate::OptionCompare::Binary,
             call_stack: Vec::new(),
             scope_stack: Vec::new(),
@@ -231,7 +236,7 @@ impl Interpreter {
                 fields: vec![
                     crate::interpreter::records::RuntimeField {
                         name: "Number".to_string(),
-                        ty: crate::runtime::TypeName::Integer,
+                        ty: crate::runtime::TypeName::Int16,
                         array: None,
                         as_new: false,
                         new_args: Vec::new(),
@@ -281,7 +286,7 @@ impl Interpreter {
                     },
                     crate::interpreter::records::RuntimeField {
                         name: "HelpContext".to_string(),
-                        ty: crate::runtime::TypeName::Integer,
+                        ty: crate::runtime::TypeName::Int16,
                         array: None,
                         as_new: false,
                         new_args: Vec::new(),
@@ -300,7 +305,6 @@ impl Interpreter {
                 iterator: None,
                 properties: HashMap::new(),
                 operators: HashMap::new(),
-                enumerator_member: None,
                 default_member: None,
             }),
         );
@@ -322,7 +326,6 @@ impl Interpreter {
                 iterator: None,
                 properties: HashMap::new(),
                 operators: HashMap::new(),
-                enumerator_member: None,
                 default_member: Some("Item".to_string()),
             }),
         );
@@ -354,7 +357,6 @@ impl Interpreter {
     }
 
     pub fn run(mut self, program: &Program) -> Result<Vec<String>, Diagnostic> {
-        self.option_base = program.option_base;
         self.option_compare = program.option_compare;
         for type_decl in &program.types {
             self.types
@@ -455,7 +457,6 @@ impl Interpreter {
                 &var.name,
                 ty,
                 var.array.clone(),
-                self.option_base,
                 false,
                 value,
                 var.span,
@@ -469,7 +470,6 @@ impl Interpreter {
                 &const_decl.name,
                 ty,
                 None,
-                self.option_base,
                 true,
                 Some(value),
                 const_decl.span,
@@ -629,7 +629,6 @@ impl Interpreter {
                     &var.name,
                     ty,
                     var.array.clone(),
-                    self.option_base,
                     false,
                     value,
                     var.span,
@@ -645,7 +644,6 @@ impl Interpreter {
                     &const_decl.name,
                     ty,
                     None,
-                    self.option_base,
                     true,
                     Some(value),
                     const_decl.span,
@@ -756,7 +754,6 @@ impl Interpreter {
         let entry_key = super::values::key(&project.modules[project.entry].name);
         let mut partial_class_groups: HashMap<String, Vec<(String, ClassDecl)>> = HashMap::new();
         for module in &project.modules {
-            self.option_base = module.program.option_base;
             self.option_compare = module.program.option_compare;
             let module_key = super::values::key(&module.name);
 
@@ -972,7 +969,6 @@ impl Interpreter {
                     &var.name,
                     ty,
                     var.array.clone(),
-                    module.program.option_base,
                     false,
                     value,
                     var.span,
@@ -990,7 +986,6 @@ impl Interpreter {
                     &const_decl.name,
                     ty,
                     None,
-                    module.program.option_base,
                     true,
                     Some(value),
                     const_decl.span,
@@ -1031,9 +1026,7 @@ fn merge_partial_runtime_class(target: &mut RuntimeClass, mut source: RuntimeCla
     if target.iterator.is_none() {
         target.iterator = source.iterator;
     }
-    if target.enumerator_member.is_none() {
-        target.enumerator_member = source.enumerator_member;
-    }
+
     if target.default_member.is_none() {
         target.default_member = source.default_member;
     }

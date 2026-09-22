@@ -23,7 +23,7 @@ Diagnostics are rendered in a professional, Rust-inspired format. Features inclu
 
 ```txt
 error[V0100]: expected statement after `Then` or newline for block If
-  --> List.cls:39:24
+  --> List.valo:39:24
    |
 39 |     If newCap < 0 Then Err.Raise 5, "List", "Capacity must be >= 0"
    |                        ^^^^^^^^^ expected statement

@@ -1,14 +1,14 @@
 # Native FFI
 
-Valo supports VBA-style native external calls through `Declare Function` and `Declare Sub`.
+Valo supports native external calls with VB.NET-style declarations through `Declare Function` and `Declare Sub`.
 
 ```vb
-Private Declare PtrSafe Function lstrlen Lib "libc" Alias "strlen" CDecl (
+Private Declare Function lstrlen Lib "libc" Alias "strlen" CDecl (
     ByVal value As String
-) As Long
+) As UInt64
 ```
 
-Declares are real callable symbols. A `Private Declare` is visible to code in the same module; a `Public Declare` is also available to importing modules according to normal module visibility rules. Declares can live in `.valo`, `.bas`, or `.cls` modules.
+Declares are real callable symbols. A `Private Declare` is visible to code in the same module; a `Public Declare` is also available to importing modules according to normal module visibility rules. Declares live in `.valo` modules.
 
 `Declare Function` can be used as an expression when the return value matters, or as a statement when the native return value is intentionally ignored:
 
@@ -46,13 +46,13 @@ Loaded libraries and resolved symbols are cached for the interpreter lifetime. L
 
 Supported scalar marshaling:
 
-- `Byte`, `Integer` (16-bit), `Long` (32-bit), `LongLong` (64-bit), `LongPtr` (pointer-sized)
+- `Byte`/`UInt8`, `Short`/`Int16`, `Integer`/`Int32`, `Long`/`Int64`, `UInt32`, `UInt64`, `Ptr` (pointer-sized)
 - `Single`, `Double`, `Currency`
 - `Boolean`
 - `String` by value as a NUL-terminated ANSI/UTF-8 byte string
 - `Variant` numeric/string coercion where the target parameter type is known
 
-ByRef parameters pass mutable native pointers for supported scalar types and write the value back after the call. `LongPtr` maps to a pointer-sized runtime value: 32-bit on 32-bit targets and 64-bit on 64-bit targets. Pointer conversions that cannot be represented on the current target are rejected as marshaling diagnostics.
+ByRef parameters pass mutable native pointers for supported scalar types and write the value back after the call. `Ptr` maps to a pointer-sized runtime value: 32-bit on 32-bit targets and 64-bit on 64-bit targets. Pointer conversions that cannot be represented on the current target are rejected as marshaling diagnostics.
 
 ByVal strings are converted to temporary NUL-terminated byte strings and kept alive until the native call returns. Interior NUL bytes are rejected because C string APIs would otherwise observe a truncated value.
 
@@ -62,12 +62,12 @@ Simple blittable arrays and structures are packed for native calls where practic
 
 Valo provides the `VarPtr`, `StrPtr`, and `ObjPtr` builtins for interfacing with raw memory pointers, as well as `AddressOf` for generating native function pointers for callbacks.
 
-`StrPtr` accepts string variables and String-compatible temporary expressions. Temporary strings are stored by the interpreter until the current statement completes, matching common VBA BSTR temporary behavior without returning dangling pointers.
+`StrPtr` accepts string variables and String-compatible temporary expressions. Temporary strings are stored by the interpreter until the current statement completes, keeping their buffers alive for the statement.
 
 ```vb
-Declare PtrSafe Function EnumWindows Lib "user32" (ByVal lpEnumFunc As LongPtr, ByVal lParam As LongPtr) As Long
+Declare Function EnumWindows Lib "user32" (ByVal lpEnumFunc As Ptr, ByVal lParam As Ptr) As Int32
 
-Function MyEnumWindowsProc(ByVal hwnd As LongPtr, ByVal lParam As LongPtr) As Long
+Function MyEnumWindowsProc(ByVal hwnd As Ptr, ByVal lParam As Ptr) As Int32
     Console.WriteLine("Got hwnd: " & Hex(hwnd))
     MyEnumWindowsProc = 1
 End Function
@@ -78,14 +78,16 @@ Sub Main()
 End Sub
 ```
 
-Callback trampolines remain owned by the interpreter for the runtime lifetime. Callback parameters currently must be `ByVal` blittable scalar or pointer types; use `ByVal LongPtr` for native handles and pointer payloads. Callback failures are converted into runtime diagnostics and default native return values instead of unwinding across the FFI boundary.
+Callback trampolines remain owned by the interpreter for the runtime lifetime. Callback parameters currently must be `ByVal` blittable scalar or pointer types; use `ByVal Ptr` for native handles and pointer payloads. Callback failures are converted into runtime diagnostics and default native return values instead of unwinding across the FFI boundary.
 
 On Android/Termux ARM64, Valo exports one process-level `__clear_cache` compatibility shim for libffi closure preparation. The shim is defined only once, in the core crate, to avoid duplicate-symbol linker failures.
 
 ## Safety
 
+Typed `Pointer(Of T)`, `Unsafe`, ownership and lifetime checking are planned. The current experimental pointer helpers do not provide memory-safety guarantees. The opening strlen example assumes a 64-bit target; its C return type is size_t. Use target-correct declarations when porting.
+
 Native calls are inherently unsafe at the ABI boundary. Valo isolates user-facing failures into diagnostics for missing libraries, missing symbols, unsupported marshaling, callback initialization failure, arity mismatches, pointer-safety issues, executable trampoline failure, and unsupported calling conventions. Rust panic output is not part of the user-facing FFI surface.
 
 ## Limitations
 
-The current runtime uses `libffi` for mixed native signatures. Complex COM/OLE Automation `Variant` pointers, object-pointer marshaling, mutable string buffers, nested non-blittable structures, and ByRef callback parameters are intentionally not exposed until the runtime has safe ownership rules for those cases.
+The current runtime uses `libffi` for mixed native signatures. COM/OLE Automation marshalling is removed. Unsupported forms include object-pointer marshaling, mutable string buffers, nested non-blittable structures, and ByRef callback parameters are intentionally not exposed by the current interpreter.

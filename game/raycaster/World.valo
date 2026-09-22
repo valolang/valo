@@ -48,8 +48,8 @@ Public Enum Material
     Glass = 5
 End Enum
 
-Public Const MAP_WIDTH As Long = 24
-Public Const MAP_HEIGHT As Long = 24
+Public Const MAP_WIDTH As Int32 = 24
+Public Const MAP_HEIGHT As Int32 = 24
 
 ' The grid, one cell per Long, laid out row by row.
 '
@@ -58,7 +58,7 @@ Public Const MAP_HEIGHT As Long = 24
 ' dimension costs.
 ' Sized 24 * 24 - 1. Written as a literal because an array bound has to be one:
 ' `Cells(0 To MAP_WIDTH * MAP_HEIGHT - 1)` is rejected.
-Private Cells(0 To 575) As Long
+Private Cells(0 To 575) As Int32
 Private Built As Boolean
 
 ' The map, written as one string per row so it can be read as a picture.
@@ -97,16 +97,16 @@ Public Sub Build()
         Exit Sub
     End If
 
-    Dim y As Long = 0
+    Dim y As Int32 = 0
     Dim row As Variant
     For Each row In Rows_()
-        Dim x As Long
+        Dim x As Int32
         For x = 0 To MAP_WIDTH - 1
             Dim cell As String = "1"
             If x < Len(row) Then
                 cell = Mid(row, x + 1, 1)
             End If
-            Dim value As Long = 0
+            Dim value As Int32 = 0
             If cell <> "." Then
                 value = CLng(cell)
             End If
@@ -119,14 +119,14 @@ End Sub
 
 ' The material at a cell. Anything outside the grid is solid, so a ray that
 ' escapes still stops.
-Public Function At(ByVal x As Long, ByVal y As Long) As Long
+Public Function At(ByVal x As Int32, ByVal y As Int32) As Int32
     If x < 0 Or y < 0 Or x >= MAP_WIDTH Or y >= MAP_HEIGHT Then
         Return Material.Brick
     End If
     Return Cells(y * MAP_WIDTH + x)
 End Function
 
-Public Function IsWall(ByVal x As Long, ByVal y As Long) As Boolean
+Public Function IsWall(ByVal x As Int32, ByVal y As Int32) As Boolean
     Return At(x, y) <> Material.Open_
 End Function
 
@@ -152,25 +152,25 @@ End Function
 ' -- Colour ---------------------------------------------------------------
 
 ' Packs a colour into one Long, so a material is a single value to pass around.
-Public Function PackColor(ByVal red As Long, ByVal green As Long, ByVal blue As Long) As Long
+Public Function PackColor(ByVal red As Int32, ByVal green As Int32, ByVal blue As Int32) As Int32
     Return (red << 16) Or (green << 8) Or blue
 End Function
 
-Public Function RedOf(ByVal color As Long) As Long
+Public Function RedOf(ByVal color As Int32) As Int32
     Return (color >> 16) And 255
 End Function
 
-Public Function GreenOf(ByVal color As Long) As Long
+Public Function GreenOf(ByVal color As Int32) As Int32
     Return (color >> 8) And 255
 End Function
 
-Public Function BlueOf(ByVal color As Long) As Long
+Public Function BlueOf(ByVal color As Int32) As Int32
     Return color And 255
 End Function
 
 ' The base colour of a material.
-Public Function ColorOf(ByVal material As Long) As Long
-    Select Case material
+Public Function ColorOf(ByVal surface As Int32) As Int32
+    Select Case surface
         Case Material.Brick
             Return PackColor(168, 68, 52)
         Case Material.Stone
@@ -187,7 +187,7 @@ Public Function ColorOf(ByVal material As Long) As Long
 End Function
 
 ' Scales a colour by a brightness between 0 and 1.
-Public Function Shade(ByVal color As Long, ByVal light As Double) As Long
+Public Function Shade(ByVal color As Int32, ByVal light As Double) As Int32
     If light < 0 Then
         light = 0
     ElseIf light > 1 Then

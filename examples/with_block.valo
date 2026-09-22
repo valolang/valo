@@ -2,13 +2,16 @@ Class User
     Private mName As String
     Public Age As Integer
 
-    Public Property Get Name() As String
-        Return Me.mName
+    Public Property Name() As String
+        Get
+            Return Me.mName
+        End Get
+        Set(ByVal value As String)
+            Me.mName = value
+        End Set
     End Property
 
-    Public Property Let Name(ByVal value As String)
-        Me.mName = value
-    End Property
+
 
     Public Sub Birthday()
         Me.Age = Me.Age + 1

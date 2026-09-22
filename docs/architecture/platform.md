@@ -1,6 +1,6 @@
 # Platform Architecture
 
-Valo's long-term platform direction is "Modern Basic outside Office": a standalone runtime, package ecosystem, tooling surface, and interoperability layer for Basic-family code.
+Valo targets native systems programming with VB.NET-inspired syntax, a package ecosystem and explicit native interoperability.
 
 ## Package Identity
 
@@ -12,7 +12,6 @@ name = "sample"
 version = "0.1.0"
 entrypoint = "src/main.valo"
 authors = ["Valo Developer"]
-compatibility = "mixed"
 target_platforms = ["windows", "linux", "macos"]
 
 [dependencies]
@@ -34,7 +33,7 @@ The first HIR layer is a project index, not bytecode. It records module ownershi
 
 ## Namespaces
 
-`Namespace ... End Namespace` is the syntax foundation for decoupling logical identity from filenames. Native Valo packages should use namespaces for public APIs. VBA compatibility imports can continue using file/module names to preserve migration behavior.
+`Namespace ... End Namespace` is the syntax foundation for decoupling logical identity from filenames. Native Valo packages should use namespaces for public APIs.
 
 ## Runtime Services
 
@@ -44,13 +43,6 @@ Standard library domains should move behind runtime services instead of living p
 
 Delegates, lambdas, event handlers, native callbacks, async continuations, and collection callbacks all need a shared runtime shape. Valo now has callable metadata types that are independent of AST nodes; syntax and execution lowering are deferred until the semantic model can resolve callable references cleanly.
 
-## COM Interop
+## Platform libraries
 
-COM is Windows-native. Valo should not fake cross-platform COM. The planned approach is:
-
-1. Late-bound `ComObject`/`IDispatch` support.
-2. `Import COM` syntax and type-library mapping into namespaces.
-3. Generated wrappers for constants, enums, interfaces, and coclasses.
-4. Explicit ownership for `BSTR`, `SAFEARRAY`, `VARIANT`, and `IUnknown`.
-
-The current codebase contains architecture types for COM import and type-library metadata only; it does not claim COM runtime execution yet.
+COM is outside the core language. A future Windows library can provide explicit bindings, without adding language intrinsics or changing the core value model.

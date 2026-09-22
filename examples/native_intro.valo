@@ -1,0 +1,9 @@
+Module Program
+    Sub Main()
+        Dim Numbers = Array(1, 2, 3, 4, 5)
+        Dim Number As Integer
+        For Each Number In Numbers
+            Console.WriteLine(Number * Number)
+        Next
+    End Sub
+End Module

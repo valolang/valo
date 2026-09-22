@@ -3,7 +3,7 @@ Function MyCallback(ByVal a As Long, ByVal b As Long) As Long
 End Function
 
 Sub Main()
-    Dim ptr As LongPtr
+    Dim ptr As Ptr
     ptr = AddressOf MyCallback
     Console.WriteLine(ptr <> 0)
 End Sub

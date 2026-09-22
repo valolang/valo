@@ -81,6 +81,34 @@ pub fn eval_binary(
         };
     }
 
+    use crate::frontend::semantics::arithmetic::{ArithmeticOp, signature};
+    let arithmetic = match op {
+        RuntimeBinaryOp::Add => Some(ArithmeticOp::Add),
+        RuntimeBinaryOp::Subtract => Some(ArithmeticOp::Subtract),
+        RuntimeBinaryOp::Multiply => Some(ArithmeticOp::Multiply),
+        RuntimeBinaryOp::Divide => Some(ArithmeticOp::Divide),
+        RuntimeBinaryOp::IntegerDivide => Some(ArithmeticOp::IntegerDivide),
+        RuntimeBinaryOp::Modulo => Some(ArithmeticOp::Modulo),
+        RuntimeBinaryOp::Exponent => Some(ArithmeticOp::Power),
+        _ => None,
+    };
+    if let Some(operation) = arithmetic {
+        if let Some(selected) = signature(operation, &left.type_name(), &right.type_name()) {
+            return crate::runtime::numeric::typed_arithmetic(
+                left, right, operation, &selected, span,
+            );
+        }
+        if crate::runtime::numeric::is_numeric_value(&left)
+            && crate::runtime::numeric::is_numeric_value(&right)
+        {
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                "Arithmetic operands have no common numeric type; use an explicit conversion",
+                Some(span),
+            ));
+        }
+    }
+
     match op {
         RuntimeBinaryOp::Add => {
             math_binary(left, right, span, |a, b| a.wrapping_add(b), |a, b| a + b)

@@ -18,7 +18,7 @@ End Class
 
 Sub Main()
     Dim known As New Customer With { .Name = "Ada" }
-    Set known.Home = New Address With { .City = "London", .Country = "UK" }
+    known.Home = New Address With { .City = "London", .Country = "UK" }
 
     Dim unknown As New Customer With { .Name = "Grace" }
 

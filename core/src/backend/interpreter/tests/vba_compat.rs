@@ -11,13 +11,16 @@ fn property_let_allows_omitted_byval_like_vba() {
 Class User
     Private m_Name As String
 
-    Public Property Let Name(value As String)
+    Public Property Name() As String
+        Get
+        Name = m_Name
+        End Get
+        Set(value As String)
         m_Name = value
+        End Set
     End Property
 
-    Public Property Get Name() As String
-        Name = m_Name
-    End Property
+
 End Class
 
 Sub Main()
@@ -35,12 +38,12 @@ End Sub
 fn declare_parameters_accept_vba_keyword_like_names() {
     let program = parse_and_validate(
         r#"
-Private Declare PtrSafe Function MFStartup Lib "mfplat" (
+Private Declare Function MFStartup Lib "mfplat" (
     ByVal Version As Long,
     ByVal dwFlags As Long
 ) As Long
 
-Private Declare PtrSafe Function KeywordNames Lib "kernel32" (
+Private Declare Function KeywordNames Lib "kernel32" (
     ByVal String As Long,
     ByVal Error As Long,
     ByVal Lib As Long
@@ -113,15 +116,15 @@ fn new_without_parentheses_and_exponent_work() {
         End Class
 
         Function Make() As Vec2
-            Set Make = New Vec2
+            Make = New Vec2
         End Function
 
         Sub Main()
             Dim v As Vec2
-            Set v = New Vec2
+            v = New Vec2
             v.X = 2 ^ 3
             Console.WriteLine(v.X)
-            Set v = Make
+            v = Make
             Console.WriteLine(TypeName(v))
         End Sub
     "#;
@@ -196,14 +199,15 @@ fn default_property_group_supports_indexed_assignment() {
     let source = r#"
         Class ListBox
             Private saved As String
-            Public Property Get Item(ByVal index As Integer) As String
-            Attribute Item.VB_UserMemId = 0
+            Public Default Property Item(ByVal index As Integer) As String
+                Get
                 Item = saved
-            End Property
-            Public Property Let Item(ByVal index As Integer, ByVal value As String)
-            Attribute Item.VB_UserMemId = 0
+                End Get
+                Set(ByVal value As String)
                 saved = value
+                End Set
             End Property
+
         End Class
 
         Sub Main()
@@ -219,7 +223,7 @@ fn default_property_group_supports_indexed_assignment() {
 }
 
 #[test]
-fn ansi_and_utf16_imports_decode() {
+fn utf8_and_utf16_imports_decode() {
     let unique = format!(
         "valo_vba_compat_{}",
         std::time::SystemTime::now()
@@ -230,8 +234,8 @@ fn ansi_and_utf16_imports_decode() {
     let dir = std::env::temp_dir().join(unique);
     fs::create_dir_all(&dir).unwrap();
     let main_path = dir.join("main.valo");
-    let ansi_path = dir.join("Ansi.bas");
-    let utf16_path = dir.join("Wide.bas");
+    let ansi_path = dir.join("Ansi.valo");
+    let utf16_path = dir.join("Wide.valo");
 
     fs::write(
         &main_path,
@@ -240,7 +244,7 @@ fn ansi_and_utf16_imports_decode() {
     .unwrap();
     fs::write(
         &ansi_path,
-        b"Function AnsiText() As String\nAnsiText = \"na\xefve\"\nEnd Function\n",
+        b"Function AnsiText() As String\nAnsiText = \"na\xc3\xafve\"\nEnd Function\n",
     )
     .unwrap();
     let mut wide = vec![0xFF, 0xFE];
@@ -412,162 +416,6 @@ fn local_variables_shadow_vba_type_library_constants() {
     validate(&program).unwrap();
     let output = run(&program).unwrap();
     assert_eq!(output, vec!["41", "1"]);
-}
-
-#[test]
-fn microsoft_vba_function_index_names_validate() {
-    parse_and_validate(
-        r#"
-Function WasMissing(Optional value As Variant) As Boolean
-    WasMissing = IsMissing(value)
-End Function
-
-Sub Main()
-    Dim v As Variant
-    Dim values As Variant
-    values = Array(-100, 200, 300)
-    v = Abs(-1)
-    v = Array(1, 2)
-    v = Asc("A")
-    v = AscW("A")
-    v = Atn(1)
-    v = CBool(1)
-    v = CByte(1)
-    v = CCur(1)
-    v = CDate(1)
-    v = CDbl(1)
-    v = CDec(1)
-    v = Choose(1, "a", "b")
-    v = Chr(65)
-    v = ChrW(65)
-    v = CInt(1)
-    v = CLng(1)
-    v = CLngLng(1)
-    v = CLngPtr(1)
-    v = Command()
-    v = Cos(0)
-    v = CreateObject("Scripting.Dictionary")
-    v = CStr(1)
-    v = CVar(1)
-    v = CVErr(5)
-    v = Date
-    v = DateAdd("d", 1, Date)
-    v = DateDiff("d", Date, Date)
-    v = DatePart("yyyy", Date)
-    v = DateSerial(2024, 1, 1)
-    v = DateValue("2024-01-01")
-    v = Day(Date)
-    v = DDB(1000, 100, 5, 1)
-    v = Dir()
-    v = DoEvents()
-    v = Environ("PATH")
-    v = EOF(1)
-    v = Error(5)
-    v = Exp(1)
-    v = FileAttr(1, 1)
-    v = FileDateTime("missing.txt")
-    v = FileLen("missing.txt")
-    v = Filter(values, "0")
-    v = Fix(-1.2)
-    v = Format(1, "0.00")
-    v = FormatCurrency(1)
-    v = FormatDateTime(Date)
-    v = FormatNumber(1)
-    v = FormatPercent(0.5)
-    v = FreeFile()
-    v = FV(0.1, 2, -10)
-    v = GetAllSettings("app", "section")
-    v = GetAttr(".")
-    v = GetObject("missing", "Class")
-    v = GetSetting("app", "section", "key", "default")
-    v = Hex(10)
-    v = Hour(Time)
-    v = IIf(True, 1, 2)
-    v = IMEStatus()
-    v = Input(1, 1)
-    v = InputBox("prompt")
-    v = InStr("abc", "b")
-    v = InStrRev("abcabc", "b")
-    v = Int(-1.2)
-    v = IPmt(0.1, 1, 12, 100)
-    v = IRR(values)
-    v = IsArray(values)
-    v = IsDate(Date)
-    v = IsEmpty(Empty)
-    v = IsError(CVErr(1))
-    v = WasMissing()
-    v = IsNull(Null)
-    v = IsNumeric("1")
-    v = IsObject(Nothing)
-    v = Join(values)
-    v = LBound(values)
-    v = LCase("A")
-    v = Left("abc", 1)
-    v = Len("abc")
-    v = LenB("abc")
-    v = Loc(1)
-    v = Log(1)
-    v = LTrim(" x")
-    v = MacID("TEXT")
-    v = MacScript("return 1")
-    v = Mid("abc", 2)
-    v = Minute(Time)
-    v = MIRR(values, 0.1, 0.1)
-    v = Month(Date)
-    v = MonthName(1)
-    v = MsgBox("prompt")
-    v = Now
-    v = NPer(0.1, -10, 100)
-    v = NPV(0.1, values)
-    v = Oct(8)
-    v = Partition(10, 0, 100, 10)
-    v = Pmt(0.1, 12, 100)
-    v = PPmt(0.1, 1, 12, 100)
-    v = PV(0.1, 12, -10)
-    v = QBColor(1)
-    v = Rate(12, -10, 100)
-    v = Replace("aba", "a", "x")
-    v = RGB(1, 2, 3)
-    v = Right("abc", 1)
-    v = Rnd()
-    v = Round(1.25, 1)
-    v = RTrim("x ")
-    v = Second(Time)
-    v = Seek(1)
-    v = Sgn(-1)
-    v = Shell("echo valo")
-    v = Sin(0)
-    v = SLN(100, 10, 5)
-    v = Space(2)
-    v = Spc(2)
-    v = Split("a b", " ")
-    v = Sqr(4)
-    v = Str(1)
-    v = StrComp("a", "b")
-    v = StrConv("hello world", 3)
-    v = String(2, "x")
-    v = StrReverse("abc")
-    v = Switch(True, 1)
-    v = SYD(100, 10, 5, 1)
-    v = Tab(2)
-    v = Tan(0)
-    v = Time
-    v = TimeSerial(1, 2, 3)
-    v = TimeValue("01:02:03")
-    v = Timer
-    v = Trim(" x ")
-    v = TypeName(v)
-    v = UBound(values)
-    v = UCase("a")
-    v = Val("1")
-    v = VarType(v)
-    v = Weekday(Date)
-    v = WeekdayName(1)
-    v = Year(Date)
-End Sub
-"#,
-    )
-    .unwrap();
 }
 
 #[test]
@@ -872,7 +720,7 @@ fn vba_binary_get_put_scalars_work() {
         r#"
 Sub Main()
     Dim b As Byte
-    Dim n As Long
+    Dim n As Int32
     Dim d As Double
     Dim flag As Boolean
     b = 7
@@ -1177,46 +1025,17 @@ Sub Main()
     Dim p As New Player()
     p.Name = "Ada"
     Dim obj As Object
-    Set obj = p
+    obj = p
     Console.WriteLine(IsObject(obj))
     Console.WriteLine(TypeName(obj))
     Console.WriteLine(TypeOf obj Is Player)
-    Set obj = Nothing
+    obj = Nothing
     Console.WriteLine(obj Is Nothing)
 End Sub
 "#,
     );
 
     assert_eq!(output, vec!["True", "Player", "True", "True"]);
-}
-
-#[test]
-fn createobject_type_checks_as_object() {
-    let source = r#"
-Sub Main()
-    Dim obj As Object
-    Set obj = CreateObject("Scripting.Dictionary", "")
-End Sub
-"#;
-    let program = Parser::parse_source(source, crate::runtime::FileId::default()).unwrap();
-    validate(&program).unwrap();
-}
-
-#[test]
-fn createobject_remote_activation_reports_compatibility_diagnostic() {
-    let error = crate::backend::interpreter::tests::helpers::source_error(
-        r#"
-Sub Main()
-    Dim obj As Object
-    Set obj = CreateObject("Scripting.Dictionary", "REMOTEHOST")
-End Sub
-"#,
-    );
-
-    assert!(error.contains(
-        "Compatibility diagnostic: CreateObject remote server activation is not supported"
-    ));
-    assert!(error.contains("omit the server name"));
 }
 
 #[test]
@@ -1232,27 +1051,12 @@ End Sub
     validate(&program).unwrap();
 }
 
-#[cfg(not(windows))]
 #[test]
-fn createobject_reports_clear_non_windows_runtime_error() {
-    let error = crate::backend::interpreter::tests::helpers::source_error(
-        r#"
-Sub Main()
-    Dim obj As Object
-    Set obj = CreateObject("Scripting.Dictionary")
-End Sub
-"#,
-    );
-
-    assert!(error.contains("CreateObject is only available on Windows COM/OLE Automation hosts"));
-}
-
-#[test]
-fn imported_bas_optional_and_callable_resolution_work() {
+fn imported_module_optional_and_callable_resolution_work() {
     let dir = temp_test_path("import_optional");
     std::fs::create_dir(&dir).unwrap();
     let main = dir.join("main.valo");
-    let module = dir.join("Helpers.bas");
+    let module = dir.join("Helpers.valo");
     std::fs::write(
         &main,
         r#"
@@ -1288,11 +1092,11 @@ End Sub
 }
 
 #[test]
-fn imported_cls_method_can_call_same_class_method() {
+fn imported_class_method_can_call_same_class_method() {
     let dir = temp_test_path("import_cls_calls");
     std::fs::create_dir(&dir).unwrap();
     let main = dir.join("main.valo");
-    let class = dir.join("Worker.cls");
+    let class = dir.join("Worker.valo");
     std::fs::write(
         &main,
         r#"
@@ -1308,10 +1112,7 @@ End Sub
     std::fs::write(
         &class,
         r#"
-VERSION 1.0 CLASS
-BEGIN
-END
-Attribute VB_Name = "Worker"
+Class Worker
 
 Public Function Run() As String
     Run = Helper()
@@ -1320,6 +1121,7 @@ End Function
 Private Function Helper() As String
     Helper = "called"
 End Function
+End Class
 "#,
     )
     .unwrap();
@@ -1452,82 +1254,155 @@ End Sub
     assert!(error.contains("File number must be between 1 and 511"));
 }
 
-#[cfg(windows)]
 #[test]
-fn test_createobject_fso() {
-    let output = run_source(
+fn existing_runtime_catalog_names_validate() {
+    parse_and_validate(
         r#"
-Sub Main()
-    Dim fso As Object
-    Set fso = CreateObject("Scripting.FileSystemObject")
-    Console.WriteLine(TypeName(fso))
-End Sub
-"#,
-    );
-    assert_eq!(output, vec!["Scripting.FileSystemObject"]);
-}
+Function WasMissing(Optional value As Variant) As Boolean
+    WasMissing = IsMissing(value)
+End Function
 
-#[cfg(windows)]
-#[test]
-fn test_fso_getfolder_returned_object_type() {
-    let output = run_source(
-        r#"
 Sub Main()
-    Dim fso As Object
-    Set fso = CreateObject("Scripting.FileSystemObject")
-    Dim folder As Object
-    Set folder = fso.GetFolder(".")
-    Console.WriteLine(TypeName(folder))
+    Dim v As Variant
+    Dim values As Variant
+    values = Array(-100, 200, 300)
+    v = Abs(-1)
+    v = Array(1, 2)
+    v = Asc("A")
+    v = AscW("A")
+    v = Atn(1)
+    v = CBool(1)
+    v = CByte(1)
+    v = CCur(1)
+    v = CDate(1)
+    v = CDbl(1)
+    v = CDec(1)
+    v = Choose(1, "a", "b")
+    v = Chr(65)
+    v = ChrW(65)
+    v = CInt(1)
+    v = CLng(1)
+    v = CLngLng(1)
+    v = CLngPtr(1)
+    v = Command()
+    v = Cos(0)
+    v = CStr(1)
+    v = CVar(1)
+    v = CVErr(5)
+    v = Date
+    v = DateAdd("d", 1, Date)
+    v = DateDiff("d", Date, Date)
+    v = DatePart("yyyy", Date)
+    v = DateSerial(2024, 1, 1)
+    v = DateValue("2024-01-01")
+    v = Day(Date)
+    v = DDB(1000, 100, 5, 1)
+    v = Dir()
+    v = Environ("PATH")
+    v = EOF(1)
+    v = Error(5)
+    v = Exp(1)
+    v = FileAttr(1, 1)
+    v = FileDateTime("missing.txt")
+    v = FileLen("missing.txt")
+    v = Filter(values, "0")
+    v = Fix(-1.2)
+    v = Format(1, "0.00")
+    v = FormatCurrency(1)
+    v = FormatDateTime(Date)
+    v = FormatNumber(1)
+    v = FormatPercent(0.5)
+    v = FreeFile()
+    v = FV(0.1, 2, -10)
+    v = GetAllSettings("app", "section")
+    v = GetAttr(".")
+    v = GetSetting("app", "section", "key", "default")
+    v = Hex(10)
+    v = Hour(Time)
+    v = IIf(True, 1, 2)
+    v = IMEStatus()
+    v = Input(1, 1)
+    v = InputBox("prompt")
+    v = InStr("abc", "b")
+    v = InStrRev("abcabc", "b")
+    v = Int(-1.2)
+    v = IPmt(0.1, 1, 12, 100)
+    v = IRR(values)
+    v = IsArray(values)
+    v = IsDate(Date)
+    v = IsEmpty(Empty)
+    v = IsError(CVErr(1))
+    v = WasMissing()
+    v = IsNull(Null)
+    v = IsNumeric("1")
+    v = IsObject(Nothing)
+    v = Join(values)
+    v = LBound(values)
+    v = LCase("A")
+    v = Left("abc", 1)
+    v = Len("abc")
+    v = LenB("abc")
+    v = Loc(1)
+    v = Log(1)
+    v = LTrim(" x")
+    v = MacID("TEXT")
+    v = MacScript("return 1")
+    v = Mid("abc", 2)
+    v = Minute(Time)
+    v = MIRR(values, 0.1, 0.1)
+    v = Month(Date)
+    v = MonthName(1)
+    v = MsgBox("prompt")
+    v = Now
+    v = NPer(0.1, -10, 100)
+    v = NPV(0.1, values)
+    v = Oct(8)
+    v = Partition(10, 0, 100, 10)
+    v = Pmt(0.1, 12, 100)
+    v = PPmt(0.1, 1, 12, 100)
+    v = PV(0.1, 12, -10)
+    v = QBColor(1)
+    v = Rate(12, -10, 100)
+    v = Replace("aba", "a", "x")
+    v = RGB(1, 2, 3)
+    v = Right("abc", 1)
+    v = Rnd()
+    v = Round(1.25, 1)
+    v = RTrim("x ")
+    v = Second(Time)
+    v = Seek(1)
+    v = Sgn(-1)
+    v = Shell("echo valo")
+    v = Sin(0)
+    v = SLN(100, 10, 5)
+    v = Space(2)
+    v = Spc(2)
+    v = Split("a b", " ")
+    v = Sqr(4)
+    v = Str(1)
+    v = StrComp("a", "b")
+    v = StrConv("hello world", 3)
+    v = String(2, "x")
+    v = StrReverse("abc")
+    v = Switch(True, 1)
+    v = SYD(100, 10, 5, 1)
+    v = Tab(2)
+    v = Tan(0)
+    v = Time
+    v = TimeSerial(1, 2, 3)
+    v = TimeValue("01:02:03")
+    v = Timer
+    v = Trim(" x ")
+    v = TypeName(v)
+    v = UBound(values)
+    v = UCase("a")
+    v = Val("1")
+    v = VarType(v)
+    v = Weekday(Date)
+    v = WeekdayName(1)
+    v = Year(Date)
 End Sub
 "#,
-    );
-    assert_eq!(output, vec!["IFolder"]);
-}
-
-#[cfg(windows)]
-#[test]
-fn test_fso_enumeration() {
-    let output = run_source(
-        r#"
-Sub Main()
-    Dim fso As Object
-    Set fso = CreateObject("Scripting.FileSystemObject")
-    Dim folder As Object
-    Set folder = fso.GetFolder("C:\Windows")
-    
-    Dim count As Integer
-    count = 0
-    Dim subf As Object
-    For Each subf In folder.SubFolders
-        count = count + 1
-        If count >= 1 Then Exit For
-    Next
-    
-    if count > 0 then
-        Console.WriteLine("Enumerate OK")
-    else
-        Console.WriteLine("No subfolders found")
-    end if
-End Sub
-"#,
-    );
-    assert!(output[0] == "Enumerate OK" || output[0] == "No subfolders found");
-}
-
-#[cfg(windows)]
-#[test]
-fn test_com_dictionary() {
-    let output = run_source(
-        r#"
-Sub Main()
-    Dim dict As Object
-    Set dict = CreateObject("Scripting.Dictionary")
-    dict.Add "a", 1
-    dict.Add "b", 2
-    Console.WriteLine(dict.Item("a"))
-    Console.WriteLine(dict.Exists("b"))
-End Sub
-"#,
-    );
-    assert_eq!(output, vec!["1", "True"]);
+    )
+    .unwrap();
 }

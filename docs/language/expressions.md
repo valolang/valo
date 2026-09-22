@@ -1,8 +1,8 @@
 # Expressions
 
-Valo follows VBA-style numeric expression rules for unary operators and exponentiation.
+Valo preserves Basic-family operator syntax. Numeric coercion, overflow and radix-literal rules are still being migrated; see the [audit](../architecture/native-migration.md).
 
-Unary `+` and `-` are valid for numeric values, including `Integer`, `Long`, `LongLong`, `Single`, `Double`, `Currency`, `Decimal`, `Date`, numeric literals with VBA suffixes, and hexadecimal or octal integer literals after normal literal coercion.
+Unary `+` and `-` are valid for numeric values, including `Integer`, `Long`, `LongLong`, `Single`, `Double`, `Currency`, `Decimal`, `Date`, numeric literals with type suffixes, and hexadecimal or octal integer literals after normal literal coercion.
 
 ```vb
 Debug.Print -10#
@@ -22,7 +22,7 @@ Debug.Print -(x + y)
 Debug.Print -Cos(0#)
 ```
 
-Exponentiation binds tighter than unary sign, matching VBA's practical behavior:
+Exponentiation binds tighter than unary sign, as in VB.NET:
 
 ```vb
 Debug.Print -2 ^ 2    ' -4

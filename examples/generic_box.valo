@@ -4,7 +4,7 @@ End Class
 
 Sub Main()
     Dim box As Box(Of String)
-    Set box = New Box(Of String)()
+    box = New Box(Of String)()
 
     box.Value = "hello"
     Debug.Print box.Value

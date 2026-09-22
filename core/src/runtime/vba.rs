@@ -16,7 +16,7 @@ pub struct VbaConstant {
 impl VbaConstant {
     pub fn type_name(self) -> TypeName {
         match self.value {
-            VbaConstantValue::Integer(_) => TypeName::Integer,
+            VbaConstantValue::Integer(_) => TypeName::Int16,
             VbaConstantValue::String(_) => TypeName::String,
         }
     }

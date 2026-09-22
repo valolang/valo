@@ -7,12 +7,12 @@ mod tests {
     #[test]
     fn test_multiline_declare_parsing() {
         let source = r#"
-Declare PtrSafe Function MessageBoxA Lib "user32" Alias "MessageBoxA" ( _
-    ByVal hwnd As LongPtr, _
+Declare Function MessageBoxA Lib "user32" Alias "MessageBoxA" ( _
+    ByVal hwnd As Ptr, _
     ByVal lpText As String, _
     ByVal lpCaption As String, _
-    ByVal uType As Long _
-) As Long
+    ByVal uType As Int32 _
+) As Int32
 "#;
         let tokens = Lexer::new(source).tokenize().unwrap();
         let mut parser = Parser::new(tokens, FileId::default());
@@ -23,7 +23,7 @@ Declare PtrSafe Function MessageBoxA Lib "user32" Alias "MessageBoxA" ( _
     #[test]
     fn test_declare_symbol_registration() {
         let source = r#"
-Declare PtrSafe Function puts Lib "libc" CDecl (ByVal text As String) As Long
+Declare Function puts Lib "libc" CDecl (ByVal text As String) As Int32
 Sub Main()
     Call puts("Hello")
 End Sub
@@ -35,9 +35,9 @@ End Sub
     #[test]
     fn test_declare_parameters_accept_vba_line_breaks_without_continuation() {
         let source = r#"
-Private Declare PtrSafe Function puts Lib "libc" CDecl (
+Private Declare Function puts Lib "libc" CDecl (
 ByVal value As String
-) As Long
+) As Int32
 
 Private Sub Main()
     puts("Hello")

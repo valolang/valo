@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::runtime::TypeName;
+use crate::frontend::type_model::TypeName;
 use crate::{GenericParamConstraint, PassingMode, Visibility};
 
 #[derive(Debug, Clone)]

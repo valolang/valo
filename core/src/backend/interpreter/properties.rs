@@ -4,10 +4,10 @@ use crate::{ClassProperty, Expr, PropertyKind, Stmt};
 use std::rc::Rc;
 
 use super::frame::Variable;
+use super::interpreter::ScopeName;
 use super::objects::ensure_object;
 use super::values::key;
 use super::{ControlFlow, Frame, Interpreter};
-use super::interpreter::ScopeName;
 
 impl Interpreter {
     pub(crate) fn call_record_property_get(
@@ -71,13 +71,14 @@ impl Interpreter {
                 &accessor.name,
                 return_type.clone(),
                 None,
-                self.option_base,
                 accessor.span,
                 self,
             )?;
         }
-        self.scope_stack
-            .push(ScopeName::Text(format!("{}.{}", structure.name, accessor.name)));
+        self.scope_stack.push(ScopeName::Text(format!(
+            "{}.{}",
+            structure.name, accessor.name
+        )));
         if accessor.is_iterator {
             frame.set_yield_mode();
         }
@@ -102,8 +103,8 @@ impl Interpreter {
                         element_type: return_type,
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
-                            lower: self.option_base,
-                            upper: self.option_base + len - 1,
+                            lower: 0,
+                            upper: len - 1,
                         }],
                         allocated: true,
                         dynamic: true,
@@ -174,16 +175,10 @@ impl Interpreter {
                 Some(span),
             )
         })?;
-        let accessor = if matches!(value, Value::Object(_) | Value::Nothing) {
-            property_sig.let_set()
-        } else {
-            property_sig.let_.first()
-        }
-        .cloned()
-        .ok_or_else(|| {
+        let accessor = property_sig.writer().cloned().ok_or_else(|| {
             Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                format!("Property '{}' has no Let or Set accessor", property),
+                format!("Property '{}' has no Set accessor", property),
                 Some(span),
             )
         })?;
@@ -206,17 +201,12 @@ impl Interpreter {
             &self.types,
             &self.interfaces,
         )?;
-        frame.declare(
-            &param.name,
-            param.ty.clone(),
-            None,
-            self.option_base,
-            param.span,
-            self,
-        )?;
+        frame.declare(&param.name, param.ty.clone(), None, param.span, self)?;
         let _ = frame.assign(&param.name, value, span)?;
-        self.scope_stack
-            .push(ScopeName::Text(format!("{}.{}", structure.name, accessor.name)));
+        self.scope_stack.push(ScopeName::Text(format!(
+            "{}.{}",
+            structure.name, accessor.name
+        )));
         let result = self.exec_block(&accessor.body, &mut frame);
         self.scope_stack.pop();
         match result? {
@@ -243,17 +233,6 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        if let Value::ComObject(ref com_obj) = object {
-            let mut eval_args = Vec::with_capacity(args.len());
-            for arg in args {
-                eval_args.push(self.eval_expr(arg, caller_frame)?);
-            }
-            return crate::runtime::com::invoke_com(
-                com_obj, property, &eval_args, 3, // DISPATCH_METHOD | DISPATCH_PROPERTYGET
-                span,
-            );
-        }
-
         let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
@@ -312,7 +291,6 @@ impl Interpreter {
                 &accessor.name,
                 return_type.clone(),
                 None,
-                self.option_base,
                 accessor.span,
                 self,
             )?;
@@ -343,8 +321,8 @@ impl Interpreter {
                         element_type: return_type,
                         elements,
                         bounds: vec![crate::runtime::ArrayBound {
-                            lower: self.option_base,
-                            upper: self.option_base + len - 1,
+                            lower: 0,
+                            upper: len - 1,
                         }],
                         allocated: true,
                         dynamic: true,
@@ -390,8 +368,10 @@ impl Interpreter {
         caller_frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        self.call_stack.push(ScopeName::Text(format!("Property {}", accessor.name)));
-        self.scope_stack.push(ScopeName::Text(format!("Property {}", accessor.name)));
+        self.call_stack
+            .push(ScopeName::Text(format!("Property {}", accessor.name)));
+        self.scope_stack
+            .push(ScopeName::Text(format!("Property {}", accessor.name)));
         let result = (|| {
             let mut frame = Frame::default();
             frame.inherit_modules_from(caller_frame)?;
@@ -421,7 +401,6 @@ impl Interpreter {
                     &accessor.name,
                     return_type.clone(),
                     None,
-                    self.option_base,
                     accessor.span,
                     self,
                 )?;
@@ -449,8 +428,8 @@ impl Interpreter {
                             element_type: return_type,
                             elements,
                             bounds: vec![crate::runtime::ArrayBound {
-                                lower: self.option_base,
-                                upper: self.option_base + len - 1,
+                                lower: 0,
+                                upper: len - 1,
                             }],
                             allocated: true,
                             dynamic: true,
@@ -479,8 +458,10 @@ impl Interpreter {
         class_context: Option<String>,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        self.call_stack.push(ScopeName::Text(format!("Property {}", accessor.name)));
-        self.scope_stack.push(ScopeName::Text(format!("Property {}", accessor.name)));
+        self.call_stack
+            .push(ScopeName::Text(format!("Property {}", accessor.name)));
+        self.scope_stack
+            .push(ScopeName::Text(format!("Property {}", accessor.name)));
         let result = (|| {
             let mut frame = Frame::default();
             if let Some(ctx) = class_context {
@@ -531,14 +512,6 @@ impl Interpreter {
         values: &[Value],
         span: Span,
     ) -> Result<(), Diagnostic> {
-        if let Value::ComObject(ref com_obj) = object {
-            crate::runtime::com::invoke_com(
-                com_obj, property, values, 4, // DISPATCH_PROPERTYPUT
-                span,
-            )?;
-            return Ok(());
-        }
-
         let instance = ensure_object(object, span)?;
         let class_name = instance.borrow().class_name.clone();
         let class = self
@@ -562,16 +535,11 @@ impl Interpreter {
                 Some(span),
             )
         })?;
-        let value = values.last().cloned().unwrap_or(Value::Missing);
-        let candidates = if matches!(value, Value::Object(_) | Value::Nothing) {
-            property_sig.writers()
-        } else {
-            &property_sig.let_
-        };
+        let candidates = property_sig.writers();
         if candidates.is_empty() {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::MEMBER_ACCESS,
-                format!("Property '{}' has no Let or Set accessor", property),
+                format!("Property '{}' has no Set accessor", property),
                 Some(span),
             ));
         }
@@ -579,7 +547,7 @@ impl Interpreter {
         // first and the value last. That whole shape picks between overloads.
         let accessor = self
             .pick_overload(
-                "Property Let",
+                "Property Set",
                 property,
                 candidates,
                 |accessor: &Rc<RuntimePropertyAccessor>| &accessor.params,
@@ -637,7 +605,6 @@ pub(crate) struct RuntimeProperty {
     /// A property usually has one of each. Several are overloads, picked by
     /// the arguments at the use site the way a method call is.
     pub(crate) get: Vec<Rc<RuntimePropertyAccessor>>,
-    pub(crate) let_: Vec<Rc<RuntimePropertyAccessor>>,
     pub(crate) set: Vec<Rc<RuntimePropertyAccessor>>,
 }
 
@@ -647,18 +614,14 @@ impl RuntimeProperty {
         self.get.first()
     }
 
-    /// The accessor a write goes through: `Set` if there is one, else `Let`.
-    pub(crate) fn let_set(&self) -> Option<&Rc<RuntimePropertyAccessor>> {
-        self.set.first().or_else(|| self.let_.first())
+    /// The accessor used for a property assignment.
+    pub(crate) fn writer(&self) -> Option<&Rc<RuntimePropertyAccessor>> {
+        self.set.first()
     }
 
     /// Every accessor a write could go through.
     pub(crate) fn writers(&self) -> &[Rc<RuntimePropertyAccessor>] {
-        if self.set.is_empty() {
-            &self.let_
-        } else {
-            &self.set
-        }
+        &self.set
     }
 }
 

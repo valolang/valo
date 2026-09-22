@@ -1,9 +1,11 @@
 use super::*;
+use crate::frontend::type_model::TypeName;
 use crate::runtime::well_known;
-use crate::runtime::{Diagnostic, Span, TypeName};
+use crate::runtime::{Diagnostic, Span};
 
 #[derive(Clone)]
 struct VbNetPropertyHeader {
+    implements: Vec<ImplementsClause>,
     visibility: Visibility,
     is_shared: bool,
     is_default: bool,
@@ -16,53 +18,6 @@ struct VbNetPropertyHeader {
 }
 
 impl Parser {
-    pub(super) fn parse_attribute_decl(&mut self) -> Result<AttributeDecl, Diagnostic> {
-        let start = self.expect_identifier("Expected 'Attribute'")?;
-        debug_assert!(start.eq_ignore_ascii_case("Attribute"));
-        let start_span = self.previous().span;
-        let mut target = self.expect_identifier("Expected Attribute target")?;
-        while self.match_simple(&TokenKind::Dot) {
-            target.push('.');
-            target.push_str(&self.expect_identifier("Expected Attribute name after '.'")?);
-        }
-        self.expect_simple(TokenKind::Equal, "Expected '=' in Attribute declaration")?;
-        let value_token = self.advance();
-        let value = match value_token.kind {
-            TokenKind::Integer(value) => value.to_string(),
-            TokenKind::Minus => {
-                let integer = self.expect_simple(
-                    TokenKind::Integer(0),
-                    "Expected integer literal after '-' in Attribute value",
-                )?;
-                let TokenKind::Integer(value) = integer.kind else {
-                    unreachable!();
-                };
-                format!("-{value}")
-            }
-            TokenKind::String(value) | TokenKind::Identifier(value, _) => value,
-            TokenKind::True => "True".to_string(),
-            TokenKind::False => "False".to_string(),
-            _ => {
-                return Err(Diagnostic::new(
-                    crate::runtime::DiagnosticCode::PARSE,
-                    "Expected Attribute value",
-                    Some(value_token.span),
-                ));
-            }
-        };
-        self.expect_statement_end("Expected newline after Attribute declaration")?;
-        let (target, name) = target
-            .rsplit_once('.')
-            .map(|(target, name)| (target.to_string(), name.to_string()))
-            .unwrap_or_else(|| (String::new(), target));
-        Ok(AttributeDecl {
-            target,
-            name,
-            value,
-            span: Span::new(self.file_id, start_span.start, value_token.span.end),
-        })
-    }
-
     pub(super) fn parse_import_decl(&mut self) -> Result<ImportDecl, Diagnostic> {
         let start = self
             .expect_simple(TokenKind::Imports, "Expected 'Imports'")?
@@ -146,7 +101,6 @@ impl Parser {
         self.expect_statement_end("Expected newline after Class declaration")?;
 
         let mut members = Vec::new();
-        let mut attributes = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndClass]) {
             // VB.NET puts `Inherits` on its own line inside the class body; the
@@ -179,14 +133,7 @@ impl Parser {
                 continue;
             }
 
-            if matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute"))
-            {
-                let attribute = self.parse_attribute_decl()?;
-                self.apply_class_attribute(&attribute, &mut members);
-                attributes.push(attribute);
-            } else {
-                members.extend(self.parse_class_member()?);
-            }
+            members.extend(self.parse_class_member()?);
             self.skip_newlines();
         }
 
@@ -205,7 +152,6 @@ impl Parser {
             generic_constraints,
             base_class,
             implements,
-            attributes,
             members,
             span: Span::new(self.file_id, start.start, end.end),
         })
@@ -226,7 +172,7 @@ impl Parser {
         let mut members = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() && !self.matches_block_end(&[BlockEnd::EndInterface]) {
-            members.push(self.parse_interface_member()?);
+            members.extend(self.parse_interface_member()?);
             self.skip_newlines();
         }
         self.expect_simple(TokenKind::End, "Expected 'End Interface'")?;
@@ -244,11 +190,16 @@ impl Parser {
         })
     }
 
-    fn parse_interface_member(&mut self) -> Result<InterfaceMember, Diagnostic> {
+    fn parse_interface_member(&mut self) -> Result<Vec<InterfaceMember>, Diagnostic> {
         let _visibility = self
             .parse_optional_visibility()
             .unwrap_or(Visibility::Public);
-        match self.peek_kind() {
+        let readonly = self.match_simple(&TokenKind::ReadOnly);
+        let writeonly = self.match_simple(&TokenKind::WriteOnly);
+        if (readonly || writeonly) && !self.check_simple(&TokenKind::Property) {
+            return Err(self.error_here("ReadOnly and WriteOnly require an interface property"));
+        }
+        let member = match self.peek_kind() {
             TokenKind::Sub => {
                 let start = self.expect_simple(TokenKind::Sub, "Expected 'Sub'")?.span;
                 let name = self.expect_identifier("Expected interface Sub name")?;
@@ -284,37 +235,60 @@ impl Parser {
                 }))
             }
             TokenKind::Property => {
-                let start = self
-                    .expect_simple(TokenKind::Property, "Expected 'Property'")?
-                    .span;
-                let kind = if self.match_simple(&TokenKind::Get) {
-                    PropertyKind::Get
-                } else if self.match_simple(&TokenKind::Let) {
-                    PropertyKind::Let
-                } else if self.match_simple(&TokenKind::Set) {
-                    PropertyKind::Set
+                let start = self.advance().span;
+                if matches!(
+                    self.peek_kind(),
+                    TokenKind::Get | TokenKind::Let | TokenKind::Set
+                ) {
+                    return Err(self.error_here("Legacy Property Get/Let/Set declarations have been removed; declare the property name and type"));
+                }
+                let name = self.expect_identifier("Expected interface property name")?;
+                let params = if self.match_simple(&TokenKind::LeftParen) {
+                    let params = self.parse_parameters()?;
+                    self.expect_simple(
+                        TokenKind::RightParen,
+                        "Expected ')' after property parameters",
+                    )?;
+                    params
                 } else {
-                    return Err(self.error_here("Expected 'Get', 'Let', or 'Set' after 'Property'"));
+                    Vec::new()
                 };
-                let name = self.expect_identifier("Expected interface Property name")?;
-                self.expect_simple(TokenKind::LeftParen, "Expected '(' after property name")?;
-                let params = self.parse_parameters()?;
-                self.expect_simple(TokenKind::RightParen, "Expected ')' after parameters")?;
-                let return_type = if kind == PropertyKind::Get {
-                    self.expect_simple(TokenKind::As, "Expected 'As' before property type")?;
-                    Some(self.parse_type_name()?)
-                } else {
-                    None
-                };
-                let end = self.previous().span;
-                self.expect_statement_end("Expected newline after interface Property")?;
-                Ok(InterfaceMember::Property(InterfaceProperty {
-                    name,
-                    kind,
-                    params,
-                    return_type,
-                    span: Span::new(self.file_id, start.start, end.end),
-                }))
+                self.expect_simple(TokenKind::As, "Expected 'As' before property type")?;
+                let ty = self.parse_type_name()?;
+                self.expect_statement_end("Expected newline after interface property")?;
+                if readonly && writeonly {
+                    return Err(self.error_here("Property cannot be both ReadOnly and WriteOnly"));
+                }
+                let mut members = Vec::new();
+                if !writeonly {
+                    members.push(InterfaceMember::Property(InterfaceProperty {
+                        name: name.clone(),
+                        kind: PropertyKind::Get,
+                        params: params.clone(),
+                        return_type: Some(ty.clone()),
+                        span: start,
+                    }));
+                }
+                if !readonly {
+                    let mut params = params;
+                    params.push(Parameter {
+                        name: "Value".into(),
+                        ty,
+                        mode: PassingMode::ByVal,
+                        is_optional: false,
+                        optional_default: None,
+                        is_param_array: false,
+                        span: start,
+                    });
+                    members.push(InterfaceMember::Property(InterfaceProperty {
+                        name,
+                        kind: PropertyKind::Set,
+                        params,
+                        return_type: None,
+                        span: start,
+                    }));
+                }
+                return Ok(members);
             }
             TokenKind::Event => {
                 let event = self.parse_event(Visibility::Public)?;
@@ -325,7 +299,8 @@ impl Parser {
                 }))
             }
             _ => Err(self.error_here("Expected interface member")),
-        }
+        }?;
+        Ok(vec![member])
     }
 
     pub(super) fn parse_class_member(&mut self) -> Result<Vec<ClassMember>, Diagnostic> {
@@ -582,87 +557,7 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_property(
-        &mut self,
-        visibility: Visibility,
-        is_default: bool,
-        is_iterator: bool,
-    ) -> Result<ClassProperty, Diagnostic> {
-        let start = self
-            .expect_simple(TokenKind::Property, "Expected 'Property'")?
-            .span;
-        let mut is_default = is_default;
-        let mut is_enumerator = false;
-        let kind = if self.match_simple(&TokenKind::Get) {
-            PropertyKind::Get
-        } else if self.match_simple(&TokenKind::Let) {
-            PropertyKind::Let
-        } else if self.match_simple(&TokenKind::Set) {
-            PropertyKind::Set
-        } else {
-            return Err(self.error_here("Expected 'Get', 'Let', or 'Set' after 'Property'"));
-        };
-        let name = self.expect_identifier("Expected property name")?;
-        self.expect_simple(TokenKind::LeftParen, "Expected '(' after property name")?;
-        let params = self.parse_parameters()?;
-        self.expect_simple(
-            TokenKind::RightParen,
-            "Expected ')' after property parameters",
-        )?;
-        let return_type = if kind == PropertyKind::Get {
-            if self.match_simple(&TokenKind::As) {
-                Some(self.parse_type_name()?)
-            } else {
-                Some(crate::runtime::TypeName::Variant)
-            }
-        } else {
-            None
-        };
-        let implements = self.parse_optional_implements_clause()?;
-        self.parse_optional_where_clauses()?;
-        self.expect_statement_end("Expected newline after property declaration")?;
-        while matches!(self.peek_kind(), TokenKind::Identifier(name, _) if name.eq_ignore_ascii_case("Attribute"))
-        {
-            let attribute = self.parse_attribute_decl()?;
-            if attribute.target.eq_ignore_ascii_case(&name)
-                && attribute.name.eq_ignore_ascii_case("VB_UserMemId")
-            {
-                if attribute.value == "0" {
-                    is_default = true;
-                } else if attribute.value == "-4" {
-                    is_enumerator = true;
-                }
-            }
-            self.skip_newlines();
-        }
-
-        let body = self.parse_block_until(&[BlockEnd::EndProperty])?;
-        self.expect_simple(TokenKind::End, "Expected 'End Property'")?;
-        let end = self
-            .expect_simple(TokenKind::Property, "Expected 'Property' after 'End'")?
-            .span;
-        self.consume_statement_end();
-
-        Ok(ClassProperty {
-            visibility,
-            override_kind: OverrideKind::None,
-            is_shared: false,
-            implements,
-            is_default,
-            is_enumerator,
-            is_iterator,
-            is_readonly: false,
-            is_writeonly: false,
-            name,
-            kind,
-            params,
-            return_type,
-            body,
-            span: Span::new(self.file_id, start.start, end.end),
-        })
-    }
-
-    fn parse_class_property_members(
+    pub(super) fn parse_class_property_members(
         &mut self,
         visibility: Visibility,
         is_shared: bool,
@@ -675,30 +570,22 @@ impl Parser {
             self.peek_next_kind(),
             Some(TokenKind::Get | TokenKind::Let | TokenKind::Set)
         ) {
-            let mut property = self.parse_property(visibility, is_default, is_iterator)?;
-            match property.kind {
-                PropertyKind::Get if is_writeonly => {
-                    return Err(self.error_here("WriteOnly property cannot declare a Get accessor"));
-                }
-                PropertyKind::Let | PropertyKind::Set if is_readonly => {
-                    return Err(
-                        self.error_here("ReadOnly property cannot declare a Let or Set accessor")
-                    );
-                }
-                _ => {}
-            }
-            property.is_readonly = is_readonly;
-            property.is_writeonly = is_writeonly;
-            return Ok(vec![ClassMember::Property(property)]);
+            return Err(self.error_here("Legacy Property Get/Let/Set declarations have been removed; use Property with Get/Set blocks"));
         }
 
-        self.parse_vbnet_property_members(
+        let mut members = self.parse_vbnet_property_members(
             visibility,
             is_shared,
             is_default,
             is_readonly,
             is_writeonly,
-        )
+        )?;
+        for member in &mut members {
+            if let ClassMember::Property(property) = member {
+                property.is_iterator = is_iterator && property.kind == PropertyKind::Get;
+            }
+        }
+        Ok(members)
     }
 
     fn parse_vbnet_property_members(
@@ -730,6 +617,7 @@ impl Parser {
         } else {
             None
         };
+        let implements = self.parse_optional_implements_clause()?;
         self.expect_statement_end("Expected newline after property declaration")?;
 
         if matches!(self.peek_kind(), TokenKind::Get | TokenKind::Set) {
@@ -737,6 +625,7 @@ impl Parser {
                 return Err(self.error_here("Block properties cannot use an initializer"));
             }
             return self.parse_vbnet_block_property(VbNetPropertyHeader {
+                implements,
                 visibility,
                 is_shared,
                 is_default,
@@ -754,6 +643,7 @@ impl Parser {
         }
         self.lower_auto_property(
             VbNetPropertyHeader {
+                implements,
                 visibility,
                 is_shared,
                 is_default,
@@ -796,9 +686,8 @@ impl Parser {
                         visibility: header.visibility,
                         override_kind: OverrideKind::None,
                         is_shared: false,
-                        implements: Vec::new(),
+                        implements: header.implements.clone(),
                         is_default: header.is_default,
-                        is_enumerator: false,
                         is_iterator: false,
                         is_readonly: header.is_readonly,
                         is_writeonly: header.is_writeonly,
@@ -827,14 +716,13 @@ impl Parser {
                         visibility: header.visibility,
                         override_kind: OverrideKind::None,
                         is_shared: false,
-                        implements: Vec::new(),
+                        implements: header.implements.clone(),
                         is_default: false,
-                        is_enumerator: false,
                         is_iterator: false,
                         is_readonly: header.is_readonly,
                         is_writeonly: header.is_writeonly,
                         name: header.name.clone(),
-                        kind: PropertyKind::Let,
+                        kind: PropertyKind::Set,
                         params: setter_params,
                         return_type: None,
                         body,
@@ -919,9 +807,8 @@ impl Parser {
                 visibility: header.visibility,
                 override_kind: OverrideKind::None,
                 is_shared: header.is_shared,
-                implements: Vec::new(),
+                implements: header.implements.clone(),
                 is_default: header.is_default,
-                is_enumerator: false,
                 is_iterator: false,
                 is_readonly: header.is_readonly,
                 is_writeonly: header.is_writeonly,
@@ -944,14 +831,13 @@ impl Parser {
                 visibility: header.visibility,
                 override_kind: OverrideKind::None,
                 is_shared: header.is_shared,
-                implements: Vec::new(),
+                implements: header.implements.clone(),
                 is_default: false,
-                is_enumerator: false,
                 is_iterator: false,
                 is_readonly: header.is_readonly,
                 is_writeonly: header.is_writeonly,
                 name: header.name,
-                kind: PropertyKind::Let,
+                kind: PropertyKind::Set,
                 params: vec![Parameter {
                     name: "value".to_string(),
                     ty: header.ty,
@@ -1224,7 +1110,6 @@ impl Parser {
         let start = self
             .expect_simple(TokenKind::Declare, "Expected 'Declare'")?
             .span;
-        let ptr_safe = self.match_simple(&TokenKind::PtrSafe);
         let kind = if self.match_simple(&TokenKind::Function) {
             DeclareKind::Function
         } else if self.match_simple(&TokenKind::Sub) {
@@ -1269,7 +1154,6 @@ impl Parser {
         self.expect_statement_end("Expected newline after Declare")?;
         Ok(DeclareDecl {
             visibility,
-            ptr_safe,
             calling_convention,
             kind,
             name,
@@ -1469,6 +1353,8 @@ impl Parser {
             TokenKind::Sub
             | TokenKind::Function
             | TokenKind::Iterator
+            | TokenKind::ReadOnly
+            | TokenKind::WriteOnly
             | TokenKind::Property
             | TokenKind::Default
             | TokenKind::Shared
@@ -1480,6 +1366,8 @@ impl Parser {
                     TokenKind::Sub
                         | TokenKind::Function
                         | TokenKind::Iterator
+                        | TokenKind::ReadOnly
+                        | TokenKind::WriteOnly
                         | TokenKind::Property
                         | TokenKind::Default
                         | TokenKind::Shared
@@ -1748,7 +1636,12 @@ impl Parser {
         let mut return_type = if self.match_simple(&TokenKind::As) {
             self.parse_type_name()?
         } else {
-            TypeName::Variant
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!("Cannot infer the return type of Function '{name}'"),
+                Some(self.previous().span),
+            )
+            .with_help("Add an As clause, for example 'As Integer'"));
         };
         if self.match_simple(&TokenKind::LeftParen) {
             self.expect_simple(
@@ -1805,7 +1698,12 @@ impl Parser {
         let mut return_type = if self.match_simple(&TokenKind::As) {
             self.parse_type_name()?
         } else {
-            TypeName::Variant
+            return Err(Diagnostic::new(
+                crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                format!("Cannot infer the return type of Function '{name}'"),
+                Some(self.previous().span),
+            )
+            .with_help("Add an As clause, for example 'As Integer'"));
         };
         if self.match_simple(&TokenKind::LeftParen) {
             self.expect_simple(
@@ -1819,19 +1717,6 @@ impl Parser {
         let generic_constraints = self.take_generic_constraints();
         self.expect_statement_end("Expected newline after function declaration")?;
 
-        let mut is_enumerator = false;
-        while matches!(self.peek_kind(), TokenKind::Identifier(attribute, _) if attribute.eq_ignore_ascii_case("Attribute"))
-        {
-            let attribute = self.parse_attribute_decl()?;
-            if attribute.target.eq_ignore_ascii_case(&name)
-                && attribute.name.eq_ignore_ascii_case("VB_UserMemId")
-                && attribute.value == "-4"
-            {
-                is_enumerator = true;
-            }
-            self.skip_newlines();
-        }
-
         let body = self.parse_block_until(&[BlockEnd::EndFunction])?;
         self.expect_simple(TokenKind::End, "Expected 'End Function'")?;
         let end = self
@@ -1844,7 +1729,7 @@ impl Parser {
             override_kind: OverrideKind::None,
             is_shared: false,
             implements,
-            is_enumerator,
+
             function: Function {
                 attributes,
                 visibility,
@@ -1863,6 +1748,17 @@ impl Parser {
     }
 
     pub(super) fn parse_parameters(&mut self) -> Result<Vec<Parameter>, Diagnostic> {
+        self.parse_parameters_with_inference(false)
+    }
+
+    pub(super) fn parse_lambda_parameters(&mut self) -> Result<Vec<Parameter>, Diagnostic> {
+        self.parse_parameters_with_inference(true)
+    }
+
+    fn parse_parameters_with_inference(
+        &mut self,
+        infer_from_context: bool,
+    ) -> Result<Vec<Parameter>, Diagnostic> {
         let mut params = Vec::new();
         self.skip_newlines();
         if self.check_simple(&TokenKind::RightParen) {
@@ -1891,10 +1787,18 @@ impl Parser {
             let (mode, start) = if self.match_simple(&TokenKind::ByVal) {
                 (PassingMode::ByVal, self.previous().span)
             } else if self.match_simple(&TokenKind::ByRef) {
-                (PassingMode::ByRef, self.previous().span)
+                let start = self.previous().span;
+                (
+                    if self.match_simple(&TokenKind::ReadOnly) {
+                        PassingMode::ByRefReadOnly
+                    } else {
+                        PassingMode::ByRef
+                    },
+                    start,
+                )
             } else {
                 (
-                    PassingMode::ByRef,
+                    PassingMode::ByVal,
                     prefix_start.unwrap_or_else(|| self.peek().span),
                 )
             };
@@ -1923,8 +1827,28 @@ impl Parser {
                 }
                 as_ty
             } else {
-                hint.unwrap_or(TypeName::Variant)
+                hint.or(if infer_from_context {
+                    Some(TypeName::Variant)
+                } else {
+                    None
+                })
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        format!("Cannot infer the type of parameter '{name}'"),
+                        Some(token.span),
+                    )
+                    .with_help("Add an As clause, for example 'As Integer'")
+                })?
             };
+            if self.check_simple(&TokenKind::ReadOnly) {
+                return Err(self.error_here("ReadOnly parameter requires ByRef"));
+            }
+            if mode == PassingMode::ByRefReadOnly && (is_optional || is_param_array) {
+                return Err(
+                    self.error_here("ByRef ReadOnly parameters cannot be Optional or ParamArray")
+                );
+            }
             let optional_default = if is_optional && self.match_simple(&TokenKind::Equal) {
                 Some(self.parse_expression()?)
             } else {
@@ -2038,33 +1962,21 @@ impl Parser {
                 }
                 Ok(TypeName::String)
             }
-            TokenKind::IntegerType => Ok(TypeName::Integer),
+            TokenKind::IntegerType => Ok(TypeName::Int32),
             TokenKind::BooleanType => Ok(TypeName::Boolean),
             TokenKind::VariantType => Ok(TypeName::Variant),
             TokenKind::Error => Ok(TypeName::User("Error".to_string())),
             TokenKind::Collection => Ok(TypeName::User("Collection".to_string())),
             TokenKind::Identifier(mut name, _) => {
-                if name.eq_ignore_ascii_case("Byte") {
-                    Ok(TypeName::Byte)
-                } else if name.eq_ignore_ascii_case("Long") {
-                    Ok(TypeName::Long)
-                } else if name.eq_ignore_ascii_case("Int64") {
-                    Ok(TypeName::Int64)
-                } else if name.eq_ignore_ascii_case("UInt32") {
-                    Ok(TypeName::UInt32)
-                } else if name.eq_ignore_ascii_case("UInt64") {
-                    Ok(TypeName::UInt64)
-                } else if name.eq_ignore_ascii_case("Single") {
-                    Ok(TypeName::Single)
-                } else if name.eq_ignore_ascii_case("Double") {
-                    Ok(TypeName::Double)
+                if let Some(primitive) = TypeName::from_primitive_name(&name) {
+                    Ok(primitive)
                 } else if name.eq_ignore_ascii_case("Currency") {
                     Ok(TypeName::Currency)
                 } else if name.eq_ignore_ascii_case("Decimal") {
                     Ok(TypeName::Decimal)
                 } else if name.eq_ignore_ascii_case("Date") {
                     Ok(TypeName::Date)
-                } else if name.eq_ignore_ascii_case("Ptr") || name.eq_ignore_ascii_case("LongPtr") {
+                } else if name.eq_ignore_ascii_case("Ptr") {
                     Ok(TypeName::Ptr)
                 } else if name.eq_ignore_ascii_case("LongLong") {
                     Ok(TypeName::Int64)
@@ -2433,44 +2345,5 @@ impl Parser {
         }
         self.expect_simple(TokenKind::RightParen, "Expected ')' after type arguments")?;
         Ok(args)
-    }
-    pub(super) fn apply_class_attribute(
-        &self,
-        attribute: &AttributeDecl,
-        members: &mut [ClassMember],
-    ) {
-        if !attribute.name.eq_ignore_ascii_case("VB_UserMemId") {
-            return;
-        }
-        let is_default_member = attribute.value == "0";
-        let is_enumerator = attribute.value == "-4";
-        if !is_default_member && !is_enumerator {
-            return;
-        }
-        let member_name = attribute.target.as_str();
-        for member in members.iter_mut().rev() {
-            match member {
-                ClassMember::Property(property)
-                    if property.name.eq_ignore_ascii_case(member_name) && is_default_member =>
-                {
-                    property.is_default = true;
-                    return;
-                }
-                ClassMember::Property(property)
-                    if property.name.eq_ignore_ascii_case(member_name) && is_enumerator =>
-                {
-                    property.is_enumerator = true;
-                    return;
-                }
-                ClassMember::Function(function)
-                    if function.function.name.eq_ignore_ascii_case(member_name)
-                        && is_enumerator =>
-                {
-                    function.is_enumerator = true;
-                    return;
-                }
-                _ => {}
-            }
-        }
     }
 }

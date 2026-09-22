@@ -307,10 +307,7 @@ mod handler_tests {
             }
             // These are checked by the analyzer against the call site rather
             // than evaluated from a value, so they live elsewhere.
-            if matches!(
-                builtin.name,
-                "IsMissing" | "CallByName" | "CreateObject" | "CStr"
-            ) {
+            if matches!(builtin.name, "IsMissing" | "CallByName" | "CStr") {
                 continue;
             }
             assert!(
@@ -344,15 +341,12 @@ pub(super) const EXPR_HANDLERS: &[(&str, ExprFn)] = &[
     ("VarPtr", var_ptr),
     ("StrPtr", str_ptr),
     ("ObjPtr", obj_ptr),
-    ("DoEvents", do_events),
     ("MsgBox", msg_box),
     ("InputBox", input_box),
     ("Command", command),
     ("Error", error),
     ("Input", input),
     ("Shell", shell),
-    ("CreateObject", create_object),
-    ("GetObject", get_object),
     ("Environ", environ),
     ("GetSetting", get_setting),
     ("GetAllSettings", get_all_settings),
@@ -497,10 +491,7 @@ fn obj_ptr(
             let ptr = std::rc::Rc::as_ptr(&coll) as usize;
             Ok(Value::Ptr(ptr))
         }
-        Value::ComObject(com) => {
-            let ptr = std::rc::Rc::as_ptr(&com) as usize;
-            Ok(Value::Ptr(ptr))
-        }
+
         Value::Nothing => Ok(Value::Ptr(0)),
         _ => Err(Diagnostic::new(
             crate::runtime::DiagnosticCode::TYPE_MISMATCH,
@@ -508,29 +499,6 @@ fn obj_ptr(
             Some(span),
         )),
     }
-}
-
-fn do_events(
-    _: &mut Interpreter,
-    _: &str,
-    _: &[Expr],
-    _: &mut Frame,
-    _: crate::runtime::Span,
-) -> Result<Value, Diagnostic> {
-    #[cfg(windows)]
-    {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage,
-        };
-        unsafe {
-            let mut msg = MSG::default();
-            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
-        }
-    }
-    Ok(Value::Int16(0))
 }
 
 fn msg_box(
@@ -562,7 +530,7 @@ fn msg_box(
         } else {
             Value::Int32(0) // vbOKOnly
         };
-        let buttons = coerce_assignment(&TypeName::Long, buttons_val, span)?
+        let buttons = coerce_assignment(&TypeName::Int32, buttons_val, span)?
             .to_output_string()
             .parse::<i32>()
             .unwrap_or(0);
@@ -722,64 +690,6 @@ fn shell(
         )
     })?;
     Ok(Value::Int64(i64::from(child.id())))
-}
-
-fn create_object(
-    interpreter: &mut Interpreter,
-    _: &str,
-    args: &[Expr],
-    frame: &mut Frame,
-    span: crate::runtime::Span,
-) -> Result<Value, Diagnostic> {
-    if args.is_empty() || args.len() > 2 {
-        return Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::ARGUMENT_COUNT,
-            "CreateObject expects 1 to 2 arguments",
-            Some(span),
-        ));
-    }
-    let prog_id = interpreter.eval_expr(&args[0], frame)?.to_output_string();
-    if args.len() == 2 {
-        let server = interpreter.eval_expr(&args[1], frame)?.to_output_string();
-        if !server.is_empty() {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::UNSUPPORTED,
-                "Compatibility diagnostic: CreateObject remote server activation is not supported by the standalone Valo runtime; omit the server name for local COM activation",
-                Some(args[1].span),
-            )
-            .with_help(
-                "omit the server name for local COM activation, or run this automation in a host/runtime that supports remote COM",
-            ));
-        }
-    }
-    crate::runtime::com::create_object(&prog_id, span)
-}
-
-fn get_object(
-    interpreter: &mut Interpreter,
-    _: &str,
-    args: &[Expr],
-    frame: &mut Frame,
-    span: crate::runtime::Span,
-) -> Result<Value, Diagnostic> {
-    if args.is_empty() || args.len() > 2 {
-        return Err(Diagnostic::new(
-            crate::runtime::DiagnosticCode::ARGUMENT_COUNT,
-            "GetObject expects 1 to 2 arguments",
-            Some(span),
-        ));
-    }
-    let pathname = if !matches!(args[0].kind, ExprKind::Missing) {
-        Some(interpreter.eval_expr(&args[0], frame)?.to_output_string())
-    } else {
-        None
-    };
-    let prog_id = if args.len() == 2 && !matches!(args[1].kind, ExprKind::Missing) {
-        Some(interpreter.eval_expr(&args[1], frame)?.to_output_string())
-    } else {
-        None
-    };
-    crate::runtime::com::get_object(pathname.as_deref(), prog_id.as_deref(), span)
 }
 
 fn environ(

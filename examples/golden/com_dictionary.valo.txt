@@ -1,8 +1,0 @@
-Apple is in the dictionary
-Banana value: 20
-New Apple value: 15
-
-All items:
-  Apple = 15
-  Banana = 20
-  Orange = 30

@@ -26,10 +26,12 @@ fn for_each_object_native_iterator_function_yielding() {
 fn for_each_object_native_iterator_property_yielding() {
     let source = r#"
         Class Numbers
-            Public Iterator Property Get Items() As Variant
+            Public ReadOnly Iterator Property Items() As Variant
+                Get
                 Yield 1
                 Yield 2
                 Yield 3
+                End Get
             End Property
         End Class
 
@@ -142,7 +144,7 @@ fn end_iterator_is_rejected() {
 }
 
 #[test]
-fn for_each_object_new_enum_property_returning_array() {
+fn iterator_enumerates_stored_array() {
     let source = r#"
         Class List
             Private items As Variant
@@ -151,10 +153,17 @@ fn for_each_object_new_enum_property_returning_array() {
                 items = Array("a", "b")
             End Sub
 
-            Public Property Get _NewEnum() As Variant
-            Attribute _NewEnum.VB_UserMemId = -4
-                _NewEnum = items
-            End Property
+            Public Iterator Function Enumerate() As Variant
+
+                Dim Element As Variant
+
+                For Each Element In items
+
+                    Yield Element
+
+                Next
+
+            End Function
         End Class
 
         Sub Main()
@@ -169,12 +178,12 @@ fn for_each_object_new_enum_property_returning_array() {
 }
 
 #[test]
-fn for_each_object_new_enum_function_returning_array() {
+fn iterator_yields_values() {
     let source = r#"
         Class List
-            Public Function _NewEnum() As Variant
-            Attribute _NewEnum.VB_UserMemId = -4
-                Return Array("x", "y")
+            Public Iterator Function Items() As Variant
+                Yield "x"
+                Yield "y"
             End Function
         End Class
 
@@ -190,13 +199,15 @@ fn for_each_object_new_enum_function_returning_array() {
 }
 
 #[test]
-fn new_enum_attribute_is_case_insensitive_and_exported_style() {
+fn iterator_enumerates_inline_array() {
     let source = r#"
         Class List
-            Public Property Get nEwEnUm() As Variant
-            Attribute nEwEnUm.VB_UserMemId = -4
-                nEwEnUm = Array("case", "ok")
-            End Property
+            Public Iterator Function Items() As Variant
+                Dim Element As Variant
+                For Each Element In Array("case", "ok")
+                    Yield Element
+                Next
+            End Function
         End Class
 
         Sub Main()
@@ -211,12 +222,13 @@ fn new_enum_attribute_is_case_insensitive_and_exported_style() {
 }
 
 #[test]
-fn default_property_user_mem_id_zero_still_works() {
+fn default_property_keyword_selects_default_member() {
     let source = r#"
         Class Box
-            Public Property Get Value() As String
-            Attribute Value.VB_UserMemId = 0
+            Public ReadOnly Default Property Value() As String
+                Get
                 Value = "default"
+                End Get
             End Property
         End Class
 
@@ -229,7 +241,7 @@ fn default_property_user_mem_id_zero_still_works() {
 }
 
 #[test]
-fn missing_iterator_or_new_enum_has_readable_diagnostic() {
+fn missing_iterator_has_readable_diagnostic() {
     let source = r#"
         Class Plain
         End Class
@@ -242,9 +254,7 @@ fn missing_iterator_or_new_enum_has_readable_diagnostic() {
             Next item
         End Sub
     "#;
-    assert!(
-        source_error(source).contains("define an Iterator or a VB_UserMemId = -4 _NewEnum member")
-    );
+    assert!(source_error(source).contains("define an Iterator member"));
 }
 
 #[test]

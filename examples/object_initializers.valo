@@ -43,13 +43,13 @@ Sub Main()
 
     ' Initializers compose with the rest of the language
     Dim shelf(0 To 1) As Product
-    Set shelf(0) = New Product With { .Name = "monitor", .Price = 219.5, .Stock = 4 }
-    Set shelf(1) = New Product With { .Name = "cable", .Price = 7.25, .Stock = 130 }
+    shelf(0) = New Product With { .Name = "monitor", .Price = 219.5, .Stock = 4 }
+    shelf(1) = New Product With { .Name = "cable", .Price = 7.25, .Stock = 130 }
 
     Dim index As Long
     For index = 0 To 1
         Dim entry As Product
-        Set entry = shelf(index)
+        entry = shelf(index)
         Console.WriteLine($"{entry.Name,-10}{entry.Price,8:0.00}")
     Next index
 End Sub

@@ -119,13 +119,50 @@ impl Drop for NativeLibraries {
     }
 }
 
+/// The call interface a native call site built, and what it built it for.
+pub(crate) struct NativeCifSite {
+    shape: Vec<u8>,
+    cif: Rc<Cif>,
+}
+
 struct MarshaledArgs {
     arg_types: Vec<FfiType>,
     arg_kinds: Vec<ArgKind>,
+    /// What the argument list looks like, in a form that is cheap to compare.
+    ///
+    /// The call interface libffi needs depends on this and on nothing else
+    /// that varies between calls, so a call site can keep the one it built and
+    /// check it still fits by comparing these bytes.
+    shape: Vec<u8>,
     storage: Vec<ArgumentStorage>,
     byrefs: Vec<ByRefUpdate>,
     varptrs: Vec<VarPtrUpdate>,
 }
+
+/// A byte naming the shape one argument marshals to.
+///
+/// Two calls that produce the same bytes need the same call interface, so a
+/// call site can reuse the one it built rather than describing itself again.
+fn storage_shape(storage: &ArgumentStorage) -> u8 {
+    match storage {
+        ArgumentStorage::CString(_) => 1,
+        ArgumentStorage::I16(_) => 2,
+        ArgumentStorage::I32(_) => 3,
+        ArgumentStorage::I64(_) => 4,
+        ArgumentStorage::U32(_) => 5,
+        ArgumentStorage::U64(_) => 6,
+        ArgumentStorage::U8(_) => 7,
+        ArgumentStorage::F32(_) => 8,
+        ArgumentStorage::F64(_) => 9,
+        ArgumentStorage::Bool(_) => 10,
+        ArgumentStorage::Ptr(_) => 11,
+        ArgumentStorage::Record(_) => 12,
+        ArgumentStorage::Array(_) => 13,
+    }
+}
+
+/// A pointer argument, which every native ABI passes the same way.
+const POINTER_SHAPE: u8 = 20;
 
 #[derive(Debug, Clone, Copy)]
 enum ArgKind {
@@ -148,8 +185,6 @@ pub(crate) enum ArgumentStorage {
     Ptr(Box<usize>),
     Record(Vec<u8>),
     Array(Vec<u8>),
-    #[cfg(windows)]
-    Variant(Box<windows::core::VARIANT>),
 }
 
 struct ByRefUpdate {
@@ -475,7 +510,7 @@ impl Interpreter {
                     "AddressOf callbacks currently require ByVal parameters",
                     param.span,
                 )
-                .with_help("pass pointer-sized values as ByVal LongPtr"));
+                .with_help("pass pointer-sized values as ByVal Ptr"));
                 break;
             }
             match callback_ffi_type(&ty, param.span) {
@@ -619,17 +654,6 @@ impl Interpreter {
         frame: &mut Frame,
         span: Span,
     ) -> Result<Value, Diagnostic> {
-        if !declare.ptr_safe && usize::BITS == 64 && declare_uses_pointer(declare) {
-            return Err(Diagnostic::new(
-                crate::runtime::DiagnosticCode::FFI_UNSUPPORTED_MARSHALING,
-                format!(
-                    "Declare '{}' uses pointer-sized values and must be marked PtrSafe on 64-bit targets",
-                    declare.name
-                ),
-                Some(declare.span),
-            )
-            .with_help("add PtrSafe and use LongPtr for pointer values"));
-        }
         let mut marshaled = self.marshal_args(declare, args, frame, span)?;
         self.refuse_valo_only_callbacks(&marshaled, span)?;
         let symbol_name = declare.alias.as_deref().unwrap_or(&declare.name);
@@ -637,19 +661,27 @@ impl Interpreter {
             .native_libraries
             .symbol(&declare.lib, symbol_name, span)?;
         let return_type = declare.return_type.as_ref().unwrap_or(&TypeName::Variant);
-        let cif_key = native_cif_key(declare, &marshaled, return_type);
-        if !self.native_cifs.contains_key(&cif_key) {
-            let return_ffi = return_ffi_type(return_type, declare.kind == DeclareKind::Sub, span)?;
-            self.native_cifs.insert(
-                cif_key.clone(),
-                Rc::new(Cif::new(marshaled.arg_types.clone(), return_ffi)),
-            );
-        }
-        let cif = self
+        let remembered = self
             .native_cifs
-            .get(&cif_key)
-            .expect("native CIF inserted before call")
-            .clone();
+            .get(&span)
+            .filter(|site| site.shape == marshaled.shape)
+            .map(|site| Rc::clone(&site.cif));
+        let cif = match remembered {
+            Some(cif) => cif,
+            None => {
+                let return_ffi =
+                    return_ffi_type(return_type, declare.kind == DeclareKind::Sub, span)?;
+                let cif = Rc::new(Cif::new(marshaled.arg_types.clone(), return_ffi));
+                self.native_cifs.insert(
+                    span,
+                    NativeCifSite {
+                        shape: marshaled.shape.clone(),
+                        cif: Rc::clone(&cif),
+                    },
+                );
+                cif
+            }
+        };
 
         let _active_interpreter = ActiveInterpreterGuard::enter(self as *mut Interpreter);
 
@@ -693,6 +725,7 @@ impl Interpreter {
         let mut marshaled = MarshaledArgs {
             arg_types: Vec::new(),
             arg_kinds: Vec::new(),
+            shape: Vec::new(),
             storage: Vec::new(),
             byrefs: Vec::new(),
             varptrs: Vec::new(),
@@ -734,6 +767,13 @@ impl Interpreter {
                             span: arg.span,
                         });
                     }
+                }
+                PassingMode::ByRefReadOnly => {
+                    return Err(Diagnostic::new(
+                        crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+                        "ByRef ReadOnly is not yet supported for native Declare calls",
+                        Some(param.span),
+                    ));
                 }
             }
         }
@@ -783,7 +823,7 @@ impl Interpreter {
                     super::arrays::calculate_index(&index_values, &array.bounds, expr.span)?;
                 let value = array.elements[index].clone();
                 let storage = if matches!(array.element_type, TypeName::Variant) {
-                    variant_storage(value.clone())
+                    variant_storage(value.clone(), expr.span)?
                 } else {
                     storage_for_varptr_value(
                         &array.element_type,
@@ -1045,22 +1085,11 @@ fn write_varptr_update(
     }
 }
 
-fn declare_uses_pointer(declare: &DeclareDecl) -> bool {
-    declare
-        .params
-        .iter()
-        .any(|param| matches!(param.ty, TypeName::Ptr | TypeName::FuncPtr))
-        || declare
-            .return_type
-            .as_ref()
-            .is_some_and(|ty| matches!(ty, TypeName::Ptr | TypeName::FuncPtr))
-}
-
 fn callback_ffi_type(ty: &TypeName, span: Span) -> Result<FfiType, Diagnostic> {
     match ty {
         TypeName::Byte => Ok(FfiType::u8()),
-        TypeName::Integer => Ok(FfiType::i16()),
-        TypeName::Long => Ok(FfiType::i32()),
+        TypeName::Int16 => Ok(FfiType::i16()),
+        TypeName::Int32 => Ok(FfiType::i32()),
         TypeName::Int64 | TypeName::Currency => Ok(FfiType::i64()),
         TypeName::UInt32 => Ok(FfiType::u32()),
         TypeName::UInt64 => Ok(FfiType::u64()),
@@ -1128,8 +1157,8 @@ fn read_callback_args(
 unsafe fn read_callback_value(slot: *const c_void, ty: &TypeName) -> ExprKind {
     match ty {
         TypeName::Byte => ExprKind::Integer(unsafe { *(slot as *const u8) } as i64),
-        TypeName::Integer => ExprKind::Integer(unsafe { *(slot as *const i16) } as i64),
-        TypeName::Long => ExprKind::Integer(unsafe { *(slot as *const i32) } as i64),
+        TypeName::Int16 => ExprKind::Integer(unsafe { *(slot as *const i16) } as i64),
+        TypeName::Int32 => ExprKind::Integer(unsafe { *(slot as *const i32) } as i64),
         TypeName::Int64 | TypeName::Currency => ExprKind::Integer(unsafe { *(slot as *const i64) }),
         TypeName::UInt32 => ExprKind::Integer(unsafe { *(slot as *const u32) } as i64),
         TypeName::UInt64 => ExprKind::Integer(unsafe { *(slot as *const u64) } as i64),
@@ -1159,10 +1188,10 @@ fn write_callback_default(result: &mut c_void, return_type: &TypeName, is_sub: b
     unsafe {
         match return_type {
             TypeName::Byte => *(result as *mut c_void as *mut u8) = 0,
-            TypeName::Integer | TypeName::Boolean => {
+            TypeName::Int16 | TypeName::Boolean => {
                 *(result as *mut c_void as *mut i16) = 0;
             }
-            TypeName::Long => *(result as *mut c_void as *mut i32) = 0,
+            TypeName::Int32 => *(result as *mut c_void as *mut i32) = 0,
             TypeName::Int64 | TypeName::Currency | TypeName::Variant => {
                 *(result as *mut c_void as *mut i64) = 0;
             }
@@ -1252,7 +1281,7 @@ fn marshal_byval(
             "ByVal structures are not supported; pass structures ByRef",
             span,
         ))?,
-        Value::Object(_) | Value::ComObject(_) | Value::Collection(_) => Err(unsupported(
+        Value::Object(_) | Value::Collection(_) => Err(unsupported(
             "object pointer marshaling is not enabled for this value",
             span,
         ))?,
@@ -1274,6 +1303,19 @@ fn marshal_byval(
     } else {
         ArgKind::Value
     };
+    marshaled.shape.push(storage_shape(&storage));
+    // A record or an array marshals to a composite built from the type, so two
+    // of them are only the same shape when they are the same type. Naming it
+    // costs an allocation, and only these two kinds pay it.
+    if matches!(
+        storage,
+        ArgumentStorage::Record(_) | ArgumentStorage::Array(_)
+    ) {
+        marshaled
+            .shape
+            .extend_from_slice(ty.display_name().as_bytes());
+        marshaled.shape.push(0);
+    }
     marshaled.storage.push(storage);
     marshaled.arg_types.push(ffi_type);
     marshaled.arg_kinds.push(arg_kind);
@@ -1300,7 +1342,7 @@ fn marshal_byref(
                     Value::Array(_) | Value::Record(_) | Value::BoxedRecord(_, _)
                 ) =>
         {
-            variant_storage(value)
+            variant_storage(value, span)?
         }
         Value::Byte(v) => ArgumentStorage::U8(Box::new(v)),
         Value::Int16(v) => ArgumentStorage::I16(Box::new(v)),
@@ -1349,7 +1391,6 @@ fn marshal_byref(
             }
         }
         Value::Object(_)
-        | Value::ComObject(_)
         | Value::Collection(_)
         | Value::Decimal(_)
         | Value::Date(_)
@@ -1365,6 +1406,7 @@ fn marshal_byref(
     marshaled.storage.push(item);
     marshaled.arg_types.push(FfiType::pointer());
     marshaled.arg_kinds.push(ArgKind::ByRefPointer);
+    marshaled.shape.push(POINTER_SHAPE);
     Ok(())
 }
 
@@ -1398,20 +1440,16 @@ fn marshal_byref_array_tail(
     marshaled.storage.push(ArgumentStorage::Array(bytes));
     marshaled.arg_types.push(FfiType::pointer());
     marshaled.arg_kinds.push(ArgKind::ByRefPointer);
+    marshaled.shape.push(POINTER_SHAPE);
     let _ = span;
     Ok(true)
 }
 
-fn variant_storage(value: Value) -> ArgumentStorage {
-    #[cfg(windows)]
-    {
-        ArgumentStorage::Variant(Box::new(crate::runtime::com::value_to_variant(&value)))
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = value;
-        ArgumentStorage::Ptr(Box::new(0))
-    }
+fn variant_storage(_value: Value, span: Span) -> Result<ArgumentStorage, Diagnostic> {
+    Err(unsupported(
+        "Dynamic values have no native ABI; declare a concrete native parameter type",
+        span,
+    ))
 }
 
 fn marshal_varptr(
@@ -1457,6 +1495,7 @@ fn marshal_varptr(
         marshaled.storage.push(ArgumentStorage::Array(bytes));
         marshaled.arg_types.push(FfiType::pointer());
         marshaled.arg_kinds.push(ArgKind::PointerValue);
+        marshaled.shape.push(POINTER_SHAPE);
         marshaled.varptrs.push(VarPtrUpdate {
             target: VarPtrTarget::ArrayTail {
                 base_expr: Expr {
@@ -1486,6 +1525,7 @@ fn marshal_varptr(
     marshaled.storage.push(storage);
     marshaled.arg_types.push(FfiType::pointer());
     marshaled.arg_kinds.push(ArgKind::PointerValue);
+    marshaled.shape.push(POINTER_SHAPE);
     marshaled.varptrs.push(VarPtrUpdate {
         target: VarPtrTarget::Value {
             expr: inner.clone(),
@@ -1542,7 +1582,6 @@ fn storage_for_varptr_value(
         Value::Null | Value::Nothing | Value::Empty => Ok(ArgumentStorage::Ptr(Box::new(0))),
         Value::String(_) => Err(unsupported("VarPtr(String) is not supported yet", span)),
         Value::Object(_)
-        | Value::ComObject(_)
         | Value::Collection(_)
         | Value::Decimal(_)
         | Value::Date(_)
@@ -1561,8 +1600,6 @@ fn storage_pointer_value(storage: &ArgumentStorage) -> usize {
         ArgumentStorage::CString(value) => value.as_ptr() as usize,
         ArgumentStorage::Ptr(value) => **value,
         ArgumentStorage::Record(bytes) | ArgumentStorage::Array(bytes) => bytes.as_ptr() as usize,
-        #[cfg(windows)]
-        ArgumentStorage::Variant(value) => (&**value as *const windows::core::VARIANT) as usize,
         _ => storage_byref_pointer(storage),
     }
 }
@@ -1581,8 +1618,6 @@ fn storage_byref_pointer(storage: &ArgumentStorage) -> usize {
         ArgumentStorage::Bool(value) => (&**value as *const i16) as usize,
         ArgumentStorage::Ptr(value) => (&**value as *const usize) as usize,
         ArgumentStorage::Record(bytes) | ArgumentStorage::Array(bytes) => bytes.as_ptr() as usize,
-        #[cfg(windows)]
-        ArgumentStorage::Variant(value) => (&**value as *const windows::core::VARIANT) as usize,
     }
 }
 
@@ -1600,10 +1635,7 @@ fn storage_value_arg(storage: &ArgumentStorage) -> FfiArg<'_> {
         ArgumentStorage::F32(value) => ffi_arg(&**value),
         ArgumentStorage::F64(value) => ffi_arg(&**value),
         ArgumentStorage::Bool(value) => ffi_arg(&**value),
-        #[cfg(windows)]
-        ArgumentStorage::Variant(_) => {
-            unreachable!("VARIANT values are passed by pointer")
-        }
+
         ArgumentStorage::Record(_) | ArgumentStorage::Array(_) => {
             unreachable!("record and array values are passed by pointer")
         }
@@ -1635,10 +1667,7 @@ fn value_from_storage(
         (ArgumentStorage::F32(v), _) => Value::Single(**v),
         (ArgumentStorage::F64(v), _) => Value::Double(**v),
         (ArgumentStorage::Ptr(v), _) => Value::Ptr(**v),
-        #[cfg(windows)]
-        (ArgumentStorage::Variant(v), TypeName::Variant) => {
-            crate::runtime::com::variant_to_value(v)
-        }
+
         (ArgumentStorage::Record(bytes), TypeName::User(type_name)) => {
             let rt = types.get(&key(type_name)).ok_or_else(|| {
                 unsupported(
@@ -1686,14 +1715,10 @@ fn value_from_variant_storage(
     types: &HashMap<String, RuntimeType>,
     span: Span,
 ) -> Result<Value, Diagnostic> {
-    #[cfg(windows)]
-    if let ArgumentStorage::Variant(value) = storage {
-        return Ok(crate::runtime::com::variant_to_value(value));
-    }
     match original_value {
         Value::Boolean(_) => match storage {
             ArgumentStorage::I16(v) | ArgumentStorage::Bool(v) => Ok(Value::Boolean(**v != 0)),
-            _ => value_from_storage(storage, &TypeName::Integer, original_value, types, span),
+            _ => value_from_storage(storage, &TypeName::Int16, original_value, types, span),
         },
         Value::Currency(_) => {
             value_from_storage(storage, &TypeName::Currency, original_value, types, span)
@@ -1722,8 +1747,6 @@ fn value_from_variant_storage(
             span,
         ),
         _ => match storage {
-            #[cfg(windows)]
-            ArgumentStorage::Variant(v) => Ok(crate::runtime::com::variant_to_value(v)),
             ArgumentStorage::U8(v) => Ok(Value::Byte(**v)),
             ArgumentStorage::I16(v) => Ok(Value::Int16(**v)),
             ArgumentStorage::I32(v) => Ok(Value::Int32(**v)),
@@ -1760,8 +1783,6 @@ fn storage_kind_name(storage: &ArgumentStorage) -> &'static str {
         ArgumentStorage::Ptr(_) => "Ptr",
         ArgumentStorage::Record(_) => "Record",
         ArgumentStorage::Array(_) => "Array",
-        #[cfg(windows)]
-        ArgumentStorage::Variant(_) => "Variant",
     }
 }
 
@@ -1799,6 +1820,7 @@ fn unpack_record(ty: &RuntimeType, bytes: &[u8], span: Span) -> Result<Value, Di
     let _ = align_offset(offset, max_align);
     Ok(Value::Record(Rc::new(RecordValue {
         type_name: ty.name.clone(),
+        resolved_type: TypeName::User(ty.name.clone()),
         fields,
     })))
 }
@@ -1811,7 +1833,7 @@ fn read_value(bytes: &[u8], ty: &TypeName, span: Span) -> Result<(Value, usize),
             }
             Ok((Value::Byte(bytes[0]), 1))
         }
-        TypeName::Integer | TypeName::Boolean => {
+        TypeName::Int16 | TypeName::Boolean => {
             if bytes.len() < 2 {
                 return Err(unsupported("Buffer too small", span));
             }
@@ -1824,7 +1846,7 @@ fn read_value(bytes: &[u8], ty: &TypeName, span: Span) -> Result<(Value, usize),
                 Ok((Value::Int16(v), 2))
             }
         }
-        TypeName::Long => {
+        TypeName::Int32 => {
             if bytes.len() < 4 {
                 return Err(unsupported("Buffer too small", span));
             }
@@ -2016,8 +2038,8 @@ fn native_type_align(ty: &TypeName, span: Span) -> Result<usize, Diagnostic> {
 fn native_type_size(ty: &TypeName, span: Span) -> Result<usize, Diagnostic> {
     let size = match ty {
         TypeName::Byte => 1,
-        TypeName::Integer | TypeName::Boolean => 2,
-        TypeName::Long | TypeName::UInt32 | TypeName::Single => 4,
+        TypeName::Int16 | TypeName::Boolean => 2,
+        TypeName::Int32 | TypeName::UInt32 | TypeName::Single => 4,
         TypeName::Int64 | TypeName::UInt64 | TypeName::Currency | TypeName::Double => 8,
         TypeName::Ptr | TypeName::FuncPtr => std::mem::size_of::<usize>(),
         _ => {
@@ -2130,35 +2152,14 @@ fn call_symbol(
     call_return_value(cif, code, &args, return_type, span)
 }
 
-fn native_cif_key(
-    declare: &DeclareDecl,
-    marshaled: &MarshaledArgs,
-    return_type: &TypeName,
-) -> String {
-    let symbol = declare.alias.as_deref().unwrap_or(&declare.name);
-    let mut key = format!(
-        "{}\0{}\0{:?}\0{:?}\0{}",
-        declare.lib,
-        symbol,
-        declare.kind,
-        declare.calling_convention,
-        return_type.display_name()
-    );
-    for (ffi_type, kind) in marshaled.arg_types.iter().zip(marshaled.arg_kinds.iter()) {
-        key.push('\0');
-        key.push_str(&format!("{ffi_type:?}:{kind:?}"));
-    }
-    key
-}
-
 fn return_ffi_type(ty: &TypeName, is_sub: bool, span: Span) -> Result<FfiType, Diagnostic> {
     if is_sub {
         return Ok(FfiType::void());
     }
     let ty = match ty {
         TypeName::Byte => FfiType::u8(),
-        TypeName::Integer => FfiType::i16(),
-        TypeName::Long => FfiType::i32(),
+        TypeName::Int16 => FfiType::i16(),
+        TypeName::Int32 => FfiType::i32(),
         TypeName::Int64 | TypeName::Currency | TypeName::Variant => FfiType::i64(),
         TypeName::UInt32 => FfiType::u32(),
         TypeName::UInt64 => FfiType::u64(),
@@ -2205,12 +2206,12 @@ fn call_return_value(
             unsafe { cif.call_return_into(code, args, Ret::new(&mut ret)) };
             Value::Byte(ret)
         }
-        TypeName::Integer => {
+        TypeName::Int16 => {
             let mut ret = 0i16;
             unsafe { cif.call_return_into(code, args, Ret::new(&mut ret)) };
             Value::Int16(ret)
         }
-        TypeName::Long => {
+        TypeName::Int32 => {
             let mut ret = 0i32;
             unsafe { cif.call_return_into(code, args, Ret::new(&mut ret)) };
             Value::Int32(ret)

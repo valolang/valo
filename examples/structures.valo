@@ -16,8 +16,10 @@ Public Structure Point
         Y = Y + dy
     End Sub
 
-    Public Property Get IsZero() As Boolean
-        Return X = 0 And Y = 0
+    Public ReadOnly Property IsZero() As Boolean
+        Get
+            Return X = 0 And Y = 0
+        End Get
     End Property
 End Structure
 

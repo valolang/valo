@@ -1,5 +1,8 @@
 # Architecture Overview
 
+> Native systems migration: see the [audit and status](native-migration.md) and the [first MIR milestone](mir.md). Existing VB.NET syntax is preserved; native compilation is planned.
+
+
 Valo's architecture is divided into three primary layers to ensure modularity, portability, and future-readiness.
 
 ## 1. Frontend (`core/src/frontend/`)
@@ -20,11 +23,18 @@ The Runtime defines the core data model and behavior of the Valo language. It is
 *   **Value System:** Defines `Value`, `ObjectValue`, and type coercion rules.
 *   **Diagnostics:** Provides source-aware error reporting.
 *   **Operations:** Centralized logic for arithmetic, comparison, and coercion.
-*   **Resource Model:** Manages deterministic cleanup via `Using` and `Dispose`.
+*   **Interpreter Resource Behavior:** Executes existing `Using` and explicit `Dispose`; native deterministic Drop remains unimplemented.
 
 Learn more in **[Runtime Architecture](runtime.md)**.
 
-## 3. Backend (`core/src/backend/`)
+## 3. MIR (`core/src/mir/`)
+
+The first backend-neutral MIR lowers a verified subset of typed HIR into typed
+locals, temporaries, basic blocks, and explicit control-flow/cleanup edges. It
+has a verifier and deterministic debug output. It is not executable yet. See
+the [MIR design and coverage](mir.md).
+
+## 4. Backend (`core/src/backend/`)
 The Backend is the execution engine that consumes the validated AST (or future intermediate representations) and performs the actual work.
 
 *   **Interpreter:** The current reference execution engine (tree-walking).
@@ -33,14 +43,14 @@ The Backend is the execution engine that consumes the validated AST (or future i
 
 Learn more in **[Backend Architecture](backend.md)**.
 
-## 4. Platform
+## 5. Platform
 The Platform layer is the emerging project/package, namespace, tooling, standard-library, and interop architecture that turns Valo from a single-file language runtime into an ecosystem.
 
 *   **Package Identity:** `valo.toml` project roots and entrypoint resolution.
-*   **Semantic IDs/HIR:** Stable project-wide identities for tooling and future VM lowering.
+*   **Semantic IDs/HIR:** Project declaration identities plus typed scalar function bodies with resolved locals, conversions, arithmetic signatures and selected calls. Broader lowering remains in progress.
 *   **Namespaces:** Logical API identity decoupled from filenames.
 *   **Runtime Services:** Standard-library boundaries shared by interpreter, VM, and embedders.
-*   **Interop:** COM/type-library architecture layered beside native FFI.
+*   **Interop:** Native FFI, with platform libraries kept outside language semantics.
 
 Learn more in **[Platform Architecture](platform.md)**.
 

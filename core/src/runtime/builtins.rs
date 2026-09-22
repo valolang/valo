@@ -44,8 +44,8 @@ impl BuiltinReturn {
         match self {
             BuiltinReturn::Boolean => TypeName::Boolean,
             BuiltinReturn::Byte => TypeName::Byte,
-            BuiltinReturn::Integer => TypeName::Integer,
-            BuiltinReturn::Long => TypeName::Long,
+            BuiltinReturn::Integer => TypeName::Int32,
+            BuiltinReturn::Long => TypeName::Int64,
             BuiltinReturn::Int64 => TypeName::Int64,
             BuiltinReturn::Single => TypeName::Single,
             BuiltinReturn::Double => TypeName::Double,
@@ -422,14 +422,8 @@ pub const BUILTINS: &[Builtin] = &[
     // -- Host and interop -------------------------------------------------
     s("CallByName", 3, usize::MAX, BuiltinReturn::Variant),
     f("Command", 0, 0, BuiltinReturn::String),
-    f("CreateObject", 1, 2, BuiltinReturn::Object),
-    grouped(
-        f("DoEvents", 0, 0, BuiltinReturn::Integer),
-        BuiltinGroup::Dialog,
-    ),
     f("Error", 0, 1, BuiltinReturn::String),
     f("GetAllSettings", 2, 2, BuiltinReturn::Variant),
-    f("GetObject", 1, 2, BuiltinReturn::Object),
     f("GetSetting", 3, 4, BuiltinReturn::String),
     f("IMEStatus", 0, 0, BuiltinReturn::Integer),
     grouped(

@@ -22,90 +22,90 @@ End Type
 ' fixed by SDL_KeyboardEvent: the event kind leads, and the scancode sits at
 ' byte 24.
 Public Type SdlEvent
-    Kind As Long
-    Reserved As Long
-    TimestampLow As Long
-    TimestampHigh As Long
-    WindowId As Long
-    Which As Long
-    Scancode As Long
-    KeyCode As Long
-    Pad08 As Long
-    Pad09 As Long
-    Pad10 As Long
-    Pad11 As Long
-    Pad12 As Long
-    Pad13 As Long
-    Pad14 As Long
-    Pad15 As Long
-    Pad16 As Long
-    Pad17 As Long
-    Pad18 As Long
-    Pad19 As Long
-    Pad20 As Long
-    Pad21 As Long
-    Pad22 As Long
-    Pad23 As Long
-    Pad24 As Long
-    Pad25 As Long
-    Pad26 As Long
-    Pad27 As Long
-    Pad28 As Long
-    Pad29 As Long
-    Pad30 As Long
-    Pad31 As Long
+    Kind As Int32
+    Reserved As Int32
+    TimestampLow As Int32
+    TimestampHigh As Int32
+    WindowId As Int32
+    Which As Int32
+    Scancode As Int32
+    KeyCode As Int32
+    Pad08 As Int32
+    Pad09 As Int32
+    Pad10 As Int32
+    Pad11 As Int32
+    Pad12 As Int32
+    Pad13 As Int32
+    Pad14 As Int32
+    Pad15 As Int32
+    Pad16 As Int32
+    Pad17 As Int32
+    Pad18 As Int32
+    Pad19 As Int32
+    Pad20 As Int32
+    Pad21 As Int32
+    Pad22 As Int32
+    Pad23 As Int32
+    Pad24 As Int32
+    Pad25 As Int32
+    Pad26 As Int32
+    Pad27 As Int32
+    Pad28 As Int32
+    Pad29 As Int32
+    Pad30 As Int32
+    Pad31 As Int32
 End Type
 
 ' -- Native entry points ------------------------------------------------
 
-Public Declare PtrSafe Function SDL_Init Lib "SDL3" CDecl (ByVal flags As Long) As Byte
-Public Declare PtrSafe Sub SDL_Quit Lib "SDL3" CDecl ()
-Public Declare PtrSafe Function SDL_GetError Lib "SDL3" CDecl () As LongPtr
+Public Declare Function SDL_Init Lib "SDL3" CDecl (ByVal flags As Int32) As Byte
+Public Declare Sub SDL_Quit Lib "SDL3" CDecl ()
+Public Declare Function SDL_GetError Lib "SDL3" CDecl () As Ptr
 
-Public Declare PtrSafe Function SDL_CreateWindow Lib "SDL3" CDecl ( _
-    ByVal title As String, ByVal width As Long, ByVal height As Long, ByVal flags As LongLong) As LongPtr
-Public Declare PtrSafe Sub SDL_DestroyWindow Lib "SDL3" CDecl (ByVal window As LongPtr)
-Public Declare PtrSafe Function SDL_SetWindowTitle Lib "SDL3" CDecl ( _
-    ByVal window As LongPtr, ByVal title As String) As Byte
+Public Declare Function SDL_CreateWindow Lib "SDL3" CDecl ( _
+    ByVal title As String, ByVal width As Int32, ByVal height As Int32, ByVal flags As Int64) As Ptr
+Public Declare Sub SDL_DestroyWindow Lib "SDL3" CDecl (ByVal window As Ptr)
+Public Declare Function SDL_SetWindowTitle Lib "SDL3" CDecl ( _
+    ByVal window As Ptr, ByVal title As String) As Byte
 
-Public Declare PtrSafe Function SDL_CreateRenderer Lib "SDL3" CDecl ( _
-    ByVal window As LongPtr, ByVal name As LongPtr) As LongPtr
-Public Declare PtrSafe Sub SDL_DestroyRenderer Lib "SDL3" CDecl (ByVal renderer As LongPtr)
-Public Declare PtrSafe Function SDL_SetRenderDrawColor Lib "SDL3" CDecl ( _
-    ByVal renderer As LongPtr, ByVal red As Byte, ByVal green As Byte, _
+Public Declare Function SDL_CreateRenderer Lib "SDL3" CDecl ( _
+    ByVal window As Ptr, ByVal name As Ptr) As Ptr
+Public Declare Sub SDL_DestroyRenderer Lib "SDL3" CDecl (ByVal renderer As Ptr)
+Public Declare Function SDL_SetRenderDrawColor Lib "SDL3" CDecl ( _
+    ByVal renderer As Ptr, ByVal red As Byte, ByVal green As Byte, _
     ByVal blue As Byte, ByVal alpha As Byte) As Byte
-Public Declare PtrSafe Function SDL_RenderClear Lib "SDL3" CDecl (ByVal renderer As LongPtr) As Byte
-Public Declare PtrSafe Sub SDL_RenderPresent Lib "SDL3" CDecl (ByVal renderer As LongPtr)
-Public Declare PtrSafe Function SDL_RenderFillRect Lib "SDL3" CDecl ( _
-    ByVal renderer As LongPtr, ByRef rect As FRect) As Byte
-Public Declare PtrSafe Function SDL_PollEvent Lib "SDL3" CDecl (ByRef nativeEvent As SdlEvent) As Byte
-Public Declare PtrSafe Sub SDL_Delay Lib "SDL3" CDecl (ByVal milliseconds As Long)
-Public Declare PtrSafe Function SDL_GetTicks Lib "SDL3" CDecl () As LongLong
+Public Declare Function SDL_RenderClear Lib "SDL3" CDecl (ByVal renderer As Ptr) As Byte
+Public Declare Sub SDL_RenderPresent Lib "SDL3" CDecl (ByVal renderer As Ptr)
+Public Declare Function SDL_RenderFillRect Lib "SDL3" CDecl ( _
+    ByVal renderer As Ptr, ByRef rect As FRect) As Byte
+Public Declare Function SDL_PollEvent Lib "SDL3" CDecl (ByRef nativeEvent As SdlEvent) As Byte
+Public Declare Sub SDL_Delay Lib "SDL3" CDecl (ByVal milliseconds As Int32)
+Public Declare Function SDL_GetTicks Lib "SDL3" CDecl () As Int64
 
 ' -- Constants ----------------------------------------------------------
 
-Public Const INIT_VIDEO As Long = 32
+Public Const INIT_VIDEO As Int32 = 32
 
-Public Const EVENT_QUIT As Long = 256
-Public Const EVENT_KEY_DOWN As Long = 768
-Public Const EVENT_KEY_UP As Long = 769
+Public Const EVENT_QUIT As Int32 = 256
+Public Const EVENT_KEY_DOWN As Int32 = 768
+Public Const EVENT_KEY_UP As Int32 = 769
 
-Public Const KEY_LEFT As Long = 80
-Public Const KEY_RIGHT As Long = 79
-Public Const KEY_A As Long = 4
-Public Const KEY_D As Long = 7
-Public Const KEY_SPACE As Long = 44
-Public Const KEY_ESCAPE As Long = 41
-Public Const KEY_R As Long = 21
+Public Const KEY_LEFT As Int32 = 80
+Public Const KEY_RIGHT As Int32 = 79
+Public Const KEY_A As Int32 = 4
+Public Const KEY_D As Int32 = 7
+Public Const KEY_SPACE As Int32 = 44
+Public Const KEY_ESCAPE As Int32 = 41
+Public Const KEY_R As Int32 = 21
 
 ' -- Helpers ------------------------------------------------------------
 
 ' Reports whether a scancode means "move left", accepting either binding.
-Public Function IsLeftKey(ByVal scancode As Long) As Boolean
+Public Function IsLeftKey(ByVal scancode As Int32) As Boolean
     Return scancode = KEY_LEFT Or scancode = KEY_A
 End Function
 
 ' Reports whether a scancode means "move right", accepting either binding.
-Public Function IsRightKey(ByVal scancode As Long) As Boolean
+Public Function IsRightKey(ByVal scancode As Int32) As Boolean
     Return scancode = KEY_RIGHT Or scancode = KEY_D
 End Function

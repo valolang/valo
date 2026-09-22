@@ -24,14 +24,14 @@ Sub Main()
     Dim catalog(0 To 2) As Product
     Dim index As Long
 
-    Set catalog(0) = MakeProduct("Keyboard", 49.9, 12)
-    Set catalog(1) = MakeProduct("Monitor", 219.5, 4)
-    Set catalog(2) = MakeProduct("Cable", 7.25, 130)
+    catalog(0) = MakeProduct("Keyboard", 49.9, 12)
+    catalog(1) = MakeProduct("Monitor", 219.5, 4)
+    catalog(2) = MakeProduct("Cable", 7.25, 130)
 
     Console.WriteLine($"{"Product",-12}{"Price",10}{"Stock",8}")
     For index = 0 To 2
         Dim item As Product
-        Set item = catalog(index)
+        item = catalog(index)
         Console.WriteLine($"{item.Name,-12}{item.Price,10:0.00}{item.Stock,8}")
     Next index
 End Sub

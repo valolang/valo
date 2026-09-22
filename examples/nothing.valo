@@ -10,8 +10,8 @@ Sub Main()
     Dim user As User
     Dim aliasUser As User
 
-    Set user = New User("Valo")
-    Set aliasUser = user
+    user = New User("Valo")
+    aliasUser = user
 
     Console.WriteLine(user.Name)
 
@@ -19,7 +19,7 @@ Sub Main()
         Console.WriteLine("same")
     End If
 
-    Set user = Nothing
+    user = Nothing
 
     If user Is Nothing Then
         Console.WriteLine("empty")

@@ -1,6 +1,6 @@
 # Getting Started with Valo
 
-Valo is an experimental Basic-inspired language and runtime with native `.valo` files plus VBA-compatible `.bas` and `.cls` support.
+Valo is an experimental native systems language with VB.NET-inspired syntax. The current Rust toolchain interprets `.valo` sources.
 
 ## Install or Build
 
@@ -71,7 +71,7 @@ Example session:
 ./target/release/valo run examples/modules/main.valo
 ```
 
-COM examples require Windows and the relevant COM server.
+Native FFI examples require the corresponding platform library; core COM examples have been removed.
 
 ## Development Checks
 

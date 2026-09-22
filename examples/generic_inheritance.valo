@@ -11,7 +11,7 @@ End Class
 
 Sub Main()
     Dim repo As New UserRepository()
-    Set repo.Current = New User()
+    repo.Current = New User()
     repo.Current.Name = "Valo"
     Console.WriteLine(repo.Current.Name)
 End Sub

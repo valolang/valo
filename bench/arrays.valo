@@ -1,9 +1,9 @@
 ' Array benchmark: element writes and reads over a large fixed array.
 
 Sub Main()
-    Dim data(0 To 1200000) As Long
-    Dim i As Long
-    Dim total As Long
+    Dim data(0 To 1200000) As Int32
+    Dim i As Int32
+    Dim total As Int32
     For i = 0 To 1200000
         data(i) = i * 3
     Next i

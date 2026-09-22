@@ -32,7 +32,6 @@ name = "manifest-app"
 version = "0.1.0"
 entrypoint = "src/main.valo"
 authors = ["Valo"]
-compatibility = "mixed"
 target_platforms = ["linux"]
 "#,
     );
@@ -357,7 +356,7 @@ End Sub
         "Native.valo",
         &format!(
             r#"
-Public Declare PtrSafe Function MyLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
+Public Declare Function MyLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
 "#,
             platform_libc()
         ),
@@ -388,7 +387,7 @@ End Sub
         "Native.valo",
         &format!(
             r#"
-Private Declare PtrSafe Function HiddenLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
+Private Declare Function HiddenLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
 "#,
             platform_libc()
         ),
@@ -402,91 +401,7 @@ Private Declare PtrSafe Function HiddenLen Lib "{}" Alias "strlen" CDecl (ByVal 
 }
 
 #[test]
-fn declares_load_from_bas_and_cls_modules() {
-    let dir = temp_project();
-    write(
-        &dir,
-        "main.valo",
-        r#"
-Imports NativeBas
-Imports NativeCls
-
-Sub Main()
-    Console.WriteLine(NativeBas.BasLen("Valo"))
-    Console.WriteLine(NativeCls.ClsLen("Class"))
-End Sub
-"#,
-    );
-    write(
-        &dir,
-        "NativeBas.bas",
-        &format!(
-            r#"
-Attribute VB_Name = "NativeBas"
-Public Declare PtrSafe Function BasLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
-"#,
-            platform_libc()
-        ),
-    );
-    write(
-        &dir,
-        "NativeCls.cls",
-        &format!(
-            r#"
-Attribute VB_Name = "NativeCls"
-Public Declare PtrSafe Function ClsLen Lib "{}" Alias "strlen" CDecl (ByVal value As String) As Long
-"#,
-            platform_libc()
-        ),
-    );
-
-    assert_eq!(
-        run_file(dir.join("main.valo")).unwrap(),
-        vec!["4".to_string(), "5".to_string()]
-    );
-}
-
-#[test]
-fn vba_compat_import_loads_sibling_modules_without_explicit_imports() {
-    let dir = temp_project();
-    write(
-        &dir,
-        "main.valo",
-        r#"
-Imports MainModule
-
-Sub Main()
-    Console.WriteLine(MainModule.Start())
-End Sub
-"#,
-    );
-    write(
-        &dir,
-        "MainModule.bas",
-        r#"
-Public Function Start() As String
-    Start = HelperValue()
-End Function
-"#,
-    );
-    write(
-        &dir,
-        "Helper.bas",
-        r#"
-Public Function HelperValue() As String
-    HelperValue = "from helper"
-End Function
-"#,
-    );
-
-    assert_eq!(
-        run_file(dir.join("main.valo")).unwrap(),
-        vec!["from helper".to_string()]
-    );
-}
-
-#[test]
-fn option_private_module_allows_explicit_same_project_import() {
+fn explicit_same_project_import_exposes_public_members() {
     let dir = temp_project();
     write(
         &dir,
@@ -501,54 +416,11 @@ End Sub
     );
     write(
         &dir,
-        "Hidden.bas",
+        "Hidden.valo",
         r#"
-Option Private Module
 
 Public Function Value() As String
     Value = "hidden"
-End Function
-"#,
-    );
-
-    assert_eq!(
-        run_file(dir.join("main.valo")).unwrap(),
-        vec!["hidden".to_string()]
-    );
-    fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn option_private_vba_sibling_remains_visible_inside_project_group() {
-    let dir = temp_project();
-    write(
-        &dir,
-        "main.valo",
-        r#"
-Imports MainModule
-
-Sub Main()
-    Console.WriteLine(MainModule.Start())
-End Sub
-"#,
-    );
-    write(
-        &dir,
-        "MainModule.bas",
-        r#"
-Public Function Start() As String
-    Start = HiddenValue()
-End Function
-"#,
-    );
-    write(
-        &dir,
-        "Hidden.bas",
-        r#"
-Option Private Module
-
-Public Function HiddenValue() As String
-    HiddenValue = "hidden"
 End Function
 "#,
     );
@@ -613,54 +485,6 @@ End Function
 }
 
 #[test]
-fn vba_compat_sibling_modules_can_reference_each_other_without_import_cycles() {
-    let dir = temp_project();
-    write(
-        &dir,
-        "main.valo",
-        r#"
-Imports A
-
-Sub Main()
-    Console.WriteLine(A.FromA())
-    Console.WriteLine(B.FromB())
-End Sub
-"#,
-    );
-    write(
-        &dir,
-        "A.bas",
-        r#"
-Public Function FromA() As String
-    FromA = "A:" & BValue()
-End Function
-
-Public Function AValue() As String
-    AValue = "a"
-End Function
-"#,
-    );
-    write(
-        &dir,
-        "B.bas",
-        r#"
-Public Function FromB() As String
-    FromB = "B:" & AValue()
-End Function
-
-Public Function BValue() As String
-    BValue = "b"
-End Function
-"#,
-    );
-
-    assert_eq!(
-        run_file(dir.join("main.valo")).unwrap(),
-        vec!["A:b".to_string(), "B:a".to_string()]
-    );
-}
-
-#[test]
 fn vba_compat_private_udts_resolve_inside_imported_module_runtime_state() {
     let dir = temp_project();
     write(
@@ -676,10 +500,9 @@ End Sub
     );
     write(
         &dir,
-        "RiffLike.bas",
+        "RiffLike.valo",
         r#"
 Option Explicit
-Option Private Module
 
 #If VBA7 Then
 Private Type RiffBuffer
@@ -728,10 +551,9 @@ End Sub
     );
     write(
         &dir,
-        "RiffLike.bas",
+        "RiffLike.valo",
         r#"
 Option Explicit
-Option Private Module
 
 Private opened As Boolean
 
@@ -763,7 +585,7 @@ End Sub
     );
     write(
         &dir,
-        "Buffers.bas",
+        "Buffers.valo",
         r#"
 Private Type BufferState
     Values(0 To 1) As Single
@@ -802,13 +624,13 @@ End Sub
     );
     write(
         &dir,
-        "Callbacks.bas",
+        "Callbacks.valo",
         r#"
 Private Function Dummy() As Long
     Dummy = 1
 End Function
 
-Public Function MakePtr() As LongPtr
+Public Function MakePtr() As Ptr
     MakePtr = AddressOf Dummy
 End Function
 "#,
@@ -835,20 +657,16 @@ End Sub
     );
     write(
         &dir,
-        "GuidModule.bas",
+        "GuidModule.valo",
         r#"
 Option Explicit
 
-#If VBA7 Then
-Private Declare PtrSafe Function IIDFromString Lib "ole32" (ByVal lpsz As LongPtr, ByRef lpiid As Any) As Long
-#Else
-Private Declare Function IIDFromString Lib "ole32" (ByVal lpsz As Long, ByRef lpiid As Any) As Long
-#End If
+Private Declare Function IIDFromString Lib "ole32" (ByVal lpsz As Ptr, ByRef lpiid As Any) As Int32
 
 Private Type GUID
-    Data1 As Long
-    Data2 As Integer
-    Data3 As Integer
+    Data1 As Int32
+    Data2 As Int16
+    Data3 As Int16
     Data4(0 To 7) As Byte
 End Type
 
@@ -862,44 +680,6 @@ End Function
 
     assert_eq!(run_file(dir.join("main.valo")).unwrap(), vec!["1:2:3:4:11"]);
     fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn vba_compat_library_diagnostic_uses_exact_sibling_file_line() {
-    let dir = temp_project();
-    write(
-        &dir,
-        "main.valo",
-        r#"
-Imports MainModule
-
-Sub Main()
-    MainModule.Start()
-End Sub
-"#,
-    );
-    write(
-        &dir,
-        "MainModule.bas",
-        r#"
-Public Sub Start()
-    Boom()
-End Sub
-"#,
-    );
-    write(
-        &dir,
-        "Helper.bas",
-        r#"Public Sub Boom()
-    Dim x As Integer
-    x = 1 / 0
-End Sub
-"#,
-    );
-
-    let error = run_file(dir.join("main.valo")).unwrap_err();
-    assert!(error.contains("Helper.bas:3:"), "{error}");
-    assert!(error.contains("x = 1 / 0"), "{error}");
 }
 
 #[test]
@@ -941,7 +721,7 @@ Imports Models As M
 
 Sub Main()
     Dim user As M.User
-    Set user = New M.User()
+    user = New M.User()
     Console.WriteLine(user.Id())
 End Sub
 "#,
@@ -1101,8 +881,10 @@ Public Structure Point
         Y = Y + dy
     End Sub
 
-    Public Property Get IsZero() As Boolean
+    Public ReadOnly Property IsZero() As Boolean
+        Get
         Return X = 0 And Y = 0
+        End Get
     End Property
 End Structure
 "#,
@@ -1253,7 +1035,7 @@ Imports Models As M
 
 Sub Main()
     Dim p As M.PersonRecord
-    Set p = New M.PersonRecord()
+    p = New M.PersonRecord()
 End Sub
 "#,
     );
@@ -1334,7 +1116,7 @@ End Class
 
 Sub Main()
     Dim holder As New Holder()
-    Set holder.Item = New Thing()
+    holder.Item = New Thing()
     holder.Item.N = 7
     Console.WriteLine(holder.Held().N)
 End Sub

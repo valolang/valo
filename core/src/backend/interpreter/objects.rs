@@ -12,11 +12,11 @@ use crate::{
 
 use super::arrays::{array_element_mut, read_array_element, redim_array, write_array_element};
 use super::frame::Variable;
+use super::interpreter::ScopeName;
 use super::properties::{RuntimeProperty, RuntimePropertyAccessor};
 use super::records::{RuntimeField, read_field_member, write_member};
 use super::values::{default_value, key};
 use super::{Frame, Interpreter};
-use super::interpreter::ScopeName;
 
 fn substitute_procedure_types(procedure: &mut Procedure, bindings: &[(String, TypeName)]) {
     procedure.type_params.clear();
@@ -137,12 +137,7 @@ impl Interpreter {
                 substitute_function_types(iterator, &bindings);
             }
             for property in instance.properties.values_mut() {
-                for accessor in property
-                    .get
-                    .iter_mut()
-                    .chain(property.let_.iter_mut())
-                    .chain(property.set.iter_mut())
-                {
+                for accessor in property.get.iter_mut().chain(property.set.iter_mut()) {
                     substitute_property_accessor_types(Rc::make_mut(accessor), &bindings);
                 }
             }
@@ -197,12 +192,7 @@ impl Interpreter {
                 substitute_function_types(Rc::make_mut(function), &bindings);
             }
             for property in instance.properties.values_mut() {
-                for accessor in property
-                    .get
-                    .iter_mut()
-                    .chain(property.let_.iter_mut())
-                    .chain(property.set.iter_mut())
-                {
+                for accessor in property.get.iter_mut().chain(property.set.iter_mut()) {
                     substitute_property_accessor_types(Rc::make_mut(accessor), &bindings);
                 }
             }
@@ -640,15 +630,7 @@ impl Interpreter {
         {
             return read_field_member(value, member, span);
         }
-        if let Value::ComObject(com_obj) = value {
-            return crate::runtime::com::invoke_com(
-                com_obj,
-                member,
-                &[],
-                2, // DISPATCH_PROPERTYGET
-                span,
-            );
-        }
+
         if let Value::Object(obj) = value {
             let class_name = obj.borrow().class_name.clone();
             if let Ok(val) = self.read_shared_member(&class_name, member, frame, span) {
@@ -961,10 +943,7 @@ impl Interpreter {
                     && self.instance_reads_member(&owner, name)
                 {
                     let field = self.read_member(&owner, name, frame, span)?;
-                    if matches!(
-                        field,
-                        Value::Object(_) | Value::ComObject(_) | Value::Collection(_)
-                    ) {
+                    if matches!(field, Value::Object(_) | Value::Collection(_)) {
                         return self.assign_member_to_value(field, member, value, span);
                     }
                 }
@@ -1025,11 +1004,7 @@ impl Interpreter {
                 values.push(value);
                 self.call_property_set_values(Value::Object(instance), field, &values, span)
             }
-            Value::ComObject(com_obj) => {
-                let mut values = indices;
-                values.push(value);
-                self.call_property_set_values(Value::ComObject(com_obj), field, &values, span)
-            }
+
             Value::Record(record) => {
                 let mut record = record.as_ref().clone();
                 let Some(slot) = record.fields.get_mut(&key(field)) else {
@@ -1454,7 +1429,6 @@ pub(crate) struct RuntimeClass {
     pub(crate) iterator: Option<Function>,
     pub(crate) properties: HashMap<String, RuntimeProperty>,
     pub(crate) operators: HashMap<crate::OperatorKind, Function>,
-    pub(crate) enumerator_member: Option<String>,
     pub(crate) default_member: Option<String>,
 }
 
@@ -1471,7 +1445,6 @@ impl From<&crate::ClassDecl> for RuntimeClass {
         let mut iterator = None;
         let mut properties = HashMap::new();
         let mut operators = HashMap::new();
-        let mut enumerator_member = None;
         let mut default_member = None;
         for member in &value.members {
             match member {
@@ -1537,9 +1510,6 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                         .push(Rc::new(method.procedure.clone()));
                 }
                 ClassMember::Function(method) => {
-                    if method.is_enumerator {
-                        enumerator_member = Some(method.function.name.clone());
-                    }
                     if method.function.is_iterator && method.function.params.is_empty() {
                         iterator = Some(method.function.clone());
                     }
@@ -1559,9 +1529,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                     if property.is_default {
                         default_member = Some(property.name.clone());
                     }
-                    if property.is_enumerator {
-                        enumerator_member = Some(property.name.clone());
-                    }
+
                     if property.is_iterator
                         && property.params.is_empty()
                         && property.kind == PropertyKind::Get
@@ -1586,13 +1554,11 @@ impl From<&crate::ClassDecl> for RuntimeClass {
                             .entry(key(&property.name))
                             .or_insert_with(|| RuntimeProperty {
                                 get: Vec::new(),
-                                let_: Vec::new(),
                                 set: Vec::new(),
                             });
                     let accessor = Rc::new(RuntimePropertyAccessor::from(property));
                     match property.kind {
                         PropertyKind::Get => property_entry.get.push(accessor),
-                        PropertyKind::Let => property_entry.let_.push(accessor),
                         PropertyKind::Set => property_entry.set.push(accessor),
                     }
                 }
@@ -1637,7 +1603,7 @@ impl From<&crate::ClassDecl> for RuntimeClass {
             iterator,
             properties,
             operators,
-            enumerator_member,
+
             default_member,
         }
     }
@@ -1756,9 +1722,7 @@ impl Interpreter {
         if derived.iterator.is_some() {
             merged.iterator = derived.iterator;
         }
-        if derived.enumerator_member.is_some() {
-            merged.enumerator_member = derived.enumerator_member;
-        }
+
         if derived.default_member.is_some() {
             merged.default_member = derived.default_member;
         }

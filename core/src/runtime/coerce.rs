@@ -19,7 +19,7 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
     if matches!(ty, TypeName::User(name) if name.rsplit('.').next().is_some_and(|name| name.eq_ignore_ascii_case(well_known::OBJECT)))
         && matches!(
             value,
-            Value::Object(_) | Value::ComObject(_) | Value::Nothing | Value::Collection(_)
+            Value::Object(_) | Value::Nothing | Value::Collection(_)
         )
     {
         return Ok(value);
@@ -77,6 +77,7 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
         return Ok(Value::Record(std::rc::Rc::new(
             crate::runtime::RecordValue {
                 type_name: ty.display_name(),
+                resolved_type: ty.clone(),
                 fields,
             },
         )));
@@ -91,7 +92,7 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
             }
             Ok(Value::Byte(v as u8))
         }
-        TypeName::Integer => {
+        TypeName::Int16 => {
             let v =
                 value_to_rounded_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
             if !(i16::MIN as i64..=i16::MAX as i64).contains(&v) {
@@ -99,7 +100,7 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
             }
             Ok(Value::Int16(v as i16))
         }
-        TypeName::Long => {
+        TypeName::Int32 => {
             let v =
                 value_to_rounded_i64(&value).ok_or_else(|| type_mismatch_err(ty, &value, span))?;
             if !(i32::MIN as i64..=i32::MAX as i64).contains(&v) {
@@ -198,7 +199,7 @@ pub fn coerce_assignment(ty: &TypeName, value: Value, span: Span) -> Result<Valu
                         // The semantic analyzer should have verified it implements the interface.
                         Ok(Value::BoxedRecord(record.clone(), target_name.to_string()))
                     }
-                    Value::Object(_) | Value::ComObject(_) | Value::Nothing => Ok(value),
+                    Value::Object(_) | Value::Nothing => Ok(value),
                     _ => Err(type_mismatch_err(ty, &value, span)),
                 }
             } else {

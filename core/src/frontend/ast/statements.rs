@@ -1,4 +1,5 @@
-use crate::runtime::{Span, TypeName};
+use crate::frontend::type_model::TypeName;
+use crate::runtime::Span;
 
 use super::{Expr, MemberInit};
 
@@ -58,11 +59,7 @@ pub enum Stmt {
         expr: Expr,
         span: Span,
     },
-    SetAssign {
-        target: AssignTarget,
-        expr: Expr,
-        span: Span,
-    },
+
     ConsoleCall {
         method: String,
         args: Vec<Expr>,
@@ -593,11 +590,7 @@ impl Stmt {
                 expr: expr.substitute_generics(bindings),
                 span: *span,
             },
-            Stmt::SetAssign { target, expr, span } => Stmt::SetAssign {
-                target: target.substitute_generics(bindings),
-                expr: expr.substitute_generics(bindings),
-                span: *span,
-            },
+
             Stmt::ConsoleCall { method, args, span } => Stmt::ConsoleCall {
                 method: method.clone(),
                 args: args

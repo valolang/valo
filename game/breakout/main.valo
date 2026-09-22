@@ -26,13 +26,13 @@ Private Const FIELD_WIDTH As Double = 640
 Private Const FIELD_HEIGHT As Double = 480
 
 ' How long the game runs before closing itself, so a run always terminates.
-Private Const MAX_FRAMES As Long = 900
+Private Const MAX_FRAMES As Int32 = 900
 
 ' Until the player first touches a key the paddle plays by itself, so simply
 ' running the program demonstrates the game rather than dropping the ball.
 Private Attract As Boolean
 
-Private Phase_ As Long
+Private Phase_ As Int32
 
 Sub Main()
     If SDL_Init(Sdl.INIT_VIDEO) = 0 Then
@@ -40,7 +40,7 @@ Sub Main()
         Exit Sub
     End If
 
-    Dim window As LongPtr
+    Dim window As Ptr
     window = SDL_CreateWindow("Valo Breakout", CLng(FIELD_WIDTH), CLng(FIELD_HEIGHT), 0)
     If window = 0 Then
         Console.WriteLine("Could not open a window.")
@@ -48,7 +48,7 @@ Sub Main()
         Exit Sub
     End If
 
-    Dim renderer As LongPtr
+    Dim renderer As Ptr
     renderer = SDL_CreateRenderer(window, 0)
     If renderer = 0 Then
         Console.WriteLine("Could not create a renderer.")
@@ -66,19 +66,19 @@ Sub Main()
     Console.WriteLine($"Final score: {Game.CurrentScore()}")
 End Sub
 
-Private Sub RunGame(ByVal window As LongPtr, ByVal renderer As LongPtr)
+Private Sub RunGame(ByVal window As Ptr, ByVal renderer As Ptr)
     Game.ResetScore()
     Phase_ = Phase.Playing
     Attract = True
 
     Dim paddle As Paddle
-    Set paddle = MakePaddle()
+    paddle = MakePaddle()
 
     Dim ball As Ball
-    Set ball = MakeBall()
+    ball = MakeBall()
 
     Dim bricks As Collection
-    Set bricks = Game.MakeBricks()
+    bricks = Game.MakeBricks()
 
     ' Everything drawable, walked once per frame through the interface.
     Dim scene As New Collection()
@@ -90,7 +90,7 @@ Private Sub RunGame(ByVal window As LongPtr, ByVal renderer As LongPtr)
     Next brick
 
     Dim pending As SdlEvent
-    Dim frame As Long
+    Dim frame As Int32
     Dim quitting As Boolean = False
 
     Do While Not quitting And frame < MAX_FRAMES
@@ -110,7 +110,7 @@ Private Sub RunGame(ByVal window As LongPtr, ByVal renderer As LongPtr)
                     ElseIf Sdl.IsRightKey(pending.Scancode) Then
                         paddle.Direction = 1
                     ElseIf pending.Scancode = Sdl.KEY_R Then
-                        Set ball = MakeBall()
+                        ball = MakeBall()
                         scene.Remove(2)
                         scene.Add(ball, , 2)
                     End If
@@ -164,13 +164,13 @@ Private Sub Step_(ByVal paddle As Paddle, ByVal ball As Ball, ByVal bricks As Co
     ' Hoisted: the ball does not move while the wall is scanned, and reaching
     ' for it inside the loop would be one call per brick.
     Dim ballBox As Bounds
-    Set ballBox = ball.Box()
+    ballBox = ball.Box()
 
-    Dim remaining As Long = 0
+    Dim remaining As Int32 = 0
     Dim item As Variant
     For Each item In bricks
         Dim brick As Brick
-        Set brick = CType(item, Brick)
+        brick = CType(item, Brick)
 
         If Not brick.IsAlive() Then
             Continue For
@@ -178,7 +178,7 @@ Private Sub Step_(ByVal paddle As Paddle, ByVal ball As Ball, ByVal bricks As Co
         remaining += 1
 
         Dim brickBox As Bounds
-        Set brickBox = brick.Box()
+        brickBox = brick.Box()
         If ballBox.Overlaps(brickBox) Then
             ball.BounceOff(brickBox)
             brick.Break()
@@ -194,7 +194,7 @@ Private Sub Step_(ByVal paddle As Paddle, ByVal ball As Ball, ByVal bricks As Co
 End Sub
 
 ' Draws every live member of the scene.
-Private Sub Draw(ByVal renderer As LongPtr, ByVal scene As Collection)
+Private Sub Draw(ByVal renderer As Ptr, ByVal scene As Collection)
     SDL_SetRenderDrawColor(renderer, CByte(18), CByte(18), CByte(24), CByte(255))
     SDL_RenderClear(renderer)
 
@@ -202,20 +202,20 @@ Private Sub Draw(ByVal renderer As LongPtr, ByVal scene As Collection)
     Dim item As Variant
     For Each item In scene
         Dim drawable As IDrawable
-        Set drawable = CType(item, IDrawable)
+        drawable = CType(item, IDrawable)
 
         If Not drawable.IsAlive() Then
             Continue For
         End If
 
         Dim area As Bounds
-        Set area = drawable.Box()
+        area = drawable.Box()
         shape.X = CSng(area.Left)
         shape.Y = CSng(area.Top)
         shape.W = CSng(area.Size.X)
         shape.H = CSng(area.Size.Y)
 
-        Dim tint As Long = drawable.Color()
+        Dim tint As Int32 = drawable.Color()
         SDL_SetRenderDrawColor(renderer, _
             CByte(RedOf(tint)), CByte(GreenOf(tint)), CByte(BlueOf(tint)), CByte(255))
         SDL_RenderFillRect(renderer, shape)
@@ -242,7 +242,7 @@ End Function
 
 Private Function MakePaddle() As Paddle
     Dim paddle As New Paddle()
-    Set paddle.Area = New Bounds(FIELD_WIDTH / 2 - 45, FIELD_HEIGHT - 40, 90, 12)
+    paddle.Area = New Bounds(FIELD_WIDTH / 2 - 45, FIELD_HEIGHT - 40, 90, 12)
     paddle.Speed = 420
     paddle.FieldWidth = FIELD_WIDTH
     paddle.Tint = PackColor(230, 230, 240)
@@ -251,8 +251,8 @@ End Function
 
 Private Function MakeBall() As Ball
     Dim ball As New Ball()
-    Set ball.Area = New Bounds(FIELD_WIDTH / 2 - 5, FIELD_HEIGHT / 2, 10, 10)
-    Set ball.Velocity = New Vector2 With { .X = 150, .Y = 260 }
+    ball.Area = New Bounds(FIELD_WIDTH / 2 - 5, FIELD_HEIGHT / 2, 10, 10)
+    ball.Velocity = New Vector2 With { .X = 150, .Y = 260 }
     ball.FieldWidth = FIELD_WIDTH
     ball.Tint = PackColor(250, 220, 90)
     Return ball

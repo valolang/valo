@@ -78,7 +78,7 @@ End Class
 
 Sub Main()
     Dim p As Player
-    Set p = New Player()
+    p = New Player()
     p.Update()
 End Sub
 "#,
@@ -140,7 +140,7 @@ End Class
 
 Sub Main()
     Dim b As Box
-    Set b = New Box()
+    b = New Box()
     Debug.Print b.Value()
 End Sub
 "#,
@@ -190,7 +190,7 @@ End Class
 
 Sub Main()
     Dim x As Box(Of String)
-    Set x = New Box(Of String)()
+    x = New Box(Of String)()
     x.Value = "hello"
     Debug.Print x.Value
 End Sub
@@ -210,7 +210,7 @@ End Class
 
 Sub Main()
     Dim x As Box(Of String)
-    Set x = New Box(Of String)()
+    x = New Box(Of String)()
     x.Value = 123
 End Sub
 "#,
@@ -311,7 +311,7 @@ End Function
 
 Sub Main()
     Dim box As Box(Of String)
-    Set box = New Box(Of String)()
+    box = New Box(Of String)()
     box.Value = "nested"
     Debug.Print Unbox(box)
 End Sub
@@ -348,8 +348,8 @@ End Class
 
 Sub Main()
     Dim x As Box(Of Box(Of String))
-    Set x = New Box(Of Box(Of String))()
-    Set x.Value = New Box(Of String)()
+    x = New Box(Of Box(Of String))()
+    x.Value = New Box(Of String)()
     x.Value.Value = "nested"
     Debug.Print x.Value.Value
 End Sub
@@ -384,11 +384,11 @@ End Function
 
 Sub Main()
     Dim user As User
-    Set user = New User()
+    user = New User()
 
     Dim box As Box(Of User)
-    Set box = New Box(Of User)()
-    Set box.Value = user
+    box = New Box(Of User)()
+    box.Value = user
 
     If box.Value Is user Then
         Debug.Print Marker(Of User)()
@@ -490,7 +490,7 @@ End Class
 
 Sub Main()
     Dim cage As Cage(Of Dog)
-    Set cage = New Cage(Of Dog)()
+    cage = New Cage(Of Dog)()
     Debug.Print "ok"
 End Sub
 "#,
@@ -584,7 +584,7 @@ End Class
 
 Sub Main()
     Dim item As Slot(Of String)
-    Set item = New Slot(Of String)("runtime")
+    item = New Slot(Of String)("runtime")
     Console.WriteLine(item.Value)
 End Sub
 "#,
@@ -717,7 +717,7 @@ End Function
 
 Sub Main()
     Dim c As Counter
-    Set c = Fresh(Of Counter)()
+    c = Fresh(Of Counter)()
     Console.WriteLine(c.Total)
 End Sub
 "#,

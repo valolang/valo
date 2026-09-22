@@ -210,10 +210,6 @@ fn enumerable_values_with_depth(
         return array_values(&value, span);
     }
 
-    if let Value::ComObject(ref com_obj) = value {
-        return crate::runtime::com::enumerable_com_values(com_obj, span);
-    }
-
     if let Value::Collection(ref collection) = value {
         return Ok(collection
             .borrow()
@@ -262,33 +258,10 @@ fn enumerable_values_with_depth(
             });
     }
 
-    if let Some(member) = class.enumerator_member.clone() {
-        let returned = if class.functions.contains_key(&key(&member)) {
-            interpreter.call_method_function(value, &member, &[], frame, span)?
-        } else {
-            interpreter.call_property_get(value, &member, &[], frame, span)?
-        };
-        return enumerable_values_with_depth(interpreter, returned, frame, span, depth + 1)
-            .map_err(|diagnostic| {
-                if diagnostic.message.contains("For Each requires") {
-                    Diagnostic::new(
-                        crate::runtime::DiagnosticCode::ARRAY,
-                        format!(
-                            "VB_UserMemId = -4 enumerator '{}' for Class '{}' did not return an enumerable value",
-                            member, class.name
-                        ),
-                        Some(span),
-                    )
-                } else {
-                    diagnostic
-                }
-            });
-    }
-
     Err(Diagnostic::new(
         crate::runtime::DiagnosticCode::ARRAY,
         format!(
-            "Class '{}' is not enumerable; define an Iterator or a VB_UserMemId = -4 _NewEnum member",
+            "Class '{}' is not enumerable; define an Iterator member",
             class.name
         ),
         Some(span),

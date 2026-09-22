@@ -10,3 +10,5 @@ pub mod package;
 pub mod parser;
 pub mod preprocessor;
 pub mod semantics;
+
+pub mod type_model;

@@ -409,15 +409,15 @@ impl Parser {
                 span,
             },
             TokenKind::Hex(value) => Expr {
-                kind: ExprKind::Integer(parse_vba_hex(&value)),
+                kind: ExprKind::Integer(parse_hex_literal(&value)),
                 span,
             },
             TokenKind::Octal(value) => Expr {
-                kind: ExprKind::Integer(parse_vba_octal(&value)),
+                kind: ExprKind::Integer(parse_octal_literal(&value)),
                 span,
             },
             TokenKind::Float(value) => Expr {
-                kind: parse_vba_float(&value),
+                kind: parse_numeric_literal(&value),
                 span,
             },
             TokenKind::True => Expr {
@@ -563,7 +563,7 @@ impl Parser {
                 {
                     self.parse_generic_type_instance(class_name)?
                 } else {
-                    crate::runtime::TypeName::User(class_name)
+                    crate::frontend::type_model::TypeName::User(class_name)
                 };
                 let args = if self.match_simple(&TokenKind::LeftParen) {
                     self.finish_call_arguments()?
@@ -1161,7 +1161,7 @@ impl Parser {
 
         let mut params = Vec::new();
         if self.match_simple(&TokenKind::LeftParen) {
-            params = self.parse_parameters()?;
+            params = self.parse_lambda_parameters()?;
             self.expect_simple(TokenKind::RightParen, "Expected ')' after parameters")?;
         }
 
@@ -1449,7 +1449,7 @@ pub(super) fn contextual_identifier_name(kind: &TokenKind) -> Option<String> {
     })
 }
 
-fn parse_vba_hex(text: &str) -> i64 {
+fn parse_hex_literal(text: &str) -> i64 {
     let mut s = text.to_ascii_uppercase();
     let has_long_suffix = s.ends_with('&');
     if has_long_suffix {
@@ -1469,7 +1469,7 @@ fn parse_vba_hex(text: &str) -> i64 {
     val
 }
 
-fn parse_vba_octal(text: &str) -> i64 {
+fn parse_octal_literal(text: &str) -> i64 {
     let mut s = text.to_ascii_uppercase();
     let has_long_suffix = s.ends_with('&');
     if has_long_suffix {
@@ -1489,17 +1489,17 @@ fn parse_vba_octal(text: &str) -> i64 {
     val
 }
 
-fn parse_vba_float(text: &str) -> ExprKind {
+fn parse_numeric_literal(text: &str) -> ExprKind {
     let mut s = text.to_ascii_lowercase();
     let suffix = s.chars().last();
     match suffix {
         Some('%') => {
             s.pop();
-            ExprKind::Integer(s.parse::<i16>().map_or(0, |v| v as i64))
+            ExprKind::Integer(s.parse::<i32>().map_or(0, |v| v as i64))
         }
         Some('&') => {
             s.pop();
-            ExprKind::Long(s.parse::<i32>().unwrap_or(0))
+            ExprKind::LongLong(s.parse::<i64>().unwrap_or(0))
         }
         Some('^') => {
             s.pop();

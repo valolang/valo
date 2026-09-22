@@ -1,6 +1,6 @@
 Sub Main()
     Dim b As Byte
-    Dim n As Long
+    Dim n As Int32
 
     b = 7
     n = 123456

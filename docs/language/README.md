@@ -1,5 +1,8 @@
 # Language Reference
 
+> Native systems migration: see the [audit and status](../architecture/native-migration.md). Existing VB.NET syntax is preserved; native compilation and ownership analysis are planned.
+
+
 Documentation for the Valo language features.
 
 *   **[Syntax Overview](syntax.md):** Basic types, variables, and control flow.
@@ -10,11 +13,11 @@ Documentation for the Valo language features.
 *   **[Functions](functions.md):** Procedures, lambdas (`Function(x) ...`), argument passing, and optional arguments.
 *   **[Async and Await](async.md):** VB.NET-style async declarations, await validation, and current interpreter behavior.
 *   **[Classes and Objects](classes.md):** Lifecycle, auto-properties, events (`AddHandler`), and visibility.
-*   **[Properties](properties.md):** Property Get/Let/Set compatibility rules.
+*   **[Properties](properties.md):** Properties and transitional accessor behavior.
 *   **[Inheritance](inheritance.md):** Base classes, overrides, abstract members, and protected visibility.
 *   **[Modules and Imports](modules.md):** Project organization and dependency management.
 *   **[Error Handling](error-handling.md):** Robust runtime failure management.
-*   **[VBA Compatibility](vba-compat.md):** The migration bridge from VBA: `.bas`/`.cls` loading, built-in constants, runtime functions, file I/O, COM, and FFI bridge behavior. Where VBA and VB.NET disagree, Valo follows VB.NET.
-*   **[Standard Library Reference](standard-library.md):** Built-in functions, constants, compatibility levels, and known caveats.
-*   **[COM Automation](com.md):** Windows COM/OLE Automation through `Object`, `CreateObject`, and late-bound calls.
+* **[Breaking changes](vba-compat.md):** Removed project modes and automation features.
+*   **[Standard Library Reference](standard-library.md):** Built-in functions, constants, implementation status, and known caveats.
+* **[Platform automation](com.md):** Core COM removal and future library boundary.
 *   **[FFI](ffi.md):** Native library declarations, pointer types, callbacks, and platform-aware loading.

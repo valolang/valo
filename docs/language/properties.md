@@ -1,51 +1,60 @@
 # Properties
 
-Properties use VBA-compatible `Property Get`, `Property Let`, and `Property Set` procedures.
+Properties use VB.NET-style declarations, auto properties, or Get/Set blocks.
+Standalone `Property Get`, `Property Let` and `Property Set` declarations are
+rejected. One setter representation serves both value and reference types.
 
 ```vb
-Property Let Name(value As String)
-    m_Name = value
+Public Property Health As Integer = 100
+
+Public Property Value As Integer
+    Get
+        Return Stored
+    End Get
+    Set(NewValue As Integer)
+        Stored = NewValue
+    End Set
 End Property
 ```
 
-The final value parameter for `Property Let` and `Property Set` may omit `ByVal`, matching common VBA and exported `.cls` code. Explicit `ByVal` and `ByRef` remain accepted.
+ReadOnly and WriteOnly restrict accessors. Access modifiers, Shared, Default,
+overrides and overloaded indexed properties remain supported. Generic property
+types use the enclosing type's generic parameters.
 
 ## Indexed properties
-
-A property may take arguments, which makes it an indexer:
 
 ```vb
 Class Store
     Private Slots(9) As String
 
-    Public Property Get Item(ByVal index As Long) As String
-        Return Slots(index)
-    End Property
-
-    Public Property Let Item(ByVal index As Long, ByVal value As String)
-        Slots(index) = value
+    Public Default Property Item(Index As Integer) As String
+        Get
+            Return Slots(Index)
+        End Get
+        Set(Value As String)
+            Slots(Index) = Value
+        End Set
     End Property
 End Class
-
-Dim s As New Store()
-s.Item(2) = "two"
-Console.WriteLine(s.Item(2))
 ```
 
-The value a write carries is the accessor's last parameter, after however many
-indices it takes. A plain property has only that one.
+`Store.Item(2)` reads through Get; `Store.Item(2) = "two"` invokes Set. A setter's
+value follows the index parameters internally. Overloads are selected from the
+index and value types; duplicate signatures are rejected.
 
-## Overloaded accessors
-
-Accessors of one kind may share a name when their parameters differ, and the use
-site picks between them the way a call to an overloaded method does:
+Interfaces declare the property name and type without bodies:
 
 ```vb
-Public Property Get Item(ByVal index As Long) As String
-Public Property Get Item(ByVal key As String) As String
+Interface ICounter
+    Property Value As Integer
+End Interface
+
+Class Counter
+    Implements ICounter
+    Public Property Value As Integer Implements ICounter.Value
+End Class
 ```
 
-Reading `Item(2)` reaches the first and `Item("k")` the second. A write is
-resolved by its whole shape, indices and value together, so `Let` accessors
-overload the same way. Two accessors of one kind with the same parameter types
-are rejected where they are declared, since no use could choose between them.
+Named modules can contain properties, accessed through their module name.
+Exported `Attribute VB_UserMemId` metadata is not supported; use `Default` to
+select a default property. Modern angle-bracket attributes remain available.

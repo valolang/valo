@@ -196,18 +196,6 @@ impl Parser {
             .get(self.current + offset)
             .map(|token| &token.kind)
     }
-
-    pub(super) fn expect_identifier_with(
-        &mut self,
-        expected: &str,
-        message: &str,
-    ) -> Result<String, Diagnostic> {
-        if self.match_identifier(expected) {
-            Ok(expected.to_string())
-        } else {
-            Err(self.error_here(message))
-        }
-    }
 }
 
 fn token_description(kind: &TokenKind) -> String {

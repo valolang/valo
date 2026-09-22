@@ -4,7 +4,7 @@ Valo uses a structured module system to organize code and manage dependencies be
 
 ## Module Structure
 
-In Valo, every `.valo`, `.bas`, or `.cls` file is treated as a module. The name of the module is derived from the file name (case-insensitively).
+In Valo, every `.valo` file is treated as a module. The name of the module is derived from the file name (case-insensitively).
 
 VB.NET-style `Module` blocks are also accepted as module-level declaration containers:
 
@@ -63,7 +63,7 @@ End Sub
 
 ## Module Resolution
 
-When you `Import ModuleName`, Valo searches for a file named `ModuleName.valo`, `ModuleName.bas`, or `ModuleName.cls` in the same directory as the importing module.
+When you `Import ModuleName`, Valo searches for a file named `ModuleName.valo` or `ModuleName/index.valo` in the same directory as the importing module.
 
 Modules can also be organized into subdirectories, and imported using dot-notation:
 
@@ -71,4 +71,8 @@ Modules can also be organized into subdirectories, and imported using dot-notati
 Import MyLib.Parser
 ```
 
-This will look for `MyLib/Parser.valo` (or `.bas`/`.cls`) relative to the current file.
+This will look for `MyLib/Parser.valo` relative to the current file.
+
+
+`Option Private Module` is no longer accepted. Use `Private` and `Public` on
+declarations and explicit `Imports` to control access between modules.

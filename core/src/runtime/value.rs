@@ -1,10 +1,5 @@
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
-#[cfg(windows)]
-use windows::Win32::System::Com::IDispatch;
-#[cfg(windows)]
-use windows::core::Interface;
-
 use crate::TypeName;
 use crate::runtime::ArrayBound;
 
@@ -20,6 +15,7 @@ pub struct ArrayValue {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordValue {
     pub type_name: String,
+    pub resolved_type: TypeName,
     pub fields: HashMap<String, Value>,
 }
 
@@ -52,7 +48,6 @@ pub enum Value {
     Record(Rc<RecordValue>),
     BoxedRecord(Rc<RecordValue>, String),
     Object(Rc<RefCell<ObjectValue>>),
-    ComObject(Rc<ComObjectValue>),
     Error(i32),
     Nullable(Box<Value>),
     Lambda(Rc<LambdaValue>),
@@ -202,37 +197,6 @@ pub struct ObjectValue {
     pub terminated: bool,
 }
 
-#[derive(Clone)]
-pub struct ComObjectValue {
-    pub prog_id: String,
-    #[cfg(windows)]
-    pub dispatch: IDispatch,
-}
-
-impl fmt::Debug for ComObjectValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ComObjectValue")
-            .field("prog_id", &self.prog_id)
-            .finish_non_exhaustive()
-    }
-}
-
-impl PartialEq for ComObjectValue {
-    fn eq(&self, other: &Self) -> bool {
-        if !self.prog_id.eq_ignore_ascii_case(&other.prog_id) {
-            return false;
-        }
-        #[cfg(windows)]
-        {
-            self.dispatch.as_raw() == other.dispatch.as_raw()
-        }
-        #[cfg(not(windows))]
-        {
-            true
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct EventBinding {
     pub event_name: String,
@@ -260,8 +224,8 @@ impl Value {
         match self {
             Value::String(_) => TypeName::String,
             Value::Byte(_) => TypeName::Byte,
-            Value::Int16(_) => TypeName::Integer,
-            Value::Int32(_) => TypeName::Long,
+            Value::Int16(_) => TypeName::Int16,
+            Value::Int32(_) => TypeName::Int32,
             Value::Int64(_) => TypeName::Int64,
             Value::UInt32(_) => TypeName::UInt32,
             Value::UInt64(_) => TypeName::UInt64,
@@ -274,11 +238,10 @@ impl Value {
             Value::Ptr(_) => TypeName::Ptr,
             Value::FuncPtr(_) => TypeName::FuncPtr,
             Value::Array(array) => TypeName::Array(Box::new(array.element_type.clone())),
-            Value::Record(record) => TypeName::User(record.type_name.clone()),
+            Value::Record(record) => record.resolved_type.clone(),
             Value::BoxedRecord(_, interface_name) => TypeName::User(interface_name.clone()),
             Value::Object(object) => TypeName::User(object.borrow().class_name.clone()),
             Value::Collection(_) => TypeName::User("Collection".to_string()),
-            Value::ComObject(com) => TypeName::User(com.prog_id.clone()),
             Value::Error(_) => TypeName::Variant,
             Value::Nullable(value) => TypeName::Nullable(Box::new(value.type_name())),
             Value::Lambda(_) => TypeName::User("Func".to_string()),
@@ -307,7 +270,7 @@ impl Value {
             Value::Array(array) => array.allocated && !array.elements.is_empty(),
             Value::Collection(collection) => !collection.borrow().items.is_empty(),
             Value::Record(_) | Value::BoxedRecord(_, _) => true,
-            Value::Object(_) | Value::ComObject(_) => true,
+            Value::Object(_) => true,
             Value::Error(code) => *code != 0,
             Value::Nullable(value) => value.is_truthy(),
             Value::Lambda(_) => true,
@@ -374,7 +337,6 @@ impl Value {
                 format!("<{} as {}>", record.type_name, interface)
             }
             Value::Object(object) => format!("<{}>", object.borrow().class_name),
-            Value::ComObject(object) => format!("<COM:{}>", object.prog_id),
             Value::Error(value) => format!("Error {}", value),
             Value::Nullable(value) => value.to_output_string(),
             Value::Lambda(_) => "<Lambda>".to_string(),

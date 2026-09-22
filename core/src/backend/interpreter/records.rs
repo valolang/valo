@@ -57,24 +57,6 @@ pub(crate) fn write_member(
     new_value: Value,
     span: Span,
 ) -> Result<Value, Diagnostic> {
-    if let Value::ComObject(com_obj) = value {
-        let old_val = crate::runtime::com::invoke_com(
-            com_obj,
-            field,
-            &[],
-            2, // DISPATCH_PROPERTYGET
-            span,
-        )
-        .unwrap_or(Value::Empty);
-        crate::runtime::com::invoke_com(
-            com_obj,
-            field,
-            &[new_value],
-            4, // DISPATCH_PROPERTYPUT
-            span,
-        )?;
-        return Ok(old_val);
-    }
     if let Value::Object(object) = value {
         let mut object = object.borrow_mut();
         let Some(slot) = object.fields.get_mut(&key(field)) else {
@@ -278,13 +260,11 @@ impl From<&TypeDecl> for RuntimeType {
                 .fold(std::collections::HashMap::new(), |mut props, property| {
                     let entry = props.entry(key(&property.name)).or_insert(RuntimeProperty {
                         get: Vec::new(),
-                        let_: Vec::new(),
                         set: Vec::new(),
                     });
                     let accessor = Rc::new(RuntimePropertyAccessor::from(property));
                     match property.kind {
                         crate::PropertyKind::Get => entry.get.push(accessor),
-                        crate::PropertyKind::Let => entry.let_.push(accessor),
                         crate::PropertyKind::Set => entry.set.push(accessor),
                     }
                     props

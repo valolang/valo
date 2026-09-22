@@ -1,18 +1,363 @@
+' A raycaster, written in Valo and drawn with SDL3.
+'
+' One ray per screen column turns a grid of cells into a view down a corridor.
+' Sprites are billboards composited against the depth those rays left behind,
+' and a minimap draws the same world from above so the two can be compared.
+'
+'     valo run game/raycaster/main.valo
+'
+' It exists to put the interpreter under sustained arithmetic: every frame casts
+' a hundred and sixty rays, shades a thousand or so wall patches, and sorts
+' three dozen sprites. See game/README.md for where SDL3 has to be.
+
+Imports Sdl
 Imports World
+Imports Render
 Imports Things
+
+Private Const VIEW_WIDTH As Double = 960
+Private Const VIEW_HEIGHT As Double = 600
+
+' How long the demo runs before closing itself, so a run always terminates.
+Private Const MAX_FRAMES As Int32 = 900
+
+' Until the player first touches a key the camera walks itself, so simply
+' running the program shows the world rather than a wall.
+Private Attract As Boolean
+Private ShowMap As Boolean
 
 Sub Main()
     World.Build()
-    Dim things As Collection
-    Set things = Things.Populate()
-    Console.WriteLine(things.Count)
+
+    If SDL_Init(Sdl.INIT_VIDEO) = 0 Then
+        Console.WriteLine("SDL_Init failed; is SDL3 next to the program?")
+        Exit Sub
+    End If
+
+    Dim window As Ptr
+    window = SDL_CreateWindow("Valo Raycaster", CLng(VIEW_WIDTH), CLng(VIEW_HEIGHT), 0)
+    If window = 0 Then
+        Console.WriteLine("Could not open a window.")
+        SDL_Quit()
+        Exit Sub
+    End If
+
+    Dim renderer As Ptr
+    renderer = SDL_CreateRenderer(window, 0)
+    If renderer = 0 Then
+        Console.WriteLine("Could not create a renderer.")
+        SDL_DestroyWindow(window)
+        SDL_Quit()
+        Exit Sub
+    End If
+
+    RunDemo(window, renderer)
+
+    SDL_DestroyRenderer(renderer)
+    SDL_DestroyWindow(window)
+    SDL_Quit()
+End Sub
+
+Private Sub RunDemo(ByVal window As Ptr, ByVal renderer As Ptr)
+    Attract = True
+    ShowMap = True
+
+    Dim eye As New Vec2(3.5, 3.5)
+    Dim forward As New Vec2(1, 0)
+    ' The camera plane is perpendicular to the direction, and its length is the
+    ' field of view: longer plane, wider angle.
+    Dim plane As New Vec2(0, 0.66)
+
+    Dim population As Collection
+    population = Things.Populate()
+
+    Dim walking As Double = 0
+    Dim turning As Double = 0
+    Dim quitting As Boolean = False
+    Dim frame As Int32 = 0
+    Dim busiest As Int64 = 0
+    Dim spent As Int64 = 0
+
+    Dim pending As SdlEvent
+    Do While Not quitting And frame < MAX_FRAMES
+        frame = frame + 1
+
+        ' -- Input ------------------------------------------------------
+        Do While SDL_PollEvent(pending) <> 0
+            Select Case pending.Kind
+                Case Sdl.EVENT_QUIT
+                    quitting = True
+                Case Sdl.EVENT_KEY_DOWN
+                    Attract = False
+                    If pending.Scancode = Sdl.KEY_ESCAPE Then
+                        quitting = True
+                    ElseIf pending.Scancode = Sdl.KEY_M Then
+                        ShowMap = Not ShowMap
+                    ElseIf IsForwardKey(pending.Scancode) Then
+                        walking = 1
+                    ElseIf IsBackKey(pending.Scancode) Then
+                        walking = -1
+                    ElseIf IsTurnLeftKey(pending.Scancode) Then
+                        turning = -1
+                    ElseIf IsTurnRightKey(pending.Scancode) Then
+                        turning = 1
+                    End If
+                Case Sdl.EVENT_KEY_UP
+                    If IsForwardKey(pending.Scancode) Or IsBackKey(pending.Scancode) Then
+                        walking = 0
+                    ElseIf IsTurnLeftKey(pending.Scancode) Or IsTurnRightKey(pending.Scancode) Then
+                        turning = 0
+                    End If
+            End Select
+        Loop
+
+        ' -- Simulation -------------------------------------------------
+        Const SECONDS As Double = 0.016
+
+        If Attract Then
+            ' Walk forward and turn away from whatever is ahead, which keeps the
+            ' camera moving through the map without anyone holding a key.
+            walking = 1
+            Dim ahead As Hit = Render.Cast(eye, forward)
+            If ahead.Distance < 1.6 Then
+                turning = 1
+            Else
+                turning = 0
+            End If
+        End If
+
+        If turning <> 0 Then
+            Dim angle As Double = turning * 1.6 * SECONDS
+            forward = forward.Rotated(angle)
+            plane = plane.Rotated(angle)
+        End If
+
+        If walking <> 0 Then
+            Dim stepped As Vec2 = eye + forward * (walking * 2.6 * SECONDS)
+            If IsOpen(stepped) Then
+                eye = stepped
+            ElseIf Attract Then
+                ' Cornered: turn until something opens up.
+                forward = forward.Rotated(0.8)
+                plane = plane.Rotated(0.8)
+            End If
+        End If
+
+        Dim item As Variant
+        For Each item In population
+            Dim thing As IThing
+            thing = CType(item, IThing)
+            thing.Advance(SECONDS, eye)
+        Next item
+
+        ' -- Presentation -----------------------------------------------
+        Dim began As Int64 = SDL_GetTicks()
+
+        SDL_SetRenderDrawColor(renderer, CByte(0), CByte(0), CByte(0), CByte(255))
+        SDL_RenderClear(renderer)
+        Render.DrawWalls(renderer, eye, forward, plane, VIEW_WIDTH, VIEW_HEIGHT)
+        DrawThings(renderer, population, eye, forward, plane)
+        If ShowMap Then
+            DrawMap(renderer, eye, forward)
+        End If
+        SDL_RenderPresent(renderer)
+
+        Dim took As Int64 = SDL_GetTicks() - began
+        spent = spent + took
+        If took > busiest Then
+            busiest = took
+        End If
+
+        If frame Mod 15 = 0 Then
+            SDL_SetWindowTitle(window, StatusLine(frame, spent, busiest))
+        End If
+    Loop
+
+    Console.WriteLine("frames: " & frame)
+    Console.WriteLine("average frame: " & CLng(spent / frame) & "ms")
+    Console.WriteLine("busiest frame: " & CLng(busiest) & "ms")
+    Console.WriteLine("rays cast: " & frame * Render.COLUMNS)
+End Sub
+
+Private Function StatusLine( _
+        ByVal frame As Int32, ByVal spent As Int64, ByVal busiest As Int64) As String
+    Dim average As Double = spent / frame
+    Dim rate As Double = 0
+    If average > 0 Then
+        rate = 1000 / average
+    End If
+    Return $"Valo Raycaster - {rate:0.0} fps - {average:0.0}ms average, {busiest}ms worst"
+End Function
+
+' -- Sprites ---------------------------------------------------------------
+
+' Draws every thing as a billboard, furthest first.
+'
+' Sorting matters twice over: a near sprite has to cover a far one, and each is
+' clipped column by column against the wall depth so a sprite behind a wall
+' disappears rather than floating in front of it.
+Private Sub DrawThings( _
+        ByVal renderer As Ptr, ByVal population As Collection, _
+        ByVal eye As Vec2, ByVal forward As Vec2, ByVal plane As Vec2)
+    ' The inverse of the camera matrix, worked out once rather than per sprite.
+    Dim determinant As Double = plane.X * forward.Y - forward.X * plane.Y
+    If determinant = 0 Then
+        Exit Sub
+    End If
+    Dim inverse As Double = 1 / determinant
+
+    ' Collect what is worth drawing, with its distance, then order by it.
+    Dim visible As New Collection()
     Dim item As Variant
-    Dim n As Long
-    For Each item In things
+    For Each item In population
         Dim thing As IThing
-        Set thing = CType(item, IThing)
-        thing.Advance(0.016, New Vec2(5, 7.5))
-        n = n + 1
+        thing = CType(item, IThing)
+        If thing.IsAlive() Then
+            Dim offset As Vec2 = thing.Where() - eye
+            Dim depth As Double = inverse * (-plane.Y * offset.X + plane.X * offset.Y)
+            If depth > 0.2 And depth < 22 Then
+                Dim across As Double = inverse * (forward.Y * offset.X - forward.X * offset.Y)
+                visible.Add(New Sighting(thing, depth, across))
+            End If
+        End If
     Next item
-    Console.WriteLine(n)
+
+    Dim ordered As Collection
+    ordered = FurthestFirst(visible)
+
+    For Each item In ordered
+        Dim sighting As Sighting
+        sighting = CType(item, Sighting)
+        DrawBillboard(renderer, sighting)
+    Next item
+End Sub
+
+' One thing, placed in camera space.
+Public Class Sighting
+    Public Subject As IThing
+    ' Distance along the camera's forward axis.
+    Public Depth As Double
+    ' Sideways offset in camera space, before it becomes a screen column.
+    Public Across As Double
+
+    Public Sub Initialize(ByVal subject As IThing, ByVal depth As Double, ByVal across As Double)
+        Me.Subject = subject
+        Me.Depth = depth
+        Me.Across = across
+    End Sub
+End Class
+
+' Orders sightings furthest first, so nearer ones are drawn over them.
+'
+' Insertion sort: a few dozen sprites, already nearly ordered from one frame to
+' the next, which is the case it is best at.
+Private Function FurthestFirst(ByVal sightings As Collection) As Collection
+    Dim ordered As New Collection()
+    Dim item As Variant
+    For Each item In sightings
+        Dim sighting As Sighting
+        sighting = CType(item, Sighting)
+
+        Dim placed As Boolean = False
+        Dim index As Int32
+        For index = 1 To ordered.Count
+            Dim seated As Sighting
+            seated = CType(ordered.Item(index), Sighting)
+            If sighting.Depth > seated.Depth Then
+                ordered.Add(sighting, , index)
+                placed = True
+                Exit For
+            End If
+        Next index
+        If Not placed Then
+            ordered.Add(sighting)
+        End If
+    Next item
+    Return ordered
+End Function
+
+Private Sub DrawBillboard(ByVal renderer As Ptr, ByVal sighting As Sighting)
+    Dim thing As IThing
+    thing = sighting.Subject
+
+    ' A sprite's size on screen is its world size over its distance, the same
+    ' relation that gives a wall its height.
+    Dim size As Double = VIEW_HEIGHT / sighting.Depth
+    Dim halfWidth As Double = size * thing.Radius()
+    Dim centreX As Double = (VIEW_WIDTH / 2) * (1 + sighting.Across / sighting.Depth)
+    Dim centreY As Double = VIEW_HEIGHT / 2 + size * thing.Rise()
+
+    Dim left As Double = centreX - halfWidth
+    Dim right As Double = centreX + halfWidth
+    If right < 0 Or left > VIEW_WIDTH Then
+        Exit Sub
+    End If
+
+    Dim light As Double = 1 - sighting.Depth / 20
+    If light < 0.15 Then
+        light = 0.15
+    End If
+    Dim color As Int32 = Shade(thing.Tint(), light)
+
+    ' Clipped a column at a time against the wall depth, which is what puts a
+    ' sprite behind a wall rather than on top of it.
+    Dim columnWidth As Double = VIEW_WIDTH / Render.COLUMNS
+    Dim first As Int32 = CLng(Fix(left / columnWidth))
+    Dim last As Int32 = CLng(Fix(right / columnWidth))
+    If first < 0 Then
+        first = 0
+    End If
+    If last > Render.COLUMNS - 1 Then
+        last = Render.COLUMNS - 1
+    End If
+
+    Dim column As Int32
+    For column = first To last
+        If Render.DepthAt(column) > sighting.Depth Then
+            DrawColumn(renderer, color, column * columnWidth, centreY - halfWidth, _
+                columnWidth + 1, halfWidth * 2)
+        End If
+    Next column
+End Sub
+
+Private Sub DrawColumn( _
+        ByVal renderer As Ptr, ByVal color As Int32, _
+        ByVal x As Double, ByVal y As Double, ByVal w As Double, ByVal h As Double)
+    SDL_SetRenderDrawColor(renderer, _
+        CByte(RedOf(color)), CByte(GreenOf(color)), CByte(BlueOf(color)), CByte(255))
+    Dim shape As FRect
+    shape.X = CSng(x)
+    shape.Y = CSng(y)
+    shape.W = CSng(w)
+    shape.H = CSng(h)
+    SDL_RenderFillRect(renderer, shape)
+End Sub
+
+' -- Minimap ---------------------------------------------------------------
+
+' Draws the world from above, with the rays the camera is casting.
+Private Sub DrawMap(ByVal renderer As Ptr, ByVal eye As Vec2, ByVal forward As Vec2)
+    Const CELL As Double = 6
+    Const MARGIN As Double = 12
+
+    Dim x As Int32
+    Dim y As Int32
+    For y = 0 To World.MAP_HEIGHT - 1
+        For x = 0 To World.MAP_WIDTH - 1
+            Dim surface As Int32 = World.At(x, y)
+            If surface <> Material.Open_ Then
+                DrawColumn(renderer, Shade(ColorOf(surface), 0.8), _
+                    MARGIN + x * CELL, MARGIN + y * CELL, CELL - 1, CELL - 1)
+            End If
+        Next x
+    Next y
+
+    ' The player, and the direction they face.
+    Dim px As Double = MARGIN + eye.X * CELL
+    Dim py As Double = MARGIN + eye.Y * CELL
+    DrawColumn(renderer, PackColor(255, 240, 120), px - 2, py - 2, 4, 4)
+
+    SDL_SetRenderDrawColor(renderer, CByte(255), CByte(240), CByte(120), CByte(255))
+    SDL_RenderLine(renderer, CSng(px), CSng(py), _
+        CSng(px + forward.X * CELL * 3), CSng(py + forward.Y * CELL * 3))
 End Sub

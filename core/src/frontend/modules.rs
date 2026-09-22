@@ -52,21 +52,21 @@ pub fn load_project(entry_path: impl AsRef<Path>) -> Result<Project, (Diagnostic
 struct ModuleLoader {
     modules: Vec<LoadedModule>,
     by_path: HashMap<PathBuf, usize>,
-    loaded_vba_sibling_dirs: HashSet<PathBuf>,
     source_map: SourceMap,
 }
 
 impl ModuleLoader {
     fn load(&mut self, path: &Path, stack: &mut Vec<PathBuf>) -> Result<usize, Diagnostic> {
-        self.load_with_options(path, stack, true)
-    }
-
-    fn load_with_options(
-        &mut self,
-        path: &Path,
-        stack: &mut Vec<PathBuf>,
-        load_vba_siblings: bool,
-    ) -> Result<usize, Diagnostic> {
+        if !path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("valo"))
+        {
+            return Err(Diagnostic::new(
+                DiagnosticCode::MODULE_NOT_FOUND,
+                "Valo source files must use the .valo extension; exported VBA modules are not supported",
+                None,
+            ));
+        }
         let canonical = fs::canonicalize(path).map_err(|err| {
             Diagnostic::new(
                 DiagnosticCode::MODULE_NOT_FOUND,
@@ -108,9 +108,6 @@ impl ModuleLoader {
             ));
         }
         if let Some(index) = self.by_path.get(&canonical).copied() {
-            if load_vba_siblings && is_vba_compat_path(&canonical) {
-                self.load_vba_sibling_group(&canonical, stack)?;
-            }
             return Ok(index);
         }
 
@@ -163,93 +160,8 @@ impl ModuleLoader {
             });
         }
         self.modules[index].imports = resolved;
-        if load_vba_siblings && is_vba_compat_path(&canonical) {
-            self.load_vba_sibling_group(&canonical, stack)?;
-        }
         stack.pop();
         Ok(index)
-    }
-
-    fn load_vba_sibling_group(
-        &mut self,
-        current: &Path,
-        stack: &mut Vec<PathBuf>,
-    ) -> Result<(), Diagnostic> {
-        let Some(dir) = current.parent() else {
-            return Ok(());
-        };
-        let dir = dir.to_path_buf();
-        if !self.loaded_vba_sibling_dirs.insert(dir.clone()) {
-            return Ok(());
-        }
-
-        let current_index = self.by_path.get(current).copied();
-        let mut module_indices = Vec::new();
-        if let Some(index) = current_index {
-            module_indices.push(index);
-        }
-
-        let mut siblings = fs::read_dir(&dir)
-            .map_err(|err| {
-                Diagnostic::new(
-                    DiagnosticCode::MODULE_NOT_FOUND,
-                    format!(
-                        "Could not read VBA compatibility module directory '{}': {err}",
-                        dir.display()
-                    ),
-                    None,
-                )
-            })?
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| is_vba_compat_path(path))
-            .collect::<Vec<_>>();
-        siblings.sort();
-
-        for sibling in siblings {
-            let sibling = fs::canonicalize(&sibling).map_err(|err| {
-                Diagnostic::new(
-                    DiagnosticCode::MODULE_NOT_FOUND,
-                    format!("Module '{}' could not be found: {err}", sibling.display()),
-                    None,
-                )
-            })?;
-            if Some(&sibling)
-                == current_index.and_then(|idx| self.modules.get(idx).map(|m| &m.path))
-            {
-                continue;
-            }
-            let index = self.load_with_options(&sibling, stack, false)?;
-            if !module_indices.contains(&index) {
-                module_indices.push(index);
-            }
-        }
-
-        for &source_index in &module_indices {
-            let file_id = self.modules[source_index].file_id;
-            let existing_modules = self.modules[source_index]
-                .imports
-                .iter()
-                .map(|import| import.module)
-                .collect::<HashSet<_>>();
-            let mut implicit_imports = Vec::new();
-            for &target_index in &module_indices {
-                if target_index == source_index || existing_modules.contains(&target_index) {
-                    continue;
-                }
-                let qualifier = self.modules[target_index].name.clone();
-                implicit_imports.push(ResolvedImport {
-                    module: target_index,
-                    requested: qualifier.clone(),
-                    qualifier,
-                    implicit: true,
-                    span: Span::empty(file_id),
-                });
-            }
-            self.modules[source_index].imports.extend(implicit_imports);
-        }
-
-        Ok(())
     }
 }
 
@@ -281,9 +193,7 @@ fn decode_source_bytes(bytes: &[u8]) -> Option<String> {
     if bytes.starts_with(&[0xFE, 0xFF]) {
         return decode_utf16(&bytes[2..], false);
     }
-    String::from_utf8(bytes.to_vec())
-        .ok()
-        .or_else(|| Some(decode_windows_1252(bytes)))
+    String::from_utf8(bytes.to_vec()).ok()
 }
 
 fn decode_utf16(bytes: &[u8], little_endian: bool) -> Option<String> {
@@ -304,42 +214,6 @@ fn decode_utf16(bytes: &[u8], little_endian: bool) -> Option<String> {
     String::from_utf16(&units).ok()
 }
 
-fn decode_windows_1252(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|byte| match *byte {
-            0x80 => '\u{20AC}',
-            0x82 => '\u{201A}',
-            0x83 => '\u{0192}',
-            0x84 => '\u{201E}',
-            0x85 => '\u{2026}',
-            0x86 => '\u{2020}',
-            0x87 => '\u{2021}',
-            0x88 => '\u{02C6}',
-            0x89 => '\u{2030}',
-            0x8A => '\u{0160}',
-            0x8B => '\u{2039}',
-            0x8C => '\u{0152}',
-            0x8E => '\u{017D}',
-            0x91 => '\u{2018}',
-            0x92 => '\u{2019}',
-            0x93 => '\u{201C}',
-            0x94 => '\u{201D}',
-            0x95 => '\u{2022}',
-            0x96 => '\u{2013}',
-            0x97 => '\u{2014}',
-            0x98 => '\u{02DC}',
-            0x99 => '\u{2122}',
-            0x9A => '\u{0161}',
-            0x9B => '\u{203A}',
-            0x9C => '\u{0153}',
-            0x9E => '\u{017E}',
-            0x9F => '\u{0178}',
-            byte => byte as char,
-        })
-        .collect()
-}
-
 fn normalize_line_endings(source: &str) -> String {
     source.replace("\r\n", "\n").replace('\r', "\n")
 }
@@ -349,14 +223,6 @@ fn module_name(path: &Path) -> String {
         .and_then(|stem| stem.to_str())
         .unwrap_or("module")
         .to_string()
-}
-
-fn is_vba_compat_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("bas") || extension.eq_ignore_ascii_case("cls")
-        })
 }
 
 fn resolve_case_insensitive_path(
@@ -402,13 +268,11 @@ fn resolve_import_path(current: &Path, import: &ImportDecl) -> Result<PathBuf, D
     let path_str = &import.module;
     let mut candidates = Vec::new();
 
-    if path_str.ends_with(".valo") || path_str.ends_with(".bas") || path_str.ends_with(".cls") {
+    if path_str.to_ascii_lowercase().ends_with(".valo") {
         candidates.push(PathBuf::from(path_str));
     } else {
         let path = path_str.replace(".", "/");
         candidates.push(PathBuf::from(format!("{}.valo", path)));
-        candidates.push(PathBuf::from(format!("{}.bas", path)));
-        candidates.push(PathBuf::from(format!("{}.cls", path)));
         candidates.push(PathBuf::from(format!("{}/index.valo", path)));
     }
 

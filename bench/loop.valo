@@ -1,9 +1,9 @@
 ' Arithmetic and loop benchmark: nested counting loops with integer math.
 
 Sub Main()
-    Dim total As Long
-    Dim i As Long
-    Dim j As Long
+    Dim total As Int32
+    Dim i As Int32
+    Dim j As Int32
     For i = 1 To 8000
         For j = 1 To 1000
             total = total + (i * j) Mod 7

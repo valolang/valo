@@ -160,8 +160,6 @@ fn builtin_constants() -> HashMap<String, ConstValue> {
             cfg!(target_arch = "mips64") || cfg!(target_arch = "mips64r6"),
         ),
         ("LoongArch64", cfg!(target_arch = "loongarch64")),
-        ("VBA7", true),
-        ("VBA6", false),
         ("Win16", false),
         ("Win32", cfg!(target_os = "windows")),
         (

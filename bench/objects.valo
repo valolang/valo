@@ -1,17 +1,17 @@
 ' Object benchmark: allocation, field writes, and method dispatch.
 
 Class Point
-    Public X As Long
-    Public Y As Long
+    Public X As Int32
+    Public Y As Int32
 
-    Public Function LengthSquared() As Long
+    Public Function LengthSquared() As Int32
         Return X * X + Y * Y
     End Function
 End Class
 
 Sub Main()
-    Dim total As Long
-    Dim i As Long
+    Dim total As Int32
+    Dim i As Int32
     For i = 1 To 250000
         Dim p As New Point()
         p.X = i Mod 100

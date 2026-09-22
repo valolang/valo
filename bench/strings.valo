@@ -2,8 +2,8 @@
 
 Sub Main()
     Dim acc As String
-    Dim i As Long
-    Dim n As Long
+    Dim i As Int32
+    Dim n As Int32
     For i = 1 To 800000
         acc = "item-" & i
         n = n + Len(acc)

@@ -17,38 +17,8 @@ pub struct PackageManifest {
     pub version: String,
     pub entrypoint: PathBuf,
     pub authors: Vec<String>,
-    pub compatibility: CompatibilityMode,
     pub target_platforms: Vec<String>,
     pub dependencies: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CompatibilityMode {
-    #[default]
-    Native,
-    Vba,
-    Mixed,
-}
-
-impl CompatibilityMode {
-    fn parse(value: &str) -> Result<Self, String> {
-        match value.to_ascii_lowercase().as_str() {
-            "native" => Ok(Self::Native),
-            "vba" | "compat" | "compatibility" => Ok(Self::Vba),
-            "mixed" => Ok(Self::Mixed),
-            _ => Err(format!(
-                "compatibility must be one of native, vba, or mixed; got '{value}'"
-            )),
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Native => "native",
-            Self::Vba => "vba",
-            Self::Mixed => "mixed",
-        }
-    }
 }
 
 impl PackageManifest {
@@ -132,7 +102,6 @@ fn parse_manifest(source: &str, root: PathBuf) -> Result<PackageManifest, Diagno
     let mut version = None;
     let mut entrypoint = None;
     let mut authors = Vec::new();
-    let mut compatibility = CompatibilityMode::Native;
     let mut target_platforms = Vec::new();
     let mut dependencies = BTreeMap::new();
 
@@ -157,9 +126,10 @@ fn parse_manifest(source: &str, root: PathBuf) -> Result<PackageManifest, Diagno
                 "entrypoint" => entrypoint = Some(PathBuf::from(parse_string(value, line_index)?)),
                 "authors" => authors = parse_string_array(value, line_index)?,
                 "compatibility" | "compatibility_mode" => {
-                    let value = parse_string(value, line_index)?;
-                    compatibility = CompatibilityMode::parse(&value)
-                        .map_err(|message| manifest_diag(line_index, message))?;
+                    return manifest_error(
+                        line_index,
+                        "Compatibility modes have been removed; remove this setting and use .valo sources",
+                    );
                 }
                 "target_platforms" | "targets" => {
                     target_platforms = parse_string_array(value, line_index)?;
@@ -179,7 +149,6 @@ fn parse_manifest(source: &str, root: PathBuf) -> Result<PackageManifest, Diagno
         version: version.unwrap_or_else(|| "0.1.0".to_string()),
         entrypoint: entrypoint.unwrap_or_else(|| PathBuf::from("main.valo")),
         authors,
-        compatibility,
         target_platforms,
         dependencies,
     })
@@ -234,4 +203,30 @@ fn manifest_diag(line_index: usize, message: impl Into<String>) -> Diagnostic {
         format!("{} at valo.toml:{}", message.into(), line_index + 1),
         None,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn obsolete_compatibility_settings_are_rejected() {
+        for key in ["compatibility", "compatibility_mode"] {
+            for mode in ["native", "vba", "mixed"] {
+                let source = format!("[package]\nname = \"app\"\n{key} = \"{mode}\"\n");
+                let error = parse_manifest(&source, PathBuf::from(".")).unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("Compatibility modes have been removed")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_manifest_needs_no_compatibility_setting() {
+        let manifest = parse_manifest("[package]\nname = \"app\"\n", PathBuf::from(".")).unwrap();
+        assert_eq!(manifest.entrypoint, PathBuf::from("main.valo"));
+    }
 }

@@ -5,8 +5,8 @@ End Class
 Sub Main()
     Dim nested As Box(Of Box(Of String))
 
-    Set nested = New Box(Of Box(Of String))()
-    Set nested.Value = New Box(Of String)()
+    nested = New Box(Of Box(Of String))()
+    nested.Value = New Box(Of String)()
     nested.Value.Value = "nested"
 
     Debug.Print nested.Value.Value
