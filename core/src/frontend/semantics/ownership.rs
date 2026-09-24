@@ -497,6 +497,12 @@ fn check_expression(
 ) -> Result<(), Diagnostic> {
     match &expression.kind {
         ExpressionKind::Constant(_) | ExpressionKind::ArrayInit { .. } => Ok(()),
+        ExpressionKind::Tuple(values) => {
+            for value in values {
+                check_expression(body, value, states)?;
+            }
+            Ok(())
+        }
         ExpressionKind::Place(place) => check_place_indices(body, place, states),
         ExpressionKind::Load(place)
         | ExpressionKind::BorrowImmutable(place)

@@ -281,6 +281,14 @@ fn write_statement(output: &mut String, body: &TypedBody, statement: &Statement,
 fn expression(expression: &Expression) -> String {
     let content = match &expression.kind {
         ExpressionKind::Constant(value) => format!("{value:?}"),
+        ExpressionKind::Tuple(values) => format!(
+            "tuple({})",
+            values
+                .iter()
+                .map(self::expression)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         ExpressionKind::ArrayInit { lower, upper } => format!("array[{lower}..={upper}]"),
         ExpressionKind::Place(place) => {
             let mut rendered = format!("local #{}", place.root.0);

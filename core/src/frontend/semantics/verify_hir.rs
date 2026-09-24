@@ -9,6 +9,30 @@ use crate::runtime::{Diagnostic, DiagnosticCode, Span};
 use std::collections::HashSet;
 
 pub fn verify_body(body: &TypedBody) -> Result<(), Diagnostic> {
+    for (index, structure) in body.structures.iter().enumerate() {
+        if !matches!(structure, TypeName::User(_))
+            || body.structures[..index]
+                .iter()
+                .any(|prior| prior.same_type(structure))
+        {
+            return Err(invalid(
+                "HIR Structure identity is invalid or duplicated",
+                body.span,
+            ));
+        }
+    }
+    for field in &body.fields {
+        if !body
+            .structures
+            .iter()
+            .any(|structure| structure.same_type(&field.owner))
+        {
+            return Err(invalid(
+                "HIR field owner is not a declared Structure",
+                body.span,
+            ));
+        }
+    }
     if body.root_scope != ScopeId(0)
         || body
             .scopes
@@ -560,6 +584,27 @@ fn verify_expression(
 ) -> Result<(), Diagnostic> {
     match &expression.kind {
         ExpressionKind::Constant(_) | ExpressionKind::ArrayInit { .. } => Ok(()),
+        ExpressionKind::Tuple(values) => {
+            let TypeName::Tuple(elements) = &expression.ty else {
+                return Err(invalid(
+                    "Tuple constructor has a non-tuple type",
+                    expression.span,
+                ));
+            };
+            if values.len() != elements.len() {
+                return Err(invalid(
+                    "Tuple constructor arity differs from its type",
+                    expression.span,
+                ));
+            }
+            for (value, element) in values.iter().zip(elements) {
+                verify_expression(body, value, current)?;
+                if !value.ty.same_type(&element.ty) {
+                    return Err(invalid("Tuple element has the wrong type", value.span));
+                }
+            }
+            Ok(())
+        }
         ExpressionKind::Place(place) => {
             let local = place.root;
             verify_local(body, local, current, expression.span)?;
@@ -710,6 +755,7 @@ fn verify_expression(
                 let mode_matches = matches!(
                     (&argument.mode, &argument.value.kind),
                     (ArgumentMode::ByVal, ExpressionKind::Constant(_))
+                        | (ArgumentMode::ByVal, ExpressionKind::Tuple(_))
                         | (ArgumentMode::ByVal, ExpressionKind::ArrayInit { .. })
                         | (ArgumentMode::ByVal, ExpressionKind::Load(_))
                         | (ArgumentMode::ByVal, ExpressionKind::Convert { .. })

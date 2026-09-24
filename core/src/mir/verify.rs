@@ -7,6 +7,23 @@ use crate::frontend::semantics::typed_hir::LocalStorage;
 use crate::frontend::type_model::TypeName;
 
 pub fn verify(function: &Function) -> Result<(), String> {
+    for (index, structure) in function.structures.iter().enumerate() {
+        if !matches!(structure, TypeName::User(_))
+            || function.structures[..index]
+                .iter()
+                .any(|prior| prior.same_type(structure))
+        {
+            return Err("MIR Structure identity is invalid or duplicated".into());
+        }
+    }
+    if function.fields.iter().any(|field| {
+        !function
+            .structures
+            .iter()
+            .any(|structure| structure.same_type(&field.owner))
+    }) {
+        return Err("MIR field owner is not a declared Structure".into());
+    }
     if function.blocks.get(function.entry.0).is_none() {
         return Err("MIR entry block is missing".into());
     }
@@ -140,6 +157,7 @@ fn instruction_uses(kind: &InstructionKind) -> Vec<TempId> {
         InstructionKind::Const(_)
         | InstructionKind::ArrayInit { .. }
         | InstructionKind::EndBorrow(_) => vec![],
+        InstructionKind::TupleInit(elements) => elements.clone(),
         InstructionKind::ArrayLen(place)
         | InstructionKind::SnapshotArray(place)
         | InstructionKind::Load(place)
@@ -175,6 +193,7 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 return Err("MIR constant needs a result".into());
             };
             let valid = match value {
+                Constant::ZeroAggregate => matches!(result, TypeName::User(_) | TypeName::Tuple(_)),
                 Constant::Integer(_) => result.is_integral(),
                 Constant::Single(_) => result.same_type(&TypeName::Single),
                 Constant::Double(_) => result.same_type(&TypeName::Double),
@@ -182,6 +201,18 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
             };
             if !valid {
                 return Err("MIR constant type is incorrect".into());
+            }
+        }
+        InstructionKind::TupleInit(values) => {
+            let Some(TypeName::Tuple(elements)) = result else {
+                return Err("MIR tuple constructor needs a tuple result".into());
+            };
+            if values.len() != elements.len()
+                || values.iter().zip(elements).any(|(value, element)| {
+                    !temp_type(function, *value).is_ok_and(|ty| ty.same_type(&element.ty))
+                })
+            {
+                return Err("MIR tuple constructor elements have incorrect types".into());
             }
         }
         InstructionKind::ArrayInit { upper } => {

@@ -1,0 +1,12 @@
+' Tuples are plain values with positional field reads.
+Function Main() As Integer
+    Dim A = (10, 2.5)
+    Dim B = A
+
+    If A.Item1 = 10 Then
+        If B.Item2 = 2.5 Then
+            Return 0
+        End If
+    End If
+    Return 1
+End Function

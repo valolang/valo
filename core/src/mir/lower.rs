@@ -80,6 +80,7 @@ impl<'a> Builder<'a> {
                         span: local.span,
                     })
                     .collect(),
+                structures: body.structures.clone(),
                 fields: body
                     .fields
                     .iter()
@@ -808,11 +809,18 @@ impl<'a> Builder<'a> {
     fn expr(&mut self, expr: &h::Expression) -> Result<m::TempId, LowerError> {
         let kind = match &expr.kind {
             h::ExpressionKind::Constant(value) => m::InstructionKind::Const(match value {
+                h::Constant::ZeroAggregate => m::Constant::ZeroAggregate,
                 h::Constant::Integer(value) => m::Constant::Integer(*value),
                 h::Constant::Single(value) => m::Constant::Single(*value),
                 h::Constant::Double(value) => m::Constant::Double(*value),
                 h::Constant::Boolean(value) => m::Constant::Boolean(*value),
             }),
+            h::ExpressionKind::Tuple(values) => m::InstructionKind::TupleInit(
+                values
+                    .iter()
+                    .map(|value| self.expr(value))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
             h::ExpressionKind::ArrayInit { lower: 0, upper } => {
                 m::InstructionKind::ArrayInit { upper: *upper }
             }

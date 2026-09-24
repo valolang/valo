@@ -206,6 +206,8 @@ pub struct TypedBody {
     pub name: String,
     pub return_type: TypeName,
     pub locals: Vec<Local>,
+    /// Declared value types, including empty Structures, in source declaration order.
+    pub structures: Vec<TypeName>,
     pub fields: Vec<ResolvedField>,
     pub disposers: Vec<ResolvedDispose>,
     pub scopes: Vec<Scope>,
@@ -380,6 +382,8 @@ pub enum Conversion {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum Constant {
+    /// Default value of a plain value aggregate; its type is carried by Expression.
+    ZeroAggregate,
     Integer(i64),
     Single(f32),
     Double(f64),
@@ -411,6 +415,7 @@ impl ComparisonOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionKind {
     Constant(Constant),
+    Tuple(Vec<Expression>),
     /// The source upper bound is inclusive. Only one-dimensional fixed arrays
     /// enter the current native HIR subset.
     ArrayInit {

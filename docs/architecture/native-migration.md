@@ -722,3 +722,15 @@ See [llvm-backend.md](llvm-backend.md) for the precise ABI, support matrix,
 toolchain requirements and unsupported cases. Stage 2 ownership and lifetime
 gaps and Stage 3.1 drop/liveness gaps remain open; the LLVM success applies
 only to the documented restricted subset.
+
+## Stage 3.3: native value semantics
+
+The experimental backend now lowers plain Copy/no-Drop Structures, nested
+field Places, tuple construction and reads, and fixed zero-based arrays with
+checked indexing. Structure ByVal, return, mutable ByRef and readonly ByRef
+use a documented Valo-internal aggregate ABI. Fixed-array For Each copies its
+entry snapshot into separate native storage, matching interpreter mutation
+visibility. Native tests build, link and execute each of the four native
+examples plus focused aggregate cases. This does not close Stage 2: real
+owned resources, Drop elaboration, public Move, native Class semantics,
+reference lifetimes and exception unwinding remain separate work.

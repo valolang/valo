@@ -9,6 +9,20 @@ use valo_core::{TypeName, parse_source};
 fn body(source: &str, index: usize) -> TypedBody {
     lower_function_body(&parse_source(source).unwrap(), index).unwrap()
 }
+#[test]
+fn verifier_rejects_field_without_declared_structure_owner() {
+    let mut hir = body(
+        "Structure Point\nPublic X As Integer\nEnd Structure\nFunction Main() As Integer\nDim P As Point\nReturn 0\nEnd Function",
+        0,
+    );
+    hir.fields[0].owner = TypeName::User("Missing".into());
+    assert!(
+        verify_hir::verify_body(&hir)
+            .unwrap_err()
+            .message
+            .contains("field owner")
+    );
+}
 fn returned(body: &TypedBody) -> &Expression {
     match body.statements.last().unwrap() {
         Statement::Return { value, .. } => value,

@@ -117,6 +117,12 @@ pub fn lower_function_body(
         name: function.name.clone(),
         return_type: function.return_type.clone(),
         locals: builder.locals,
+        structures: program
+            .types
+            .iter()
+            .filter(|decl| decl.kind == TypeKind::Structure)
+            .map(|decl| TypeName::User(decl.name.clone()))
+            .collect(),
         fields: builder.fields,
         disposers: builder.disposers,
         scopes: builder.scopes,
@@ -167,12 +173,13 @@ fn lower_statements(
                     let ty = ty
                         .as_ref()
                         .ok_or_else(|| cannot_infer_variable(name, *span))?;
-                    scalar(ty, *span)?;
+                    hir_value_type(builder.program, ty, *span)?;
                     h::Expression {
                         kind: h::ExpressionKind::Constant(match ty {
                             TypeName::Boolean => h::Constant::Boolean(false),
                             TypeName::Single => h::Constant::Single(0.0),
                             TypeName::Double => h::Constant::Double(0.0),
+                            TypeName::User(_) | TypeName::Tuple(_) => h::Constant::ZeroAggregate,
                             _ => h::Constant::Integer(0),
                         }),
                         ty: ty.clone(),
@@ -199,7 +206,7 @@ fn lower_statements(
                 span,
                 ..
             } if bounds.len() == 1 && bounds[0].lower == 0 => {
-                scalar(element_type, *span)?;
+                hir_value_type(builder.program, element_type, *span)?;
                 let bound = bounds[0];
                 if bound.upper < 0 {
                     return Err(unsupported("negative fixed-array upper bounds", *span));
@@ -755,7 +762,7 @@ fn scalar(ty: &TypeName, span: Span) -> Result<(), Diagnostic> {
 fn hir_value_type(program: &Program, ty: &TypeName, span: Span) -> Result<(), Diagnostic> {
     match ty {
         TypeName::User(name) if name.eq_ignore_ascii_case("Error") => Ok(()),
-        TypeName::Array(element) => scalar(element, span),
+        TypeName::Array(element) => hir_value_type(program, element, span),
         TypeName::Tuple(elements) => {
             for element in elements {
                 hir_value_type(program, &element.ty, span)?;
@@ -787,7 +794,7 @@ fn check_function(program: &Program, function: &Function) -> Result<(), Diagnost
             function.span,
         ));
     }
-    scalar(&function.return_type, function.span)?;
+    hir_value_type(program, &function.return_type, function.span)?;
     for parameter in &function.params {
         hir_value_type(program, &parameter.ty, parameter.span)?;
         if parameter.is_optional || parameter.is_param_array {
@@ -1115,6 +1122,25 @@ impl Builder<'_> {
                 h::ExpressionKind::Constant(h::Constant::Boolean(*value)),
                 TypeName::Boolean,
             ),
+            ExprKind::TupleLiteral(elements) => {
+                let values = elements
+                    .iter()
+                    .map(|element| self.expression(&element.value))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ty = TypeName::Tuple(
+                    elements
+                        .iter()
+                        .zip(&values)
+                        .map(
+                            |(element, value)| crate::frontend::type_model::TupleElement {
+                                name: element.name.clone(),
+                                ty: value.ty.clone(),
+                            },
+                        )
+                        .collect(),
+                );
+                (h::ExpressionKind::Tuple(values), ty)
+            }
             ExprKind::Variable(name) => {
                 let id = self.lookup(name, expr.span)?;
                 let place = self.place(id, expr.span);

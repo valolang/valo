@@ -1,0 +1,20 @@
+' Fixed zero-based array indexing and snapshot For Each semantics.
+Function Main() As Integer
+    Dim Values(1) As Integer
+    Values(0) = 1
+    Values(1) = 2
+
+    Dim Item As Integer = 0
+    Dim Total As Integer = 0
+    For Each Item In Values
+        Total += Item
+        Values(1) = 9
+    Next
+
+    If Total = 3 Then
+        If Values(1) = 9 Then
+            Return 0
+        End If
+    End If
+    Return 1
+End Function

@@ -1,6 +1,7 @@
 //! Experimental LLVM 22 toolchain adapter. MIR contains no LLVM-specific data.
 mod emit;
 mod ir;
+mod layout;
 
 pub use emit::{Artifact, EmitKind, LlvmTools, NativeOptions, build};
 pub use ir::{Target, render_module};

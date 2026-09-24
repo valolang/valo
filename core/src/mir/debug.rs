@@ -49,6 +49,7 @@ pub fn format_function(function: &Function) -> String {
 fn format_instruction(kind: &InstructionKind) -> String {
     match kind {
         InstructionKind::Const(value) => format!("const {value:?}"),
+        InstructionKind::TupleInit(values) => format!("tuple.init {values:?}"),
         InstructionKind::ArrayInit { upper } => format!("array.init 0..={upper}"),
         InstructionKind::ArrayLen(array) => format!("array.len {}", format_place(array)),
         InstructionKind::SnapshotArray(array) => format!("array.snapshot {}", format_place(array)),

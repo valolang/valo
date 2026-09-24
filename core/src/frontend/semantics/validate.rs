@@ -444,56 +444,64 @@ fn validate_bodies(
 }
 
 /// A deliberately narrow source check while typed HIR does not cover every
-/// class/member body. Non-scalar readonly references are rejected below.
+/// class/member body. Typed HIR checks writes through resolved projected Places.
 fn validate_readonly_bodies(program: &Program) -> Result<(), Diagnostic> {
     for procedure in &program.procedures {
-        validate_readonly_body(&procedure.params, &procedure.body)?;
+        validate_readonly_body(program, &procedure.params, &procedure.body)?;
     }
     for function in &program.functions {
-        validate_readonly_body(&function.params, &function.body)?;
+        validate_readonly_body(program, &function.params, &function.body)?;
     }
     for ty in &program.types {
-        validate_readonly_members(&ty.members)?;
+        validate_readonly_members(program, &ty.members)?;
     }
     for class in &program.classes {
-        validate_readonly_members(&class.members)?;
+        validate_readonly_members(program, &class.members)?;
     }
     Ok(())
 }
 
-fn validate_readonly_members(members: &[ClassMember]) -> Result<(), Diagnostic> {
+fn validate_readonly_members(program: &Program, members: &[ClassMember]) -> Result<(), Diagnostic> {
     for member in members {
         match member {
             ClassMember::Sub(method) => {
-                validate_readonly_body(&method.procedure.params, &method.procedure.body)?
+                validate_readonly_body(program, &method.procedure.params, &method.procedure.body)?
             }
             ClassMember::Function(method) => {
-                validate_readonly_body(&method.function.params, &method.function.body)?
+                validate_readonly_body(program, &method.function.params, &method.function.body)?
             }
             ClassMember::Iterator(method) => {
-                validate_readonly_body(&method.function.params, &method.function.body)?
+                validate_readonly_body(program, &method.function.params, &method.function.body)?
             }
             ClassMember::Property(property) => {
-                validate_readonly_body(&property.params, &property.body)?
+                validate_readonly_body(program, &property.params, &property.body)?
             }
             ClassMember::Operator(operator) => {
-                validate_readonly_body(&operator.params, &operator.body)?
+                validate_readonly_body(program, &operator.params, &operator.body)?
             }
-            ClassMember::Class(nested) => validate_readonly_members(&nested.members)?,
-            ClassMember::Type(nested) => validate_readonly_members(&nested.members)?,
+            ClassMember::Class(nested) => validate_readonly_members(program, &nested.members)?,
+            ClassMember::Type(nested) => validate_readonly_members(program, &nested.members)?,
             _ => {}
         }
     }
     Ok(())
 }
 
-fn validate_readonly_body(params: &[Parameter], statements: &[Stmt]) -> Result<(), Diagnostic> {
+fn validate_readonly_body(
+    program: &Program,
+    params: &[Parameter],
+    statements: &[Stmt],
+) -> Result<(), Diagnostic> {
     let mut readonly = HashSet::new();
     for param in params {
         if param.mode != PassingMode::ByRefReadOnly {
             continue;
         }
-        if !(param.ty.is_integral()
+        let plain_structure = matches!(&param.ty, TypeName::User(name) if program.types.iter().any(|decl| decl.kind == crate::TypeKind::Structure && decl.name.eq_ignore_ascii_case(name)));
+        let plain_tuple = matches!(&param.ty, TypeName::Tuple(elements) if elements.iter().all(|element| matches!(crate::frontend::semantics::type_properties::properties(program, &element.ty).copy, crate::frontend::semantics::type_properties::KnownProperty::Yes)));
+        if !(plain_structure
+            || plain_tuple
+            || param.ty.is_integral()
             || matches!(
                 param.ty,
                 TypeName::Boolean | TypeName::Single | TypeName::Double | TypeName::String
@@ -501,12 +509,10 @@ fn validate_readonly_body(params: &[Parameter], statements: &[Stmt]) -> Result<(
         {
             return Err(Diagnostic::new(
                 crate::runtime::DiagnosticCode::TYPE_MISMATCH,
-                "ByRef ReadOnly currently supports scalar parameters only",
+                "ByRef ReadOnly does not yet support this parameter type",
                 Some(param.span),
             )
-            .with_help(
-                "Structure and Class borrow checking will be enabled after field/place analysis",
-            ));
+            .with_help("This type needs resolved Place borrow semantics"));
         }
         readonly.insert(key(&param.name));
     }
@@ -518,6 +524,24 @@ fn check_readonly_statements(
     readonly: &HashSet<String>,
 ) -> Result<(), Diagnostic> {
     for statement in statements {
+        if let Stmt::Assign { target, span, .. } = statement {
+            let root = match target {
+                AssignTarget::Variable { name, .. } | AssignTarget::ArrayElement { name, .. } => {
+                    Some(name.as_str())
+                }
+                AssignTarget::Member { object, .. }
+                | AssignTarget::MemberArrayElement { object, .. } => readonly_place_root(object),
+            };
+            if let Some(name) = root
+                && readonly.contains(&key(name))
+            {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::INVALID_ASSIGNMENT,
+                    format!("Cannot modify ByRef ReadOnly parameter '{name}'"),
+                    Some(*span),
+                ));
+            }
+        }
         let write = match statement {
             Stmt::Assign {
                 target: AssignTarget::Variable { name, .. },
@@ -600,6 +624,19 @@ fn check_readonly_statements(
         }
     }
     Ok(())
+}
+
+fn readonly_place_root(expression: &Expr) -> Option<&str> {
+    match &expression.kind {
+        ExprKind::Variable(name) => Some(name),
+        ExprKind::MemberAccess { object, .. } | ExprKind::Index { target: object, .. } => {
+            readonly_place_root(object)
+        }
+        ExprKind::Call {
+            name, type_args, ..
+        } if type_args.is_empty() => Some(name),
+        _ => None,
+    }
 }
 
 fn validate_import_aliases(

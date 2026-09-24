@@ -200,7 +200,7 @@ fn class_dynamic_and_native_drop_remain_explicitly_unsupported() {
     program.functions[0].locals[0].ty = valo_core::TypeName::User("Resource".into());
     let error = render_module(&program, &tools.target).unwrap_err();
     assert_eq!(error.stage, "native eligibility");
-    assert!(error.message.contains("native primitive ABI"));
+    assert!(error.message.contains("native value layout"));
 
     program.functions[0].locals[0].ty = valo_core::TypeName::Variant;
     assert!(
@@ -286,4 +286,165 @@ fn llvm_ir_is_verified_and_object_is_emitted() {
     );
     std::fs::remove_file(ir_path).unwrap();
     std::fs::remove_file(obj).unwrap();
+}
+
+#[test]
+fn native_vec2_readonly_borrow_and_field_places() {
+    execute(
+        "Structure Vec2\nPublic X As Single\nPublic Y As Single\nEnd Structure\nFunction LengthSquared(ByRef ReadOnly V As Vec2) As Single\nReturn V.X * V.X + V.Y * V.Y\nEnd Function\nFunction Main() As Integer\nDim V As Vec2\nV.X = 3\nV.Y = 4\nIf LengthSquared(V) = 25 Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_nested_struct_copy_byval_and_return() {
+    execute(
+        "Structure Vec2\nPublic X As Integer\nPublic Y As Integer\nEnd Structure\nStructure Transform\nPublic Position As Vec2\nPublic Active As Boolean\nEnd Structure\nFunction Make() As Transform\nDim T As Transform\nT.Position.X = 20\nT.Position.Y = 22\nT.Active = True\nReturn T\nEnd Function\nFunction Score(T As Transform) As Integer\nReturn T.Position.X + T.Position.Y\nEnd Function\nFunction Main() As Integer\nDim A As Transform = Make()\nDim B As Transform = A\nB.Position.X = 1\nIf A.Active Then\nIf Score(A) = 42 Then\nIf B.Position.X = 1 Then\nReturn 0\nEnd If\nEnd If\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_tuple_construction_copy_and_projection() {
+    execute(
+        "Function Main() As Integer\nDim A = (10, 2.5)\nDim B = A\nIf A.Item1 = 10 Then\nIf B.Item1 = 10 Then\nIf A.Item2 = 2.5 Then\nReturn 0\nEnd If\nEnd If\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_tuple_readonly_borrow_uses_caller_storage() {
+    execute(
+        "Function First(ByRef ReadOnly Pair As (Integer, Double)) As Integer\nReturn Pair.Item1\nEnd Function\nFunction Main() As Integer\nDim Pair = (42, 2.5)\nReturn First(Pair)\nEnd Function",
+        42,
+    );
+}
+
+#[test]
+fn native_array_index_copy_and_snapshot_foreach() {
+    execute(
+        "Function Main() As Integer\nDim Values(1) As Integer\nValues(0) = 1\nValues(1) = 2\nDim Item As Integer = 0\nDim Total As Integer = 0\nFor Each Item In Values\nTotal += Item\nValues(1) = 9\nNext\nIf Total = 3 Then\nIf Values(1) = 9 Then\nReturn 0\nEnd If\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_array_of_structures_and_nested_index_field_place() {
+    execute(
+        "Structure Point\nPublic X As Integer\nPublic Y As Integer\nEnd Structure\nFunction Main() As Integer\nDim Points(1) As Point\nPoints(0).X = 3\nPoints(1).Y = 6\nIf Points(0).X + Points(1).Y = 9 Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_foreach_over_plain_structures_copies_entry_snapshot() {
+    execute(
+        "Structure Point\nPublic X As Integer\nEnd Structure\nFunction Main() As Integer\nDim Points(1) As Point\nPoints(0).X = 20\nPoints(1).X = 22\nDim Item As Point\nDim Total As Integer = 0\nFor Each Item In Points\nTotal += Item.X\nPoints(1).X = 1\nNext\nReturn Total\nEnd Function",
+        42,
+    );
+}
+
+#[test]
+fn empty_structure_has_distinct_native_identity() {
+    execute(
+        "Structure Marker\nEnd Structure\nFunction Main() As Integer\nDim M As Marker\nReturn 0\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn structure_with_class_field_is_not_assumed_copy_or_dropless() {
+    let Some(tools) = tools() else { return };
+    let program = module(
+        "Class Resource\nEnd Class\nStructure Holder\nPublic Value As Resource\nEnd Structure\nFunction Main() As Integer\nDim H As Holder\nReturn 0\nEnd Function",
+    );
+    let error = render_module(&program, &tools.target).unwrap_err();
+    assert_eq!(error.stage, "native eligibility");
+    assert!(error.message.contains("ownership requirements"), "{error}");
+}
+
+#[test]
+fn readonly_structure_parameter_rejects_projected_write_before_mir() {
+    let source = "Structure Point\nPublic X As Integer\nEnd Structure\nFunction Bad(ByRef ReadOnly P As Point) As Integer\nP.X = 1\nReturn 0\nEnd Function";
+    let program = parse_source(source).unwrap();
+    let error = valo_core::semantics::validate_snippet(&program).unwrap_err();
+    assert!(
+        error.message.contains("Cannot modify ByRef ReadOnly"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn native_array_bounds_violation_traps() {
+    let Some(tools) = tools() else { return };
+    let program = module(
+        "Function Main() As Integer\nDim Values(1) As Integer\nReturn Values(0 - 1)\nEnd Function",
+    );
+    let path = output("bounds-trap");
+    build(
+        &program,
+        &tools,
+        &NativeOptions {
+            output: path.clone(),
+            kind: EmitKind::Executable,
+            optimize: false,
+        },
+    )
+    .unwrap();
+    let status = Command::new(&path).status().unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(!status.success());
+}
+
+#[test]
+fn native_mutable_byref_struct_and_projected_scalar_borrow() {
+    execute(
+        "Structure Point\nPublic X As Integer\nPublic Y As Integer\nEnd Structure\nFunction Increment(ByRef X As Integer) As Integer\nX += 1\nReturn X\nEnd Function\nFunction Change(ByRef P As Point) As Integer\nP.Y = Increment(P.X)\nReturn P.X + P.Y\nEnd Function\nFunction Main() As Integer\nDim P As Point\nP.X = 20\nIf Change(P) = 42 Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_boolean_fields_and_fixed_array_elements() {
+    execute(
+        "Structure Flags\nPublic Ready As Boolean\nPublic Count As Integer\nEnd Structure\nFunction Main() As Integer\nDim F As Flags\nDim Bits(0) As Boolean\nF.Ready = True\nBits(0) = F.Ready\nIf Bits(0) Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_foreach_snapshot_matches_interpreter_result() {
+    let source = "Function Main() As Integer\nDim Values(1) As Integer\nValues(0) = 1\nValues(1) = 2\nDim Item As Integer = 0\nDim Total As Integer = 0\nFor Each Item In Values\nTotal += Item\nValues(1) = 9\nNext\nReturn Total\nEnd Function";
+    let interpreted = source.replace("Function Main() As Integer", "Function Result() As Integer")
+        + "\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub";
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["3"]);
+    execute(source, 3);
+}
+
+#[test]
+fn native_structure_and_tuple_values_match_interpreter() {
+    for source in [
+        "Structure Vec2\nPublic X As Integer\nPublic Y As Integer\nEnd Structure\nFunction Main() As Integer\nDim V As Vec2\nV.X = 20\nV.Y = 22\nReturn V.X + V.Y\nEnd Function",
+        "Function Main() As Integer\nDim Pair = (20, 22)\nReturn Pair.Item1 + Pair.Item2\nEnd Function",
+    ] {
+        let interpreted = source
+            .replace("Function Main() As Integer", "Function Result() As Integer")
+            + "\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub";
+        assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["42"]);
+        execute(source, 42);
+    }
+}
+
+#[test]
+fn llvm_ir_records_aggregate_layout_and_resolved_geps() {
+    let source = "Structure Mixed\nPublic B As Byte\nPublic Number As Long\nPublic Flag As Boolean\nEnd Structure\nFunction Main() As Integer\nDim V As Mixed\nV.Number = 42\nV.Flag = True\nIf V.Flag Then\nReturn 0\nEnd If\nReturn 1\nEnd Function";
+    let target = valo_core::backend::llvm::Target {
+        triple: "x86_64-pc-windows-msvc".into(),
+        data_layout:
+            "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128".into(),
+        pointer_bits: 64,
+    };
+    let text = render_module(&module(source), &target).unwrap();
+    assert!(text.contains("type { i8, i64, i1 }"), "{text}");
+    assert!(text.contains("getelementptr inbounds %valo_t0"), "{text}");
 }

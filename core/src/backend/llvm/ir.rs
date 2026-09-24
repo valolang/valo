@@ -7,6 +7,7 @@ use crate::frontend::type_model::TypeName;
 use crate::mir::{analysis::ownership, ir as m, verify};
 
 use super::BackendError;
+use super::layout::ArrayShapes;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Target {
@@ -52,6 +53,123 @@ struct Signature {
     parameters: Vec<(TypeName, LocalStorage)>,
 }
 
+struct NativeTypes<'a> {
+    structures: &'a [TypeName],
+    fields: &'a [m::Field],
+}
+
+impl NativeTypes<'_> {
+    fn ty(&self, ty: &TypeName) -> Result<String, BackendError> {
+        match ty {
+            TypeName::User(_) => self
+                .structure_id(ty)
+                .map(|id| format!("%valo_t{id}"))
+                .ok_or_else(|| {
+                    BackendError::new(
+                        "native eligibility",
+                        format!("type {ty:?} has no native value layout"),
+                    )
+                }),
+            TypeName::Tuple(elements) => Ok(format!(
+                "{{ {} }}",
+                elements
+                    .iter()
+                    .map(|element| self.ty(&element.ty))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ")
+            )),
+            TypeName::Array(element) => {
+                self.ty(element)?;
+                Ok("{ i64, ptr }".into())
+            }
+            _ => native_type(ty).map(str::to_string),
+        }
+    }
+
+    fn structure_id(&self, owner: &TypeName) -> Option<usize> {
+        self.structures
+            .iter()
+            .position(|candidate| candidate.same_type(owner))
+    }
+
+    fn members(&self, owner: &TypeName) -> Vec<&m::Field> {
+        self.fields
+            .iter()
+            .filter(|field| field.owner.same_type(owner))
+            .collect()
+    }
+
+    fn field_index(
+        &self,
+        id: crate::frontend::semantics::typed_hir::FieldId,
+        owner: &TypeName,
+    ) -> Result<usize, BackendError> {
+        self.members(owner)
+            .iter()
+            .position(|field| field.id == id)
+            .ok_or_else(|| {
+                BackendError::new(
+                    "native eligibility",
+                    "resolved field has no native layout index",
+                )
+            })
+    }
+
+    fn definitions(&self) -> Result<String, BackendError> {
+        let mut out = String::new();
+        for (id, structure) in self.structures.iter().enumerate() {
+            self.check_acyclic(structure, &mut Vec::new())?;
+            if self
+                .members(structure)
+                .iter()
+                .any(|member| matches!(member.ty, TypeName::Array(_)))
+            {
+                return Err(BackendError::new(
+                    "native eligibility",
+                    "array fields in Structures need a native ownership contract",
+                ));
+            }
+            let members = self
+                .members(structure)
+                .iter()
+                .map(|member| self.ty(&member.ty))
+                .collect::<Result<Vec<_>, _>>()?;
+            writeln!(out, "%valo_t{id} = type {{ {} }}", members.join(", ")).unwrap();
+        }
+        Ok(out)
+    }
+
+    fn check_acyclic(&self, ty: &TypeName, path: &mut Vec<String>) -> Result<(), BackendError> {
+        match ty {
+            TypeName::User(name) => {
+                if path.iter().any(|item| item.eq_ignore_ascii_case(name)) {
+                    return Err(BackendError::new(
+                        "native eligibility",
+                        format!("recursive value Structure {name} has infinite size"),
+                    ));
+                }
+                if self.structure_id(ty).is_none() {
+                    return self.ty(ty).map(|_| ());
+                }
+                path.push(name.clone());
+                for field in self.members(ty) {
+                    self.check_acyclic(&field.ty, path)?;
+                }
+                path.pop();
+            }
+            TypeName::Tuple(elements) => {
+                for element in elements {
+                    self.check_acyclic(&element.ty, path)?;
+                }
+            }
+            _ => {
+                self.ty(ty)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 fn native_type(ty: &TypeName) -> Result<&'static str, BackendError> {
     Ok(match ty {
         TypeName::Byte => "i8",
@@ -90,16 +208,20 @@ fn symbol(id: crate::frontend::semantics::typed_hir::BodyFunctionId) -> String {
     format!("@valo_f{}", id.0)
 }
 
-fn parameter_list(signature: &Signature, names: bool) -> Result<String, BackendError> {
+fn parameter_list(
+    signature: &Signature,
+    names: bool,
+    types: &NativeTypes<'_>,
+) -> Result<String, BackendError> {
     signature
         .parameters
         .iter()
         .enumerate()
         .map(|(i, (ty, storage))| {
             let llvm = if *storage == LocalStorage::Value {
-                native_type(ty)?
+                types.ty(ty)?
             } else {
-                "ptr"
+                "ptr".to_string()
             };
             Ok(if names {
                 format!("{llvm} %p{i}")
@@ -113,7 +235,10 @@ fn parameter_list(signature: &Signature, names: bool) -> Result<String, BackendE
 
 /// Eligibility is deliberately module-wide for the first backend. This also
 /// validates every resolved call against the declarations collected in pass 1.
-fn signatures(module: &m::Module) -> Result<Vec<Option<Signature>>, BackendError> {
+fn signatures(
+    module: &m::Module,
+    types: &NativeTypes<'_>,
+) -> Result<Vec<Option<Signature>>, BackendError> {
     let capacity = module
         .functions
         .iter()
@@ -124,18 +249,42 @@ fn signatures(module: &m::Module) -> Result<Vec<Option<Signature>>, BackendError
     for f in &module.functions {
         verify::verify(f).map_err(|e| BackendError::new("MIR verification", e))?;
         ownership::analyze(f).map_err(|e| BackendError::new("MIR dataflow", e))?;
-        native_type(&f.return_type)?;
+        types.ty(&f.return_type)?;
+        if matches!(f.return_type, TypeName::Array(_)) {
+            return Err(BackendError::new(
+                "native eligibility",
+                "array return ABI is not yet supported",
+            ));
+        }
         for local in &f.locals {
-            native_type(&local.ty)?;
+            types.ty(&local.ty)?;
+            if matches!(local.ty, TypeName::User(_) | TypeName::Tuple(_))
+                && (local.properties.copy != KnownProperty::Yes
+                    || local.properties.requires_drop != KnownProperty::No)
+            {
+                return Err(BackendError::new(
+                    "native eligibility",
+                    "aggregate has unknown or non-Copy ownership requirements",
+                ));
+            }
         }
         for ty in &f.temps {
-            native_type(ty)?;
+            types.ty(ty)?;
         }
         let mut parameters = f
             .locals
             .iter()
             .filter_map(|l| l.parameter_index.map(|i| (i, l.ty.clone(), l.storage)))
             .collect::<Vec<_>>();
+        if parameters
+            .iter()
+            .any(|(_, ty, _)| matches!(ty, TypeName::Array(_)))
+        {
+            return Err(BackendError::new(
+                "native eligibility",
+                "array parameter ABI is not yet supported",
+            ));
+        }
         parameters.sort_by_key(|(i, _, _)| *i);
         if parameters
             .iter()
@@ -165,7 +314,17 @@ fn signatures(module: &m::Module) -> Result<Vec<Option<Signature>>, BackendError
 }
 
 pub fn render_module(module: &m::Module, target: &Target) -> Result<String, BackendError> {
-    let declared = signatures(module)?;
+    let types = NativeTypes {
+        structures: module
+            .functions
+            .first()
+            .map_or(&[], |f| f.structures.as_slice()),
+        fields: module
+            .functions
+            .first()
+            .map_or(&[], |f| f.fields.as_slice()),
+    };
+    let declared = signatures(module, &types)?;
     let main = module
         .functions
         .iter()
@@ -188,8 +347,15 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
     )
     .unwrap();
     writeln!(out, "declare void @llvm.trap()\n").unwrap();
+    writeln!(out, "{}", types.definitions()?).unwrap();
     for f in &module.functions {
-        lower_function(&mut out, f, &declared)?;
+        if f.fields != types.fields || f.structures != types.structures {
+            return Err(BackendError::new(
+                "native eligibility",
+                "functions disagree on resolved Structure fields",
+            ));
+        }
+        lower_function(&mut out, f, &declared, &types)?;
     }
     writeln!(out, "define i32 @main() {{\nentry:\n  %entry_result = call i32 {}()\n  ret i32 %entry_result\n}}", symbol(main[0].id)).unwrap();
     Ok(out)
@@ -199,14 +365,16 @@ fn lower_function(
     out: &mut String,
     f: &m::Function,
     declared: &[Option<Signature>],
+    types: &NativeTypes<'_>,
 ) -> Result<(), BackendError> {
+    let arrays = ArrayShapes::analyze(f)?;
     let signature = declared[f.id.0].as_ref().expect("collected");
     writeln!(
         out,
         "define {} {}({}) {{",
-        native_type(&f.return_type)?,
+        types.ty(&f.return_type)?,
         symbol(f.id),
-        parameter_list(signature, true)?
+        parameter_list(signature, true, types)?
     )
     .unwrap();
     let mut values = vec![None; f.temps.len()];
@@ -216,23 +384,45 @@ fn lower_function(
         if block.id == f.entry {
             for local in &f.locals {
                 if local.storage == LocalStorage::Value {
-                    writeln!(
-                        out,
-                        "  %l{} = alloca {}",
-                        local.id.0,
-                        native_type(&local.ty)?
-                    )
-                    .unwrap();
+                    writeln!(out, "  %l{} = alloca {}", local.id.0, types.ty(&local.ty)?).unwrap();
                     if let Some(index) = local.parameter_index {
                         writeln!(
                             out,
                             "  store {} %p{}, ptr %l{}",
-                            native_type(&local.ty)?,
+                            types.ty(&local.ty)?,
                             index,
                             local.id.0
                         )
                         .unwrap();
                     }
+                }
+            }
+            for (index, length) in arrays.locals.iter().enumerate() {
+                if let Some(length) = length {
+                    let TypeName::Array(element) = &f.locals[index].ty else {
+                        unreachable!()
+                    };
+                    let array_ty = format!("[{length} x {}]", types.ty(element)?);
+                    writeln!(out, "  %arraylocal{index} = alloca {array_ty}").unwrap();
+                    writeln!(out, "  %arrayinit{index} = insertvalue {{ i64, ptr }} {{ i64 {length}, ptr null }}, ptr %arraylocal{index}, 1").unwrap();
+                    writeln!(
+                        out,
+                        "  store {{ i64, ptr }} %arrayinit{index}, ptr %l{index}"
+                    )
+                    .unwrap();
+                }
+            }
+            for (index, length) in arrays.temps.iter().enumerate() {
+                if let Some(length) = length {
+                    let TypeName::Array(element) = &f.temps[index] else {
+                        unreachable!()
+                    };
+                    writeln!(
+                        out,
+                        "  %arraytemp{index} = alloca [{length} x {}]",
+                        types.ty(element)?
+                    )
+                    .unwrap();
                 }
             }
         }
@@ -243,6 +433,7 @@ fn lower_function(
                 instruction,
                 &mut values,
                 declared,
+                (types, &arrays),
                 &mut guard_counter,
             )?;
         }
@@ -263,7 +454,7 @@ fn lower_function(
             m::TerminatorKind::Return(id) => writeln!(
                 out,
                 "  ret {} {}",
-                native_type(&f.return_type)?,
+                types.ty(&f.return_type)?,
                 value(&values, *id)?
             )
             .unwrap(),
@@ -286,19 +477,73 @@ fn value(values: &[Option<String>], id: m::TempId) -> Result<&str, BackendError>
     })
 }
 
-fn place_ptr(f: &m::Function, place: &m::Place) -> Result<String, BackendError> {
-    if !place.projections.is_empty() {
-        return Err(BackendError::new(
-            "native eligibility",
-            "projected Places need native aggregate layout",
-        ));
-    }
+fn place_ptr(
+    out: &mut String,
+    f: &m::Function,
+    place: &m::Place,
+    types: &NativeTypes<'_>,
+    values: &[Option<String>],
+    counter: &mut usize,
+) -> Result<String, BackendError> {
     let local = &f.locals[place.root.0];
-    Ok(if local.storage == LocalStorage::Value {
+    let mut ptr = if local.storage == LocalStorage::Value {
         format!("%l{}", place.root.0)
     } else {
         format!("%p{}", local.parameter_index.expect("borrowed parameter"))
-    })
+    };
+    let mut ty = local.ty.clone();
+    for projection in &place.projections {
+        if let m::Projection::Index(index) = projection {
+            let TypeName::Array(element) = &ty else {
+                unreachable!("verified MIR")
+            };
+            let id = *counter;
+            *counter += 1;
+            writeln!(out, "  %arrdesc{id} = load {{ i64, ptr }}, ptr {ptr}\n  %arrlen{id} = extractvalue {{ i64, ptr }} %arrdesc{id}, 0\n  %arrdata{id} = extractvalue {{ i64, ptr }} %arrdesc{id}, 1").unwrap();
+            let index_ty = &f.temps[index.0];
+            let index_value = value(values, *index)?;
+            let index64 = if types.ty(index_ty)? == "i64" {
+                index_value.to_string()
+            } else {
+                let opcode = if signed(index_ty) { "sext" } else { "zext" };
+                writeln!(
+                    out,
+                    "  %arrindex{id} = {opcode} {} {index_value} to i64",
+                    types.ty(index_ty)?
+                )
+                .unwrap();
+                format!("%arrindex{id}")
+            };
+            writeln!(out, "  %arrvalid{id} = icmp ult i64 {index64}, %arrlen{id}\n  br i1 %arrvalid{id}, label %arrok{id}, label %arrtrap{id}\narrtrap{id}:\n  call void @llvm.trap()\n  unreachable\narrok{id}:\n  %arrelem{id} = getelementptr inbounds {}, ptr %arrdata{id}, i64 {index64}", types.ty(element)?).unwrap();
+            ptr = format!("%arrelem{id}");
+            ty = *element.clone();
+            continue;
+        }
+        let (index, next) = match projection {
+            m::Projection::Field(id) => {
+                let field = &f.fields[id.0];
+                (types.field_index(*id, &ty)?, field.ty.clone())
+            }
+            m::Projection::TupleField(index) => {
+                let TypeName::Tuple(elements) = &ty else {
+                    unreachable!("verified MIR")
+                };
+                (*index, elements[*index].ty.clone())
+            }
+            m::Projection::Index(_) => unreachable!(),
+        };
+        let name = format!("%place{}", *counter);
+        *counter += 1;
+        writeln!(
+            out,
+            "  {name} = getelementptr inbounds {}, ptr {ptr}, i32 0, i32 {index}",
+            types.ty(&ty)?
+        )
+        .unwrap();
+        ptr = name;
+        ty = next;
+    }
+    Ok(ptr)
 }
 
 fn lower_instruction(
@@ -307,13 +552,16 @@ fn lower_instruction(
     ins: &m::Instruction,
     values: &mut [Option<String>],
     declared: &[Option<Signature>],
+    layout: (&NativeTypes<'_>, &ArrayShapes),
     guard_counter: &mut usize,
 ) -> Result<(), BackendError> {
+    let (types, arrays) = layout;
     let result = ins.result.map(|id| format!("%t{}", id.0));
     let result_ty = ins.result.map(|id| &f.temps[id.0]);
     match &ins.kind {
         m::InstructionKind::Const(constant) => {
             let text = match constant {
+                m::Constant::ZeroAggregate => "zeroinitializer".into(),
                 m::Constant::Integer(n) => n.to_string(),
                 m::Constant::Boolean(b) => b.to_string(),
                 m::Constant::Single(n) => float_literal(f64::from(*n)),
@@ -321,6 +569,26 @@ fn lower_instruction(
             };
             values[ins.result.expect("verified").0] = Some(text);
             return Ok(());
+        }
+        m::InstructionKind::TupleInit(elements) => {
+            let temp = ins.result.expect("verified").0;
+            let tuple_ty = types.ty(&f.temps[temp])?;
+            let mut previous = "zeroinitializer".to_string();
+            for (index, element) in elements.iter().enumerate() {
+                let next = if index + 1 == elements.len() {
+                    format!("%t{temp}")
+                } else {
+                    format!("%tuple{temp}_{index}")
+                };
+                writeln!(
+                    out,
+                    "  {next} = insertvalue {tuple_ty} {previous}, {} {}, {index}",
+                    types.ty(&f.temps[element.0])?,
+                    value(values, *element)?
+                )
+                .unwrap();
+                previous = next;
+            }
         }
         m::InstructionKind::Load(place) | m::InstructionKind::Move(place) => {
             if matches!(ins.kind, m::InstructionKind::Move(_))
@@ -331,29 +599,53 @@ fn lower_instruction(
                     "ownership-sensitive Move is not supported",
                 ));
             }
+            let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
             writeln!(
                 out,
                 "  {} = load {}, ptr {}",
                 result.as_ref().expect("verified"),
-                native_type(&place.ty)?,
-                place_ptr(f, place)?
+                types.ty(&place.ty)?,
+                ptr
             )
             .unwrap();
         }
         m::InstructionKind::Store {
             place,
             value: source,
-        } => writeln!(
-            out,
-            "  store {} {}, ptr {}",
-            native_type(&place.ty)?,
-            value(values, *source)?,
-            place_ptr(f, place)?
-        )
-        .unwrap(),
+        } => {
+            let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
+            if let TypeName::Array(element) = &place.ty {
+                if !place.projections.is_empty() {
+                    return Err(BackendError::new(
+                        "native eligibility",
+                        "projected array assignment is not supported",
+                    ));
+                }
+                let length = arrays.locals[place.root.0].expect("array shape checked");
+                if arrays.temps[source.0] != Some(length) {
+                    return Err(BackendError::new(
+                        "native eligibility",
+                        "array assignment has mismatched fixed bounds",
+                    ));
+                }
+                let id = *guard_counter;
+                *guard_counter += 1;
+                let aggregate = format!("[{length} x {}]", types.ty(element)?);
+                writeln!(out, "  %copysource{id} = extractvalue {{ i64, ptr }} {}, 1\n  %copyvalue{id} = load {aggregate}, ptr %copysource{id}\n  %copydest{id} = load {{ i64, ptr }}, ptr {ptr}\n  %copytarget{id} = extractvalue {{ i64, ptr }} %copydest{id}, 1\n  store {aggregate} %copyvalue{id}, ptr %copytarget{id}", value(values, *source)?).unwrap();
+            } else {
+                writeln!(
+                    out,
+                    "  store {} {}, ptr {}",
+                    types.ty(&place.ty)?,
+                    value(values, *source)?,
+                    ptr
+                )
+                .unwrap();
+            }
+        }
         m::InstructionKind::Arithmetic { op, left, right } => {
             let ty = result_ty.expect("verified");
-            let llvm_ty = native_type(ty)?;
+            let llvm_ty = types.ty(ty)?;
             let a = value(values, *left)?.to_string();
             let b = value(values, *right)?.to_string();
             let float = floating(ty);
@@ -405,7 +697,7 @@ fn lower_instruction(
                 op,
                 ArithmeticOp::Divide | ArithmeticOp::IntegerDivide | ArithmeticOp::Modulo
             ) {
-                emit_division_guard(out, llvm_ty, ty, &a, &b, guard_counter);
+                emit_division_guard(out, &llvm_ty, ty, &a, &b, guard_counter);
             }
             writeln!(
                 out,
@@ -464,7 +756,7 @@ fn lower_instruction(
                 "  {} = {} {predicate} {} {}, {}",
                 result.as_ref().expect("verified"),
                 if floating(ty) { "fcmp" } else { "icmp" },
-                native_type(ty)?,
+                types.ty(ty)?,
                 value(values, *left)?,
                 value(values, *right)?
             )
@@ -486,9 +778,9 @@ fn lower_instruction(
                     out,
                     "  {} = {opcode} {} {} to {}",
                     result.as_ref().expect("verified"),
-                    native_type(from)?,
+                    types.ty(from)?,
                     source_value,
-                    native_type(to)?
+                    types.ty(to)?
                 )
                 .unwrap();
             } else {
@@ -539,7 +831,7 @@ fn lower_instruction(
                     (m::CallArgument::Value(id), LocalStorage::Value, ArgumentMode::ByVal) => args
                         .push(format!(
                             "{} {}",
-                            native_type(expected_type)?,
+                            types.ty(expected_type)?,
                             value(values, *id)?
                         )),
                     (
@@ -551,7 +843,10 @@ fn lower_instruction(
                         m::CallArgument::Place { place, .. },
                         LocalStorage::BorrowedImmutable,
                         ArgumentMode::BorrowImmutable,
-                    ) => args.push(format!("ptr {}", place_ptr(f, place)?)),
+                    ) => args.push(format!(
+                        "ptr {}",
+                        place_ptr(out, f, place, types, values, guard_counter)?
+                    )),
                     _ => {
                         return Err(BackendError::new(
                             "native eligibility",
@@ -564,19 +859,41 @@ fn lower_instruction(
                 out,
                 "  {} = call {} {}({})",
                 result.as_ref().expect("verified"),
-                native_type(&signature.result)?,
+                types.ty(&signature.result)?,
                 symbol(*id),
                 args.join(", ")
             )
             .unwrap();
         }
-        m::InstructionKind::ArrayInit { .. }
-        | m::InstructionKind::ArrayLen(_)
-        | m::InstructionKind::SnapshotArray(_) => {
-            return Err(BackendError::new(
-                "native eligibility",
-                "array representation is not native yet",
-            ));
+        m::InstructionKind::ArrayInit { .. } => {
+            let temp = ins.result.expect("verified").0;
+            let length = arrays.temps[temp].expect("fixed array shape");
+            let TypeName::Array(element) = &f.temps[temp] else {
+                unreachable!()
+            };
+            let aggregate = format!("[{length} x {}]", types.ty(element)?);
+            writeln!(out, "  store {aggregate} zeroinitializer, ptr %arraytemp{temp}\n  %t{temp} = insertvalue {{ i64, ptr }} {{ i64 {length}, ptr null }}, ptr %arraytemp{temp}, 1").unwrap();
+        }
+        m::InstructionKind::ArrayLen(place) => {
+            let length = arrays.locals[place.root.0].expect("fixed array shape");
+            writeln!(
+                out,
+                "  {} = add i64 0, {length}",
+                result.as_ref().expect("verified")
+            )
+            .unwrap();
+        }
+        m::InstructionKind::SnapshotArray(place) => {
+            let temp = ins.result.expect("verified").0;
+            let length = arrays.temps[temp].expect("fixed array shape");
+            let TypeName::Array(element) = &f.temps[temp] else {
+                unreachable!()
+            };
+            let aggregate = format!("[{length} x {}]", types.ty(element)?);
+            let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
+            let id = *guard_counter;
+            *guard_counter += 1;
+            writeln!(out, "  %snapdesc{id} = load {{ i64, ptr }}, ptr {ptr}\n  %snapdata{id} = extractvalue {{ i64, ptr }} %snapdesc{id}, 1\n  %snapvalue{id} = load {aggregate}, ptr %snapdata{id}\n  store {aggregate} %snapvalue{id}, ptr %arraytemp{temp}\n  %t{temp} = insertvalue {{ i64, ptr }} {{ i64 {length}, ptr null }}, ptr %arraytemp{temp}, 1").unwrap();
         }
         m::InstructionKind::Drop(_) => {
             return Err(BackendError::new(

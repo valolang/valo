@@ -57,16 +57,57 @@ bodies are not yet represented by typed HIR; `void` currently appears only in
 the LLVM trap intrinsic. FFI/extern ABI, including Boolean layout, is not
 supported by this backend.
 
-MIR value locals become entry-block LLVM allocas. Primitive ByVal parameters
-are stored into those slots; primitive ByRef and ByRef ReadOnly parameters
-are pointers to the caller's verified local Place. MIR temporaries become
-LLVM SSA values or inline constants. Only local-root Places lower; resolved
-field, tuple and index Places are rejected until aggregate layout and bounds
-rules are available. MIR `Goto`, `Branch`, `Return` and `Unreachable` become
+MIR value locals become entry-block LLVM allocas. ByVal parameters are stored
+into independent slots; ByRef and ByRef ReadOnly parameters point to the
+caller's verified Place. MIR temporaries become LLVM SSA values or inline
+constants. Local, Structure-field, tuple-field and indexed Places lower through
+one address-walking routine. MIR `Goto`, `Branch`, `Return` and `Unreachable` become
 LLVM terminators. `Trap` calls `llvm.trap` and does not masquerade as a Valo
 exception. The backend sees Try/Finally only as MIR CFG blocks. A primitive
 Finally body can therefore run natively on normal and return paths; Dispose
 still requires unresolved native Class semantics and is rejected.
+
+## Stage 3.3 native value layout
+
+Plain Copy/no-Drop Structures have distinct named LLVM types in source
+declaration order (`%valo_t0`, `%valo_t1`, ...), including empty Structures.
+Fields retain declaration order. Resolved FieldIds map to positions within the
+owner's field list; chained `getelementptr` operations address nested fields.
+LLVM's target data layout determines padding, alignment and offsets. There is
+no packing or promised C ABI. Default Structure locals receive
+`zeroinitializer`. Loads/stores copy the value. ByVal arguments and returns use
+direct LLVM aggregate values in the experimental Valo-internal ABI; ByRef and
+ByRef ReadOnly pass the actual Place address. Recursive value Structures and
+fields with unknown ownership/layout are rejected.
+
+Plain tuples use anonymous LLVM structs in element order. HIR and MIR carry
+tuple construction; positional and named reads resolve to the same field
+index. Tuple loads and assignments copy the aggregate value, and supported
+readonly tuple borrows pass its address. The source validator does not permit
+tuple-field assignment, so native compilation does not add that behavior.
+
+`TypeName::Array` records an element type but no fixed bound. Native eligibility
+derives each local and temporary's fixed length from verified MIR initializers,
+loads, stores and snapshots. The native representation is an internal
+`{ i64 length, ptr data }` descriptor; each fixed local and array-producing
+temporary has distinct entry-block `[N x T]` backing storage. Initialization
+zeroes elements at the declaration point, including each loop execution.
+Indexing checks bounds after signed/unsigned extension to i64, then traps on
+failure before the GEP. Array stores copy all elements into the destination's
+own backing storage. For Each snapshots elements once into separate backing
+storage at entry, matching interpreter mutation visibility. Current source
+typing does not treat a whole array variable as an ordinary scalar value, so
+general whole-array assignment, array parameters/returns, array fields,
+dynamic arrays and ReDim remain unsupported. The fixed native subset has a
+current stack limit of one million elements per array and no zero-element
+source declaration. Arrays of plain Copy Structures work for indexed access.
+
+Boolean uses LLVM `i1` for registers, locals, addressable Structure fields,
+tuple items and fixed-array elements. Target data layout determines physical
+allocation; the tested host allocates one byte per addressable `i1`. This is
+only a Valo-internal experimental ABI. Aggregate copying is limited to values
+with a known Copy/no-Drop contract. Native Drop and ownership-sensitive Move
+remain unsupported.
 
 Add/subtract/multiply emit LLVM integer operations without `nsw` or `nuw`,
 preserving the frontend's wrapping integer model. Floating operations use
@@ -100,10 +141,17 @@ handle enters HIR or MIR.
 | If, While, Do, For, Exit, Continue, Return | Yes | Yes / Yes | Yes |
 | Direct functions, recursion, primitive ByVal/ByRef | Yes | Yes / Yes | Yes |
 | ByRef ReadOnly primitive calls | Yes | Yes / Yes | Yes, pointer ABI |
+| Plain Copy Structure, nested Structure, field Place | Yes | Yes / Yes | Yes |
+| Structure ByVal, return, ByRef, ByRef ReadOnly | Yes | Yes / Yes | Yes, internal aggregate ABI |
+| Tuple construction, copy, field read, readonly borrow | Yes | Yes / Yes | Yes |
+| Fixed primitive array index and mutation | Yes | Yes / Yes | Yes, checked bounds |
+| Fixed array of plain Structure | Yes | Yes / Yes | Yes, indexed access |
+| Fixed-array For Each | Yes | Yes / Yes | Yes, entry snapshot |
+| Whole-array scalar assignment, array argument/return | Restricted | No / partial | No |
 | Try/Finally without exception dispatch | Yes | Yes / Yes | Yes for primitive bodies |
 | Using with Class Dispose | Yes | Partial / Yes | No |
 | Catch and exception unwind | Yes | Partial / No dispatch | No |
-| Structure/tuple/array Places, For Each | Yes | Partial / Yes for supported forms | No |
+| Structure methods, aggregate constructors, dynamic arrays | Yes | Partial | No |
 | Class, Variant/dynamic, strings, async | Yes | Partial | No |
 | Public Move, native Drop, unique resources | Not public | Internal only | No |
 
@@ -113,6 +161,6 @@ Unsupported features return stage-specific diagnostics before LLVM object
 emission. Native tests are unconditional Rust tests but skip toolchain-dependent
 execution when `clang`, `opt`, or `llc` cannot be discovered; frontend and MIR
 tests always run. The next backend milestone should add checked narrowing and
-float-to-integer conversions, plain Structure layout/field Places, and a
-native project/call-graph pipeline. Native exceptions, ownership/Drop, and
+float-to-integer conversions, native project/call-graph compilation and more
+aggregate initialization coverage. Native exceptions, ownership/Drop, and
 general reference lifetimes remain separate semantic work.

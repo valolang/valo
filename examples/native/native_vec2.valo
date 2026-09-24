@@ -1,0 +1,20 @@
+' Plain value Structures and an immutable aggregate borrow.
+Structure Vec2
+    Public X As Single
+    Public Y As Single
+End Structure
+
+Function LengthSquared(ByRef ReadOnly V As Vec2) As Single
+    Return V.X * V.X + V.Y * V.Y
+End Function
+
+Function Main() As Integer
+    Dim V As Vec2
+    V.X = 3
+    V.Y = 4
+
+    If LengthSquared(V) = 25 Then
+        Return 0
+    End If
+    Return 1
+End Function

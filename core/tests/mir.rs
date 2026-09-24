@@ -11,6 +11,19 @@ fn mir(source: &str) -> ir::Function {
 }
 
 #[test]
+fn verifier_rejects_duplicate_native_value_type_identity() {
+    let mut function = mir(
+        "Structure Marker\nEnd Structure\nFunction Main() As Integer\nDim M As Marker\nReturn 0\nEnd Function",
+    );
+    function.structures.push(function.structures[0].clone());
+    assert!(
+        verify::verify(&function)
+            .unwrap_err()
+            .contains("Structure identity")
+    );
+}
+
+#[test]
 fn literal_return_has_a_typed_temp_and_terminator() {
     let function = mir("Function F() As Integer\nReturn 7\nEnd Function");
     assert_eq!(function.temps, vec![TypeName::Int32]);

@@ -13,7 +13,8 @@ The first MIR is **non-SSA**. HIR locals become typed MIR storage locations;
 each computed result gets a deterministic typed temporary. Basic blocks have
 an instruction list and exactly one terminator. `Goto`, Boolean `Branch`,
 `Return`, `Trap`, and `Unreachable` are implemented. The initial instructions
-are constants, fixed array initialization/length, Place loads/stores, typed
+are constants (including typed aggregate zero values), tuple construction,
+fixed array initialization/length, Place loads/stores, typed
 arithmetic/comparisons/casts, and calls with resolved function identity,
 signature and argument passing modes. MIR Places retain local roots and
 resolved field, tuple-field and indexed projections. An indexed Place load or
@@ -28,8 +29,9 @@ identity to jump to the appropriate loop exit or next-test/step destination.
 The fixed-array For Each lowering now snapshots the element sequence once at
 entry, then indexes that snapshot. This matches the interpreter's enumeration
 snapshot when the source array is changed in the body. The source subset is
-still one-dimensional, zero-based, fixed, scalar arrays; generic iteration
-and native snapshot storage costs remain unresolved. The For bound and Step
+still one-dimensional, zero-based and fixed; plain Structure elements can
+enter the typed native subset, while generic iteration remains unresolved.
+The For bound and Step
 expressions are evaluated once, and zero Step reaches a trap.
 
 Cleanup chains are expanded **during HIR-to-MIR lowering**, not retained as

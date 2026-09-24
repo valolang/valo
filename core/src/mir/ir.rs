@@ -26,6 +26,7 @@ pub struct Function {
     pub name: String,
     pub return_type: TypeName,
     pub locals: Vec<Local>,
+    pub structures: Vec<TypeName>,
     pub fields: Vec<Field>,
     /// Resolved Dispose owners indexed by DisposeMethodId.
     pub disposers: Vec<TypeName>,
@@ -69,6 +70,7 @@ pub struct Instruction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Constant {
+    ZeroAggregate,
     Integer(i64),
     Single(f32),
     Double(f64),
@@ -110,6 +112,7 @@ pub enum BorrowKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstructionKind {
     Const(Constant),
+    TupleInit(Vec<TempId>),
     /// Fixed, zero-based array allocation. Bounds checks remain required.
     ArrayInit {
         upper: i64,
