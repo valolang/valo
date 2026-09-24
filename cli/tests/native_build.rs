@@ -78,6 +78,34 @@ fn cli_builds_and_executes_multifile_native_project() {
 }
 
 #[test]
+fn native_build_rejects_mixed_source_option_settings() {
+    let root = std::env::temp_dir().join(format!("valo-mixed-options-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.valo");
+    let imported = root.join("Other.valo");
+    std::fs::write(
+        &main,
+        "Imports Other\nFunction Main() As Integer\nReturn 0\nEnd Function\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &imported,
+        "Option Strict On\nPublic Function OtherValue() As Integer\nReturn 1\nEnd Function\n",
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .arg("build")
+        .arg(&main)
+        .output()
+        .unwrap();
+    std::fs::remove_file(main).unwrap();
+    std::fs::remove_file(imported).unwrap();
+    std::fs::remove_dir(root).unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("different Option settings"));
+}
+
+#[test]
 fn unsupported_native_class_reports_eligibility_not_a_panic() {
     if LlvmTools::discover().is_err() {
         return;

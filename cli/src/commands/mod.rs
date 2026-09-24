@@ -131,6 +131,18 @@ pub fn build(args: impl Iterator<Item = String>, color: ColorChoice) -> Result<(
             e.render_colored(&project.source_map, color.enabled())
         )
     })?;
+    let root_options = &project.modules[project.entry].program;
+    if let Some(module) = project.modules.iter().find(|module| {
+        let options = &module.program;
+        options.option_strict != root_options.option_strict
+            || options.option_explicit != root_options.option_explicit
+            || options.option_compare != root_options.option_compare
+    }) {
+        return Err(format!(
+            "native eligibility: imported source '{}' has different Option settings; per-file native lowering is not supported yet",
+            module.path.display()
+        ));
+    }
     let program = &compilation.program;
     if !program
         .functions

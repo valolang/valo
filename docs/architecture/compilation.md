@@ -18,6 +18,10 @@ resolve imports. A native build currently lowers all functions in that view.
 The combined view is a transitional native subset: source modules with
 colliding unqualified declarations or functions needing a runtime/foreign ABI
 may remain ineligible even when the interpreter accepts qualified calls.
+Files with differing `Option Strict`, `Option Explicit` or `Option Compare`
+settings are rejected for native compilation until HIR lowering retains
+per-source options; project validation and interpreter execution still use
+each file's own settings.
 `Function Main() As Integer` remains the native entry form; interpreter
 `Sub Main()` remains valid Valo but cannot yet be native entry.
 
