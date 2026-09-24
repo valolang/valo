@@ -708,4 +708,17 @@ native Class ownership, reference escape, general lifetimes, exception
 dispatch/unwinding, generic iteration and runtime-only coercions remain.
 Stage 3 likewise still needs projected move paths, backward liveness, drop
 elaboration, conditional cleanup, exception CFG and native ABI decisions.
-LLVM/JIT/machine-code work has not begun.
+At the Stage 3.1 checkpoint, LLVM/JIT/machine-code work had not begun.
+
+## Stage 3.2: experimental LLVM executable path
+
+An optional LLVM command-line backend now translates the primitive, verified
+MIR subset to host LLVM IR, verifies it with `opt`, optionally runs LLVM O2,
+emits an object with `llc`, and links a native executable through `clang`.
+`valo build` exposes this path without changing interpreter `valo run`.
+Native execution tests cover constants, arithmetic, signedness, branches,
+loops, direct/recursive calls, primitive ByRef and normal/return Finally CFG.
+See [llvm-backend.md](llvm-backend.md) for the precise ABI, support matrix,
+toolchain requirements and unsupported cases. Stage 2 ownership and lifetime
+gaps and Stage 3.1 drop/liveness gaps remain open; the LLVM success applies
+only to the documented restricted subset.

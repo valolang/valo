@@ -40,6 +40,7 @@ fn real_main() -> Result<(), String> {
         "run" => commands::run(args, color),
         "repl" => commands::repl(color),
         "check" => commands::check(args, color),
+        "build" => commands::build(args, color),
         "version" => {
             println!("Valo 0.1.0");
             Ok(())
@@ -53,7 +54,7 @@ fn real_main() -> Result<(), String> {
 }
 
 fn usage() -> String {
-    r#"Valo 0.1.0 - VB.NET-inspired syntax, native systems direction (interpreter preview).
+    r#"Valo 0.1.0 - VB.NET-inspired syntax, interpreter and experimental native backend.
 
 Usage: valo <command> [args]
 
@@ -61,10 +62,13 @@ Commands:
     run <file>      Run a Valo file (.valo)
     repl            Start an interactive REPL
     check <file>    Validate a Valo file without running
+    build <file>    Compile the supported subset to a native executable
     version         Print version information
     help            Print this help message
 Options:
     --color auto|always|never
+    build: --emit=llvm-ir|obj|exe  --release  -o <output>
+    build: VALO_LLVM_BIN can name the LLVM tool directory
 "#
     .to_string()
 }

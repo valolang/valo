@@ -1,0 +1,25 @@
+' Experimental native backend example. Build with:
+' valo build examples/native/native_control_flow.valo --release
+
+Module Program
+
+    Function Add(A As Integer, B As Integer) As Integer
+        Return A + B
+    End Function
+
+    Function Main() As Integer
+        Dim Total As Integer = 0
+        Dim I As Integer = 0
+
+        For I = 1 To 4
+            Total += I
+        Next
+
+        If Add(Total, 32) = 42 Then
+            Return 0
+        End If
+
+        Return 1
+    End Function
+
+End Module

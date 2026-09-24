@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use valo_core::backend::llvm::{EmitKind, LlvmTools, NativeOptions};
 use valo_core::{Frame, Interpreter, Stmt, validate_snippet};
 
 #[derive(Debug, Clone, Copy)]
@@ -77,6 +78,97 @@ pub fn check(mut args: impl Iterator<Item = String>, color: ColorChoice) -> Resu
     }
 
     println!("File validated successfully.");
+    Ok(())
+}
+
+pub fn build(args: impl Iterator<Item = String>, color: ColorChoice) -> Result<(), String> {
+    let mut source_path = None;
+    let mut output = None;
+    let mut kind = EmitKind::Executable;
+    let mut optimize = false;
+    let mut args = args.peekable();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--release" => optimize = true,
+            "-o" | "--output" => {
+                output = Some(std::path::PathBuf::from(
+                    args.next()
+                        .ok_or("build: missing output path".to_string())?,
+                ))
+            }
+            "--emit=llvm-ir" => kind = EmitKind::LlvmIr,
+            "--emit=obj" => kind = EmitKind::Object,
+            "--emit=exe" => kind = EmitKind::Executable,
+            _ if arg.starts_with('-') => return Err(format!("build: unknown option {arg}")),
+            _ if source_path.is_none() => source_path = Some(std::path::PathBuf::from(arg)),
+            _ => {
+                return Err(
+                    "usage: valo build <file> [--emit=llvm-ir|obj|exe] [--release] [-o output]"
+                        .into(),
+                );
+            }
+        }
+    }
+    let source_path = source_path.ok_or(
+        "usage: valo build <file> [--emit=llvm-ir|obj|exe] [--release] [-o output]".to_string(),
+    )?;
+    let source = std::fs::read_to_string(&source_path)
+        .map_err(|e| format!("source: {}: {e}", source_path.display()))?;
+    let mut map = valo_core::SourceMap::new();
+    let file_id = map.add(source_path.display().to_string(), source.clone());
+    let program = valo_core::parse_source_with_id(&source, file_id)
+        .map_err(|e| format!("parsing: {}", e.render_colored(&map, color.enabled())))?;
+    valo_core::semantics::validate_snippet(&program).map_err(|e| {
+        format!(
+            "semantic analysis: {}",
+            e.render_colored(&map, color.enabled())
+        )
+    })?;
+    let bodies = (0..program.functions.len())
+        .map(|index| {
+            valo_core::semantics::lower_function_body(&program, index)
+                .map_err(|e| format!("typed HIR: {}", e.render_colored(&map, color.enabled())))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mir = valo_core::mir::lower_module(&bodies).map_err(|e| format!("MIR lowering: {e:?}"))?;
+    let tools = LlvmTools::discover().map_err(|e| e.to_string())?;
+    let output = output.unwrap_or_else(|| {
+        let name = source_path.file_stem().unwrap_or_default();
+        std::path::PathBuf::from("target/valo-native")
+            .join(name)
+            .with_extension(match kind {
+                EmitKind::LlvmIr => "ll",
+                EmitKind::Object => {
+                    if cfg!(windows) {
+                        "obj"
+                    } else {
+                        "o"
+                    }
+                }
+                EmitKind::Executable => {
+                    if cfg!(windows) {
+                        "exe"
+                    } else {
+                        "out"
+                    }
+                }
+            })
+    });
+    let artifact = valo_core::backend::llvm::build(
+        &mir,
+        &tools,
+        &NativeOptions {
+            output,
+            kind,
+            optimize,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "Built {} ({})",
+        artifact.path.display(),
+        artifact.target.triple
+    );
     Ok(())
 }
 

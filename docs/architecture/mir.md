@@ -99,6 +99,13 @@ appear as opaque MIR values/calls for CFG tests; their native layout and ABI
 are not specified. MIR is not executable, and the source interpreter remains
 the existing execution path. No LLVM or machine-code dependency exists in MIR.
 
-Future backends should consume verified MIR after ownership/dataflow and Drop
-insertion are sound. LLVM is a possible optimized native backend, but its
-types, exception ABI and object format must not define Valo semantics.
+Native backends must consume verified MIR and accept only semantics their
+current subset can lower. LLVM types, exception ABI and object format must not
+define Valo semantics.
+
+An experimental backend now consumes the **primitive eligible subset** of
+verified MIR. Its local allocas, SSA temporaries, target data layout and
+LLVM tool invocations live entirely in `backend/llvm`, not in MIR. Internal
+Move/Drop and projected Places remain represented in MIR but native eligibility
+rejects ownership-sensitive or aggregate cases. See
+[llvm-backend.md](llvm-backend.md).

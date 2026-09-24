@@ -107,12 +107,18 @@ End Sub
 cargo build --release
 cargo run -p valo_cli -- run examples/hello.valo
 cargo run -p valo_cli -- check examples/hello.valo
+cargo run -p valo_cli -- build examples/native/native_control_flow.valo --release
 cargo run -p valo_cli -- repl
 cargo test --workspace
 ```
 
-`cargo build` builds the Rust toolchain. `valo build` and native Valo output are
-planned. Save sources as `.valo`; identifiers remain case-insensitive and source
+`cargo build` builds the Rust toolchain. `valo build` now has an experimental
+LLVM native backend for a restricted primitive subset. It needs `clang`, `opt`
+and `llc` on `PATH`, or `VALO_LLVM_BIN` pointing to their directory. Native
+`build` accepts `--emit=llvm-ir|obj|exe`, `--release` and `-o <path>`; normal
+`valo run` remains interpreter-based. See the
+[backend support matrix](docs/architecture/llvm-backend.md) before using it
+for larger programs. Save sources as `.valo`; identifiers remain case-insensitive and source
 casing is retained in the syntax tree and diagnostics.
 
 An existing project manifest can be as small as:

@@ -27,6 +27,12 @@ current behaviour explicit, so an example that quietly changed what it prints
 fails instead of passing, which is what makes them a safety net for work on the
 interpreter.
 
+The experimental `native/native_control_flow.valo` example has a
+`Function Main() As Integer` native entry. Build it with
+`valo build examples/native/native_control_flow.valo --release`. It is tested
+through the native CLI integration test when LLVM tools are available and is
+not part of the interpreter's `Sub Main` transcript suite.
+
 After adding an example, or when a change to its output is intended, record it:
 
 ```sh
