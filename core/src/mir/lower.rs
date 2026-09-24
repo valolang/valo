@@ -14,6 +14,7 @@ pub enum LowerError {
     Unsupported { feature: &'static str, span: Span },
     InvalidHir(String),
     InvalidMir(String),
+    Analysis(String),
 }
 
 pub fn lower_module(bodies: &[h::TypedBody]) -> Result<m::Module, LowerError> {
@@ -38,6 +39,7 @@ pub fn lower_body(body: &h::TypedBody) -> Result<m::Function, LowerError> {
         });
     }
     verify::verify(&builder.function).map_err(LowerError::InvalidMir)?;
+    super::analysis::ownership::analyze(&builder.function).map_err(LowerError::Analysis)?;
     Ok(builder.function)
 }
 
@@ -72,6 +74,8 @@ impl<'a> Builder<'a> {
                     .map(|local| m::Local {
                         id: m::LocalId(local.id.0),
                         ty: local.ty.clone(),
+                        properties: local.properties,
+                        storage: local.storage,
                         parameter_index: local.parameter_index,
                         span: local.span,
                     })
@@ -592,6 +596,31 @@ impl<'a> Builder<'a> {
                 "For Each source is not an array".into(),
             ));
         }
+        // The interpreter enumerates an element snapshot. Preserve that
+        // visible behavior even if the source array changes in the body.
+        let snapshot = self.value(
+            m::InstructionKind::SnapshotArray(array.clone()),
+            array.ty.clone(),
+            span,
+        );
+        let snapshot_local = m::LocalId(self.function.locals.len());
+        self.function.locals.push(m::Local {
+            id: snapshot_local,
+            ty: array.ty.clone(),
+            properties: crate::frontend::semantics::type_properties::TypeProperties {
+                copy: crate::frontend::semantics::type_properties::KnownProperty::Unknown,
+                requires_drop: crate::frontend::semantics::type_properties::KnownProperty::Unknown,
+            },
+            storage: h::LocalStorage::Value,
+            parameter_index: None,
+            span,
+        });
+        let array = m::Place {
+            root: snapshot_local,
+            projections: Vec::new(),
+            ty: array.ty,
+        };
+        self.store(array.clone(), snapshot, span);
         let length = self.value(
             m::InstructionKind::ArrayLen(array.clone()),
             TypeName::Int64,
@@ -601,6 +630,11 @@ impl<'a> Builder<'a> {
         self.function.locals.push(m::Local {
             id: index_local,
             ty: TypeName::Int64,
+            properties: crate::frontend::semantics::type_properties::TypeProperties {
+                copy: crate::frontend::semantics::type_properties::KnownProperty::Yes,
+                requires_drop: crate::frontend::semantics::type_properties::KnownProperty::No,
+            },
+            storage: h::LocalStorage::Value,
             parameter_index: None,
             span,
         });

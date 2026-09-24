@@ -25,9 +25,12 @@ assignments, resolved calls, If/ElseIf/Else, While, all typed Do forms, For,
 and the typed fixed-array For Each subset. For evaluates start, end and step
 once; a zero step reaches a typed MIR trap. Exit and Continue use the HIR loop
 identity to jump to the appropriate loop exit or next-test/step destination.
-The first For Each lowering indexes its array source directly and evaluates
-array length once. Full iterator semantics and reconciliation with the
-interpreter's array enumeration behavior remain open.
+The fixed-array For Each lowering now snapshots the element sequence once at
+entry, then indexes that snapshot. This matches the interpreter's enumeration
+snapshot when the source array is changed in the body. The source subset is
+still one-dimensional, zero-based, fixed, scalar arrays; generic iteration
+and native snapshot storage costs remain unresolved. The For bound and Step
+expressions are evaluated once, and zero Step reaches a trap.
 
 Cleanup chains are expanded **during HIR-to-MIR lowering**, not retained as
 magical MIR annotations. Return expressions are evaluated into temporaries
@@ -40,12 +43,53 @@ duplication is intentional for this initial, simple CFG. Native Drop is not
 implemented, and Dispose does not imply unique ownership.
 
 The MIR verifier checks entry/block/local/temp identity, one definition per
-temp, a terminator for every block, branch targets and Boolean conditions,
+temp, definition on every reachable path before use, a terminator for every
+block, branch targets and Boolean conditions,
 return types, Place projection types, load/store types, numeric operation and
 cast types, and call arity, modes and argument/result types. It is not yet a
 dominance or full ownership verifier. Later CFG dataflow passes must add
-definite initialization, path-sensitive moves, borrow liveness, reference
-escape analysis, native Drop insertion and exceptional cleanup verification.
+projected move paths, general borrow liveness, reference escape analysis,
+native Drop insertion and exceptional cleanup verification.
+
+## Stage 3.1 dataflow foundation
+
+`analysis::cfg` derives deterministic successors, predecessors, entry
+reachability and reverse postorder exclusively from terminators. Structurally
+valid unreachable blocks remain permitted. `analysis::dataflow` provides a
+finite-lattice forward worklist solver with stable block order. A second
+verifier analysis intersects temporary definitions at joins; a temp defined
+on only one branch cannot be used after the join.
+
+`analysis::ownership` runs after MIR verification during HIR lowering. It
+tracks whole-local states on reachable paths. Parameters start available;
+other locals start uninitialized. A whole-local Store makes a local available;
+internal Move of a known non-Copy local makes it moved; Move of a known Copy
+local leaves it available; internal Drop makes a known droppable local dropped.
+The join is the union of possible states, so `Available + Moved` is
+`MaybeUnavailable`, and reading, borrowing, moving or dropping it is rejected.
+The same applies to partial initialization at a branch or loop join.
+Reassignment of a known droppable available local requires an explicit Drop
+after RHS evaluation and before Store. This pass does not insert the Drop.
+
+Internal `Move`, `Drop`, `BorrowStart` and `EndBorrow` are separate MIR
+instructions. They currently support compiler/test-only ownership scenarios;
+source `Move` and native resources remain gated. Drop is distinct from a
+resolved Dispose call. Explicit borrows remain live until EndBorrow, while
+ordinary ByRef call arguments are checked together and end at that Call.
+Whole-local, distinct-field and constant-index overlap follows conservative
+Place rules; unknown indices may overlap. The analysis rejects use after
+Move/Drop, double Drop, move while borrowed and conflicting live borrows. It
+does not solve partial moves, long-lived references, general NLL, escaped
+borrows, native unwind paths or conditional Drop flags. Unknown ownership
+contracts are not silently classified as Copy or native droppable.
+
+Current order: verified HIR, HIR ownership checks, MIR lowering, structural
+MIR verification, CFG/dataflow analysis. Future work includes backward local
+liveness, move paths for projections, drop elaboration, reference escape,
+exceptional edges and stronger lifetime analysis. No LLVM implementation has
+started. A primitive, Copy-only MIR subset has the CFG and typing foundation
+for a later restricted backend, but native call ABI, snapshot storage,
+ownership-sensitive calls and cleanup on exceptional paths still need work.
 
 Typed HIR Catch is **not MIR-lowerable** because native exception dispatch and
 unwind edges do not exist. `lower_body` returns an explicit unsupported error

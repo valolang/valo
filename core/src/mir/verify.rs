@@ -2,6 +2,8 @@
 //! types before a later dataflow pass reasons about dominance and lifetimes.
 use super::ir::*;
 use crate::frontend::semantics::arithmetic;
+use crate::frontend::semantics::type_properties::KnownProperty;
+use crate::frontend::semantics::typed_hir::LocalStorage;
 use crate::frontend::type_model::TypeName;
 
 pub fn verify(function: &Function) -> Result<(), String> {
@@ -62,7 +64,104 @@ pub fn verify(function: &Function) -> Result<(), String> {
     if definitions.iter().any(|defined| !defined) {
         return Err("MIR temp has no definition".into());
     }
+    verify_temp_availability(function)?;
     Ok(())
+}
+
+fn verify_temp_availability(function: &Function) -> Result<(), String> {
+    let cfg = super::analysis::cfg::Cfg::build(function)?;
+    let states = super::analysis::dataflow::solve_forward(
+        function,
+        &cfg,
+        vec![false; function.temps.len()],
+        |a, b| a.iter().zip(b).map(|(x, y)| *x && *y).collect(),
+        |block, input| {
+            let mut available = input.clone();
+            for instruction in &block.instructions {
+                if let Some(id) = instruction.result {
+                    available[id.0] = true;
+                }
+            }
+            available
+        },
+    );
+    for block in &function.blocks {
+        let Some(mut available) = states.entry[block.id.0].clone() else {
+            continue;
+        };
+        for instruction in &block.instructions {
+            for id in instruction_uses(&instruction.kind) {
+                if !available[id.0] {
+                    return Err(format!(
+                        "MIR bb{} uses temp %{} before definition on all paths",
+                        block.id.0, id.0
+                    ));
+                }
+            }
+            if let Some(id) = instruction.result {
+                available[id.0] = true;
+            }
+        }
+        let terminator = &block.terminator.as_ref().expect("checked above").kind;
+        let used = match terminator {
+            TerminatorKind::Branch { condition, .. } | TerminatorKind::Return(condition) => {
+                Some(*condition)
+            }
+            _ => None,
+        };
+        if let Some(id) = used
+            && !available[id.0]
+        {
+            return Err(format!(
+                "MIR bb{} uses temp %{} before definition on all paths",
+                block.id.0, id.0
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn place_uses(place: &Place) -> Vec<TempId> {
+    place
+        .projections
+        .iter()
+        .filter_map(|p| {
+            if let Projection::Index(id) = p {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn instruction_uses(kind: &InstructionKind) -> Vec<TempId> {
+    match kind {
+        InstructionKind::Const(_)
+        | InstructionKind::ArrayInit { .. }
+        | InstructionKind::EndBorrow(_) => vec![],
+        InstructionKind::ArrayLen(place)
+        | InstructionKind::SnapshotArray(place)
+        | InstructionKind::Load(place)
+        | InstructionKind::Move(place)
+        | InstructionKind::Drop(place)
+        | InstructionKind::BorrowStart { place, .. } => place_uses(place),
+        InstructionKind::Store { place, value } => {
+            let mut used = place_uses(place);
+            used.push(*value);
+            used
+        }
+        InstructionKind::Arithmetic { left, right, .. }
+        | InstructionKind::Compare { left, right, .. } => vec![*left, *right],
+        InstructionKind::Cast { value, .. } => vec![*value],
+        InstructionKind::Call { arguments, .. } => arguments
+            .iter()
+            .flat_map(|a| match a {
+                CallArgument::Value(id) => vec![*id],
+                CallArgument::Place { place, .. } => place_uses(place),
+            })
+            .collect(),
+    }
 }
 
 fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<(), String> {
@@ -97,10 +196,55 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 return Err("MIR array length types are incorrect".into());
             }
         }
+        InstructionKind::SnapshotArray(array) => {
+            let ty = place_type(function, array)?;
+            if !matches!(ty, TypeName::Array(_))
+                || !result.is_some_and(|result| result.same_type(&ty))
+            {
+                return Err("MIR array snapshot type is incorrect".into());
+            }
+        }
         InstructionKind::Load(place) => {
             let ty = place_type(function, place)?;
             if !result.is_some_and(|result| result.same_type(&ty)) {
                 return Err("MIR load type is incorrect".into());
+            }
+        }
+        InstructionKind::Move(place) => {
+            let ty = place_type(function, place)?;
+            let local = &function.locals[place.root.0];
+            if !place.projections.is_empty()
+                || local.storage != LocalStorage::Value
+                || local.properties.copy == KnownProperty::Unknown
+                || !result.is_some_and(|result| result.same_type(&ty))
+            {
+                return Err("MIR Move requires a classified whole owned local".into());
+            }
+        }
+        InstructionKind::Drop(place) => {
+            place_type(function, place)?;
+            let local = &function.locals[place.root.0];
+            if result.is_some()
+                || !place.projections.is_empty()
+                || local.storage != LocalStorage::Value
+                || local.properties.copy != KnownProperty::No
+                || local.properties.requires_drop != KnownProperty::Yes
+            {
+                return Err("MIR Drop requires a droppable whole owned local".into());
+            }
+        }
+        InstructionKind::BorrowStart { kind, place, .. } => {
+            place_type(function, place)?;
+            if result.is_some()
+                || (*kind == BorrowKind::Mutable
+                    && function.locals[place.root.0].storage == LocalStorage::BorrowedImmutable)
+            {
+                return Err("MIR mutable borrow targets a ReadOnly Place".into());
+            }
+        }
+        InstructionKind::EndBorrow(_) => {
+            if result.is_some() {
+                return Err("MIR EndBorrow cannot produce a value".into());
             }
         }
         InstructionKind::Store { place, value } => {

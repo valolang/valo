@@ -1,6 +1,7 @@
 use crate::frontend::semantics::arithmetic::ArithmeticOp;
+use crate::frontend::semantics::type_properties::TypeProperties;
 use crate::frontend::semantics::typed_hir::{
-    ArgumentMode, BodyFunctionId, ComparisonOp, Conversion, DisposeMethodId, FieldId,
+    ArgumentMode, BodyFunctionId, ComparisonOp, Conversion, DisposeMethodId, FieldId, LocalStorage,
 };
 use crate::frontend::type_model::TypeName;
 use crate::runtime::Span;
@@ -11,6 +12,8 @@ pub struct BlockId(pub usize);
 pub struct LocalId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TempId(pub usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BorrowId(pub usize);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
@@ -43,6 +46,8 @@ pub struct Field {
 pub struct Local {
     pub id: LocalId,
     pub ty: TypeName,
+    pub properties: TypeProperties,
+    pub storage: LocalStorage,
     pub parameter_index: Option<usize>,
     pub span: Span,
 }
@@ -96,6 +101,12 @@ pub enum CallArgument {
     Place { mode: ArgumentMode, place: Place },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BorrowKind {
+    Shared,
+    Mutable,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstructionKind {
     Const(Constant),
@@ -104,7 +115,19 @@ pub enum InstructionKind {
         upper: i64,
     },
     ArrayLen(Place),
+    /// Copy the fixed array's element sequence once at For Each entry.
+    SnapshotArray(Place),
     Load(Place),
+    /// Internal ownership transfer; source syntax remains gated.
+    Move(Place),
+    /// Internal deterministic destruction, distinct from Dispose calls.
+    Drop(Place),
+    BorrowStart {
+        id: BorrowId,
+        kind: BorrowKind,
+        place: Place,
+    },
+    EndBorrow(BorrowId),
     Store {
         place: Place,
         value: TempId,

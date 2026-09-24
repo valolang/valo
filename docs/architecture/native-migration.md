@@ -688,3 +688,24 @@ pass, including **113 executable examples**. Formatting, Clippy with warnings
 denied, release workspace build and whitespace checks pass. The release CLI
 statically validates both game entry points. No examples were added; the new
 coverage lives in MIR lowering, cleanup CFG and verifier tests.
+
+### Stage 3.1: MIR dataflow (current increment)
+
+MIR now has deterministic CFG predecessor/successor, reachability and forward
+worklist analysis. The verifier checks temporary definition along all reachable
+paths. A whole-local, path-sensitive availability pass runs after MIR lowering:
+it tracks uninitialized, available, moved and dropped possibilities, rejects
+uses when any incoming path is unavailable, and validates internal Move/Drop
+and explicit/call-scoped borrow conflicts. Known droppable replacements require
+RHS evaluation followed by old-value Drop before Store; Drop insertion remains
+future work. These operations are internal testable MIR, not public Move,
+native ownership or native Drop semantics. For Each on the supported fixed
+array subset now snapshots elements at entry, matching interpreter iteration
+visibility. See [mir.md](mir.md) for the exact state model and limitations.
+
+Stage 2 remains open: no truthful native owned resource or public Move;
+native Class ownership, reference escape, general lifetimes, exception
+dispatch/unwinding, generic iteration and runtime-only coercions remain.
+Stage 3 likewise still needs projected move paths, backward liveness, drop
+elaboration, conditional cleanup, exception CFG and native ABI decisions.
+LLVM/JIT/machine-code work has not begun.

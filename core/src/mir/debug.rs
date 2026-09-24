@@ -51,7 +51,14 @@ fn format_instruction(kind: &InstructionKind) -> String {
         InstructionKind::Const(value) => format!("const {value:?}"),
         InstructionKind::ArrayInit { upper } => format!("array.init 0..={upper}"),
         InstructionKind::ArrayLen(array) => format!("array.len {}", format_place(array)),
+        InstructionKind::SnapshotArray(array) => format!("array.snapshot {}", format_place(array)),
         InstructionKind::Load(place) => format!("load {}", format_place(place)),
+        InstructionKind::Move(place) => format!("move {}", format_place(place)),
+        InstructionKind::Drop(place) => format!("drop {}", format_place(place)),
+        InstructionKind::BorrowStart { id, kind, place } => {
+            format!("borrow.start #{} {kind:?} {}", id.0, format_place(place))
+        }
+        InstructionKind::EndBorrow(id) => format!("borrow.end #{}", id.0),
         InstructionKind::Store { place, value } => {
             format!("store {}, %{}", format_place(place), value.0)
         }

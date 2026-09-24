@@ -5,7 +5,9 @@ use valo_core::{TypeName, parse_source};
 fn mir(source: &str) -> ir::Function {
     let program = parse_source(source).unwrap();
     let hir = lower_function_body(&program, 0).unwrap();
-    lower_body(&hir).unwrap()
+    let function = lower_body(&hir).unwrap();
+    valo_core::mir::analysis::ownership::analyze(&function).unwrap();
+    function
 }
 
 #[test]
@@ -131,13 +133,37 @@ fn supported_fixed_array_foreach_lowers_to_indexed_cfg() {
     let dump = debug::format_function(&function);
     for text in [
         "array.init 0..=2",
-        "array.len $0",
+        "array.snapshot $0",
+        "array.len $3",
         "foreach.test",
         "foreach.step",
-        "load $0[%",
+        "load $3[%",
     ] {
         assert!(dump.contains(text), "missing {text}: {dump}");
     }
+}
+
+#[test]
+fn fixed_array_foreach_snapshot_matches_interpreter_mutation_visibility() {
+    let source = "Function Sum() As Integer\nDim Values(1) As Integer\nValues(0) = 1\nValues(1) = 2\nDim Item As Integer = 0\nDim Total As Integer = 0\nFor Each Item In Values\nTotal += Item\nValues(1) = 9\nNext\nReturn Total\nEnd Function\nSub Main()\nConsole.WriteLine(Sum())\nEnd Sub";
+    assert_eq!(valo_core::run_source(source).unwrap(), ["3"]);
+    let function = mir(source);
+    let dump = debug::format_function(&function);
+    assert!(dump.contains("array.snapshot $0"), "{dump}");
+    assert!(dump.contains("foreach.body"), "{dump}");
+}
+
+#[test]
+fn for_step_direction_and_one_time_bound_evaluation_match_interpreter() {
+    let source = "Module Program\nDim Calls As Integer = 0\nFunction Bound() As Integer\nCalls += 1\nReturn 3\nEnd Function\nSub Main()\nDim Total As Integer = 0\nDim I As Integer = 0\nDim J As Integer = 0\nFor I = 1 To Bound() Step 1\nTotal += I\nNext\nFor J = 3 To 1 Step -1\nTotal += J\nNext\nConsole.WriteLine(Total)\nConsole.WriteLine(Calls)\nEnd Sub\nEnd Module";
+    assert_eq!(valo_core::run_source(source).unwrap(), ["12", "1"]);
+    let zero = "Sub Main()\nDim I As Integer = 0\nFor I = 1 To 3 Step 0\nNext\nEnd Sub";
+    assert!(
+        valo_core::run_source(zero)
+            .unwrap_err()
+            .message
+            .contains("Step cannot be zero")
+    );
 }
 
 #[test]

@@ -1,4 +1,5 @@
 //! Backend-neutral, typed control-flow IR for the verified-HIR subset.
+pub mod analysis;
 pub mod debug;
 pub mod ir;
 pub mod lower;
