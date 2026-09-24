@@ -734,3 +734,17 @@ visibility. Native tests build, link and execute each of the four native
 examples plus focused aggregate cases. This does not close Stage 2: real
 owned resources, Drop elaboration, public Move, native Class semantics,
 reference lifetimes and exception unwinding remain separate work.
+
+## Project source sets and multiline syntax
+
+The native CLI now loads the same transitive Project as `check` and `run`
+before HIR lowering. A deterministic combined declaration view supports
+native calls and plain Structures from imported files. The frontend's
+import-scoped validation remains authoritative; native compilation still has
+a restricted entry form and whole-unit eligibility. See
+[compilation.md](compilation.md).
+
+The parser now handles structurally continued calls, declarations, generic
+lists, tuple/initializer lists and expressions without `_`, while preserving
+statement-ending newlines. The rule and remaining ambiguities are in
+[parser.md](parser.md).

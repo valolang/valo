@@ -1,0 +1,8 @@
+Public Structure Vec2
+    Public X As Single
+    Public Y As Single
+End Structure
+
+Public Function LengthSquared(Value As Integer) As Single
+    Return Value * Value
+End Function

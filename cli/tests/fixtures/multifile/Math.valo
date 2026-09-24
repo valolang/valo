@@ -1,0 +1,8 @@
+Imports Types
+
+Public Function LengthSquared(
+    ByRef ReadOnly V As Vec2
+) As Single
+    Return V.X * V.X +
+        V.Y * V.Y
+End Function

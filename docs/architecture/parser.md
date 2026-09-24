@@ -10,9 +10,9 @@ The Valo parser is a hand-written recursive descent parser designed to handle th
 
 ## Parsing Pipeline
 
-1.  **Lexer (`core/src/lexer/`):** Scans the source string into a sequence of `Token`s. It handles Basic-specific rules like single-quote comments and case-insensitive keywords.
-2.  **Preprocessor (`core/src/preprocessor.rs`):** Handles conditional compilation directives (`#If`, `#Else`, `#End If`, `#Const`). It operates on the token stream to produce a filtered stream for the parser.
-3.  **Parser (`core/src/parser/`):**
+1.  **Preprocessor (`core/src/frontend/preprocessor.rs`):** Handles conditional directives and explicit `_` continuation.
+2.  **Lexer (`core/src/frontend/lexer/`):** Scans into tokens, including newlines and source spans.
+3.  **Parser (`core/src/frontend/parser/`):** Normalizes implicit continuation tokens, then parses declarations, statements and expressions.
     *   **`mod.rs`:** Defines the central `Parser` struct and common utilities.
     *   **`declarations.rs`:** Parses top-level declarations (subs, functions, classes, enums, types, imports).
     *   **`statements.rs`:** Parses statements inside procedure and property bodies (assignments, loops, if-blocks, error handling).
@@ -26,7 +26,25 @@ When a parse error occurs, the parser emits a `Diagnostic` and attempts to synch
 ## AST Structure (`core/src/ast/`)
 
 The Abstract Syntax Tree (AST) is defined as a series of Rust `enum`s and `struct`s:
-*   `Program`: The top-level container for a module.
+*   `Program`: The top-level container for one parsed source file.
 *   `Decl`: Represents declarations like `Function`, `Sub`, `Class`, etc.
 *   `Stmt`: Represents executable statements.
 *   `Expr`: Represents computable expressions.
+
+## Implicit line continuation
+
+The parser centrally suppresses a newline when the preceding token requires
+more syntax, such as `(`, `{`, `,` inside a delimiter, `.`, `=`, or a binary
+operator. A newline before a closing `)` or `}` inside a delimiter also
+continues the list. Comments and blank lines are allowed after commas in an
+open list. Thus calls, parameter lists, native `Declare` signatures, tuple
+literals, generic lists, collection/object initializers, and parenthesized
+expressions can span lines without `_`. Explicit `_` remains supported.
+An `Implements` type list also continues after its comma.
+
+Newlines between two complete expressions remain significant: `A = 1` and
+`B = 2` are separate statements, and `Foo(A` followed by `B)` still needs a
+comma. `Return` followed by a bare newline does not implicitly consume the
+next line. A leading dot after a complete line is not treated as continuation,
+because it is also valid inside a `With` block. Call argument trailing commas
+retain the existing omitted-argument meaning; they are not silently ignored.

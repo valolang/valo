@@ -112,22 +112,41 @@ pub fn build(args: impl Iterator<Item = String>, color: ColorChoice) -> Result<(
     let source_path = source_path.ok_or(
         "usage: valo build <file> [--emit=llvm-ir|obj|exe] [--release] [-o output]".to_string(),
     )?;
-    let source = std::fs::read_to_string(&source_path)
-        .map_err(|e| format!("source: {}: {e}", source_path.display()))?;
-    let mut map = valo_core::SourceMap::new();
-    let file_id = map.add(source_path.display().to_string(), source.clone());
-    let program = valo_core::parse_source_with_id(&source, file_id)
-        .map_err(|e| format!("parsing: {}", e.render_colored(&map, color.enabled())))?;
-    valo_core::semantics::validate_snippet(&program).map_err(|e| {
+    let entry = valo_core::resolve_entrypoint(&source_path).map_err(|e| {
+        let map = valo_core::SourceMap::new();
         format!(
-            "semantic analysis: {}",
+            "source discovery: {}",
             e.render_colored(&map, color.enabled())
         )
     })?;
+    let project = valo_core::load_project(&entry).map_err(|(e, map)| {
+        format!(
+            "source discovery: {}",
+            e.render_colored(&map, color.enabled())
+        )
+    })?;
+    let compilation = valo_core::modules::Compilation::for_native(&project).map_err(|e| {
+        format!(
+            "semantic analysis: {}",
+            e.render_colored(&project.source_map, color.enabled())
+        )
+    })?;
+    let program = &compilation.program;
+    if !program
+        .functions
+        .iter()
+        .any(|function| function.name.eq_ignore_ascii_case("main") && function.params.is_empty())
+    {
+        return Err("native eligibility: this backend requires Function Main() As Integer".into());
+    }
     let bodies = (0..program.functions.len())
         .map(|index| {
-            valo_core::semantics::lower_function_body(&program, index)
-                .map_err(|e| format!("typed HIR: {}", e.render_colored(&map, color.enabled())))
+            valo_core::semantics::lower_function_body(program, index).map_err(|e| {
+                format!(
+                    "typed HIR: {}",
+                    e.render_colored(&project.source_map, color.enabled())
+                )
+            })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mir = valo_core::mir::lower_module(&bodies).map_err(|e| format!("MIR lowering: {e:?}"))?;

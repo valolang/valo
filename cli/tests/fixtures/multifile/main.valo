@@ -1,0 +1,14 @@
+Imports Types
+Imports Math
+
+Function Main() As Integer
+    Dim V As Vec2
+    V.X = 3
+    V.Y = 4
+    If LengthSquared(
+        V
+    ) = 25 Then
+        Return 0
+    End If
+    Return 1
+End Function

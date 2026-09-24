@@ -1,6 +1,128 @@
 use super::*;
 
 #[test]
+fn implicit_continuation_covers_calls_declarations_and_expressions() {
+    let source = r#"
+Public Function Calculate(
+    A As Integer,
+    B As Integer,
+    C As Integer
+) As Integer
+    Return A + B + C
+End Function
+
+Sub Draw(
+    X As Integer,
+    Y As Integer
+)
+End Sub
+
+Function Main() As Integer
+    Dim Result = Calculate(
+        Calculate(
+            1,
+            2,
+            3
+        ), ' first argument
+
+        (4 +
+            5),
+        6
+    )
+    If (
+        Result > 0 AndAlso
+        Result < 50
+    ) Then
+        Draw(
+            Result,
+            0
+        )
+    End If
+    Return Result
+End Function
+"#;
+    let program = parse_source(source).unwrap();
+    assert_eq!(program.functions.len(), 2);
+    assert_eq!(program.procedures.len(), 1);
+    assert_eq!(program.functions[0].params.len(), 3);
+}
+
+#[test]
+fn implicit_continuation_covers_tuple_generics_and_initializers() {
+    let source = r#"
+Class Box(
+    Of T
+)
+    Public Value As T
+End Class
+Function Main() As Integer
+    Dim Pair = (
+        10,
+        20
+    )
+    Dim Values As New Collection From {
+        1,
+        2,
+        3
+    }
+    Dim B As Box(
+        Of Integer
+    )
+    Return Pair.Item1
+End Function
+"#;
+    parse_source(source).unwrap();
+}
+
+#[test]
+fn implicit_continuation_keeps_complete_statements_separate() {
+    let valid = "Sub Main()\nA = 1\nB = 2\nEnd Sub";
+    assert_eq!(parse_source(valid).unwrap().procedures[0].body.len(), 2);
+    let missing_comma = "Sub Main()\nFoo(\n A\n B\n)\nEnd Sub";
+    assert!(parse_source(missing_comma).is_err());
+    let missing_close = "Sub Main()\nFoo(\n A,\n B";
+    assert!(parse_source(missing_close).is_err());
+    let mismatched = "Sub Main()\nFoo(\n A,\n B\n}\nEnd Sub";
+    assert!(parse_source(mismatched).is_err());
+}
+
+#[test]
+fn implicit_continuation_accepts_empty_and_constructor_argument_lists() {
+    let source = r#"
+Class Widget
+    Public Sub New(Value As Integer)
+    End Sub
+End Class
+Sub NoArgs()
+End Sub
+Sub Main()
+    NoArgs(
+    )
+    Dim W = New Widget(
+        10
+    )
+End Sub
+"#;
+    parse_source(source).unwrap();
+}
+
+#[test]
+fn implements_type_list_continues_after_comma() {
+    let source = r#"
+Interface IA
+End Interface
+Interface IB
+End Interface
+Class Thing
+    Implements IA,
+        IB
+End Class
+"#;
+    let program = parse_source(source).unwrap();
+    assert_eq!(program.classes[0].implements.len(), 2);
+}
+
+#[test]
 fn parses_main_with_if_and_while() {
     let source = r#"
 Sub Main()
@@ -128,7 +250,10 @@ End Sub
 #[test]
 fn parses_native_declare_frontend_metadata() {
     let source = r#"
-Private Declare Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As Ptr, ByVal lpWindowName As Any) As Int64
+Private Declare Function FindWindow Lib "user32" Alias "FindWindowA" (
+    ByVal lpClassName As Ptr,
+    ByVal lpWindowName As Any
+) As Int64
 Public Declare Sub Sleep Lib "kernel32" (ByVal dwMilliseconds As Long)
 
 Sub Main()

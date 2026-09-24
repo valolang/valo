@@ -35,7 +35,7 @@ pub struct Parser {
 impl Parser {
     pub fn parse_source(source: &str, file_id: FileId) -> Result<Program, Diagnostic> {
         let source = preprocess(source)?;
-        let tokens = Lexer::new(&source).with_id(file_id).tokenize()?;
+        let tokens = implicit_continuations(Lexer::new(&source).with_id(file_id).tokenize()?);
         Self::new(tokens, file_id).parse_program()
     }
 
@@ -196,6 +196,73 @@ impl Parser {
             .get(self.current + offset)
             .map(|token| &token.kind)
     }
+}
+
+/// Suppress only newlines for which the surrounding tokens require the same
+/// syntactic construct to continue. Newlines between two complete expressions
+/// remain statement separators (including inside a missing-comma list).
+fn implicit_continuations(tokens: Vec<Token>) -> Vec<Token> {
+    use TokenKind as K;
+    let mut result = Vec::with_capacity(tokens.len());
+    let mut delimiters = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if !matches!(token.kind, K::Newline) {
+            match token.kind {
+                K::LeftParen | K::LeftBrace => delimiters.push(&token.kind),
+                K::RightParen | K::RightBrace => {
+                    delimiters.pop();
+                }
+                _ => {}
+            }
+            result.push(token.clone());
+            continue;
+        }
+        let before = result.last().map(|token: &Token| &token.kind);
+        let after = tokens[index + 1..]
+            .iter()
+            .find(|token| !matches!(token.kind, K::Newline))
+            .map(|token| &token.kind);
+        let continues_after = before.is_some_and(|kind| {
+            matches!(
+                kind,
+                K::LeftParen
+                    | K::LeftBrace
+                    | K::Dot
+                    | K::Equal
+                    | K::Plus
+                    | K::Minus
+                    | K::Star
+                    | K::Slash
+                    | K::Backslash
+                    | K::Caret
+                    | K::Ampersand
+                    | K::Mod
+                    | K::And
+                    | K::AndAlso
+                    | K::Or
+                    | K::OrElse
+                    | K::Xor
+                    | K::Eqv
+                    | K::Imp
+                    | K::Less
+                    | K::LessEqual
+                    | K::Greater
+                    | K::GreaterEqual
+            )
+        });
+        let list_continuation = !delimiters.is_empty()
+            && (matches!(before, Some(K::Comma))
+                || matches!(after, Some(K::RightParen | K::RightBrace)));
+        let starts_block_end = matches!(
+            after,
+            Some(K::End | K::Else | K::ElseIf | K::Next | K::Loop | K::Eof)
+        );
+        if (continues_after && !starts_block_end) || list_continuation {
+            continue;
+        }
+        result.push(token.clone());
+    }
+    result
 }
 
 fn token_description(kind: &TokenKind) -> String {

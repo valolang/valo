@@ -18,6 +18,50 @@ pub struct Project {
     pub source_map: SourceMap,
 }
 
+/// One loaded source set, with a deterministic native declaration view.
+/// Project validation retains each file's import scope; the combined view is
+/// constructed only after that validation, for the current whole-module native
+/// lowering path. Every declaration keeps its original source span.
+pub struct Compilation<'a> {
+    pub project: &'a Project,
+    pub program: Program,
+}
+
+impl<'a> Compilation<'a> {
+    pub fn for_native(project: &'a Project) -> Result<Self, Diagnostic> {
+        crate::frontend::semantics::validate_project_for_check(project)?;
+        let mut program = project.modules[project.entry].program.clone();
+        let mut others = project
+            .modules
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != project.entry)
+            .map(|(_, module)| module)
+            .collect::<Vec<_>>();
+        others.sort_by(|a, b| a.path.cmp(&b.path));
+        for module in others {
+            let source = &module.program;
+            program.types.extend(source.types.iter().cloned());
+            program.enums.extend(source.enums.iter().cloned());
+            program
+                .module_vars
+                .extend(source.module_vars.iter().cloned());
+            program
+                .module_consts
+                .extend(source.module_consts.iter().cloned());
+            program.declares.extend(source.declares.iter().cloned());
+            program.delegates.extend(source.delegates.iter().cloned());
+            program.interfaces.extend(source.interfaces.iter().cloned());
+            program.classes.extend(source.classes.iter().cloned());
+            program.procedures.extend(source.procedures.iter().cloned());
+            program.functions.extend(source.functions.iter().cloned());
+            program.properties.extend(source.properties.iter().cloned());
+        }
+        program.merge_partial_classes();
+        Ok(Self { project, program })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LoadedModule {
     pub name: String,

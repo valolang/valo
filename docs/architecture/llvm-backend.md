@@ -155,12 +155,20 @@ handle enters HIR or MIR.
 | Class, Variant/dynamic, strings, async | Yes | Partial | No |
 | Public Move, native Drop, unique resources | Not public | Internal only | No |
 
-The first eligibility policy is **whole single-file module**: every function
+The current eligibility policy is **whole compilation unit**: every function
 must lower to MIR and be native-eligible, even if unreachable from Main.
 Unsupported features return stage-specific diagnostics before LLVM object
 emission. Native tests are unconditional Rust tests but skip toolchain-dependent
 execution when `clang`, `opt`, or `llc` cannot be discovered; frontend and MIR
 tests always run. The next backend milestone should add checked narrowing and
-float-to-integer conversions, native project/call-graph compilation and more
+float-to-integer conversions, native call-graph eligibility and more
 aggregate initialization coverage. Native exceptions, ownership/Drop, and
 general reference lifetimes remain separate semantic work.
+
+`valo build` now shares `Project` source discovery and import-scoped validation
+with `check` and `run`. The frontend then constructs a deterministic combined
+declaration view for native HIR/MIR lowering. LLVM receives only MIR. A
+three-file test imports a Structure and overloaded function, then links and
+executes successfully. `Sub Main()` is a valid interpreter entry but not yet
+a native entry; native builds require `Function Main() As Integer`. See
+[compilation.md](compilation.md) for the transitional compilation-unit model.

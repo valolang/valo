@@ -50,6 +50,34 @@ fn cli_builds_and_executes_all_native_examples() {
 }
 
 #[test]
+fn cli_builds_and_executes_multifile_native_project() {
+    if LlvmTools::discover().is_err() {
+        return;
+    }
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let source = manifest.join("tests/fixtures/multifile/main.valo");
+    let output = std::env::temp_dir().join(format!(
+        "valo-cli-multifile-{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    ));
+    let build = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert_eq!(Command::new(&output).status().unwrap().code(), Some(0));
+    std::fs::remove_file(output).unwrap();
+}
+
+#[test]
 fn unsupported_native_class_reports_eligibility_not_a_panic() {
     if LlvmTools::discover().is_err() {
         return;

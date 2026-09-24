@@ -94,6 +94,7 @@ impl Parser {
                 if !self.match_simple(&TokenKind::Comma) {
                     break;
                 }
+                self.skip_newlines();
             }
         }
         self.parse_optional_where_clauses()?;
@@ -127,6 +128,7 @@ impl Parser {
                     if !self.match_simple(&TokenKind::Comma) {
                         break;
                     }
+                    self.skip_newlines();
                 }
                 self.expect_statement_end("Expected newline after Implements")?;
                 self.skip_newlines();
@@ -1225,6 +1227,7 @@ impl Parser {
                     if !self.match_simple(&TokenKind::Comma) {
                         break;
                     }
+                    self.skip_newlines();
                 }
                 self.expect_statement_end("Expected newline after Implements")?;
                 self.skip_newlines();

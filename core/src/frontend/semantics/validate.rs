@@ -286,6 +286,8 @@ fn merge_imported_callables(
     project: &crate::modules::Project,
     signatures: &mut Signatures,
 ) -> Result<(), Diagnostic> {
+    let local_functions = signatures.functions.keys().cloned().collect::<HashSet<_>>();
+    let local_subs = signatures.subs.keys().cloned().collect::<HashSet<_>>();
     for import in imports {
         let Some(imported) = project.modules.get(import.module) else {
             continue;
@@ -305,24 +307,48 @@ fn merge_imported_callables(
                 .or_default()
                 .extend(methods);
         }
-        // A locally declared name shadows an import outright, overloads and
-        // all: `or_insert` keeps whatever is already there rather than adding
-        // the imported procedures to it.
+        // A local name shadows imports. Distinct imported modules, however,
+        // contribute to one overload set regardless of discovery order.
         for (name, sigs) in imported_signatures.functions {
             let qualified = qualified_overload_key(&qualifier, &sigs, &name);
             signatures
                 .functions
                 .entry(qualified)
                 .or_insert(sigs.clone());
-            signatures.functions.entry(name).or_insert(sigs);
+            if !local_functions.contains(&name) {
+                merge_distinct_imported_overloads(
+                    signatures.functions.entry(name).or_default(),
+                    sigs,
+                );
+            }
         }
         for (name, sigs) in imported_signatures.subs {
             let qualified = qualified_overload_key(&qualifier, &sigs, &name);
             signatures.subs.entry(qualified).or_insert(sigs.clone());
-            signatures.subs.entry(name).or_insert(sigs);
+            if !local_subs.contains(&name) {
+                merge_distinct_imported_overloads(signatures.subs.entry(name).or_default(), sigs);
+            }
         }
     }
     Ok(())
+}
+
+fn merge_distinct_imported_overloads(target: &mut Overloads, incoming: Overloads) {
+    for signature in incoming {
+        // Preserve the existing interpreter's ambiguous-import diagnostic for
+        // identical signatures; distinct signatures form an overload set.
+        if !target.iter().any(|existing| {
+            existing.params.len() == signature.params.len()
+                && existing.type_params == signature.type_params
+                && existing
+                    .params
+                    .iter()
+                    .zip(&signature.params)
+                    .all(|(a, b)| a.mode == b.mode && a.ty.same_type(&b.ty))
+        }) {
+            target.push(signature);
+        }
+    }
 }
 
 /// The key an imported procedure is reachable under when qualified.
@@ -421,7 +447,7 @@ fn validate_bodies(
     module_symbols: &HashMap<String, VarType>,
     options: Options,
 ) -> Result<(), Diagnostic> {
-    validate_readonly_bodies(program)?;
+    validate_readonly_bodies(program, types)?;
     // A declaration's constraints are in scope for its body and nowhere else,
     // so each body is checked against a registry that carries its own.
     for procedure in &program.procedures {
@@ -445,42 +471,59 @@ fn validate_bodies(
 
 /// A deliberately narrow source check while typed HIR does not cover every
 /// class/member body. Typed HIR checks writes through resolved projected Places.
-fn validate_readonly_bodies(program: &Program) -> Result<(), Diagnostic> {
+fn validate_readonly_bodies(program: &Program, types: &TypeRegistry) -> Result<(), Diagnostic> {
     for procedure in &program.procedures {
-        validate_readonly_body(program, &procedure.params, &procedure.body)?;
+        validate_readonly_body(program, types, &procedure.params, &procedure.body)?;
     }
     for function in &program.functions {
-        validate_readonly_body(program, &function.params, &function.body)?;
+        validate_readonly_body(program, types, &function.params, &function.body)?;
     }
     for ty in &program.types {
-        validate_readonly_members(program, &ty.members)?;
+        validate_readonly_members(program, types, &ty.members)?;
     }
     for class in &program.classes {
-        validate_readonly_members(program, &class.members)?;
+        validate_readonly_members(program, types, &class.members)?;
     }
     Ok(())
 }
 
-fn validate_readonly_members(program: &Program, members: &[ClassMember]) -> Result<(), Diagnostic> {
+fn validate_readonly_members(
+    program: &Program,
+    types: &TypeRegistry,
+    members: &[ClassMember],
+) -> Result<(), Diagnostic> {
     for member in members {
         match member {
-            ClassMember::Sub(method) => {
-                validate_readonly_body(program, &method.procedure.params, &method.procedure.body)?
-            }
-            ClassMember::Function(method) => {
-                validate_readonly_body(program, &method.function.params, &method.function.body)?
-            }
-            ClassMember::Iterator(method) => {
-                validate_readonly_body(program, &method.function.params, &method.function.body)?
-            }
+            ClassMember::Sub(method) => validate_readonly_body(
+                program,
+                types,
+                &method.procedure.params,
+                &method.procedure.body,
+            )?,
+            ClassMember::Function(method) => validate_readonly_body(
+                program,
+                types,
+                &method.function.params,
+                &method.function.body,
+            )?,
+            ClassMember::Iterator(method) => validate_readonly_body(
+                program,
+                types,
+                &method.function.params,
+                &method.function.body,
+            )?,
             ClassMember::Property(property) => {
-                validate_readonly_body(program, &property.params, &property.body)?
+                validate_readonly_body(program, types, &property.params, &property.body)?
             }
             ClassMember::Operator(operator) => {
-                validate_readonly_body(program, &operator.params, &operator.body)?
+                validate_readonly_body(program, types, &operator.params, &operator.body)?
             }
-            ClassMember::Class(nested) => validate_readonly_members(program, &nested.members)?,
-            ClassMember::Type(nested) => validate_readonly_members(program, &nested.members)?,
+            ClassMember::Class(nested) => {
+                validate_readonly_members(program, types, &nested.members)?
+            }
+            ClassMember::Type(nested) => {
+                validate_readonly_members(program, types, &nested.members)?
+            }
             _ => {}
         }
     }
@@ -489,6 +532,7 @@ fn validate_readonly_members(program: &Program, members: &[ClassMember]) -> Resu
 
 fn validate_readonly_body(
     program: &Program,
+    types: &TypeRegistry,
     params: &[Parameter],
     statements: &[Stmt],
 ) -> Result<(), Diagnostic> {
@@ -497,7 +541,7 @@ fn validate_readonly_body(
         if param.mode != PassingMode::ByRefReadOnly {
             continue;
         }
-        let plain_structure = matches!(&param.ty, TypeName::User(name) if program.types.iter().any(|decl| decl.kind == crate::TypeKind::Structure && decl.name.eq_ignore_ascii_case(name)));
+        let plain_structure = matches!(&param.ty, TypeName::User(name) if types.types.get(&key(name)).is_some_and(|sig| sig.is_structure));
         let plain_tuple = matches!(&param.ty, TypeName::Tuple(elements) if elements.iter().all(|element| matches!(crate::frontend::semantics::type_properties::properties(program, &element.ty).copy, crate::frontend::semantics::type_properties::KnownProperty::Yes)));
         if !(plain_structure
             || plain_tuple
