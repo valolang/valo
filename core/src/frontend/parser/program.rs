@@ -18,6 +18,8 @@ impl Parser {
     pub fn parse_program(&mut self) -> Result<Program, Diagnostic> {
         let mut option_explicit = false;
         let mut option_strict = false;
+        let mut option_infer = true;
+        let mut saw_option_infer = false;
         let mut option_compare = OptionCompare::Binary;
         let mut saw_option_compare = false;
         let mut imports = Vec::new();
@@ -37,6 +39,7 @@ impl Parser {
         let mut procedures = Vec::new();
         let mut functions = Vec::new();
         let mut properties = Vec::new();
+        let mut owners = std::collections::HashMap::new();
         let mut saw_declarations = false;
         self.skip_newlines();
 
@@ -94,6 +97,12 @@ impl Parser {
                             return Err(self.error_here("Option Strict is already declared"));
                         }
                         option_strict = self.parse_option_switch(true)?;
+                    } else if self.match_identifier("Infer") {
+                        if saw_option_infer {
+                            return Err(self.error_here("Option Infer is already declared"));
+                        }
+                        option_infer = self.parse_option_switch(true)?;
+                        saw_option_infer = true;
                     } else if self.match_simple(&TokenKind::Base) {
                         return Err(Diagnostic::new(
                             crate::runtime::DiagnosticCode::OPTION,
@@ -119,7 +128,9 @@ impl Parser {
                             Some(self.previous().span),
                         ).with_help("Declare members Private or Public and import modules explicitly"));
                     } else {
-                        return Err(self.error_here("Option must be Explicit, Strict, or Compare"));
+                        return Err(
+                            self.error_here("Option must be Explicit, Strict, Infer, or Compare")
+                        );
                     }
                     self.expect_statement_end("Expected newline after Option statement")?;
                 }
@@ -129,6 +140,12 @@ impl Parser {
                 }
                 _ => {
                     saw_declarations = true;
+                    let type_start = types.len();
+                    let enum_start = enums.len();
+                    let interface_start = interfaces.len();
+                    let class_start = classes.len();
+                    let function_start = functions.len();
+                    let procedure_start = procedures.len();
                     let modern_attributes = self.parse_modern_attributes()?;
                     let inheritance = self.parse_optional_class_inheritance();
                     let explicit_visibility = self.parse_optional_visibility();
@@ -156,6 +173,7 @@ impl Parser {
                         ));
                     }
 
+                    let is_module = matches!(self.peek_kind(), TokenKind::Module);
                     match self.peek_kind() {
                         TokenKind::Sub => {
                             let visibility = explicit_visibility.unwrap_or(Visibility::Public);
@@ -303,6 +321,37 @@ impl Parser {
                             return Err(self.error_here("Expected declaration"));
                         }
                     }
+                    let owner = if is_module {
+                        let module_name = &classes
+                            .last()
+                            .expect("parsed Module has a declaration")
+                            .name;
+                        namespace
+                            .as_ref()
+                            .map_or_else(|| module_name.clone(), |ns| format!("{ns}.{module_name}"))
+                    } else {
+                        namespace.clone().unwrap_or_default()
+                    };
+                    for decl in &types[type_start..] {
+                        owners.insert(decl.span, owner.clone());
+                    }
+                    for decl in &enums[enum_start..] {
+                        owners.insert(decl.span, owner.clone());
+                    }
+                    for decl in &interfaces[interface_start..] {
+                        owners.insert(decl.span, owner.clone());
+                    }
+                    for decl in &classes[class_start..] {
+                        owners
+                            .entry(decl.span)
+                            .or_insert_with(|| namespace.clone().unwrap_or_default());
+                    }
+                    for decl in &functions[function_start..] {
+                        owners.insert(decl.span, owner.clone());
+                    }
+                    for decl in &procedures[procedure_start..] {
+                        owners.insert(decl.span, owner.clone());
+                    }
                 }
             }
             self.skip_newlines();
@@ -310,9 +359,11 @@ impl Parser {
 
         Ok(Program {
             namespace: last_namespace,
+            owners,
             imports,
             option_explicit,
             option_strict,
+            option_infer,
             option_compare,
             types,
             enums,

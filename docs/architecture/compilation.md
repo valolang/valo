@@ -12,18 +12,29 @@ each source file's import scope. Diagnostics retain the originating file span.
 
 The experimental native path validates that same Project, then creates a
 deterministic whole-module `Compilation` view: root declarations first, then
-imported source declarations in canonical-path order. This gives HIR one set
-of globally unique function and field IDs; MIR and LLVM never load sources or
-resolve imports. A native build currently lowers all functions in that view.
-The combined view is a transitional native subset: source modules with
-colliding unqualified declarations or functions needing a runtime/foreign ABI
-may remain ineligible even when the interpreter accepts qualified calls.
-Files with differing `Option Strict`, `Option Explicit` or `Option Compare`
-settings are rejected for native compilation until HIR lowering retains
-per-source options; project validation and interpreter execution still use
-each file's own settings.
-`Function Main() As Integer` remains the native entry form; interpreter
-`Sub Main()` remains valid Valo but cannot yet be native entry.
+imported source declarations in canonical-path order. Each Function and Sub
+keeps a source-unit index. Its HIR body uses the owning file's `Option Strict`,
+`Option Explicit`, `Option Infer` and `Option Compare` settings. Mixed settings
+are allowed. The interpreter continues to use each module's own Program.
+
+Declarations retain source spans and owner paths. Native HIR canonicalizes
+resolved type references and disambiguates declarations that would collide in
+the combined view. A simple imported name resolves only when its visible
+candidate is unique; explicit qualification such as `A.Vector` selects the
+owner. Equal namespace paths in separate files contribute to one namespace;
+true duplicate types or call signatures are errors. Source display names are
+not native symbol identity. Function/field IDs remain compilation-local, and
+MIR and LLVM never load sources or resolve imports. The combined declaration
+view is still transitional: it is not a separate-compilation or persistent
+symbol database, and unsupported runtime/foreign ABI constructs remain
+ineligible.
+
+Entry resolution runs on the semantic Compilation before MIR. Exactly one
+parameterless `Sub Main()` or `Function Main() As Integer` is accepted,
+including a declaration in an imported file. Private Main is accepted.
+The platform wrapper returns zero after Sub or returns the Function result.
+Duplicate Main candidates and unsupported signatures receive entry-point
+diagnostics. String-array argument forms await native String/array ABI support.
 
 A future manifest can replace the present directory-based discovery policy
 with explicit source roots, entry, dependencies, native libraries and target.

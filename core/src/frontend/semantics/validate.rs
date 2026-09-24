@@ -29,7 +29,9 @@ mod validate_declarations;
 mod validate_expressions;
 #[path = "validate_statements.rs"]
 mod validate_statements;
-pub use lower_hir::lower_function_body;
+pub use lower_hir::{
+    lower_function_body, lower_project_function_body, lower_project_procedure_body,
+};
 
 use validate_classes::{validate_class, validate_structure};
 use validate_declarations::{
@@ -127,6 +129,7 @@ pub(super) fn program_options(program: &Program) -> Options {
     Options {
         explicit: program.option_explicit,
         strict: program.option_strict,
+        infer: program.option_infer,
     }
 }
 
@@ -245,36 +248,96 @@ fn merge_imported_types_seen(
         on_path.remove(&import.module);
         followed?;
         let imported_types = collect_types_in_scope(&imported.program, &outer)?;
+        let inherited_origins = imported_types.import_origins.clone();
 
         // Imported types are reachable both bare and through the import
         // qualifier, so register `PersonRecord` and `Models.PersonRecord`.
-        let qualifier = key(&import.qualifier);
+        let qualifier = key(imported
+            .program
+            .namespace
+            .as_deref()
+            .unwrap_or(&import.qualifier));
         let register = |bare: String, sig_name: &str| {
             let qualified = format!("{}.{}", qualifier, key(sig_name));
             (bare, qualified)
         };
         for (name, sig) in imported_types.types {
             let (bare, qualified) = register(name, &sig.name);
+            let origin = inherited_origins
+                .get(&bare)
+                .cloned()
+                .unwrap_or_else(|| qualified.clone());
+            record_imported_name(types, &bare, &origin);
             types.types.entry(qualified).or_insert(sig.clone());
             types.types.entry(bare).or_insert(sig);
         }
         for (name, sig) in imported_types.enums {
             let (bare, qualified) = register(name, &sig.name);
+            let origin = inherited_origins
+                .get(&bare)
+                .cloned()
+                .unwrap_or_else(|| qualified.clone());
+            record_imported_name(types, &bare, &origin);
             types.enums.entry(qualified).or_insert(sig.clone());
             types.enums.entry(bare).or_insert(sig);
         }
         for (name, sig) in imported_types.interfaces {
             let (bare, qualified) = register(name, &sig.name);
+            let origin = inherited_origins
+                .get(&bare)
+                .cloned()
+                .unwrap_or_else(|| qualified.clone());
+            record_imported_name(types, &bare, &origin);
             types.interfaces.entry(qualified).or_insert(sig.clone());
             types.interfaces.entry(bare).or_insert(sig);
         }
         for (name, sig) in imported_types.classes {
             let (bare, qualified) = register(name, &sig.name);
+            // Cross-file Partial Class parts are one semantic type. Their
+            // source filenames must not make the bare name ambiguous.
+            let partial_owner = imported
+                .program
+                .classes
+                .iter()
+                .find(|class| class.is_partial && key(&class.name) == bare)
+                .and_then(|class| imported.program.owners.get(&class.span))
+                .map(String::as_str);
+            let origin = if let Some(owner) = partial_owner {
+                format!("partial.{owner}.{bare}")
+            } else {
+                inherited_origins
+                    .get(&bare)
+                    .cloned()
+                    .unwrap_or_else(|| qualified.clone())
+            };
+            record_imported_name(types, &bare, &origin);
             merge_class(types.classes.entry(qualified), sig.clone());
             merge_class(types.classes.entry(bare), sig);
         }
     }
     Ok(())
+}
+
+fn record_imported_name(types: &mut TypeRegistry, bare: &str, qualified: &str) {
+    if types.contains(bare) && !types.import_origins.contains_key(bare) {
+        return; // a declaration in this source shadows imports
+    }
+    if let Some(previous) = types.import_origins.get(bare) {
+        if previous != qualified {
+            let origins = types
+                .ambiguous_imports
+                .entry(bare.to_string())
+                .or_insert_with(|| vec![previous.clone()]);
+            if !origins.iter().any(|name| name == qualified) {
+                origins.push(qualified.to_string());
+                origins.sort();
+            }
+        }
+    } else {
+        types
+            .import_origins
+            .insert(bare.to_string(), qualified.to_string());
+    }
 }
 
 /// Brings the callables of imported modules into scope.
@@ -288,6 +351,8 @@ fn merge_imported_callables(
 ) -> Result<(), Diagnostic> {
     let local_functions = signatures.functions.keys().cloned().collect::<HashSet<_>>();
     let local_subs = signatures.subs.keys().cloned().collect::<HashSet<_>>();
+    let mut function_origins = HashMap::<String, String>::new();
+    let mut sub_origins = HashMap::<String, String>::new();
     for import in imports {
         let Some(imported) = project.modules.get(import.module) else {
             continue;
@@ -313,27 +378,49 @@ fn merge_imported_callables(
             let qualified = qualified_overload_key(&qualifier, &sigs, &name);
             signatures
                 .functions
-                .entry(qualified)
+                .entry(qualified.clone())
                 .or_insert(sigs.clone());
             if !local_functions.contains(&name) {
-                merge_distinct_imported_overloads(
-                    signatures.functions.entry(name).or_default(),
+                let duplicate = merge_distinct_imported_overloads(
+                    signatures.functions.entry(name.clone()).or_default(),
                     sigs,
                 );
+                let first = function_origins
+                    .entry(name.clone())
+                    .or_insert_with(|| qualifier.clone());
+                if duplicate && *first != qualifier {
+                    signatures
+                        .ambiguous_imports
+                        .entry(name)
+                        .or_insert_with(|| vec![first.clone(), qualifier.clone()]);
+                }
             }
         }
         for (name, sigs) in imported_signatures.subs {
             let qualified = qualified_overload_key(&qualifier, &sigs, &name);
             signatures.subs.entry(qualified).or_insert(sigs.clone());
             if !local_subs.contains(&name) {
-                merge_distinct_imported_overloads(signatures.subs.entry(name).or_default(), sigs);
+                let duplicate = merge_distinct_imported_overloads(
+                    signatures.subs.entry(name.clone()).or_default(),
+                    sigs,
+                );
+                let first = sub_origins
+                    .entry(name.clone())
+                    .or_insert_with(|| qualifier.clone());
+                if duplicate && *first != qualifier {
+                    signatures
+                        .ambiguous_imports
+                        .entry(name)
+                        .or_insert_with(|| vec![first.clone(), qualifier.clone()]);
+                }
             }
         }
     }
     Ok(())
 }
 
-fn merge_distinct_imported_overloads(target: &mut Overloads, incoming: Overloads) {
+fn merge_distinct_imported_overloads(target: &mut Overloads, incoming: Overloads) -> bool {
+    let mut duplicate = false;
     for signature in incoming {
         // Preserve the existing interpreter's ambiguous-import diagnostic for
         // identical signatures; distinct signatures form an overload set.
@@ -347,8 +434,11 @@ fn merge_distinct_imported_overloads(target: &mut Overloads, incoming: Overloads
                     .all(|(a, b)| a.mode == b.mode && a.ty.same_type(&b.ty))
         }) {
             target.push(signature);
+        } else {
+            duplicate = true;
         }
     }
+    duplicate
 }
 
 /// The key an imported procedure is reachable under when qualified.

@@ -6,10 +6,15 @@ use super::Stmt;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub namespace: Option<String>,
+    /// Lexical namespace/module owner of top-level declarations. A source file
+    /// can contain several namespaces, so `namespace` alone is insufficient.
+    pub owners: std::collections::HashMap<Span, String>,
     pub imports: Vec<ImportDecl>,
     pub option_explicit: bool,
     /// `Option Strict`. See [`crate::semantics`] for what it rejects.
     pub option_strict: bool,
+    /// `Option Infer` defaults On; Off requires an explicit type on locals.
+    pub option_infer: bool,
     pub option_compare: OptionCompare,
     pub types: Vec<TypeDecl>,
     pub enums: Vec<EnumDecl>,

@@ -85,8 +85,10 @@ pub fn analyze(function: &Function) -> Result<Report, String> {
                 .map_err(|error| format!("MIR bb{}: {error}", block.id.0))?;
             apply(&mut state, &instruction.kind, function);
         }
-        if let TerminatorKind::Return(_) = &block.terminator.as_ref().expect("verified").kind
-            && !state.borrows.is_empty()
+        if matches!(
+            &block.terminator.as_ref().expect("verified").kind,
+            TerminatorKind::Return(_) | TerminatorKind::ReturnVoid
+        ) && !state.borrows.is_empty()
         {
             return Err(format!(
                 "MIR bb{} returns with an active borrow",

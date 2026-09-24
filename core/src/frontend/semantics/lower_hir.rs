@@ -13,6 +13,17 @@ pub fn lower_function_body(
     function_index: usize,
 ) -> Result<h::TypedBody, Diagnostic> {
     validate_snippet(program)?;
+    lower_project_function_body(program, function_index, program)
+}
+
+/// Project declarations are already validated in their individual source
+/// scopes. The combined declaration view supplies resolved call/type targets,
+/// while the owner supplies the body-local Option semantics.
+pub fn lower_project_function_body(
+    program: &Program,
+    function_index: usize,
+    source: &Program,
+) -> Result<h::TypedBody, Diagnostic> {
     let function = program.functions.get(function_index).ok_or_else(|| {
         Diagnostic::new(
             DiagnosticCode::UNKNOWN_NAME,
@@ -21,16 +32,78 @@ pub fn lower_function_body(
         )
     })?;
     check_function(program, function)?;
+    lower_callable_body(
+        program,
+        source,
+        h::BodyFunctionId(function_index),
+        &function.name,
+        &function.params,
+        &function.body,
+        function.return_type.clone(),
+        function.span,
+    )
+}
+
+/// Native Sub bodies share the same typed control-flow and cleanup lowering as
+/// Functions, but have a real Void return rather than a fabricated result.
+pub fn lower_project_procedure_body(
+    program: &Program,
+    procedure_index: usize,
+    source: &Program,
+) -> Result<h::TypedBody, Diagnostic> {
+    let procedure = program.procedures.get(procedure_index).ok_or_else(|| {
+        Diagnostic::new(
+            DiagnosticCode::UNKNOWN_NAME,
+            "Sub index is outside this program",
+            None,
+        )
+    })?;
+    if procedure.is_async || !procedure.type_params.is_empty() {
+        return Err(unsupported("async or generic Sub bodies", procedure.span));
+    }
+    for parameter in &procedure.params {
+        hir_value_type(program, &parameter.ty, parameter.span)?;
+        if parameter.is_optional || parameter.is_param_array {
+            return Err(unsupported(
+                "Optional or ParamArray parameters",
+                parameter.span,
+            ));
+        }
+    }
+    lower_callable_body(
+        program,
+        source,
+        h::BodyFunctionId(program.functions.len() + procedure_index),
+        &procedure.name,
+        &procedure.params,
+        &procedure.body,
+        TypeName::Void,
+        procedure.span,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lower_callable_body(
+    program: &Program,
+    source: &Program,
+    id: h::BodyFunctionId,
+    name: &str,
+    params: &[Parameter],
+    source_body: &[Stmt],
+    return_type: TypeName,
+    span: Span,
+) -> Result<h::TypedBody, Diagnostic> {
     let types = collect_types(program)?;
     let signatures = collect_signatures(program, &types)?;
     let mut symbols = collect_module_symbols(program, &types, &signatures)?;
-    add_parameters(&function.params, &mut symbols)?;
+    add_parameters(params, &mut symbols)?;
     let mut builder = Builder {
         program,
         types: &types,
         signatures: &signatures,
         symbols,
-        options: program_options(program),
+        options: program_options(source),
+        owner: program.owners.get(&span).cloned().unwrap_or_default(),
         locals: Vec::new(),
         fields: program
             .types
@@ -79,7 +152,7 @@ pub fn lower_function_body(
             parent: None,
             locals: Vec::new(),
             cleanup: Vec::new(),
-            span: function.span,
+            span,
         }],
         active_scopes: vec![h::ScopeId(0)],
         names: HashMap::new(),
@@ -87,7 +160,7 @@ pub fn lower_function_body(
         loops: Vec::new(),
         next_loop: 0,
     };
-    for (index, parameter) in function.params.iter().enumerate() {
+    for (index, parameter) in params.iter().enumerate() {
         builder.local(
             &parameter.name,
             parameter.ty.clone(),
@@ -100,22 +173,33 @@ pub fn lower_function_body(
             parameter.span,
         )?;
     }
-    let (statements, returns) = lower_statements(
-        &mut builder,
-        &function.body,
-        &function.return_type,
-        function.span,
-    )?;
-    if !returns {
+    let (mut statements, returns) =
+        lower_statements(&mut builder, source_body, &return_type, span)?;
+    if !returns && return_type == TypeName::Void {
+        statements.push(h::Statement::ReturnVoid {
+            exited_scopes: vec![h::ScopeId(0)],
+            cleanup_chain: builder.cleanup_chain(&[h::ScopeId(0)]),
+            span,
+        });
+    } else if !returns {
         return Err(unsupported(
             "a function with a path that does not Return",
-            function.span,
+            span,
         ));
     }
     let body = h::TypedBody {
-        function: h::BodyFunctionId(function_index),
-        name: function.name.clone(),
-        return_type: function.return_type.clone(),
+        function: id,
+        name: name.to_string(),
+        symbol_name: {
+            let owner = program.owners.get(&span).map(String::as_str).unwrap_or("");
+            let modes = params
+                .iter()
+                .map(|param| format!("{:?}:{}", param.mode, param.ty.display_name()))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{owner}::{name}({modes})->{}", return_type.display_name()).to_ascii_lowercase()
+        },
+        return_type,
         locals: builder.locals,
         structures: program
             .types
@@ -128,7 +212,7 @@ pub fn lower_function_body(
         scopes: builder.scopes,
         root_scope: h::ScopeId(0),
         statements,
-        span: function.span,
+        span,
     };
     crate::frontend::semantics::verify_hir::verify_body(&body)?;
     crate::frontend::semantics::ownership::check_body(&body)?;
@@ -309,6 +393,73 @@ fn lower_statements(
                     span: *span,
                 });
                 returns = true;
+            }
+            Stmt::Exit {
+                target: ExitTarget::Sub,
+                span,
+            } if *return_type == TypeName::Void => {
+                let exited_scopes: Vec<_> = builder.active_scopes.iter().rev().copied().collect();
+                statements.push(h::Statement::ReturnVoid {
+                    cleanup_chain: builder.cleanup_chain(&exited_scopes),
+                    exited_scopes,
+                    span: *span,
+                });
+                returns = true;
+            }
+            Stmt::SubCall { name, args, span } => {
+                let resolved_name = if builder.signatures.subs.contains_key(&key(name)) {
+                    name.clone()
+                } else {
+                    format!("{}.{}", builder.owner, name)
+                };
+                let candidates = builder
+                    .signatures
+                    .subs
+                    .get(&key(&resolved_name))
+                    .ok_or_else(|| unsupported("external or built-in Sub calls", *span))?;
+                let selected = resolve_overload(
+                    "Sub",
+                    name,
+                    candidates,
+                    args,
+                    *span,
+                    ExprValidation::new(
+                        &builder.symbols,
+                        builder.types,
+                        builder.signatures,
+                        &Context::Sub { is_async: false },
+                        builder.options,
+                    ),
+                )?;
+                let (index, procedure) = builder
+                    .program
+                    .procedures
+                    .iter()
+                    .enumerate()
+                    .find(|(_, procedure)| {
+                        key(&procedure.name) == key(&resolved_name)
+                            && procedure.params.len() == selected.params.len()
+                            && procedure
+                                .params
+                                .iter()
+                                .zip(&selected.params)
+                                .all(|(a, b)| a.ty.same_type(&b.ty) && a.mode == b.mode)
+                    })
+                    .ok_or_else(|| unsupported("external or specialized Sub calls", *span))?;
+                if args.len() != procedure.params.len() {
+                    return Err(unsupported("omitted Sub arguments", *span));
+                }
+                let arguments = builder.call_arguments(args, &procedure.params)?;
+                statements.push(h::Statement::CallSub {
+                    function: h::BodyFunctionId(builder.program.functions.len() + index),
+                    signature: h::CallSignature {
+                        parameter_types: procedure.params.iter().map(|p| p.ty.clone()).collect(),
+                        parameter_modes: arguments.iter().map(|arg| arg.mode).collect(),
+                        return_type: TypeName::Void,
+                    },
+                    arguments,
+                    span: *span,
+                });
             }
             Stmt::TryCatch {
                 try_body,
@@ -839,6 +990,7 @@ struct Builder<'a> {
     signatures: &'a Signatures,
     symbols: HashMap<String, VarType>,
     options: Options,
+    owner: String,
     locals: Vec<h::Local>,
     fields: Vec<h::ResolvedField>,
     disposers: Vec<h::ResolvedDispose>,
@@ -856,6 +1008,53 @@ struct LoopFrame {
     parent_scope: h::ScopeId,
 }
 impl Builder<'_> {
+    fn call_arguments(
+        &self,
+        args: &[Expr],
+        params: &[Parameter],
+    ) -> Result<Vec<h::CallArgument>, Diagnostic> {
+        let mut arguments = Vec::new();
+        for (arg, param) in args.iter().zip(params) {
+            let value = if param.mode != PassingMode::ByVal {
+                let place = self.source_place(arg)?;
+                if !place.ty.same_type(&param.ty) {
+                    return Err(unsupported(
+                        "ByRef conversions requiring temporaries",
+                        arg.span,
+                    ));
+                }
+                h::Expression {
+                    ty: place.ty.clone(),
+                    span: arg.span,
+                    category: if param.mode == PassingMode::ByRefReadOnly {
+                        h::ValueCategory::ImmutableReference
+                    } else {
+                        h::ValueCategory::MutableReference
+                    },
+                    kind: if param.mode == PassingMode::ByRefReadOnly {
+                        h::ExpressionKind::BorrowImmutable(Box::new(place))
+                    } else {
+                        h::ExpressionKind::BorrowMutable(Box::new(place))
+                    },
+                }
+            } else {
+                convert(
+                    self.expression(arg)?,
+                    &param.ty,
+                    h::Conversion::NumericChecked,
+                )?
+            };
+            arguments.push(h::CallArgument {
+                mode: match param.mode {
+                    PassingMode::ByVal => h::ArgumentMode::ByVal,
+                    PassingMode::ByRef => h::ArgumentMode::BorrowMutable,
+                    PassingMode::ByRefReadOnly => h::ArgumentMode::BorrowImmutable,
+                },
+                value,
+            });
+        }
+        Ok(arguments)
+    }
     fn current_scope(&self) -> h::ScopeId {
         *self.active_scopes.last().expect("root scope exists")
     }
@@ -1216,6 +1415,29 @@ impl Builder<'_> {
                     ty,
                 )
             }
+            ExprKind::MemberCall {
+                object,
+                method,
+                type_args,
+                args,
+                conditional: false,
+            } if matches!(&object.kind, ExprKind::Variable(_)) => {
+                let ExprKind::Variable(owner) = &object.kind else {
+                    unreachable!()
+                };
+                if self.lookup(owner, object.span).is_ok() {
+                    return Err(unsupported("native member calls on values", expr.span));
+                }
+                let qualified = Expr {
+                    kind: ExprKind::Call {
+                        name: format!("{owner}.{method}"),
+                        type_args: type_args.clone(),
+                        args: args.clone(),
+                    },
+                    span: expr.span,
+                };
+                return self.expression(&qualified);
+            }
             ExprKind::Call {
                 name,
                 type_args,
@@ -1237,16 +1459,49 @@ impl Builder<'_> {
                 if !type_args.is_empty() {
                     return Err(unsupported("generic calls", expr.span));
                 }
-                let candidates = self
+                let resolved_name = if self.signatures.functions.contains_key(&key(name)) {
+                    name.clone()
+                } else {
+                    format!("{}.{}", self.owner, name)
+                };
+                let mut candidates = self
                     .signatures
                     .functions
-                    .get(&key(name))
-                    .ok_or_else(|| unsupported("builtin or external calls", expr.span))?;
+                    .get(&key(&resolved_name))
+                    .cloned()
+                    .unwrap_or_default();
+                if let Some((owner, simple)) = name.rsplit_once('.') {
+                    candidates.extend(
+                        self.signatures
+                            .functions
+                            .get(&key(simple))
+                            .into_iter()
+                            .flatten()
+                            .filter(|candidate| {
+                                self.program.functions.iter().any(|function| {
+                                    key(&function.name) == key(simple)
+                                        && self.program.owners.get(&function.span).is_some_and(
+                                            |actual| actual.eq_ignore_ascii_case(owner),
+                                        )
+                                        && function.params.len() == candidate.params.len()
+                                        && function
+                                            .params
+                                            .iter()
+                                            .zip(&candidate.params)
+                                            .all(|(a, b)| a.mode == b.mode && a.ty.same_type(&b.ty))
+                                })
+                            })
+                            .cloned(),
+                    );
+                }
+                if candidates.is_empty() {
+                    return Err(unsupported("builtin or external calls", expr.span));
+                }
                 let context = Context::Sub { is_async: false };
                 let selected = resolve_overload(
                     "Function",
                     name,
-                    candidates,
+                    &candidates,
                     args,
                     expr.span,
                     ExprValidation::new(
@@ -1257,24 +1512,30 @@ impl Builder<'_> {
                         self.options,
                     ),
                 )?;
-                let (index, function) = self
-                    .program
-                    .functions
-                    .iter()
-                    .enumerate()
-                    .find(|(_, function)| {
-                        key(&function.name) == key(name)
-                            && function.params.len() == selected.params.len()
-                            && function
-                                .params
-                                .iter()
-                                .zip(&selected.params)
-                                .all(|(a, b)| a.ty.same_type(&b.ty) && a.mode == b.mode)
-                            && function.type_params == selected.type_params
-                    })
-                    .ok_or_else(|| {
-                        unsupported("external or specialized call targets", expr.span)
-                    })?;
+                let (index, function) =
+                    self.program
+                        .functions
+                        .iter()
+                        .enumerate()
+                        .find(|(_, function)| {
+                            (key(&function.name) == key(&resolved_name)
+                                || name.rsplit_once('.').is_some_and(|(owner, simple)| {
+                                    key(&function.name) == key(simple)
+                                        && self.program.owners.get(&function.span).is_some_and(
+                                            |actual| actual.eq_ignore_ascii_case(owner),
+                                        )
+                                }))
+                                && function.params.len() == selected.params.len()
+                                && function
+                                    .params
+                                    .iter()
+                                    .zip(&selected.params)
+                                    .all(|(a, b)| a.ty.same_type(&b.ty) && a.mode == b.mode)
+                                && function.type_params == selected.type_params
+                        })
+                        .ok_or_else(|| {
+                            unsupported("external or specialized call targets", expr.span)
+                        })?;
                 check_function(self.program, function)?;
                 if args.len() != function.params.len() {
                     return Err(unsupported("omitted arguments", expr.span));

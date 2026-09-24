@@ -3,7 +3,7 @@ use rand_pcg::Pcg64;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use crate::runtime::{Diagnostic, TypeName, Value};
+use crate::runtime::{Diagnostic, FileId, Span, TypeName, Value};
 use crate::{ClassDecl, DeclareDecl, Function, Procedure, Program};
 
 use super::records::{RuntimeInterface, RuntimeType};
@@ -93,6 +93,7 @@ pub struct Interpreter {
     output_sink: Option<OutputSink>,
     collect_output: bool,
     pub(crate) option_compare: crate::OptionCompare,
+    pub(crate) source_option_compare: HashMap<FileId, crate::OptionCompare>,
     pub(crate) call_stack: Vec<ScopeName>,
     pub(crate) scope_stack: Vec<ScopeName>,
     pub(crate) static_frames: HashMap<String, Frame>,
@@ -153,6 +154,7 @@ impl Default for Interpreter {
             output_sink: None,
             collect_output: true,
             option_compare: crate::OptionCompare::Binary,
+            source_option_compare: HashMap::new(),
             call_stack: Vec::new(),
             scope_stack: Vec::new(),
             static_frames: HashMap::new(),
@@ -191,6 +193,14 @@ pub(crate) struct RuntimeImport {
 }
 
 impl Interpreter {
+    pub(crate) fn enter_source_options(&mut self, span: Span) -> crate::OptionCompare {
+        let previous = self.option_compare;
+        if let Some(&compare) = self.source_option_compare.get(&span.file_id) {
+            self.option_compare = compare;
+        }
+        previous
+    }
+
     pub fn new() -> Self {
         let mut interpreter = Self {
             option_compare: crate::OptionCompare::Binary,
@@ -754,6 +764,8 @@ impl Interpreter {
         let entry_key = super::values::key(&project.modules[project.entry].name);
         let mut partial_class_groups: HashMap<String, Vec<(String, ClassDecl)>> = HashMap::new();
         for module in &project.modules {
+            self.source_option_compare
+                .insert(module.file_id, module.program.option_compare);
             self.option_compare = module.program.option_compare;
             let module_key = super::values::key(&module.name);
 
@@ -996,6 +1008,7 @@ impl Interpreter {
                 .insert(module_key.clone(), public_values.into_iter().collect());
             self.module_frames.insert(module_key, frame);
         }
+        self.option_compare = project.modules[project.entry].program.option_compare;
         Ok(())
     }
 }

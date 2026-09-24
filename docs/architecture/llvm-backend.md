@@ -28,17 +28,21 @@ on the tested Windows machine it discovers Visual Studio's MSVC linker.
 `--emit=obj` preserve the corresponding artifact; `-o <path>` chooses an
 output path. The default is an executable. Build intermediates live in an
 isolated temporary directory and are removed on success or failure. Existing
-`valo run` remains interpreter-based. The CLI currently compiles one source
-file; imported multi-file projects need a later native project pipeline.
+`valo run` remains interpreter-based. `build`, `check` and `run` use the same
+transitive project loader; native build constructs one combined MIR module.
 
 ## Translation contract
 
 The backend first collects native signatures for every MIR function, then
-lowers their bodies. Symbols use `valo_f<resolved function ID>` within one
-compilation unit, so source overloads and forward/recursive calls do not
-collide. The entry wrapper `main` calls exactly one parameterless
-`Function Main() As Integer` and returns its Int32 result as the process exit
-code. Module initialization and a stable external Valo ABI are deferred.
+lowers their bodies. Symbols encode the source-resolved owner, callable name,
+passing modes, parameter types and return type as hexadecimal UTF-8 following
+`valo_`; they do not depend on file enumeration or function index. Overloads
+and equal display names in different namespaces remain distinct. The semantic
+Compilation resolves one exact entry ID before MIR. The platform `main`
+wrapper calls that ID: parameterless `Sub Main()` returns process code zero,
+while parameterless `Function Main() As Integer` returns its Int32 result.
+Ambiguous or unsupported Main declarations are rejected before codegen.
+Module initialization and a stable external Valo ABI are deferred.
 
 | Current canonical Valo type | LLVM representation |
 | --- | --- |
@@ -52,9 +56,9 @@ code. Module initialization and a stable external Valo ABI are deferred.
 LLVM integer types have no signedness; every divide, remainder, comparison
 and widening cast uses the resolved Valo type. The frontend does not yet have
 distinct canonical `Int8`, `UInt16`, `ISize`, or `USize` variants, so the
-backend does not claim source support for them. Source `Sub`/Void function
-bodies are not yet represented by typed HIR; `void` currently appears only in
-the LLVM trap intrinsic. FFI/extern ABI, including Boolean layout, is not
+backend does not claim source support for them. Source `Sub` bodies
+are represented by typed-HIR/MIR Void returns and direct Void calls.
+FFI/extern ABI, including Boolean layout, is not
 supported by this backend.
 
 MIR value locals become entry-block LLVM allocas. ByVal parameters are stored
@@ -169,6 +173,6 @@ general reference lifetimes remain separate semantic work.
 with `check` and `run`. The frontend then constructs a deterministic combined
 declaration view for native HIR/MIR lowering. LLVM receives only MIR. A
 three-file test imports a Structure and overloaded function, then links and
-executes successfully. `Sub Main()` is a valid interpreter entry but not yet
-a native entry; native builds require `Function Main() As Integer`. See
+executes successfully. Each body retains its source file's Option settings;
+qualified namespace functions and `Sub Main()` also execute natively. See
 [compilation.md](compilation.md) for the transitional compilation-unit model.

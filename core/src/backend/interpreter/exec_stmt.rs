@@ -22,6 +22,21 @@ impl Interpreter {
         statements: &[Stmt],
         frame: &mut Frame,
     ) -> Result<ControlFlow, Diagnostic> {
+        let previous = statements
+            .first()
+            .map(|statement| self.enter_source_options(stmt_span(statement)));
+        let result = self.exec_block_in_source(statements, frame);
+        if let Some(compare) = previous {
+            self.option_compare = compare;
+        }
+        result
+    }
+
+    fn exec_block_in_source(
+        &mut self,
+        statements: &[Stmt],
+        frame: &mut Frame,
+    ) -> Result<ControlFlow, Diagnostic> {
         // Label and line-number indexes are only consulted by GoTo, Resume, and
         // error handling. Building them eagerly rebuilt two hash maps on every
         // single loop iteration, so keep them lazy and pay only on the cold paths.

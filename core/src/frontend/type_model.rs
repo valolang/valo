@@ -2,6 +2,8 @@
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeName {
+    /// Internal return type of a Sub. This is not a source value type.
+    Void,
     String,
     Byte,
     Int16,
@@ -186,6 +188,7 @@ impl TypeName {
 
     pub fn display_name(&self) -> String {
         match self {
+            TypeName::Void => "Void".to_string(),
             TypeName::String => "String".to_string(),
             TypeName::Byte => "Byte".to_string(),
             TypeName::Int16 => "Short".to_string(),

@@ -748,3 +748,22 @@ The parser now handles structurally continued calls, declarations, generic
 lists, tuple/initializer lists and expressions without `_`, while preserving
 statement-ending newlines. The rule and remaining ambiguities are in
 [parser.md](parser.md).
+
+## Stage 3.4A: project semantic completeness
+
+Native entry resolution now selects an exact semantic callable before MIR.
+Parameterless `Sub Main()` exits with zero; parameterless `Function Main() As
+Integer` keeps its result. Ambiguous and unsupported entry signatures are
+diagnosed. The combined native Compilation retains a source index for each
+callable, so HIR lowering uses its own file's Strict, Explicit, Infer and
+Compare settings rather than the root file's settings. Source validation and
+interpreter execution retain their existing per-file behavior.
+
+Declaration spans carry owner paths. Cross-file namespace members can share a
+namespace without collapsing equal simple names from different owners. Native
+symbols encode owner and signature rather than a declaration index, making
+names deterministic across equivalent compilations. The combined HIR view is
+still transitional; it is not separate object compilation or a stable public
+ABI. Stage 2 ownership, native Class/String/runtime semantics, Drop and
+exception gaps remain open. Stage 3 still needs deeper ownership/liveness,
+conditional Drop, projected moves and exception CFG.

@@ -22,7 +22,10 @@ pub fn lower_module(bodies: &[h::TypedBody]) -> Result<m::Module, LowerError> {
         .iter()
         .map(lower_body)
         .collect::<Result<Vec<_>, _>>()
-        .map(|functions| m::Module { functions })
+        .map(|functions| m::Module {
+            functions,
+            entry: None,
+        })
 }
 
 pub fn lower_body(body: &h::TypedBody) -> Result<m::Function, LowerError> {
@@ -67,6 +70,7 @@ impl<'a> Builder<'a> {
             function: m::Function {
                 id: body.function,
                 name: body.name.clone(),
+                symbol_name: body.symbol_name.clone(),
                 return_type: body.return_type.clone(),
                 locals: body
                     .locals
@@ -195,6 +199,33 @@ impl<'a> Builder<'a> {
                 let value = self.expr(value)?;
                 self.cleanup_chain(cleanup_chain, *span)?;
                 self.terminate(m::TerminatorKind::Return(value), *span);
+            }
+            h::Statement::ReturnVoid {
+                cleanup_chain,
+                span,
+                ..
+            } => {
+                self.cleanup_chain(cleanup_chain, *span)?;
+                self.terminate(m::TerminatorKind::ReturnVoid, *span);
+            }
+            h::Statement::CallSub {
+                function,
+                signature,
+                arguments,
+                span,
+            } => {
+                let lowered = self.call_arguments(arguments)?;
+                self.emit(
+                    m::InstructionKind::Call {
+                        target: m::CallTarget::Function(*function),
+                        arguments: lowered,
+                        parameter_types: signature.parameter_types.clone(),
+                        parameter_modes: signature.parameter_modes.clone(),
+                        return_type: None,
+                    },
+                    None,
+                    *span,
+                );
             }
             h::Statement::If {
                 condition,
@@ -859,35 +890,7 @@ impl<'a> Builder<'a> {
                 signature,
                 arguments,
             } => {
-                let mut lowered = Vec::new();
-                for argument in arguments {
-                    lowered.push(match argument.mode {
-                        h::ArgumentMode::ByVal => {
-                            m::CallArgument::Value(self.expr(&argument.value)?)
-                        }
-                        h::ArgumentMode::BorrowMutable | h::ArgumentMode::BorrowImmutable => {
-                            let source = match &argument.value.kind {
-                                h::ExpressionKind::BorrowMutable(place)
-                                | h::ExpressionKind::BorrowImmutable(place) => place,
-                                _ => {
-                                    return Err(LowerError::InvalidHir(
-                                        "ByRef call argument has no Place".into(),
-                                    ));
-                                }
-                            };
-                            m::CallArgument::Place {
-                                mode: argument.mode,
-                                place: self.place_expr(source)?,
-                            }
-                        }
-                        h::ArgumentMode::Move => {
-                            return Err(LowerError::Unsupported {
-                                feature: "ownership-consuming calls",
-                                span: argument.value.span,
-                            });
-                        }
-                    });
-                }
+                let lowered = self.call_arguments(arguments)?;
                 m::InstructionKind::Call {
                     target: m::CallTarget::Function(*function),
                     arguments: lowered,
@@ -912,6 +915,40 @@ impl<'a> Builder<'a> {
             }
         };
         Ok(self.value(kind, expr.ty.clone(), expr.span))
+    }
+
+    fn call_arguments(
+        &mut self,
+        arguments: &[h::CallArgument],
+    ) -> Result<Vec<m::CallArgument>, LowerError> {
+        let mut lowered = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            lowered.push(match argument.mode {
+                h::ArgumentMode::ByVal => m::CallArgument::Value(self.expr(&argument.value)?),
+                h::ArgumentMode::BorrowMutable | h::ArgumentMode::BorrowImmutable => {
+                    let source = match &argument.value.kind {
+                        h::ExpressionKind::BorrowMutable(place)
+                        | h::ExpressionKind::BorrowImmutable(place) => place,
+                        _ => {
+                            return Err(LowerError::InvalidHir(
+                                "ByRef call argument has no Place".into(),
+                            ));
+                        }
+                    };
+                    m::CallArgument::Place {
+                        mode: argument.mode,
+                        place: self.place_expr(source)?,
+                    }
+                }
+                h::ArgumentMode::Move => {
+                    return Err(LowerError::Unsupported {
+                        feature: "ownership-consuming calls",
+                        span: argument.value.span,
+                    });
+                }
+            });
+        }
+        Ok(lowered)
     }
 }
 

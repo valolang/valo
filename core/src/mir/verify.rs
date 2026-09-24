@@ -75,6 +75,11 @@ pub fn verify(function: &Function) -> Result<(), String> {
                     return Err("MIR return type is incorrect".into());
                 }
             }
+            TerminatorKind::ReturnVoid => {
+                if function.return_type != TypeName::Void {
+                    return Err("MIR Void return in non-Void function".into());
+                }
+            }
             TerminatorKind::Trap(_) | TerminatorKind::Unreachable => {}
         }
     }

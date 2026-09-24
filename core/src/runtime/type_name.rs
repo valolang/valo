@@ -5,6 +5,7 @@ use std::rc::Rc;
 impl TypeName {
     pub fn builtin_default_value(&self) -> Option<crate::Value> {
         match self {
+            TypeName::Void => None,
             TypeName::String => Some(crate::Value::String(Rc::new(String::new()))),
             TypeName::Byte => Some(crate::Value::Byte(0)),
             TypeName::Int16 => Some(crate::Value::Int16(0)),

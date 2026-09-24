@@ -1269,6 +1269,8 @@ pub(super) fn collect_types_in_scope(
         delegates,
         generic_params,
         generic_constraints: HashMap::new(),
+        import_origins: HashMap::new(),
+        ambiguous_imports: HashMap::new(),
     };
     apply_class_sig_inheritance(&mut registry)?;
 
@@ -1276,6 +1278,20 @@ pub(super) fn collect_types_in_scope(
     // in scope; the registry returned to the caller holds only this module's,
     // so an import does not silently become a local declaration.
     let mut in_scope = registry.clone();
+    in_scope.import_origins = outer.import_origins.clone();
+    in_scope.ambiguous_imports = outer.ambiguous_imports.clone();
+    // A declaration in this source shadows imported simple names.
+    for name in registry
+        .types
+        .keys()
+        .chain(registry.enums.keys())
+        .chain(registry.interfaces.keys())
+        .chain(registry.classes.keys())
+        .chain(registry.delegates.keys())
+    {
+        in_scope.ambiguous_imports.remove(name);
+        in_scope.import_origins.remove(name);
+    }
     for (name, sig) in &outer.types {
         in_scope.types.entry(name.clone()).or_insert(sig.clone());
     }
@@ -1307,6 +1323,7 @@ pub(super) fn collect_types_in_scope(
                         subs: HashMap::new(),
                         functions: HashMap::new(),
                         extension_methods: HashMap::new(),
+                        ambiguous_imports: HashMap::new(),
                     },
                     &Context::Sub { is_async: false },
                     program_options(program),
@@ -1859,6 +1876,7 @@ fn validate_class_field_type(
                     subs: HashMap::new(),
                     functions: HashMap::new(),
                     extension_methods: HashMap::new(),
+                    ambiguous_imports: HashMap::new(),
                 },
                 &Context::Sub { is_async: false },
                 Options::default(),
@@ -2168,6 +2186,7 @@ pub(super) fn collect_signatures(
         subs,
         functions,
         extension_methods,
+        ambiguous_imports: HashMap::new(),
     })
 }
 

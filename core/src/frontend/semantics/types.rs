@@ -49,6 +49,10 @@ pub(super) struct TypeRegistry {
     /// Filled in for the body being checked, so a `T` constrained in one
     /// procedure does not leak into another's.
     pub(super) generic_constraints: HashMap<String, GenericParamConstraint>,
+    /// Simple imported names may denote several distinct declarations. Keep
+    /// them out of arbitrary first-import-wins lookup.
+    pub(super) import_origins: HashMap<String, String>,
+    pub(super) ambiguous_imports: HashMap<String, Vec<String>>,
 }
 
 /// A named callable shape: what `Delegate Sub`/`Delegate Function` declares.
@@ -92,6 +96,9 @@ impl TypeRegistry {
     }
 
     pub(super) fn contains(&self, name: &str) -> bool {
+        if self.ambiguous_imports.contains_key(&key(name)) {
+            return false;
+        }
         self.types.contains_key(&key(name))
             || self.enums.contains_key(&key(name))
             || self.interfaces.contains_key(&key(name))
@@ -101,18 +108,30 @@ impl TypeRegistry {
     }
 
     pub(super) fn get(&self, name: &str) -> Option<&TypeSig> {
+        if self.ambiguous_imports.contains_key(&key(name)) {
+            return None;
+        }
         self.types.get(&key(name))
     }
 
     pub(super) fn get_class(&self, name: &str) -> Option<&ClassSig> {
+        if self.ambiguous_imports.contains_key(&key(name)) {
+            return None;
+        }
         self.classes.get(&key(name))
     }
 
     pub(super) fn get_enum(&self, name: &str) -> Option<&EnumSig> {
+        if self.ambiguous_imports.contains_key(&key(name)) {
+            return None;
+        }
         self.enums.get(&key(name))
     }
 
     pub(super) fn get_interface(&self, name: &str) -> Option<&InterfaceSig> {
+        if self.ambiguous_imports.contains_key(&key(name)) {
+            return None;
+        }
         self.interfaces.get(&key(name))
     }
 

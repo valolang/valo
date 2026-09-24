@@ -58,6 +58,7 @@ pub struct FunctionSymbol {
     pub qualified_name: String,
     pub visibility: Visibility,
     pub kind: FunctionSymbolKind,
+    pub signature: Option<Vec<(crate::PassingMode, crate::frontend::type_model::TypeName)>>,
     pub span: Span,
 }
 
@@ -99,6 +100,7 @@ pub fn build_project_index(project: &Project) -> Result<ProjectIndex, Diagnostic
             module: module_id,
             module_name: &module_name,
             namespace: namespace.as_deref(),
+            owners: &module.program.owners,
         };
 
         fn index_nested(
@@ -206,6 +208,13 @@ pub fn build_project_index(project: &Project) -> Result<ProjectIndex, Diagnostic
                 procedure.visibility,
                 FunctionSymbolKind::Sub,
                 procedure.span,
+                Some(
+                    procedure
+                        .params
+                        .iter()
+                        .map(|param| (param.mode, param.ty.clone()))
+                        .collect(),
+                ),
             )?;
         }
         for function in &module.program.functions {
@@ -216,6 +225,13 @@ pub fn build_project_index(project: &Project) -> Result<ProjectIndex, Diagnostic
                 function.visibility,
                 FunctionSymbolKind::Function,
                 function.span,
+                Some(
+                    function
+                        .params
+                        .iter()
+                        .map(|param| (param.mode, param.ty.clone()))
+                        .collect(),
+                ),
             )?;
         }
         for property in &module.program.properties {
@@ -226,6 +242,7 @@ pub fn build_project_index(project: &Project) -> Result<ProjectIndex, Diagnostic
                 property.visibility,
                 FunctionSymbolKind::Property,
                 property.span,
+                None,
             )?;
         }
         for declare in &module.program.declares {
@@ -236,6 +253,7 @@ pub fn build_project_index(project: &Project) -> Result<ProjectIndex, Diagnostic
                 declare.visibility,
                 FunctionSymbolKind::Declare,
                 declare.span,
+                None,
             )?;
         }
     }
@@ -248,6 +266,7 @@ struct SymbolScope<'a> {
     module: ModuleId,
     module_name: &'a str,
     namespace: Option<&'a str>,
+    owners: &'a std::collections::HashMap<Span, String>,
 }
 
 fn push_type(
@@ -259,7 +278,12 @@ fn push_type(
     span: Span,
 ) -> Result<(), Diagnostic> {
     let id = TypeId(index.types.len());
-    let qualified_name = qualified_name(scope.module_name, scope.namespace, name);
+    let qualified_name = qualified_name(
+        scope.module_name,
+        scope.namespace,
+        scope.owners.get(&span).map(String::as_str),
+        name,
+    );
     insert_symbol(
         &mut index.by_qualified_name,
         &qualified_name,
@@ -285,9 +309,28 @@ fn push_function(
     visibility: Visibility,
     kind: FunctionSymbolKind,
     span: Span,
+    signature: Option<Vec<(crate::PassingMode, crate::frontend::type_model::TypeName)>>,
 ) -> Result<(), Diagnostic> {
     let id = FunctionId(index.functions.len());
-    let qualified_name = qualified_name(scope.module_name, scope.namespace, name);
+    let qualified_name = qualified_name(
+        scope.module_name,
+        scope.namespace,
+        scope.owners.get(&span).map(String::as_str),
+        name,
+    );
+    if let Some(existing) = index.functions.iter().find(|existing| {
+        key(&existing.qualified_name) == key(&qualified_name)
+            && existing.kind == kind
+            && existing.signature.is_some()
+            && existing.signature == signature
+    }) {
+        return Err(Diagnostic::new(
+            DiagnosticCode::DUPLICATE_DECLARATION,
+            format!("Callable '{qualified_name}' with this signature is already declared"),
+            Some(span),
+        )
+        .with_note(format!("first declaration is at {:?}", existing.span)));
+    }
     let symbol_key = key(&qualified_name);
     if let Some(existing) = index.by_qualified_name.get(&symbol_key).copied() {
         // Procedures are allowed to share a name: a `Get` and a `Set` are one
@@ -316,12 +359,27 @@ fn push_function(
         qualified_name,
         visibility,
         kind,
+        signature,
         span,
     });
     Ok(())
 }
 
-fn qualified_name(module_name: &str, namespace: Option<&str>, name: &str) -> String {
+fn qualified_name(
+    module_name: &str,
+    namespace: Option<&str>,
+    owner: Option<&str>,
+    name: &str,
+) -> String {
+    if let Some(owner) = owner.filter(|owner| !owner.is_empty()) {
+        if name
+            .to_ascii_lowercase()
+            .starts_with(&format!("{}.", owner.to_ascii_lowercase()))
+        {
+            return name.to_string();
+        }
+        return format!("{owner}.{name}");
+    }
     match namespace {
         Some(namespace) => {
             if name.starts_with(namespace) {

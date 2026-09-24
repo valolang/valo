@@ -1099,6 +1099,16 @@ pub(super) fn validate_expr(
             type_args,
             args,
         } => {
+            if let Some(origins) = signatures.ambiguous_imports.get(&key(name)) {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT,
+                    format!(
+                        "Call to '{name}' is ambiguous between imports {}",
+                        origins.join(" and ")
+                    ),
+                    Some(expr.span),
+                ));
+            }
             if let Some(ty) = validate_builtin_function(
                 name,
                 args,
@@ -3494,6 +3504,11 @@ pub(super) fn ensure_known_type(
     span: crate::runtime::Span,
 ) -> Result<(), Diagnostic> {
     match ty {
+        TypeName::Void => Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            "Void is not a source value type",
+            Some(span),
+        )),
         TypeName::String
         | TypeName::Byte
         | TypeName::Int16
@@ -3517,6 +3532,16 @@ pub(super) fn ensure_known_type(
             Ok(())
         }
         TypeName::User(name) => {
+            if let Some(origins) = types.ambiguous_imports.get(&key(name)) {
+                return Err(Diagnostic::new(
+                    crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT,
+                    format!(
+                        "Type '{name}' is ambiguous between {}",
+                        origins.join(" and ")
+                    ),
+                    Some(span),
+                ));
+            }
             if types.generic_params.contains(&key(name))
                 || name.eq_ignore_ascii_case(well_known::OBJECT)
                 || name.eq_ignore_ascii_case(well_known::COLLECTION)
@@ -3749,6 +3774,7 @@ fn is_reference_type(ty: &TypeName, types: &TypeRegistry) -> bool {
 
 fn is_value_type(ty: &TypeName, types: &TypeRegistry) -> bool {
     match ty {
+        TypeName::Void => false,
         TypeName::Byte
         | TypeName::Int16
         | TypeName::Int32

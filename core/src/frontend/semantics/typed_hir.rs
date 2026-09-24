@@ -204,6 +204,8 @@ pub struct Local {
 pub struct TypedBody {
     pub function: BodyFunctionId,
     pub name: String,
+    /// Owner-qualified semantic callable identity, including parameter shape.
+    pub symbol_name: String,
     pub return_type: TypeName,
     pub locals: Vec<Local>,
     /// Declared value types, including empty Structures, in source declaration order.
@@ -273,6 +275,17 @@ pub enum Statement {
         value: Expression,
         exited_scopes: Vec<ScopeId>,
         cleanup_chain: Vec<CleanupStep>,
+        span: Span,
+    },
+    ReturnVoid {
+        exited_scopes: Vec<ScopeId>,
+        cleanup_chain: Vec<CleanupStep>,
+        span: Span,
+    },
+    CallSub {
+        function: BodyFunctionId,
+        signature: CallSignature,
+        arguments: Vec<CallArgument>,
         span: Span,
     },
     If {

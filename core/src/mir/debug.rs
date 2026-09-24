@@ -115,6 +115,7 @@ fn format_terminator(kind: &TerminatorKind) -> String {
             condition.0, then_block.0, else_block.0
         ),
         TerminatorKind::Return(value) => format!("return %{}", value.0),
+        TerminatorKind::ReturnVoid => "return void".into(),
         TerminatorKind::Trap(message) => format!("trap {message:?}"),
         TerminatorKind::Unreachable => "unreachable".into(),
     }

@@ -51,6 +51,7 @@ impl Target {
 struct Signature {
     result: TypeName,
     parameters: Vec<(TypeName, LocalStorage)>,
+    symbol: String,
 }
 
 struct NativeTypes<'a> {
@@ -172,6 +173,7 @@ impl NativeTypes<'_> {
 
 fn native_type(ty: &TypeName) -> Result<&'static str, BackendError> {
     Ok(match ty {
+        TypeName::Void => "void",
         TypeName::Byte => "i8",
         TypeName::Int16 => "i16",
         TypeName::Int32 | TypeName::UInt32 => "i32",
@@ -204,8 +206,13 @@ fn bits(ty: &TypeName) -> Option<u16> {
     })
 }
 
-fn symbol(id: crate::frontend::semantics::typed_hir::BodyFunctionId) -> String {
-    format!("@valo_f{}", id.0)
+fn symbol(identity: &str) -> String {
+    let mut out = String::from("@valo_");
+    for byte in identity.as_bytes() {
+        use std::fmt::Write as _;
+        write!(out, "{byte:02x}").expect("hex formatting");
+    }
+    out
 }
 
 fn parameter_list(
@@ -239,6 +246,7 @@ fn signatures(
     module: &m::Module,
     types: &NativeTypes<'_>,
 ) -> Result<Vec<Option<Signature>>, BackendError> {
+    let mut native_symbols = std::collections::BTreeSet::new();
     let capacity = module
         .functions
         .iter()
@@ -298,11 +306,18 @@ fn signatures(
         }
         let signature = Signature {
             result: f.return_type.clone(),
+            symbol: symbol(&f.symbol_name),
             parameters: parameters
                 .into_iter()
                 .map(|(_, ty, storage)| (ty, storage))
                 .collect(),
         };
+        if !native_symbols.insert(signature.symbol.clone()) {
+            return Err(BackendError::new(
+                "native eligibility",
+                format!("duplicate native semantic symbol for {}", f.name),
+            ));
+        }
         if result[f.id.0].replace(signature).is_some() {
             return Err(BackendError::new(
                 "native eligibility",
@@ -326,17 +341,20 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
     };
     let declared = signatures(module, &types)?;
     let main = module
-        .functions
-        .iter()
-        .filter(|f| f.name.eq_ignore_ascii_case("main"))
-        .collect::<Vec<_>>();
-    if main.len() != 1
-        || !main[0].locals.iter().all(|l| l.parameter_index.is_none())
-        || main[0].return_type != TypeName::Int32
+        .entry
+        .and_then(|id| module.functions.iter().find(|f| f.id == id))
+        .ok_or_else(|| {
+            BackendError::new(
+                "native eligibility",
+                "compilation has no resolved entry point",
+            )
+        })?;
+    if !main.locals.iter().all(|l| l.parameter_index.is_none())
+        || !matches!(main.return_type, TypeName::Int32 | TypeName::Void)
     {
         return Err(BackendError::new(
             "native eligibility",
-            "exactly one Function Main() As Integer is required",
+            "entry point must be Sub Main() or Function Main() As Integer",
         ));
     }
     let mut out = String::new();
@@ -357,7 +375,16 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
         }
         lower_function(&mut out, f, &declared, &types)?;
     }
-    writeln!(out, "define i32 @main() {{\nentry:\n  %entry_result = call i32 {}()\n  ret i32 %entry_result\n}}", symbol(main[0].id)).unwrap();
+    if main.return_type == TypeName::Void {
+        writeln!(
+            out,
+            "define i32 @main() {{\nentry:\n  call void {}()\n  ret i32 0\n}}",
+            symbol(&main.symbol_name)
+        )
+        .unwrap();
+    } else {
+        writeln!(out, "define i32 @main() {{\nentry:\n  %entry_result = call i32 {}()\n  ret i32 %entry_result\n}}", symbol(&main.symbol_name)).unwrap();
+    }
     Ok(out)
 }
 
@@ -373,7 +400,7 @@ fn lower_function(
         out,
         "define {} {}({}) {{",
         types.ty(&f.return_type)?,
-        symbol(f.id),
+        signature.symbol,
         parameter_list(signature, true, types)?
     )
     .unwrap();
@@ -458,6 +485,7 @@ fn lower_function(
                 value(&values, *id)?
             )
             .unwrap(),
+            m::TerminatorKind::ReturnVoid => writeln!(out, "  ret void").unwrap(),
             m::TerminatorKind::Unreachable => writeln!(out, "  unreachable").unwrap(),
             m::TerminatorKind::Trap(_) => {
                 writeln!(out, "  call void @llvm.trap()\n  unreachable").unwrap()
@@ -809,9 +837,13 @@ fn lower_instruction(
                 )
             })?;
             if arguments.len() != signature.parameters.len()
-                || !return_type
-                    .as_ref()
-                    .is_some_and(|ty| ty.same_type(&signature.result))
+                || if signature.result == TypeName::Void {
+                    return_type.is_some()
+                } else {
+                    !return_type
+                        .as_ref()
+                        .is_some_and(|ty| ty.same_type(&signature.result))
+                }
             {
                 return Err(BackendError::new(
                     "native eligibility",
@@ -855,15 +887,19 @@ fn lower_instruction(
                     }
                 }
             }
-            writeln!(
-                out,
-                "  {} = call {} {}({})",
-                result.as_ref().expect("verified"),
-                types.ty(&signature.result)?,
-                symbol(*id),
-                args.join(", ")
-            )
-            .unwrap();
+            if signature.result == TypeName::Void {
+                writeln!(out, "  call void {}({})", signature.symbol, args.join(", ")).unwrap();
+            } else {
+                writeln!(
+                    out,
+                    "  {} = call {} {}({})",
+                    result.as_ref().expect("verified"),
+                    types.ty(&signature.result)?,
+                    signature.symbol,
+                    args.join(", ")
+                )
+                .unwrap();
+            }
         }
         m::InstructionKind::ArrayInit { .. } => {
             let temp = ins.result.expect("verified").0;

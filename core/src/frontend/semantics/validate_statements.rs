@@ -1265,6 +1265,13 @@ fn declared_variable_type(
     if let Some(ty) = ty {
         return Ok(ty.clone());
     }
+    if !validation.options.infer {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::TYPE_MISMATCH,
+            format!("Option Infer Off requires an explicit type for '{name}'"),
+            Some(span),
+        ));
+    }
     if let Some(initializer) = initializer {
         return validate_expr(
             initializer,
@@ -1432,6 +1439,20 @@ fn validate_sub_call(
     validation: ExprValidation<'_, '_>,
 ) -> Result<(), Diagnostic> {
     let effective_name = strip_vba_namespace(name);
+    if let Some(origins) = validation
+        .signatures
+        .ambiguous_imports
+        .get(&key(effective_name))
+    {
+        return Err(Diagnostic::new(
+            crate::runtime::DiagnosticCode::AMBIGUOUS_IMPORT,
+            format!(
+                "Call to '{effective_name}' is ambiguous between imports {}",
+                origins.join(" and ")
+            ),
+            Some(span),
+        ));
+    }
 
     if is_builtin_statement(effective_name) {
         for arg in args {

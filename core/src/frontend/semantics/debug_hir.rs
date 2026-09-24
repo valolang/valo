@@ -121,6 +121,28 @@ fn write_statement(output: &mut String, body: &TypedBody, statement: &Statement,
             cleanup_chain
         )
         .unwrap(),
+        Statement::ReturnVoid {
+            exited_scopes,
+            cleanup_chain,
+            ..
+        } => writeln!(
+            output,
+            "{indent}return void exits {} cleanup {:?}",
+            scopes(exited_scopes),
+            cleanup_chain
+        )
+        .unwrap(),
+        Statement::CallSub {
+            function,
+            arguments,
+            ..
+        } => writeln!(
+            output,
+            "{indent}call sub#{}({} args)",
+            function.0,
+            arguments.len()
+        )
+        .unwrap(),
         Statement::If {
             condition,
             then_scope,

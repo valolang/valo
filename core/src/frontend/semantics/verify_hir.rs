@@ -171,7 +171,19 @@ fn verify_statements(
                 }
             }
             Statement::Store { .. } => {}
-            Statement::Return {
+            Statement::ReturnVoid {
+                exited_scopes,
+                cleanup_chain,
+                span,
+            } if body.return_type != TypeName::Void => {
+                return Err(invalid("Void return in a value-returning function", *span));
+            }
+            Statement::ReturnVoid {
+                exited_scopes,
+                cleanup_chain,
+                span,
+            }
+            | Statement::Return {
                 exited_scopes,
                 cleanup_chain,
                 span,
@@ -183,6 +195,7 @@ fn verify_statements(
                 }
                 verify_cleanup_chain(body, exited_scopes, cleanup_chain, *span)?;
             }
+            Statement::CallSub { .. } => {}
             Statement::If {
                 then_scope,
                 then_body,
@@ -375,9 +388,10 @@ fn verify_statements(
 
 fn has_nonlocal_exit(statements: &[Statement]) -> bool {
     statements.iter().any(|statement| match statement {
-        Statement::Return { .. } | Statement::ExitLoop { .. } | Statement::ContinueLoop { .. } => {
-            true
-        }
+        Statement::Return { .. }
+        | Statement::ReturnVoid { .. }
+        | Statement::ExitLoop { .. }
+        | Statement::ContinueLoop { .. } => true,
         Statement::If {
             then_body,
             else_body,
@@ -403,7 +417,7 @@ fn has_nonlocal_exit(statements: &[Statement]) -> bool {
                 || has_nonlocal_exit(finally_body)
         }
         Statement::UsingDispose { body, .. } => has_nonlocal_exit(body),
-        Statement::Initialize { .. } | Statement::Store { .. } => false,
+        Statement::Initialize { .. } | Statement::Store { .. } | Statement::CallSub { .. } => false,
     })
 }
 
@@ -489,6 +503,37 @@ fn verify_statement_expressions(
                 ));
             }
             Ok(())
+        }
+        Statement::ReturnVoid { span, .. } => {
+            if body.return_type == TypeName::Void {
+                Ok(())
+            } else {
+                Err(invalid("Void return in a value-returning function", *span))
+            }
+        }
+        Statement::CallSub {
+            function,
+            signature,
+            arguments,
+            span,
+        } => {
+            if signature.return_type != TypeName::Void {
+                return Err(invalid("Sub call must have Void return", *span));
+            }
+            verify_expression(
+                body,
+                &Expression {
+                    kind: ExpressionKind::Call {
+                        function: *function,
+                        signature: signature.clone(),
+                        arguments: arguments.clone(),
+                    },
+                    ty: TypeName::Void,
+                    category: ValueCategory::Value,
+                    span: *span,
+                },
+                current,
+            )
         }
         Statement::Store { target, value, .. } => {
             verify_expression(body, target, current)?;

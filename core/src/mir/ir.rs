@@ -18,12 +18,15 @@ pub struct BorrowId(pub usize);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
     pub functions: Vec<Function>,
+    /// Resolved by the semantic compilation before backend lowering.
+    pub entry: Option<BodyFunctionId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub id: BodyFunctionId,
     pub name: String,
+    pub symbol_name: String,
     pub return_type: TypeName,
     pub locals: Vec<Local>,
     pub structures: Vec<TypeName>,
@@ -173,6 +176,7 @@ pub enum TerminatorKind {
         else_block: BlockId,
     },
     Return(TempId),
+    ReturnVoid,
     Trap(&'static str),
     Unreachable,
 }

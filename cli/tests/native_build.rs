@@ -78,31 +78,269 @@ fn cli_builds_and_executes_multifile_native_project() {
 }
 
 #[test]
-fn native_build_rejects_mixed_source_option_settings() {
+fn native_build_accepts_mixed_source_option_settings() {
+    if LlvmTools::discover().is_err() {
+        return;
+    }
     let root = std::env::temp_dir().join(format!("valo-mixed-options-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let main = root.join("main.valo");
     let imported = root.join("Other.valo");
     std::fs::write(
         &main,
-        "Imports Other\nFunction Main() As Integer\nReturn 0\nEnd Function\n",
+        "Option Strict Off\nImports Other\nFunction Main() As Integer\nReturn OtherValue() - 1\nEnd Function\n",
     )
     .unwrap();
     std::fs::write(
         &imported,
-        "Option Strict On\nPublic Function OtherValue() As Integer\nReturn 1\nEnd Function\n",
+        "Option Strict On\nOption Infer Off\nPublic Function OtherValue() As Integer\nDim Value As Integer = 1\nReturn Value\nEnd Function\n",
+    )
+    .unwrap();
+    let output_path = root.join(if cfg!(windows) {
+        "mixed.exe"
+    } else {
+        "mixed.out"
+    });
+    let result = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .arg("build")
+        .arg(&main)
+        .arg("-o")
+        .arg(&output_path)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(Command::new(&output_path).status().unwrap().code(), Some(0));
+    std::fs::remove_file(output_path).unwrap();
+    std::fs::remove_file(main).unwrap();
+    std::fs::remove_file(imported).unwrap();
+    std::fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn native_sub_main_calls_another_sub_and_returns_zero() {
+    if LlvmTools::discover().is_err() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("valo-sub-entry-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("main.valo");
+    let output = root.join(if cfg!(windows) {
+        "program.exe"
+    } else {
+        "program.out"
+    });
+    std::fs::write(&source, "Module Program\nSub Work()\nDim X As Integer = 1\nEnd Sub\nSub Main()\nWork()\nEnd Sub\nEnd Module\n").unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .args([
+            "build",
+            source.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(Command::new(&output).status().unwrap().code(), Some(0));
+    std::fs::remove_file(source).unwrap();
+    std::fs::remove_file(output).unwrap();
+    std::fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn native_entry_can_be_in_an_imported_source() {
+    if LlvmTools::discover().is_err() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("valo-imported-entry-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("main.valo");
+    let imported = root.join("Entry.valo");
+    let output = root.join(if cfg!(windows) {
+        "program.exe"
+    } else {
+        "program.out"
+    });
+    std::fs::write(
+        &source,
+        "Imports Entry\nFunction Helper() As Integer\nReturn 0\nEnd Function\n",
+    )
+    .unwrap();
+    std::fs::write(&imported, "Sub Main()\nEnd Sub\n").unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .args([
+            "build",
+            source.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(Command::new(&output).status().unwrap().code(), Some(0));
+    for path in [source, imported, output] {
+        std::fs::remove_file(path).unwrap();
+    }
+    std::fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn duplicate_native_main_is_diagnosed() {
+    let root = std::env::temp_dir().join(format!("valo-duplicate-entry-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("main.valo");
+    std::fs::write(
+        &source,
+        "Sub Main()\nEnd Sub\nFunction Main() As Integer\nReturn 0\nEnd Function\n",
     )
     .unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_valo"))
         .arg("build")
-        .arg(&main)
+        .arg(&source)
         .output()
         .unwrap();
-    std::fs::remove_file(main).unwrap();
-    std::fs::remove_file(imported).unwrap();
-    std::fs::remove_dir(root).unwrap();
     assert!(!result.status.success());
-    assert!(String::from_utf8_lossy(&result.stderr).contains("different Option settings"));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("Main"));
+    std::fs::remove_file(source).unwrap();
+    std::fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn invalid_native_main_signature_is_diagnosed() {
+    let root = std::env::temp_dir().join(format!("valo-invalid-entry-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("main.valo");
+    std::fs::write(
+        &source,
+        "Function Main(X As Integer) As Integer\nReturn X\nEnd Function\n",
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .arg("build")
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("native entry must"));
+    std::fs::remove_file(source).unwrap();
+    std::fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn qualified_cross_file_symbols_and_types_execute_natively() {
+    if LlvmTools::discover().is_err() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("valo-qualified-native-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("main.valo");
+    let a = root.join("A.valo");
+    let b = root.join("B.valo");
+    let output = root.join(if cfg!(windows) {
+        "program.exe"
+    } else {
+        "program.out"
+    });
+    let ir = root.join("program.ll");
+    let ir_again = root.join("program-again.ll");
+    std::fs::write(&a, "Namespace A\nStructure Vector\nPublic X As Integer\nEnd Structure\nFunction Value() As Integer\nReturn 10\nEnd Function\nEnd Namespace\n").unwrap();
+    std::fs::write(&b, "Namespace B\nStructure Vector\nPublic X As Integer\nEnd Structure\nFunction Value() As Integer\nReturn 20\nEnd Function\nEnd Namespace\n").unwrap();
+    std::fs::write(&source, "Imports A\nImports B\nFunction Main() As Integer\nDim VA As A.Vector\nDim VB As B.Vector\nVA.X = A.Value()\nVB.X = B.Value()\nReturn VA.X + VB.X - 30\nEnd Function\n").unwrap();
+    let build = |kind: &str, destination: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_valo"))
+            .arg("build")
+            .arg(&source)
+            .arg(kind)
+            .arg("-o")
+            .arg(destination)
+            .output()
+            .unwrap()
+    };
+    let result = build("--emit=llvm-ir", &ir);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let text = std::fs::read_to_string(&ir).unwrap();
+    let symbols = text
+        .lines()
+        .filter(|line| line.starts_with("define i32 @valo_"))
+        .collect::<Vec<_>>();
+    assert_eq!(symbols.len(), 3, "{text}");
+    assert_ne!(symbols[1], symbols[2]);
+    let result = build("--emit=llvm-ir", &ir_again);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let rebuilt = std::fs::read_to_string(&ir_again).unwrap();
+    let rebuilt_symbols = rebuilt
+        .lines()
+        .filter(|line| line.starts_with("define i32 @valo_"))
+        .collect::<Vec<_>>();
+    assert_eq!(symbols, rebuilt_symbols);
+    let result = build("--emit=exe", &output);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(Command::new(&output).status().unwrap().code(), Some(0));
+    for path in [source, a, b, output, ir, ir_again] {
+        std::fs::remove_file(path).unwrap();
+    }
+    std::fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn qualified_overloads_in_one_namespace_execute_natively() {
+    if LlvmTools::discover().is_err() {
+        return;
+    }
+    let root =
+        std::env::temp_dir().join(format!("valo-qualified-overloads-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("main.valo");
+    let a = root.join("A.valo");
+    let b = root.join("B.valo");
+    let output = root.join(if cfg!(windows) {
+        "program.exe"
+    } else {
+        "program.out"
+    });
+    std::fs::write(&a, "Namespace A\nFunction Value(X As Integer) As Integer\nReturn X + 1\nEnd Function\nFunction Value(X As Double) As Integer\nReturn 2\nEnd Function\nEnd Namespace\n").unwrap();
+    std::fs::write(&b, "Namespace B\nFunction Value(X As Integer) As Integer\nReturn X + 10\nEnd Function\nEnd Namespace\n").unwrap();
+    std::fs::write(&source, "Imports A\nImports B\nFunction Main() As Integer\nReturn A.Value(1) + A.Value(1.0) + B.Value(1) - 15\nEnd Function\n").unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(Command::new(&output).status().unwrap().code(), Some(0));
+    for path in [source, a, b, output] {
+        std::fs::remove_file(path).unwrap();
+    }
+    std::fs::remove_dir(root).unwrap();
 }
 
 #[test]

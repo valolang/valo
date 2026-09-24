@@ -5,6 +5,7 @@ use super::typed_hir::{
     DisposeMethodId, DoCondition, Expression, ExpressionKind, InitialState, LocalId, LocalStorage,
     Place, PlaceOverlap, ScopeCleanup, ScopeId, Statement, TypedBody,
 };
+use crate::frontend::type_model::TypeName;
 use crate::runtime::{Diagnostic, DiagnosticCode, Span};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -159,6 +160,35 @@ fn check_statements(
                 check_expression(body, value, states)?;
                 record_exit(body, ExitKind::Return, exited_scopes, *span, states, report);
                 terminated = true;
+            }
+            Statement::ReturnVoid {
+                exited_scopes,
+                span,
+                ..
+            } => {
+                record_exit(body, ExitKind::Return, exited_scopes, *span, states, report);
+                terminated = true;
+            }
+            Statement::CallSub {
+                function,
+                signature,
+                arguments,
+                span,
+            } => {
+                check_expression(
+                    body,
+                    &Expression {
+                        kind: ExpressionKind::Call {
+                            function: *function,
+                            signature: signature.clone(),
+                            arguments: arguments.clone(),
+                        },
+                        ty: TypeName::Void,
+                        category: super::typed_hir::ValueCategory::Value,
+                        span: *span,
+                    },
+                    states,
+                )?;
             }
             Statement::If {
                 condition,

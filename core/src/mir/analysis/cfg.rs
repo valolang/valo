@@ -37,6 +37,7 @@ impl Cfg {
                     ..
                 } => vec![*then_block, *else_block],
                 TerminatorKind::Return(_)
+                | TerminatorKind::ReturnVoid
                 | TerminatorKind::Trap(_)
                 | TerminatorKind::Unreachable => Vec::new(),
             };

@@ -1087,6 +1087,7 @@ fn write_varptr_update(
 
 fn callback_ffi_type(ty: &TypeName, span: Span) -> Result<FfiType, Diagnostic> {
     match ty {
+        TypeName::Void => Err(unsupported("Void is not a callback parameter", span)),
         TypeName::Byte => Ok(FfiType::u8()),
         TypeName::Int16 => Ok(FfiType::i16()),
         TypeName::Int32 => Ok(FfiType::i32()),
@@ -1156,6 +1157,7 @@ fn read_callback_args(
 
 unsafe fn read_callback_value(slot: *const c_void, ty: &TypeName) -> ExprKind {
     match ty {
+        TypeName::Void => ExprKind::Empty,
         TypeName::Byte => ExprKind::Integer(unsafe { *(slot as *const u8) } as i64),
         TypeName::Int16 => ExprKind::Integer(unsafe { *(slot as *const i16) } as i64),
         TypeName::Int32 => ExprKind::Integer(unsafe { *(slot as *const i32) } as i64),
@@ -1187,6 +1189,7 @@ fn write_callback_default(result: &mut c_void, return_type: &TypeName, is_sub: b
     }
     unsafe {
         match return_type {
+            TypeName::Void => {}
             TypeName::Byte => *(result as *mut c_void as *mut u8) = 0,
             TypeName::Int16 | TypeName::Boolean => {
                 *(result as *mut c_void as *mut i16) = 0;
@@ -2157,6 +2160,7 @@ fn return_ffi_type(ty: &TypeName, is_sub: bool, span: Span) -> Result<FfiType, D
         return Ok(FfiType::void());
     }
     let ty = match ty {
+        TypeName::Void => return Err(unsupported("Void return belongs to Sub", span)),
         TypeName::Byte => FfiType::u8(),
         TypeName::Int16 => FfiType::i16(),
         TypeName::Int32 => FfiType::i32(),
@@ -2201,6 +2205,7 @@ fn call_return_value(
     span: Span,
 ) -> Result<Value, Diagnostic> {
     let value = match ty {
+        TypeName::Void => return Err(unsupported("Void return belongs to Sub", span)),
         TypeName::Byte => {
             let mut ret = 0u8;
             unsafe { cif.call_return_into(code, args, Ret::new(&mut ret)) };

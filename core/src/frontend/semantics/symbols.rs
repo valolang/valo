@@ -155,6 +155,7 @@ pub(super) struct Signatures {
     pub(super) subs: HashMap<String, Overloads>,
     pub(super) functions: HashMap<String, Overloads>,
     pub(super) extension_methods: HashMap<String, Vec<CallableSig>>,
+    pub(super) ambiguous_imports: HashMap<String, Vec<String>>,
 }
 
 /// The procedures sharing one name.
@@ -174,11 +175,22 @@ pub(super) fn key(name: &str) -> String {
 /// These travel together through validation because they are asked about in
 /// the same places. Passing one bool per directive meant every new one touched
 /// every signature that only forwards it.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub(super) struct Options {
     /// `Option Explicit`: a variable has to be declared before it is used.
     pub(super) explicit: bool,
     /// `Option Strict`: no conversion that can lose something, and no member
     /// reached on a value whose type is only known at run time.
     pub(super) strict: bool,
+    pub(super) infer: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            explicit: false,
+            strict: false,
+            infer: true,
+        }
+    }
 }

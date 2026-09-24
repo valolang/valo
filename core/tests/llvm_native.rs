@@ -9,10 +9,16 @@ use valo_core::semantics::lower_function_body;
 
 fn module(source: &str) -> ir::Module {
     let program = parse_source(source).unwrap();
+    let entry = program
+        .functions
+        .iter()
+        .position(|function| function.name.eq_ignore_ascii_case("main"));
     let bodies = (0..program.functions.len())
         .map(|index| lower_function_body(&program, index).unwrap())
         .collect::<Vec<_>>();
-    lower_module(&bodies).unwrap()
+    let mut module = lower_module(&bodies).unwrap();
+    module.entry = entry.map(valo_core::semantics::typed_hir::BodyFunctionId);
+    module
 }
 
 fn tools() -> Option<LlvmTools> {
@@ -250,7 +256,7 @@ fn llvm_ir_is_verified_and_object_is_emitted() {
     };
     let module = module("Function Main() As Integer\nReturn 7\nEnd Function");
     let ir = render_module(&module, &tools.target).unwrap();
-    assert!(ir.contains("define i32 @valo_f0"));
+    assert!(ir.contains("define i32 @valo_"));
     let ir_path = output("ir").with_extension("ll");
     build(
         &module,

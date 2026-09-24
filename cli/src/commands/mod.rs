@@ -131,29 +131,16 @@ pub fn build(args: impl Iterator<Item = String>, color: ColorChoice) -> Result<(
             e.render_colored(&project.source_map, color.enabled())
         )
     })?;
-    let root_options = &project.modules[project.entry].program;
-    if let Some(module) = project.modules.iter().find(|module| {
-        let options = &module.program;
-        options.option_strict != root_options.option_strict
-            || options.option_explicit != root_options.option_explicit
-            || options.option_compare != root_options.option_compare
-    }) {
-        return Err(format!(
-            "native eligibility: imported source '{}' has different Option settings; per-file native lowering is not supported yet",
-            module.path.display()
-        ));
-    }
     let program = &compilation.program;
-    if !program
-        .functions
-        .iter()
-        .any(|function| function.name.eq_ignore_ascii_case("main") && function.params.is_empty())
-    {
-        return Err("native eligibility: this backend requires Function Main() As Integer".into());
-    }
-    let bodies = (0..program.functions.len())
+    let entry_point = compilation.resolve_entry().map_err(|e| {
+        format!(
+            "entry resolution: {}",
+            e.render_colored(&project.source_map, color.enabled())
+        )
+    })?;
+    let mut bodies = (0..program.functions.len())
         .map(|index| {
-            valo_core::semantics::lower_function_body(program, index).map_err(|e| {
+            compilation.lower_function_body(index).map_err(|e| {
                 format!(
                     "typed HIR: {}",
                     e.render_colored(&project.source_map, color.enabled())
@@ -161,7 +148,21 @@ pub fn build(args: impl Iterator<Item = String>, color: ColorChoice) -> Result<(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mir = valo_core::mir::lower_module(&bodies).map_err(|e| format!("MIR lowering: {e:?}"))?;
+    bodies.extend(
+        (0..program.procedures.len())
+            .map(|index| {
+                compilation.lower_procedure_body(index).map_err(|e| {
+                    format!(
+                        "typed HIR: {}",
+                        e.render_colored(&project.source_map, color.enabled())
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    let mut mir =
+        valo_core::mir::lower_module(&bodies).map_err(|e| format!("MIR lowering: {e:?}"))?;
+    mir.entry = Some(entry_point.body_id(program.functions.len()));
     let tools = LlvmTools::discover().map_err(|e| e.to_string())?;
     let output = output.unwrap_or_else(|| {
         let name = source_path.file_stem().unwrap_or_default();
