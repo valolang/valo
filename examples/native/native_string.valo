@@ -1,0 +1,17 @@
+Function Identity(Value As String) As String
+    Return Value
+End Function
+
+Function Main() As Integer
+    Dim First As String = "Va"
+    Dim Second As String = "lo"
+    Dim Name As String = Identity(First & Second)
+    Name = Name & " 🦊"
+
+    If Name = "Valo 🦊" Then
+        If Len(Name) = 6 Then
+            Return 0
+        End If
+    End If
+    Return 1
+End Function

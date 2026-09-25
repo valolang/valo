@@ -54,14 +54,32 @@ fn format_instruction(kind: &InstructionKind) -> String {
         InstructionKind::ArrayLen(array) => format!("array.len {}", format_place(array)),
         InstructionKind::SnapshotArray(array) => format!("array.snapshot {}", format_place(array)),
         InstructionKind::Load(place) => format!("load {}", format_place(place)),
+        InstructionKind::CloneString(place) => format!("string.clone {}", format_place(place)),
+        InstructionKind::StringConcat { left, right } => {
+            format!("string.concat %{}, %{}", left.0, right.0)
+        }
+        InstructionKind::StringCompare {
+            op,
+            left,
+            right,
+            text,
+        } => format!("string.cmp.{op:?}.text={text} %{}, %{}", left.0, right.0),
+        InstructionKind::StringLen(value) => format!("string.len %{}", value.0),
+        InstructionKind::StringFormat { value, decimals } => {
+            format!("string.format.{decimals:?} %{}", value.0)
+        }
         InstructionKind::Move(place) => format!("move {}", format_place(place)),
         InstructionKind::Drop(place) => format!("drop {}", format_place(place)),
+        InstructionKind::DropCandidate(local) => format!("drop.candidate ${}", local.0),
         InstructionKind::BorrowStart { id, kind, place } => {
             format!("borrow.start #{} {kind:?} {}", id.0, format_place(place))
         }
         InstructionKind::EndBorrow(id) => format!("borrow.end #{}", id.0),
         InstructionKind::Store { place, value } => {
             format!("store {}, %{}", format_place(place), value.0)
+        }
+        InstructionKind::Replace { place, value } => {
+            format!("replace {}, %{}", format_place(place), value.0)
         }
         InstructionKind::Arithmetic { op, left, right } => {
             format!("{op:?} %{}, %{}", left.0, right.0)

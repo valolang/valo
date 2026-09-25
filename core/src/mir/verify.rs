@@ -87,6 +87,39 @@ pub fn verify(function: &Function) -> Result<(), String> {
         return Err("MIR temp has no definition".into());
     }
     verify_temp_availability(function)?;
+    verify_managed_temp_uses(function)?;
+    Ok(())
+}
+
+/// String temporaries are owned handles. Every reachable definition must be
+/// transferred or consumed once; ordinary scalar temps may be reused.
+fn verify_managed_temp_uses(function: &Function) -> Result<(), String> {
+    let cfg = super::analysis::cfg::Cfg::build(function)?;
+    let mut counts = vec![0usize; function.temps.len()];
+    let mut defined = vec![false; function.temps.len()];
+    for block in &function.blocks {
+        if !cfg.reachable[block.id.0] {
+            continue;
+        }
+        for instruction in &block.instructions {
+            if let Some(id) = instruction.result {
+                defined[id.0] = true;
+            }
+            for id in instruction_uses(&instruction.kind) {
+                counts[id.0] += 1;
+            }
+        }
+        if let TerminatorKind::Return(id) = block.terminator.as_ref().expect("verified").kind {
+            counts[id.0] += 1;
+        }
+    }
+    for (index, ty) in function.temps.iter().enumerate() {
+        if *ty == TypeName::String && defined[index] && counts[index] != 1 {
+            return Err(format!(
+                "MIR owned String temp %{index} must be consumed exactly once"
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -161,15 +194,22 @@ fn instruction_uses(kind: &InstructionKind) -> Vec<TempId> {
     match kind {
         InstructionKind::Const(_)
         | InstructionKind::ArrayInit { .. }
-        | InstructionKind::EndBorrow(_) => vec![],
+        | InstructionKind::EndBorrow(_)
+        | InstructionKind::DropCandidate(_) => vec![],
+        InstructionKind::StringLen(value) | InstructionKind::StringFormat { value, .. } => {
+            vec![*value]
+        }
+        InstructionKind::StringConcat { left, right }
+        | InstructionKind::StringCompare { left, right, .. } => vec![*left, *right],
         InstructionKind::TupleInit(elements) => elements.clone(),
         InstructionKind::ArrayLen(place)
         | InstructionKind::SnapshotArray(place)
         | InstructionKind::Load(place)
+        | InstructionKind::CloneString(place)
         | InstructionKind::Move(place)
         | InstructionKind::Drop(place)
         | InstructionKind::BorrowStart { place, .. } => place_uses(place),
-        InstructionKind::Store { place, value } => {
+        InstructionKind::Store { place, value } | InstructionKind::Replace { place, value } => {
             let mut used = place_uses(place);
             used.push(*value);
             used
@@ -193,6 +233,9 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
         .map(|id| temp_type(function, id))
         .transpose()?;
     match &instruction.kind {
+        InstructionKind::DropCandidate(_) => {
+            return Err("MIR Drop candidate was not elaborated".into());
+        }
         InstructionKind::Const(value) => {
             let Some(result) = result else {
                 return Err("MIR constant needs a result".into());
@@ -203,6 +246,7 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 Constant::Single(_) => result.same_type(&TypeName::Single),
                 Constant::Double(_) => result.same_type(&TypeName::Double),
                 Constant::Boolean(_) => result.same_type(&TypeName::Boolean),
+                Constant::String(_) => result.same_type(&TypeName::String),
             };
             if !valid {
                 return Err("MIR constant type is incorrect".into());
@@ -242,8 +286,52 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
         }
         InstructionKind::Load(place) => {
             let ty = place_type(function, place)?;
+            if ty == TypeName::String {
+                return Err("MIR String load must use managed CloneString".into());
+            }
             if !result.is_some_and(|result| result.same_type(&ty)) {
                 return Err("MIR load type is incorrect".into());
+            }
+        }
+        InstructionKind::CloneString(place) => {
+            if !place_type(function, place)?.same_type(&TypeName::String)
+                || !result.is_some_and(|ty| ty.same_type(&TypeName::String))
+            {
+                return Err("MIR String clone requires String input and result".into());
+            }
+        }
+        InstructionKind::StringConcat { left, right }
+        | InstructionKind::StringCompare { left, right, .. } => {
+            let expected = if matches!(instruction.kind, InstructionKind::StringConcat { .. }) {
+                TypeName::String
+            } else {
+                TypeName::Boolean
+            };
+            if !temp_type(function, *left)?.same_type(&TypeName::String)
+                || !temp_type(function, *right)?.same_type(&TypeName::String)
+                || !result.is_some_and(|ty| ty.same_type(&expected))
+            {
+                return Err("MIR String binary operation has incorrect types".into());
+            }
+        }
+        InstructionKind::StringLen(value) => {
+            if !temp_type(function, *value)?.same_type(&TypeName::String)
+                || !result.is_some_and(|ty| ty.same_type(&TypeName::Int32))
+            {
+                return Err("MIR String length has incorrect types".into());
+            }
+        }
+        InstructionKind::StringFormat { value, decimals } => {
+            let source = temp_type(function, *value)?;
+            if !(source.is_integral()
+                || matches!(
+                    source,
+                    TypeName::Single | TypeName::Double | TypeName::Boolean
+                ))
+                || !result.is_some_and(|ty| ty.same_type(&TypeName::String))
+                || decimals.is_some_and(|digits| digits > 6)
+            {
+                return Err("MIR String format has incorrect types".into());
             }
         }
         InstructionKind::Move(place) => {
@@ -263,7 +351,6 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
             if result.is_some()
                 || !place.projections.is_empty()
                 || local.storage != LocalStorage::Value
-                || local.properties.copy != KnownProperty::No
                 || local.properties.requires_drop != KnownProperty::Yes
             {
                 return Err("MIR Drop requires a droppable whole owned local".into());
@@ -283,10 +370,15 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 return Err("MIR EndBorrow cannot produce a value".into());
             }
         }
-        InstructionKind::Store { place, value } => {
+        InstructionKind::Store { place, value } | InstructionKind::Replace { place, value } => {
             let ty = place_type(function, place)?;
             if result.is_some() || !temp_type(function, *value)?.same_type(&ty) {
                 return Err("MIR store type is incorrect".into());
+            }
+            if matches!(instruction.kind, InstructionKind::Replace { .. })
+                && (!place.projections.is_empty() || ty != TypeName::String)
+            {
+                return Err("MIR Replace currently requires a whole String local".into());
             }
         }
         InstructionKind::Arithmetic { op, left, right } => {

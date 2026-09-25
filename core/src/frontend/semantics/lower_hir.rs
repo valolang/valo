@@ -103,6 +103,7 @@ fn lower_callable_body(
         signatures: &signatures,
         symbols,
         options: program_options(source),
+        option_compare: source.option_compare,
         owner: program.owners.get(&span).cloned().unwrap_or_default(),
         locals: Vec::new(),
         fields: program
@@ -263,6 +264,7 @@ fn lower_statements(
                             TypeName::Boolean => h::Constant::Boolean(false),
                             TypeName::Single => h::Constant::Single(0.0),
                             TypeName::Double => h::Constant::Double(0.0),
+                            TypeName::String => h::Constant::String(String::new()),
                             TypeName::User(_) | TypeName::Tuple(_) => h::Constant::ZeroAggregate,
                             _ => h::Constant::Integer(0),
                         }),
@@ -904,7 +906,12 @@ fn unsupported(feature: &str, span: Span) -> Diagnostic {
         .with_help("This construct can still use the source interpreter; native lowering requires additional implementation")
 }
 fn scalar(ty: &TypeName, span: Span) -> Result<(), Diagnostic> {
-    if ty.is_integral() || matches!(ty, TypeName::Single | TypeName::Double | TypeName::Boolean) {
+    if ty.is_integral()
+        || matches!(
+            ty,
+            TypeName::Single | TypeName::Double | TypeName::Boolean | TypeName::String
+        )
+    {
         Ok(())
     } else {
         Err(unsupported(&format!("type '{}'", ty.display_name()), span))
@@ -990,6 +997,7 @@ struct Builder<'a> {
     signatures: &'a Signatures,
     symbols: HashMap<String, VarType>,
     options: Options,
+    option_compare: crate::OptionCompare,
     owner: String,
     locals: Vec<h::Local>,
     fields: Vec<h::ResolvedField>,
@@ -1321,6 +1329,14 @@ impl Builder<'_> {
                 h::ExpressionKind::Constant(h::Constant::Boolean(*value)),
                 TypeName::Boolean,
             ),
+            ExprKind::String(value) => (
+                h::ExpressionKind::Constant(h::Constant::String(value.clone())),
+                TypeName::String,
+            ),
+            ExprKind::Nothing => {
+                return Err(unsupported("Nothing values in native HIR", expr.span));
+            }
+            ExprKind::Interpolated(parts) => return self.interpolation(parts, expr.span),
             ExprKind::TupleLiteral(elements) => {
                 let values = elements
                     .iter()
@@ -1359,9 +1375,37 @@ impl Builder<'_> {
                 (h::ExpressionKind::Load(Box::new(place)), ty)
             }
             ExprKind::Binary { left, op, right } => {
+                if matches!(op, crate::BinaryOp::Concat) {
+                    let left = self.expression(left)?;
+                    let right = self.expression(right)?;
+                    let left = self.stringify(left)?;
+                    let right = self.stringify(right)?;
+                    return Ok(h::Expression {
+                        kind: h::ExpressionKind::StringConcat {
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        ty: TypeName::String,
+                        category: h::ValueCategory::Value,
+                        span: expr.span,
+                    });
+                }
                 if let Some(operation) = h::ComparisonOp::from_ast(*op) {
                     let left = self.expression(left)?;
                     let right = self.expression(right)?;
+                    if left.ty == TypeName::String && right.ty == TypeName::String {
+                        return Ok(h::Expression {
+                            kind: h::ExpressionKind::StringCompare {
+                                operation,
+                                left: Box::new(left),
+                                right: Box::new(right),
+                                text: self.option_compare == crate::OptionCompare::Text,
+                            },
+                            ty: TypeName::Boolean,
+                            category: h::ValueCategory::Value,
+                            span: expr.span,
+                        });
+                    }
                     let operand_type = if left.ty.same_type(&TypeName::Boolean)
                         && right.ty.same_type(&TypeName::Boolean)
                         && matches!(
@@ -1443,6 +1487,25 @@ impl Builder<'_> {
                 type_args,
                 args,
             } => {
+                if name.eq_ignore_ascii_case("Len")
+                    && type_args.is_empty()
+                    && args.len() == 1
+                    && !self.signatures.functions.contains_key(&key(name))
+                    && !self
+                        .signatures
+                        .functions
+                        .contains_key(&key(&format!("{}.{}", self.owner, name)))
+                {
+                    let value = self.expression(&args[0])?;
+                    if value.ty == TypeName::String {
+                        return Ok(h::Expression {
+                            kind: h::ExpressionKind::StringLen(Box::new(value)),
+                            ty: TypeName::Int32,
+                            category: h::ValueCategory::Value,
+                            span: expr.span,
+                        });
+                    }
+                }
                 if type_args.is_empty()
                     && let Ok(id) = self.lookup(name, expr.span)
                     && matches!(self.locals[id.0].ty, TypeName::Array(_))
@@ -1606,5 +1669,113 @@ impl Builder<'_> {
             category: h::ValueCategory::Value,
             span: expr.span,
         })
+    }
+
+    fn interpolation(
+        &self,
+        parts: &[crate::InterpolationPart],
+        span: Span,
+    ) -> Result<h::Expression, Diagnostic> {
+        let literal = |text: String| h::Expression {
+            kind: h::ExpressionKind::Constant(h::Constant::String(text)),
+            ty: TypeName::String,
+            category: h::ValueCategory::Value,
+            span,
+        };
+        let mut result = literal(String::new());
+        for part in parts {
+            let next = match part {
+                crate::InterpolationPart::Literal(text) => literal(text.clone()),
+                crate::InterpolationPart::Value {
+                    expr,
+                    alignment,
+                    format,
+                } => {
+                    if alignment.is_some() {
+                        return Err(unsupported(
+                            "interpolation alignment in native String",
+                            expr.span,
+                        ));
+                    }
+                    let value = self.expression(expr)?;
+                    if value.ty == TypeName::String && format.as_ref().is_none_or(String::is_empty)
+                    {
+                        value
+                    } else {
+                        let decimals = match format.as_deref().filter(|text| !text.is_empty()) {
+                            None => None,
+                            Some(text)
+                                if text.starts_with("0.")
+                                    && text[2..].bytes().all(|byte| byte == b'0')
+                                    && (1..=6).contains(&(text.len() - 2)) =>
+                            {
+                                Some((text.len() - 2) as u8)
+                            }
+                            _ => {
+                                return Err(unsupported(
+                                    "this interpolation format in native String",
+                                    expr.span,
+                                ));
+                            }
+                        };
+                        if !(value.ty.is_integral()
+                            || matches!(
+                                value.ty,
+                                TypeName::Single | TypeName::Double | TypeName::Boolean
+                            ))
+                        {
+                            return Err(unsupported(
+                                "interpolation of this type in native String",
+                                expr.span,
+                            ));
+                        }
+                        h::Expression {
+                            kind: h::ExpressionKind::StringFormat {
+                                value: Box::new(value),
+                                decimals,
+                            },
+                            ty: TypeName::String,
+                            category: h::ValueCategory::Value,
+                            span: expr.span,
+                        }
+                    }
+                }
+            };
+            result = h::Expression {
+                kind: h::ExpressionKind::StringConcat {
+                    left: Box::new(result),
+                    right: Box::new(next),
+                },
+                ty: TypeName::String,
+                category: h::ValueCategory::Value,
+                span,
+            };
+        }
+        Ok(result)
+    }
+
+    fn stringify(&self, value: h::Expression) -> Result<h::Expression, Diagnostic> {
+        if value.ty == TypeName::String {
+            return Ok(value);
+        }
+        if value.ty.is_integral()
+            || matches!(
+                value.ty,
+                TypeName::Single | TypeName::Double | TypeName::Boolean
+            )
+        {
+            let span = value.span;
+            Ok(h::Expression {
+                kind: h::ExpressionKind::StringFormat {
+                    value: Box::new(value),
+                    decimals: None,
+                },
+                ty: TypeName::String,
+                category: h::ValueCategory::Value,
+                span,
+            })
+        } else {
+            Err(unsupported("String conversion of this type", value.span))
+        }
     }
 }

@@ -527,6 +527,14 @@ fn check_expression(
 ) -> Result<(), Diagnostic> {
     match &expression.kind {
         ExpressionKind::Constant(_) | ExpressionKind::ArrayInit { .. } => Ok(()),
+        ExpressionKind::StringLen(value) | ExpressionKind::StringFormat { value, .. } => {
+            check_expression(body, value, states)
+        }
+        ExpressionKind::StringConcat { left, right }
+        | ExpressionKind::StringCompare { left, right, .. } => {
+            check_expression(body, left, states)?;
+            check_expression(body, right, states)
+        }
         ExpressionKind::Tuple(values) => {
             for value in values {
                 check_expression(body, value, states)?;

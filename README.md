@@ -15,17 +15,17 @@ own native representation, ownership model and ABI.
 
 ## Current status
 
-Valo is experimental. **The current backend is a tree-walking interpreter, not a
-native compiler.** The native systems redesign is underway; no AOT, borrow checker,
-GPU backend or zero-cost performance guarantee is available yet.
+Valo is experimental. `valo run` uses a tree-walking interpreter; `valo build`
+has an LLVM native compiler for a restricted subset. General native Class,
+Collection, Variant, exception and reference-lifetime support is not available.
 
 | Status | Capabilities |
 | --- | --- |
 | Implemented subsets | Classes, structures, interfaces, inheritance, modules, namespaces/imports, properties, events/delegates, generics and constraints, overloads, lambdas, tuples, query syntax, iterators, exceptions and Using |
 | Implemented tooling | `valo run`, `valo check`, `valo repl`, source diagnostics, `valo.toml` entrypoints, native calls through libffi |
-| Experimental | Typed HIR for straight-line scalar functions (frontend API); native FFI/pointers, dynamic runtime behavior, reflection-like descriptions; Async/Await runs synchronously |
+| Experimental | Typed HIR, CFG-based MIR, native primitives, plain value aggregates, fixed arrays and a managed String subset; native FFI/pointers and dynamic runtime behavior remain limited |
 | In migration | Strict static defaults, coercions, array semantics, lifecycle and removal of remaining legacy-only syntax/runtime helpers |
-| Planned | Broader typed HIR and control-flow IR, ownership/borrowing, safe unsafe boundaries, native build, complete native primitive types, deterministic owner destruction, specialization, SIMD, parallel/async runtimes, compile-time execution, GPU computing |
+| Planned | Full ownership/borrowing, safe unsafe boundaries, native Class/Collection support, deterministic user-resource destruction, specialization, SIMD, parallel/async runtimes, compile-time execution, GPU computing |
 | Not planned | VBA/VB6 compatibility modes, Office macro execution, core COM/ActiveX semantics, mandatory CLR or tracing GC |
 
 See the [repository audit and migration plan](docs/architecture/native-migration.md)
@@ -113,7 +113,7 @@ cargo test --workspace
 ```
 
 `cargo build` builds the Rust toolchain. `valo build` now has an experimental
-LLVM native backend for a restricted primitive subset. It needs `clang`, `opt`
+LLVM native backend for a restricted primitive, aggregate and String subset. It needs `clang`, `opt`
 and `llc` on `PATH`, or `VALO_LLVM_BIN` pointing to their directory. Native
 `build` accepts `--emit=llvm-ir|obj|exe`, `--release` and `-o <path>`; normal
 `valo run` remains interpreter-based. See the

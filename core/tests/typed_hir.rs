@@ -1010,18 +1010,14 @@ fn replacement_classifies_old_owner_and_rejects_self_move() {
 }
 
 #[test]
-fn verifier_rejects_contradictory_copy_and_drop_properties() {
-    let mut hir = body(
-        "Function Use() As Integer\nDim X As Integer = 1\nReturn X\nEnd Function",
+fn verifier_accepts_managed_copy_with_drop() {
+    let hir = body(
+        "Function Use() As Integer\nDim S As String = \"value\"\nReturn 0\nEnd Function",
         0,
     );
-    hir.locals[0].properties.requires_drop = KnownProperty::Yes;
-    assert!(
-        verify_hir::verify_body(&hir)
-            .unwrap_err()
-            .message
-            .contains("Copy local")
-    );
+    assert_eq!(hir.locals[0].properties.copy, KnownProperty::Yes);
+    assert_eq!(hir.locals[0].properties.requires_drop, KnownProperty::Yes);
+    verify_hir::verify_body(&hir).unwrap();
 }
 
 #[test]

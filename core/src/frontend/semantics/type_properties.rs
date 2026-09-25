@@ -47,6 +47,12 @@ fn resolve(program: &Program, ty: &TypeName, visiting: &mut HashSet<String>) -> 
         | TypeName::Ptr
         | TypeName::FuncPtr
         | TypeName::Enum(_) => TypeProperties::PLAIN,
+        // String is semantically copyable; native copies retain immutable
+        // shared storage and every owned reference requires release.
+        TypeName::String => TypeProperties {
+            copy: KnownProperty::Yes,
+            requires_drop: KnownProperty::Yes,
+        },
         TypeName::Nullable(inner) => resolve(program, inner, visiting),
         TypeName::Tuple(elements) => combine(
             elements
@@ -74,7 +80,7 @@ fn resolve(program: &Program, ty: &TypeName, visiting: &mut HashSet<String>) -> 
             visiting.remove(&name.to_ascii_lowercase());
             result
         }
-        // Class ownership, strings, arrays, dynamic values, generics and
+        // Class ownership, arrays, dynamic values, generics and
         // runtime-specific scalars need explicit native layout/drop contracts.
         _ => TypeProperties::UNKNOWN,
     }

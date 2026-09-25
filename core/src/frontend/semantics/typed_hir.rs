@@ -401,6 +401,7 @@ pub enum Constant {
     Single(f32),
     Double(f64),
     Boolean(bool),
+    String(String),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComparisonOp {
@@ -428,6 +429,23 @@ impl ComparisonOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionKind {
     Constant(Constant),
+    StringConcat {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    StringCompare {
+        operation: ComparisonOp,
+        left: Box<Expression>,
+        right: Box<Expression>,
+        text: bool,
+    },
+    StringLen(Box<Expression>),
+    /// Render a primitive interpolation hole; `decimals` is a resolved fixed
+    /// decimal format (e.g. `0.0`), not source format syntax for the backend.
+    StringFormat {
+        value: Box<Expression>,
+        decimals: Option<u8>,
+    },
     Tuple(Vec<Expression>),
     /// The source upper bound is inclusive. Only one-dimensional fixed arrays
     /// enter the current native HIR subset.

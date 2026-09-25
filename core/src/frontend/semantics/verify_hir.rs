@@ -1,5 +1,4 @@
 //! Structural preconditions for ownership analysis and eventual MIR lowering.
-use super::type_properties::KnownProperty;
 use super::typed_hir::{
     ArgumentMode, Conversion, DoCondition, Expression, ExpressionKind, LocalId, LoopId, ScopeId,
     Statement, TypedBody, ValueCategory,
@@ -101,14 +100,6 @@ pub fn verify_body(body: &TypedBody) -> Result<(), Diagnostic> {
                 .is_none_or(|scope| !scope.locals.contains(&local.id))
         {
             return Err(invalid("Local has no matching scope entry", local.span));
-        }
-        if local.properties.copy == KnownProperty::Yes
-            && local.properties.requires_drop == KnownProperty::Yes
-        {
-            return Err(invalid(
-                "Copy local cannot require unique destruction",
-                local.span,
-            ));
         }
     }
     for (index, field) in body.fields.iter().enumerate() {
@@ -629,6 +620,54 @@ fn verify_expression(
 ) -> Result<(), Diagnostic> {
     match &expression.kind {
         ExpressionKind::Constant(_) | ExpressionKind::ArrayInit { .. } => Ok(()),
+        ExpressionKind::StringLen(value) => {
+            verify_expression(body, value, current)?;
+            if !value.ty.same_type(&TypeName::String) || !expression.ty.same_type(&TypeName::Int32)
+            {
+                return Err(invalid(
+                    "String length has incompatible types",
+                    expression.span,
+                ));
+            }
+            Ok(())
+        }
+        ExpressionKind::StringFormat { value, decimals } => {
+            verify_expression(body, value, current)?;
+            if !expression.ty.same_type(&TypeName::String)
+                || !(value.ty.is_integral()
+                    || matches!(
+                        value.ty,
+                        TypeName::Single | TypeName::Double | TypeName::Boolean
+                    ))
+                || decimals.is_some_and(|digits| digits > 6)
+            {
+                return Err(invalid(
+                    "String interpolation format is invalid",
+                    expression.span,
+                ));
+            }
+            Ok(())
+        }
+        ExpressionKind::StringConcat { left, right }
+        | ExpressionKind::StringCompare { left, right, .. } => {
+            verify_expression(body, left, current)?;
+            verify_expression(body, right, current)?;
+            let expected = if matches!(expression.kind, ExpressionKind::StringConcat { .. }) {
+                TypeName::String
+            } else {
+                TypeName::Boolean
+            };
+            if !left.ty.same_type(&TypeName::String)
+                || !right.ty.same_type(&TypeName::String)
+                || !expression.ty.same_type(&expected)
+            {
+                return Err(invalid(
+                    "String operation has incompatible types",
+                    expression.span,
+                ));
+            }
+            Ok(())
+        }
         ExpressionKind::Tuple(values) => {
             let TypeName::Tuple(elements) = &expression.ty else {
                 return Err(invalid(
@@ -806,6 +845,10 @@ fn verify_expression(
                         | (ArgumentMode::ByVal, ExpressionKind::Convert { .. })
                         | (ArgumentMode::ByVal, ExpressionKind::Arithmetic { .. })
                         | (ArgumentMode::ByVal, ExpressionKind::Compare { .. })
+                        | (ArgumentMode::ByVal, ExpressionKind::StringConcat { .. })
+                        | (ArgumentMode::ByVal, ExpressionKind::StringCompare { .. })
+                        | (ArgumentMode::ByVal, ExpressionKind::StringLen(_))
+                        | (ArgumentMode::ByVal, ExpressionKind::StringFormat { .. })
                         | (ArgumentMode::ByVal, ExpressionKind::Call { .. })
                         | (
                             ArgumentMode::BorrowMutable,

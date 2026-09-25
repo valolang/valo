@@ -58,9 +58,147 @@ fn execute(source: &str, expected: i32) {
     )
     .unwrap();
     assert_eq!(artifact.path, path);
-    let status = Command::new(&path).status().unwrap();
+    let status = Command::new(&path)
+        .env("VALO_RUNTIME_ASSERT_CLEAN", "1")
+        .status()
+        .unwrap();
     std::fs::remove_file(&path).unwrap();
     assert_eq!(status.code(), Some(expected));
+}
+
+#[test]
+fn native_string_identity_copy_return_and_unicode_length() {
+    execute(
+        "Function Identity(Value As String) As String\nReturn Value\nEnd Function\nFunction Main() As Integer\nDim A As String = \"Valo 🦊\"\nDim B As String = Identity(A)\nIf A = B Then\nIf Len(B) = 6 Then\nReturn 0\nEnd If\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_string_default_empty_and_escaped_quotes() {
+    execute(
+        "Function Main() As Integer\nDim S As String\nIf S <> \"\" Then\nReturn 1\nEnd If\nS = \"A\"\"B\"\nIf S = \"A\"\"B\" Then\nReturn 0\nEnd If\nReturn 2\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_string_concat_replacement_self_assignment_and_branch_cleanup() {
+    execute(
+        "Function Main() As Integer\nDim A As String = \"Va\"\nDim B As String = \"lo\"\nDim C As String = A & B\nC = C & \"!\"\nC = C\nIf C <> \"Valo!\" Then\nReturn 1\nEnd If\nIf Len(C) = 5 Then\nReturn 0\nEnd If\nReturn 2\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_string_byref_and_readonly_keep_ownership() {
+    execute(
+        "Function Change(ByRef S As String) As Integer\nS = S & \"!\"\nReturn 0\nEnd Function\nFunction Length(ByRef ReadOnly S As String) As Integer\nReturn Len(S)\nEnd Function\nFunction Main() As Integer\nDim S As String = \"Hello\"\nDim Result As Integer = Change(S)\nIf Length(S) = 6 Then\nReturn Result\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_string_interpolation_formats_supported_numeric_holes() {
+    execute(
+        "Function Main() As Integer\nDim Average As Double = 2.5\nDim Count As Integer = 7\nDim S As String = $\"Valo {Average:0.0}ms {Count}\"\nIf S = \"Valo 2.5ms 7\" Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_option_compare_text_is_rejected_precisely() {
+    let Some(tools) = tools() else {
+        return;
+    };
+    let module = module(
+        "Option Compare Text\nFunction Main() As Integer\nIf \"A\" = \"a\" Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+    );
+    let error = render_module(&module, &tools.target).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Option Compare Text string comparisons"),
+        "{error}"
+    );
+}
+
+#[test]
+fn native_option_compare_binary_is_content_based_and_case_sensitive() {
+    execute(
+        "Option Compare Binary\nFunction Main() As Integer\nIf \"A\" = \"a\" Then\nReturn 1\nEnd If\nIf \"A\" < \"a\" Then\nReturn 0\nEnd If\nReturn 2\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_string_drop_runs_on_return_and_after_finally() {
+    execute(
+        "Function Main() As Integer\nDim S As String = \"A\" & \"B\"\nTry\nReturn Len(S)\nFinally\nS = S & \"C\"\nEnd Try\nEnd Function",
+        2,
+    );
+    execute(
+        "Function Main() As Integer\nDim S As String = \"A\"\nTry\nS = S & \"B\"\nFinally\nS = S & \"C\"\nEnd Try\nIf S = \"ABC\" Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+    execute(
+        "Function Main() As Integer\nTry\nReturn 0\nFinally\nDim S As String = \"A\" & \"B\"\nEnd Try\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_string_inner_scopes_and_loop_iterations_drop() {
+    execute(
+        "Function Main() As Integer\nDim I As Integer = 0\nWhile I < 3\nDim S As String = \"X\" & \"Y\"\nIf Len(S) <> 2 Then\nReturn 1\nEnd If\nI += 1\nWend\nReturn 0\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_string_early_return_skips_later_uninitialized_drop() {
+    execute(
+        "Function Main() As Integer\nDim Choice As Boolean = True\nIf Choice Then\nReturn 0\nEnd If\nDim S As String = \"A\" & \"B\"\nReturn Len(S)\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_managed_aggregates_are_rejected_before_llvm_lowering() {
+    let program = parse_source("Structure Person\nPublic Name As String\nEnd Structure\nFunction Main() As Integer\nDim P As Person\nReturn 0\nEnd Function").unwrap();
+    let body = lower_function_body(&program, 0).unwrap();
+    let error = valo_core::mir::lower_body(&body).unwrap_err();
+    assert!(
+        format!("{error:?}").contains("native Drop elaboration has no contract"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn mir_verifier_rejects_reuse_of_owned_string_temp() {
+    let mut module = module(
+        "Function Main() As Integer\nDim S As String = \"A\" & \"B\"\nIf S = \"AB\" Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+    );
+    let function = &mut module.functions[0];
+    let compare = function
+        .blocks
+        .iter_mut()
+        .flat_map(|block| &mut block.instructions)
+        .find(|instruction| matches!(instruction.kind, ir::InstructionKind::StringCompare { .. }))
+        .unwrap();
+    if let ir::InstructionKind::StringCompare { left, right, .. } = &mut compare.kind {
+        *right = *left;
+    }
+    let error = valo_core::mir::verify::verify(function).unwrap_err();
+    assert!(error.contains("owned String temp"), "{error}");
+}
+
+#[test]
+fn interpreter_and_native_agree_on_supported_string_values() {
+    let source = "Function Result() As Integer\nDim A As String = \"Va\"\nDim B As String = A & \"lo\"\nB = B\nIf A = \"Va\" Then\nIf B = \"Valo\" Then\nIf Len(\"á🦊\") = 2 Then\nReturn 0\nEnd If\nEnd If\nEnd If\nReturn 1\nEnd Function";
+    let interpreted = format!("{source}\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub\n");
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["0"]);
+    execute(&source.replace("Function Result()", "Function Main()"), 0);
 }
 
 #[test]
@@ -246,7 +384,12 @@ fn class_dynamic_and_native_drop_remain_explicitly_unsupported() {
     });
     let error = render_module(&program, &tools.target).unwrap_err();
     assert_eq!(error.stage, "native eligibility");
-    assert!(error.message.contains("native Drop contract"), "{error}");
+    assert!(
+        error
+            .message
+            .contains("native Drop is only defined for String"),
+        "{error}"
+    );
 }
 
 #[test]

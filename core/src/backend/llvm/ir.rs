@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use crate::frontend::semantics::arithmetic::ArithmeticOp;
@@ -60,6 +61,32 @@ struct NativeTypes<'a> {
 }
 
 impl NativeTypes<'_> {
+    fn has_managed_field(&self, ty: &TypeName, visiting: &mut Vec<usize>) -> bool {
+        match ty {
+            TypeName::String => true,
+            TypeName::Tuple(elements) => elements
+                .iter()
+                .any(|element| self.has_managed_field(&element.ty, visiting)),
+            TypeName::Array(element) => self.has_managed_field(element, visiting),
+            TypeName::User(_) => {
+                let Some(id) = self.structure_id(ty) else {
+                    return false;
+                };
+                if visiting.contains(&id) {
+                    return false;
+                }
+                visiting.push(id);
+                let result = self
+                    .members(ty)
+                    .iter()
+                    .any(|field| self.has_managed_field(&field.ty, visiting));
+                visiting.pop();
+                result
+            }
+            _ => false,
+        }
+    }
+
     fn ty(&self, ty: &TypeName) -> Result<String, BackendError> {
         match ty {
             TypeName::User(_) => self
@@ -181,6 +208,7 @@ fn native_type(ty: &TypeName) -> Result<&'static str, BackendError> {
         TypeName::Single => "float",
         TypeName::Double => "double",
         TypeName::Boolean => "i1",
+        TypeName::String => "ptr",
         _ => {
             return Err(BackendError::new(
                 "native eligibility",
@@ -258,6 +286,14 @@ fn signatures(
         verify::verify(f).map_err(|e| BackendError::new("MIR verification", e))?;
         ownership::analyze(f).map_err(|e| BackendError::new("MIR dataflow", e))?;
         types.ty(&f.return_type)?;
+        if f.return_type != TypeName::String
+            && types.has_managed_field(&f.return_type, &mut Vec::new())
+        {
+            return Err(BackendError::new(
+                "native eligibility",
+                "managed aggregate return requires copy/Drop elaboration",
+            ));
+        }
         if matches!(f.return_type, TypeName::Array(_)) {
             return Err(BackendError::new(
                 "native eligibility",
@@ -266,6 +302,12 @@ fn signatures(
         }
         for local in &f.locals {
             types.ty(&local.ty)?;
+            if local.ty != TypeName::String && types.has_managed_field(&local.ty, &mut Vec::new()) {
+                return Err(BackendError::new(
+                    "native eligibility",
+                    "managed aggregate containing String requires copy/Drop elaboration",
+                ));
+            }
             if matches!(local.ty, TypeName::User(_) | TypeName::Tuple(_))
                 && (local.properties.copy != KnownProperty::Yes
                     || local.properties.requires_drop != KnownProperty::No)
@@ -278,6 +320,12 @@ fn signatures(
         }
         for ty in &f.temps {
             types.ty(ty)?;
+            if *ty != TypeName::String && types.has_managed_field(ty, &mut Vec::new()) {
+                return Err(BackendError::new(
+                    "native eligibility",
+                    "managed aggregate temporary requires copy/Drop elaboration",
+                ));
+            }
         }
         let mut parameters = f
             .locals
@@ -329,6 +377,17 @@ fn signatures(
 }
 
 pub fn render_module(module: &m::Module, target: &Target) -> Result<String, BackendError> {
+    let mut literals = BTreeMap::<String, usize>::new();
+    for function in &module.functions {
+        for block in &function.blocks {
+            for instruction in &block.instructions {
+                if let m::InstructionKind::Const(m::Constant::String(value)) = &instruction.kind {
+                    let next = literals.len();
+                    literals.entry(value.clone()).or_insert(next);
+                }
+            }
+        }
+    }
     let types = NativeTypes {
         structures: module
             .functions
@@ -365,6 +424,18 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
     )
     .unwrap();
     writeln!(out, "declare void @llvm.trap()\n").unwrap();
+    writeln!(out, "declare ptr @__valo_string_clone(ptr)\ndeclare void @__valo_string_release(ptr)\ndeclare ptr @__valo_string_concat_consume(ptr, ptr)\ndeclare i32 @__valo_string_compare_consume(ptr, ptr)\ndeclare i32 @__valo_string_len_consume(ptr)\ndeclare ptr @__valo_string_from_i64(i64)\ndeclare ptr @__valo_string_from_u64(i64)\ndeclare ptr @__valo_string_from_fixed(double, i32)\ndeclare ptr @__valo_string_from_bool(i32)\n").unwrap();
+    for (value, id) in &literals {
+        if value.is_empty() {
+            continue;
+        }
+        let bytes = value.as_bytes();
+        let encoded = bytes
+            .iter()
+            .map(|byte| format!("\\{byte:02X}"))
+            .collect::<String>();
+        writeln!(out, "@.valo_string_{id} = private constant {{ i64, i64, i64, [{} x i8] }} {{ i64 -1, i64 {}, i64 {}, [{} x i8] c\"{}\" }}", bytes.len(), bytes.len(), value.chars().count(), bytes.len(), encoded).unwrap();
+    }
     writeln!(out, "{}", types.definitions()?).unwrap();
     for f in &module.functions {
         if f.fields != types.fields || f.structures != types.structures {
@@ -373,7 +444,7 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
                 "functions disagree on resolved Structure fields",
             ));
         }
-        lower_function(&mut out, f, &declared, &types)?;
+        lower_function(&mut out, f, &declared, &types, &literals)?;
     }
     if main.return_type == TypeName::Void {
         writeln!(
@@ -393,6 +464,7 @@ fn lower_function(
     f: &m::Function,
     declared: &[Option<Signature>],
     types: &NativeTypes<'_>,
+    literals: &BTreeMap<String, usize>,
 ) -> Result<(), BackendError> {
     let arrays = ArrayShapes::analyze(f)?;
     let signature = declared[f.id.0].as_ref().expect("collected");
@@ -460,7 +532,7 @@ fn lower_function(
                 instruction,
                 &mut values,
                 declared,
-                (types, &arrays),
+                (types, &arrays, literals),
                 &mut guard_counter,
             )?;
         }
@@ -580,10 +652,10 @@ fn lower_instruction(
     ins: &m::Instruction,
     values: &mut [Option<String>],
     declared: &[Option<Signature>],
-    layout: (&NativeTypes<'_>, &ArrayShapes),
+    layout: (&NativeTypes<'_>, &ArrayShapes, &BTreeMap<String, usize>),
     guard_counter: &mut usize,
 ) -> Result<(), BackendError> {
-    let (types, arrays) = layout;
+    let (types, arrays, literals) = layout;
     let result = ins.result.map(|id| format!("%t{}", id.0));
     let result_ty = ins.result.map(|id| &f.temps[id.0]);
     match &ins.kind {
@@ -594,6 +666,13 @@ fn lower_instruction(
                 m::Constant::Boolean(b) => b.to_string(),
                 m::Constant::Single(n) => float_literal(f64::from(*n)),
                 m::Constant::Double(n) => float_literal(*n),
+                m::Constant::String(value) => {
+                    if value.is_empty() {
+                        "null".into()
+                    } else {
+                        format!("@.valo_string_{}", literals[value])
+                    }
+                }
             };
             values[ins.result.expect("verified").0] = Some(text);
             return Ok(());
@@ -628,14 +707,98 @@ fn lower_instruction(
                 ));
             }
             let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
+            if place.ty == TypeName::String {
+                let id = *guard_counter;
+                *guard_counter += 1;
+                writeln!(out, "  %stringmove{id} = load ptr, ptr {ptr}\n  {} = call ptr @__valo_string_clone(ptr %stringmove{id})", result.as_ref().expect("verified")).unwrap();
+            } else {
+                writeln!(
+                    out,
+                    "  {} = load {}, ptr {}",
+                    result.as_ref().expect("verified"),
+                    types.ty(&place.ty)?,
+                    ptr
+                )
+                .unwrap();
+            }
+        }
+        m::InstructionKind::CloneString(place) => {
+            let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
+            let id = *guard_counter;
+            *guard_counter += 1;
+            writeln!(out, "  %stringload{id} = load ptr, ptr {ptr}\n  {} = call ptr @__valo_string_clone(ptr %stringload{id})", result.as_ref().expect("verified")).unwrap();
+        }
+        m::InstructionKind::StringConcat { left, right } => {
             writeln!(
                 out,
-                "  {} = load {}, ptr {}",
+                "  {} = call ptr @__valo_string_concat_consume(ptr {}, ptr {})",
                 result.as_ref().expect("verified"),
-                types.ty(&place.ty)?,
-                ptr
+                value(values, *left)?,
+                value(values, *right)?
             )
             .unwrap();
+        }
+        m::InstructionKind::StringCompare {
+            op,
+            left,
+            right,
+            text,
+        } => {
+            if *text {
+                return Err(BackendError::new(
+                    "native eligibility",
+                    "Option Compare Text string comparisons are not yet supported natively",
+                ));
+            }
+            let id = *guard_counter;
+            *guard_counter += 1;
+            let predicate = match op {
+                ComparisonOp::Equal => "eq",
+                ComparisonOp::NotEqual => "ne",
+                ComparisonOp::Less => "slt",
+                ComparisonOp::LessEqual => "sle",
+                ComparisonOp::Greater => "sgt",
+                ComparisonOp::GreaterEqual => "sge",
+            };
+            writeln!(out, "  %stringcmp{id} = call i32 @__valo_string_compare_consume(ptr {}, ptr {})\n  {} = icmp {predicate} i32 %stringcmp{id}, 0", value(values, *left)?, value(values, *right)?, result.as_ref().expect("verified")).unwrap();
+        }
+        m::InstructionKind::StringLen(source) => {
+            writeln!(
+                out,
+                "  {} = call i32 @__valo_string_len_consume(ptr {})",
+                result.as_ref().expect("verified"),
+                value(values, *source)?
+            )
+            .unwrap();
+        }
+        m::InstructionKind::StringFormat {
+            value: source,
+            decimals,
+        } => {
+            let source_ty = &f.temps[source.0];
+            let source_value = value(values, *source)?;
+            let id = *guard_counter;
+            *guard_counter += 1;
+            let output = result.as_ref().expect("verified");
+            match (source_ty, decimals) {
+                (TypeName::Single, Some(digits)) => {
+                    writeln!(out, "  %stringfloat{id} = fpext float {source_value} to double\n  {output} = call ptr @__valo_string_from_fixed(double %stringfloat{id}, i32 {digits})").unwrap();
+                }
+                (TypeName::Double, Some(digits)) => writeln!(out, "  {output} = call ptr @__valo_string_from_fixed(double {source_value}, i32 {digits})").unwrap(),
+                (TypeName::Boolean, None) => {
+                    writeln!(out, "  %stringbool{id} = zext i1 {source_value} to i32\n  {output} = call ptr @__valo_string_from_bool(i32 %stringbool{id})").unwrap();
+                }
+                (ty, None) if ty.is_integral() => {
+                    let signed = signed(ty);
+                    let operation = if signed { "sext" } else { "zext" };
+                    let wide = if *ty == TypeName::Int64 || *ty == TypeName::UInt64 { source_value.to_string() } else {
+                        writeln!(out, "  %stringint{id} = {operation} {} {source_value} to i64", types.ty(ty)?).unwrap();
+                        format!("%stringint{id}")
+                    };
+                    writeln!(out, "  {output} = call ptr @__valo_string_from_{}(i64 {wide})", if signed { "i64" } else { "u64" }).unwrap();
+                }
+                _ => return Err(BackendError::new("native eligibility", "this interpolation format is not supported by the native String runtime")),
+            }
         }
         m::InstructionKind::Store {
             place,
@@ -670,6 +833,15 @@ fn lower_instruction(
                 )
                 .unwrap();
             }
+        }
+        m::InstructionKind::Replace {
+            place,
+            value: source,
+        } => {
+            let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
+            let id = *guard_counter;
+            *guard_counter += 1;
+            writeln!(out, "  %stringold{id} = load ptr, ptr {ptr}\n  call void @__valo_string_release(ptr %stringold{id})\n  store ptr {}, ptr {ptr}", value(values, *source)?).unwrap();
         }
         m::InstructionKind::Arithmetic { op, left, right } => {
             let ty = result_ty.expect("verified");
@@ -931,10 +1103,22 @@ fn lower_instruction(
             *guard_counter += 1;
             writeln!(out, "  %snapdesc{id} = load {{ i64, ptr }}, ptr {ptr}\n  %snapdata{id} = extractvalue {{ i64, ptr }} %snapdesc{id}, 1\n  %snapvalue{id} = load {aggregate}, ptr %snapdata{id}\n  store {aggregate} %snapvalue{id}, ptr %arraytemp{temp}\n  %t{temp} = insertvalue {{ i64, ptr }} {{ i64 {length}, ptr null }}, ptr %arraytemp{temp}, 1").unwrap();
         }
-        m::InstructionKind::Drop(_) => {
+        m::InstructionKind::Drop(place) => {
+            if place.ty != TypeName::String {
+                return Err(BackendError::new(
+                    "native eligibility",
+                    "native Drop is only defined for String",
+                ));
+            }
+            let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
+            let id = *guard_counter;
+            *guard_counter += 1;
+            writeln!(out, "  %stringdrop{id} = load ptr, ptr {ptr}\n  call void @__valo_string_release(ptr %stringdrop{id})\n  store ptr null, ptr {ptr}").unwrap();
+        }
+        m::InstructionKind::DropCandidate(_) => {
             return Err(BackendError::new(
-                "native eligibility",
-                "native Drop contract is not implemented",
+                "MIR verification",
+                "unelaborated Drop candidate",
             ));
         }
         m::InstructionKind::BorrowStart { .. } | m::InstructionKind::EndBorrow(_) => {

@@ -41,6 +41,7 @@ pub fn lower_body(body: &h::TypedBody) -> Result<m::Function, LowerError> {
             span: body.span,
         });
     }
+    super::drop_elaboration::elaborate(&mut builder.function).map_err(LowerError::Analysis)?;
     verify::verify(&builder.function).map_err(LowerError::InvalidMir)?;
     super::analysis::ownership::analyze(&builder.function).map_err(LowerError::Analysis)?;
     Ok(builder.function)
@@ -188,24 +189,30 @@ impl<'a> Builder<'a> {
             } => {
                 let place = self.place_expr(target)?;
                 let value = self.expr(value)?;
-                self.store(place, value, *span);
+                if place.ty == TypeName::String && place.projections.is_empty() {
+                    self.emit(m::InstructionKind::Replace { place, value }, None, *span);
+                } else {
+                    self.store(place, value, *span);
+                }
             }
             h::Statement::Return {
                 value,
+                exited_scopes,
                 cleanup_chain,
                 span,
                 ..
             } => {
                 let value = self.expr(value)?;
-                self.cleanup_chain(cleanup_chain, *span)?;
+                self.exit_cleanup(exited_scopes, cleanup_chain, *span)?;
                 self.terminate(m::TerminatorKind::Return(value), *span);
             }
             h::Statement::ReturnVoid {
+                exited_scopes,
                 cleanup_chain,
                 span,
                 ..
             } => {
-                self.cleanup_chain(cleanup_chain, *span)?;
+                self.exit_cleanup(exited_scopes, cleanup_chain, *span)?;
                 self.terminate(m::TerminatorKind::ReturnVoid, *span);
             }
             h::Statement::CallSub {
@@ -229,51 +236,54 @@ impl<'a> Builder<'a> {
             }
             h::Statement::If {
                 condition,
+                then_scope,
                 then_body,
+                else_scope,
                 else_body,
                 span,
                 ..
             } => {
-                self.lower_if(condition, then_body, else_body, *span)?;
+                self.lower_if(
+                    condition,
+                    *then_scope,
+                    then_body,
+                    *else_scope,
+                    else_body,
+                    *span,
+                )?;
             }
             h::Statement::While {
                 id,
                 condition,
+                body_scope,
                 body,
                 span,
                 ..
             } => {
-                self.lower_while(*id, condition, body, *span)?;
+                self.lower_while(*id, condition, *body_scope, body, *span)?;
             }
             h::Statement::Do {
                 id,
                 condition,
+                body_scope,
                 body,
                 span,
                 ..
             } => {
-                self.lower_do(*id, condition, body, *span)?;
+                self.lower_do(*id, condition, *body_scope, body, *span)?;
             }
             h::Statement::For { .. } => self.lower_for(statement)?,
-            h::Statement::ForEach {
-                id,
-                variable,
-                iterable,
-                element_type,
-                body,
-                span,
-                ..
-            } => {
-                self.lower_foreach(*id, *variable, iterable, element_type, body, *span)?;
-            }
+            h::Statement::ForEach { .. } => self.lower_foreach(statement)?,
             h::Statement::ExitLoop {
                 loop_id,
+                exited_scopes,
                 cleanup_chain,
                 span,
                 ..
             }
             | h::Statement::ContinueLoop {
                 loop_id,
+                exited_scopes,
                 cleanup_chain,
                 span,
                 ..
@@ -290,7 +300,7 @@ impl<'a> Builder<'a> {
                 } else {
                     frame.continue_at
                 };
-                self.cleanup_chain(cleanup_chain, *span)?;
+                self.exit_cleanup(exited_scopes, cleanup_chain, *span)?;
                 self.goto(target, *span);
             }
             h::Statement::TryFinally {
@@ -301,7 +311,11 @@ impl<'a> Builder<'a> {
             } => {
                 self.lower_statements(try_body)?;
                 if self.current.is_some() {
-                    self.cleanup_chain(&self.body.cleanup_chain(&[*try_scope]), *span)?;
+                    self.exit_cleanup(
+                        &[*try_scope],
+                        &self.body.cleanup_chain(&[*try_scope]),
+                        *span,
+                    )?;
                 }
             }
             h::Statement::UsingDispose {
@@ -312,7 +326,11 @@ impl<'a> Builder<'a> {
             } => {
                 self.lower_statements(body)?;
                 if self.current.is_some() {
-                    self.cleanup_chain(&self.body.cleanup_chain(&[*body_scope]), *span)?;
+                    self.exit_cleanup(
+                        &[*body_scope],
+                        &self.body.cleanup_chain(&[*body_scope]),
+                        *span,
+                    )?;
                 }
             }
             h::Statement::TryCatch { span, .. } => {
@@ -328,7 +346,9 @@ impl<'a> Builder<'a> {
     fn lower_if(
         &mut self,
         condition: &h::Expression,
+        then_scope: h::ScopeId,
         then_body: &[h::Statement],
+        else_scope: h::ScopeId,
         else_body: &[h::Statement],
         span: Span,
     ) -> Result<(), LowerError> {
@@ -348,12 +368,14 @@ impl<'a> Builder<'a> {
         self.lower_statements(then_body)?;
         let then_live = self.current.is_some();
         if then_live {
+            self.exit_cleanup(&[then_scope], &[], span)?;
             self.goto(join, span);
         }
         self.current = Some(no);
         self.lower_statements(else_body)?;
         let else_live = self.current.is_some();
         if else_live {
+            self.exit_cleanup(&[else_scope], &[], span)?;
             self.goto(join, span);
         }
         if then_live || else_live {
@@ -372,6 +394,7 @@ impl<'a> Builder<'a> {
         &mut self,
         id: h::LoopId,
         condition: &h::Expression,
+        body_scope: h::ScopeId,
         body: &[h::Statement],
         span: Span,
     ) -> Result<(), LowerError> {
@@ -397,6 +420,7 @@ impl<'a> Builder<'a> {
         self.current = Some(loop_body);
         self.lower_statements(body)?;
         if self.current.is_some() {
+            self.exit_cleanup(&[body_scope], &[], span)?;
             self.goto(test, span);
         }
         self.loops.pop();
@@ -408,6 +432,7 @@ impl<'a> Builder<'a> {
         &mut self,
         id: h::LoopId,
         condition: &h::DoCondition,
+        body_scope: h::ScopeId,
         body: &[h::Statement],
         span: Span,
     ) -> Result<(), LowerError> {
@@ -427,6 +452,7 @@ impl<'a> Builder<'a> {
         self.current = Some(loop_body);
         self.lower_statements(body)?;
         if self.current.is_some() {
+            self.exit_cleanup(&[body_scope], &[], span)?;
             self.goto(test, span);
         }
         self.current = Some(test);
@@ -467,6 +493,7 @@ impl<'a> Builder<'a> {
             start,
             end,
             step,
+            body_scope,
             body,
             span,
             ..
@@ -583,6 +610,7 @@ impl<'a> Builder<'a> {
         self.current = Some(loop_body);
         self.lower_statements(body)?;
         if self.current.is_some() {
+            self.exit_cleanup(&[*body_scope], &[], span)?;
             self.goto(advance, span);
         }
         self.current = Some(advance);
@@ -607,15 +635,20 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
-    fn lower_foreach(
-        &mut self,
-        id: h::LoopId,
-        variable: h::LocalId,
-        iterable: &h::Expression,
-        element_type: &TypeName,
-        body: &[h::Statement],
-        span: Span,
-    ) -> Result<(), LowerError> {
+    fn lower_foreach(&mut self, statement: &h::Statement) -> Result<(), LowerError> {
+        let h::Statement::ForEach {
+            id,
+            variable,
+            iterable,
+            element_type,
+            body_scope,
+            body,
+            span,
+        } = statement
+        else {
+            return Err(LowerError::InvalidHir("expected For Each statement".into()));
+        };
+        let (id, variable, body_scope, span) = (*id, *variable, *body_scope, *span);
         let h::ExpressionKind::Load(source) = &iterable.kind else {
             return Err(LowerError::Unsupported {
                 feature: "For Each over a non-addressable array",
@@ -727,6 +760,7 @@ impl<'a> Builder<'a> {
         self.store(self.local_place(variable), value, span);
         self.lower_statements(body)?;
         if self.current.is_some() {
+            self.exit_cleanup(&[body_scope], &[], span)?;
             self.goto(advance, span);
         }
         self.current = Some(advance);
@@ -749,6 +783,33 @@ impl<'a> Builder<'a> {
         self.goto(test, span);
         self.loops.pop();
         self.current = Some(exit);
+        Ok(())
+    }
+
+    fn exit_cleanup(
+        &mut self,
+        scopes: &[h::ScopeId],
+        chain: &[h::CleanupStep],
+        span: Span,
+    ) -> Result<(), LowerError> {
+        for scope in scopes {
+            let owned_steps = chain
+                .iter()
+                .filter(|step| step.owner == *scope)
+                .cloned()
+                .collect::<Vec<_>>();
+            self.cleanup_chain(&owned_steps, span)?;
+            for local in self.body.scopes[scope.0].locals.iter().rev() {
+                let owned = &self.body.locals[local.0];
+                if owned.storage == h::LocalStorage::Value {
+                    self.emit(
+                        m::InstructionKind::DropCandidate(m::LocalId(local.0)),
+                        None,
+                        span,
+                    );
+                }
+            }
+        }
         Ok(())
     }
 
@@ -792,6 +853,7 @@ impl<'a> Builder<'a> {
                             span,
                         });
                     }
+                    self.exit_cleanup(&[finally_scope], &[], span)?;
                 }
             }
         }
@@ -845,7 +907,30 @@ impl<'a> Builder<'a> {
                 h::Constant::Single(value) => m::Constant::Single(*value),
                 h::Constant::Double(value) => m::Constant::Double(*value),
                 h::Constant::Boolean(value) => m::Constant::Boolean(*value),
+                h::Constant::String(value) => m::Constant::String(value.clone()),
             }),
+            h::ExpressionKind::StringConcat { left, right } => m::InstructionKind::StringConcat {
+                left: self.expr(left)?,
+                right: self.expr(right)?,
+            },
+            h::ExpressionKind::StringCompare {
+                operation,
+                left,
+                right,
+                text,
+            } => m::InstructionKind::StringCompare {
+                op: *operation,
+                left: self.expr(left)?,
+                right: self.expr(right)?,
+                text: *text,
+            },
+            h::ExpressionKind::StringLen(value) => m::InstructionKind::StringLen(self.expr(value)?),
+            h::ExpressionKind::StringFormat { value, decimals } => {
+                m::InstructionKind::StringFormat {
+                    value: self.expr(value)?,
+                    decimals: *decimals,
+                }
+            }
             h::ExpressionKind::Tuple(values) => m::InstructionKind::TupleInit(
                 values
                     .iter()
@@ -860,6 +945,9 @@ impl<'a> Builder<'a> {
                     feature: "non-zero-based arrays",
                     span: expr.span,
                 });
+            }
+            h::ExpressionKind::Load(place) if expr.ty == TypeName::String => {
+                m::InstructionKind::CloneString(self.place_expr(place)?)
             }
             h::ExpressionKind::Load(place) => m::InstructionKind::Load(self.place_expr(place)?),
             h::ExpressionKind::Convert { value, conversion } => m::InstructionKind::Cast {

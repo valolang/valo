@@ -40,7 +40,11 @@ fn cli_builds_and_executes_all_native_examples() {
             String::from_utf8_lossy(&build.stderr)
         );
         assert_eq!(
-            Command::new(&output).status().unwrap().code(),
+            Command::new(&output)
+                .env("VALO_RUNTIME_ASSERT_CLEAN", "1")
+                .status()
+                .unwrap()
+                .code(),
             Some(0),
             "{}",
             source.display()
@@ -115,6 +119,43 @@ fn native_build_accepts_mixed_source_option_settings() {
     );
     assert_eq!(Command::new(&output_path).status().unwrap().code(), Some(0));
     std::fs::remove_file(output_path).unwrap();
+    std::fs::remove_file(main).unwrap();
+    std::fs::remove_file(imported).unwrap();
+    std::fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn native_string_comparison_preserves_imported_file_option_compare() {
+    if LlvmTools::discover().is_err() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("valo-string-options-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.valo");
+    let imported = root.join("Other.valo");
+    std::fs::write(&main, "Option Compare Binary\nImports Other\nFunction Main() As Integer\nIf Equal(\"A\", \"a\") Then\nReturn 0\nEnd If\nReturn 1\nEnd Function\n").unwrap();
+    std::fs::write(&imported, "Option Compare Text\nPublic Function Equal(A As String, B As String) As Boolean\nReturn A = B\nEnd Function\n").unwrap();
+    let checked = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .arg("check")
+        .arg(&main)
+        .output()
+        .unwrap();
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    let built = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .arg("build")
+        .arg(&main)
+        .output()
+        .unwrap();
+    assert!(!built.status.success());
+    assert!(
+        String::from_utf8_lossy(&built.stderr).contains("Option Compare Text string comparisons"),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
     std::fs::remove_file(main).unwrap();
     std::fs::remove_file(imported).unwrap();
     std::fs::remove_dir(root).unwrap();

@@ -101,7 +101,9 @@ pub fn analyze(function: &Function) -> Result<Report, String> {
 
 fn apply(state: &mut State, instruction: &InstructionKind, function: &Function) {
     match instruction {
-        InstructionKind::Store { place, .. } if place.projections.is_empty() => {
+        InstructionKind::Store { place, .. } | InstructionKind::Replace { place, .. }
+            if place.projections.is_empty() =>
+        {
             state.locals[place.root.0] = AVAILABLE
         }
         InstructionKind::Move(place)
@@ -128,6 +130,7 @@ fn check_instruction(
 ) -> Result<(), String> {
     match instruction {
         InstructionKind::Load(place)
+        | InstructionKind::CloneString(place)
         | InstructionKind::ArrayLen(place)
         | InstructionKind::SnapshotArray(place) => {
             require_available(state, place)?;
@@ -156,6 +159,10 @@ fn check_instruction(
             if !place.projections.is_empty() {
                 require_available(state, place)?;
             }
+        }
+        InstructionKind::Replace { place, .. } => {
+            require_available(state, place)?;
+            check_active_borrows(function, state, origins, place, true)?;
         }
         InstructionKind::BorrowStart { id, kind, place } => {
             require_available(state, place)?;

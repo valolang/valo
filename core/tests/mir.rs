@@ -219,6 +219,18 @@ fn return_value_precedes_finally_then_dispose() {
 }
 
 #[test]
+fn string_drop_stays_distinct_from_using_dispose() {
+    let function = mir(
+        "Class Resource\nPublic Sub Dispose()\nEnd Sub\nEnd Class\nFunction Use(R As Resource) As Integer\nUsing R\nDim S As String = \"A\" & \"B\"\nReturn 0\nEnd Using\nEnd Function",
+    );
+    let dump = debug::format_function(&function);
+    let dispose = dump.find("call dispose#").unwrap();
+    let drop = dump.find("drop $").unwrap_or_else(|| panic!("{dump}"));
+    let result = dump.find("return %").unwrap();
+    assert!(dispose < drop && drop < result, "{dump}");
+}
+
+#[test]
 fn nested_cleanup_order_is_finally_inner_then_outer_dispose() {
     let function = mir(
         "Class Resource\nPublic Sub Dispose()\nEnd Sub\nEnd Class\nFunction Use(A As Resource, B As Resource) As Integer\nUsing A\nUsing B\nTry\nReturn 7\nFinally\nDim X As Integer = 1\nEnd Try\nEnd Using\nEnd Using\nEnd Function",

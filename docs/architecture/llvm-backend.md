@@ -4,6 +4,11 @@ The backend consumes verified, dataflow-checked MIR. It never reads the AST,
 re-resolves a name, or embeds interpreter `Value` objects. This is a restricted
 native compilation path, not a replacement for Valo's interpreter.
 
+Stage 3.4B adds the private native String handle and automatically linked C
+runtime described in [native-runtime.md](native-runtime.md). Native String
+values are LLVM `ptr` handles, not ordinary bitwise-copy aggregates. MIR
+`CloneString`, `Replace`, and explicit `Drop` determine retain/release points.
+
 ## Toolchain and target
 
 The first integration uses the **official LLVM command-line tools** (`clang`,
@@ -110,8 +115,9 @@ Boolean uses LLVM `i1` for registers, locals, addressable Structure fields,
 tuple items and fixed-array elements. Target data layout determines physical
 allocation; the tested host allocates one byte per addressable `i1`. This is
 only a Valo-internal experimental ABI. Aggregate copying is limited to values
-with a known Copy/no-Drop contract. Native Drop and ownership-sensitive Move
-remain unsupported.
+with a known Copy/no-Drop contract. Compiler-managed String Drop works on
+normal CFG paths; other native Drop and ownership-sensitive Move remain
+unsupported.
 
 Add/subtract/multiply emit LLVM integer operations without `nsw` or `nuw`,
 preserving the frontend's wrapping integer model. Floating operations use
@@ -156,8 +162,13 @@ handle enters HIR or MIR.
 | Using with Class Dispose | Yes | Partial / Yes | No |
 | Catch and exception unwind | Yes | Partial / No dispatch | No |
 | Structure methods, aggregate constructors, dynamic arrays | Yes | Partial | No |
-| Class, Variant/dynamic, strings, async | Yes | Partial | No |
-| Public Move, native Drop, unique resources | Not public | Internal only | No |
+| String literals, copy, ByVal/ByRef, return, `&`, comparison, `Len` | Yes | Yes / Yes | Yes, Binary comparison |
+| Fixed numeric interpolation formats | Yes | Yes / Yes | Yes, restricted formats |
+| Option Compare Text String comparison | Yes | Yes / Yes | Controlled unsupported |
+| String in Structure/tuple/fixed array | Yes | Partial | No managed aggregate contract |
+| Class, Variant/dynamic, async | Yes | Partial | No |
+| Public Move, unique resources | Not public | Internal only | No |
+| Compiler-managed String Drop | Interpreter Rc | Yes / Yes | Yes, normal CFG only |
 
 The current eligibility policy is **whole compilation unit**: every function
 must lower to MIR and be native-eligible, even if unreachable from Main.
@@ -166,7 +177,7 @@ emission. Native tests are unconditional Rust tests but skip toolchain-dependent
 execution when `clang`, `opt`, or `llc` cannot be discovered; frontend and MIR
 tests always run. The next backend milestone should add checked narrowing and
 float-to-integer conversions, native call-graph eligibility and more
-aggregate initialization coverage. Native exceptions, ownership/Drop, and
+aggregate initialization coverage. Native exceptions, general ownership/Drop, and
 general reference lifetimes remain separate semantic work.
 
 `valo build` now shares `Project` source discovery and import-scoped validation

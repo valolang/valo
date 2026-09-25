@@ -1,8 +1,20 @@
 # Native systems migration
 
+## Current Stage 3.4B status
+
+The experimental LLVM backend now compiles a restricted native String subset
+with a private UTF-8 reference-counted runtime. Copyable String values require
+managed retain/release; MIR expands normal scope-exit obligations into Drop,
+and native replacement preserves RHS-before-release ordering. Both game
+builds progress beyond their prior generic String type error and now reach
+unsupported `Collection` semantics. See [native-runtime.md](native-runtime.md)
+for the exact ABI, supported operations and remaining ownership limits.
+
+
 Valo is a native systems language with VB.NET-inspired syntax, implemented in Rust.
-The native execution model is the direction of development; the current executable
-backend is still an interpreter. This audit records that distinction explicitly.
+The interpreter remains the broad execution path; a restricted experimental LLVM
+backend also produces native executables. This audit records the migration history
+and the remaining distinction explicitly.
 
 ## Audit and baseline
 

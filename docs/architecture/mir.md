@@ -2,6 +2,20 @@
 
 MIR is a backend-neutral, typed control-flow representation. It consumes a
 verified typed HIR body and does not read the AST or interpreter state. The
+Stage 3.4B path includes managed String constants, clone, concat, comparison,
+length, formatting, replacement and explicit Drop. `DropCandidate` is a
+transient scope-exit obligation; `drop_elaboration` expands it before MIR
+verification. A verifier rejects an unelaborated candidate or a reachable
+owned String temporary used other than exactly once. `Replace` models the
+order RHS evaluation, old-value release, new-value store. Scope-exit
+obligations are emitted for Return, normal branches, loop iterations and
+normal Finally/Using CFG. CFG ownership analysis rejects Drop unless the
+whole local is definitely available on every incoming path; conditional
+Drop flags and projected managed ownership remain future work. Native
+String Drop is distinct from Dispose and does not cover exceptional unwind.
+See [native-runtime.md](native-runtime.md).
+
+The
 current module is `core/src/mir`: `ir` defines data, `lower` constructs CFGs,
 `verify` checks their structure and types, and `debug` prints deterministic
 text for tests. `lower_body` verifies HIR and runs the existing ownership pass
@@ -41,8 +55,8 @@ block: Finally lowers its already typed body, while explicit Dispose lowers to
 a call carrying its resolved Dispose ID and receiver Place. The same chain
 lowering handles Return, Exit and Continue; normal fallthrough through a
 Try/Finally or Using uses the owning scope's handler chain. Cleanup block
-duplication is intentional for this initial, simple CFG. Native Drop is not
-implemented, and Dispose does not imply unique ownership.
+duplication is intentional for this initial, simple CFG. Native String Drop
+is now elaborated for normal exits; Dispose does not imply unique ownership.
 
 The MIR verifier checks entry/block/local/temp identity, one definition per
 temp, definition on every reachable path before use, a terminator for every
@@ -70,8 +84,9 @@ local leaves it available; internal Drop makes a known droppable local dropped.
 The join is the union of possible states, so `Available + Moved` is
 `MaybeUnavailable`, and reading, borrowing, moving or dropping it is rejected.
 The same applies to partial initialization at a branch or loop join.
-Reassignment of a known droppable available local requires an explicit Drop
-after RHS evaluation and before Store. This pass does not insert the Drop.
+Reassignment of a known droppable available local requires an explicit
+replacement operation or Drop after RHS evaluation. String uses `Replace`;
+other managed types remain unsupported.
 
 Internal `Move`, `Drop`, `BorrowStart` and `EndBorrow` are separate MIR
 instructions. They currently support compiler/test-only ownership scenarios;
@@ -85,13 +100,13 @@ does not solve partial moves, long-lived references, general NLL, escaped
 borrows, native unwind paths or conditional Drop flags. Unknown ownership
 contracts are not silently classified as Copy or native droppable.
 
-Current order: verified HIR, HIR ownership checks, MIR lowering, structural
-MIR verification, CFG/dataflow analysis. Future work includes backward local
-liveness, move paths for projections, drop elaboration, reference escape,
-exceptional edges and stronger lifetime analysis. No LLVM implementation has
-started. A primitive, Copy-only MIR subset has the CFG and typing foundation
-for a later restricted backend, but native call ABI, snapshot storage,
-ownership-sensitive calls and cleanup on exceptional paths still need work.
+Current order: verified HIR, HIR ownership checks, MIR lowering,
+String Drop elaboration, structural MIR verification, CFG/dataflow analysis.
+Future work includes backward local liveness, projected move paths,
+conditional and aggregate Drop elaboration, reference escape, exceptional
+edges and stronger lifetime analysis. The restricted LLVM backend consumes
+this verified MIR; ownership-sensitive calls and exceptional cleanup still
+need work.
 
 Typed HIR Catch is **not MIR-lowerable** because native exception dispatch and
 unwind edges do not exist. `lower_body` returns an explicit unsupported error
@@ -105,9 +120,9 @@ Native backends must consume verified MIR and accept only semantics their
 current subset can lower. LLVM types, exception ABI and object format must not
 define Valo semantics.
 
-An experimental backend now consumes the **primitive eligible subset** of
+An experimental backend now consumes the **eligible subset** of
 verified MIR. Its local allocas, SSA temporaries, target data layout and
 LLVM tool invocations live entirely in `backend/llvm`, not in MIR. Internal
-Move/Drop and projected Places remain represented in MIR but native eligibility
-rejects ownership-sensitive or aggregate cases. See
+Ownership-sensitive Move and managed aggregates remain gated; String Drop
+on normal paths is supported. See
 [llvm-backend.md](llvm-backend.md).

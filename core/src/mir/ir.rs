@@ -78,6 +78,7 @@ pub enum Constant {
     Single(f32),
     Double(f64),
     Boolean(bool),
+    String(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,10 +125,32 @@ pub enum InstructionKind {
     /// Copy the fixed array's element sequence once at For Each entry.
     SnapshotArray(Place),
     Load(Place),
+    /// Retain a managed, immutable String reference from an addressable Place.
+    CloneString(Place),
+    /// Consume two owned String temporaries and produce one owned String.
+    StringConcat {
+        left: TempId,
+        right: TempId,
+    },
+    /// Consume two owned String temporaries and produce a Boolean.
+    StringCompare {
+        op: ComparisonOp,
+        left: TempId,
+        right: TempId,
+        text: bool,
+    },
+    /// Consume an owned String temporary and produce its scalar length.
+    StringLen(TempId),
+    StringFormat {
+        value: TempId,
+        decimals: Option<u8>,
+    },
     /// Internal ownership transfer; source syntax remains gated.
     Move(Place),
     /// Internal deterministic destruction, distinct from Dispose calls.
     Drop(Place),
+    /// HIR scope-exit obligation, expanded before MIR verification/dataflow.
+    DropCandidate(LocalId),
     BorrowStart {
         id: BorrowId,
         kind: BorrowKind,
@@ -135,6 +158,11 @@ pub enum InstructionKind {
     },
     EndBorrow(BorrowId),
     Store {
+        place: Place,
+        value: TempId,
+    },
+    /// RHS is already evaluated; release the previous owned value, then store.
+    Replace {
         place: Place,
         value: TempId,
     },

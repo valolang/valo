@@ -303,6 +303,25 @@ fn write_statement(output: &mut String, body: &TypedBody, statement: &Statement,
 fn expression(expression: &Expression) -> String {
     let content = match &expression.kind {
         ExpressionKind::Constant(value) => format!("{value:?}"),
+        ExpressionKind::StringConcat { left, right } => format!(
+            "string.concat({}, {})",
+            self::expression(left),
+            self::expression(right)
+        ),
+        ExpressionKind::StringCompare {
+            operation,
+            left,
+            right,
+            text,
+        } => format!(
+            "string.cmp.{operation:?}.text={text}({}, {})",
+            self::expression(left),
+            self::expression(right)
+        ),
+        ExpressionKind::StringLen(value) => format!("string.len({})", self::expression(value)),
+        ExpressionKind::StringFormat { value, decimals } => {
+            format!("string.format.{decimals:?}({})", self::expression(value))
+        }
         ExpressionKind::Tuple(values) => format!(
             "tuple({})",
             values
