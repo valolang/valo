@@ -265,33 +265,36 @@ pub fn build(
     if options.kind == EmitKind::Object {
         fs::copy(&object, output).map_err(|e| BackendError::new("artifact", e.to_string()))?;
     } else {
-        let runtime_source = Path::new(env!("CARGO_MANIFEST_DIR")).join("native_runtime/string.c");
-        let runtime_object = workspace.0.join(if cfg!(windows) {
-            "valo_runtime.obj"
-        } else {
-            "valo_runtime.o"
-        });
-        command_output(
-            &tools.clang,
-            [
-                OsStr::new("-std=c11"),
-                OsStr::new("-c"),
-                runtime_source.as_os_str(),
-                OsStr::new("-o"),
-                runtime_object.as_os_str(),
-            ],
-            "runtime compilation",
-        )?;
-        command_output(
-            &tools.clang,
-            [
-                object.as_os_str(),
-                runtime_object.as_os_str(),
-                OsStr::new("-o"),
-                output.as_os_str(),
-            ],
-            "linking",
-        )?;
+        let mut runtime_objects = Vec::new();
+        for component in ["string", "object", "dynamic", "collection"] {
+            let runtime_source =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("native_runtime/{component}.c"));
+            let runtime_object = workspace.0.join(format!(
+                "valo_{component}.{}",
+                if cfg!(windows) { "obj" } else { "o" }
+            ));
+            command_output(
+                &tools.clang,
+                [
+                    OsStr::new("-std=c11"),
+                    OsStr::new("-c"),
+                    runtime_source.as_os_str(),
+                    OsStr::new("-o"),
+                    runtime_object.as_os_str(),
+                ],
+                "runtime compilation",
+            )?;
+            runtime_objects.push(runtime_object);
+        }
+        let mut arguments = vec![object.as_os_str().to_os_string()];
+        arguments.extend(
+            runtime_objects
+                .iter()
+                .map(|path| path.as_os_str().to_os_string()),
+        );
+        arguments.push(OsStr::new("-o").to_os_string());
+        arguments.push(output.as_os_str().to_os_string());
+        command_output(&tools.clang, arguments, "linking")?;
     }
     Ok(Artifact {
         path: output.clone(),

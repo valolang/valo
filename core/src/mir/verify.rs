@@ -20,9 +20,10 @@ pub fn verify(function: &Function) -> Result<(), String> {
         !function
             .structures
             .iter()
-            .any(|structure| structure.same_type(&field.owner))
+            .chain(&function.classes)
+            .any(|owner| owner.same_type(&field.owner))
     }) {
-        return Err("MIR field owner is not a declared Structure".into());
+        return Err("MIR field owner is not a declared value or reference type".into());
     }
     if function.blocks.get(function.entry.0).is_none() {
         return Err("MIR entry block is missing".into());
@@ -91,8 +92,8 @@ pub fn verify(function: &Function) -> Result<(), String> {
     Ok(())
 }
 
-/// String temporaries are owned handles. Every reachable definition must be
-/// transferred or consumed once; ordinary scalar temps may be reused.
+/// Managed temporaries own their retained fields. Every reachable definition
+/// must be transferred or consumed once; ordinary scalar temps may be reused.
 fn verify_managed_temp_uses(function: &Function) -> Result<(), String> {
     let cfg = super::analysis::cfg::Cfg::build(function)?;
     let mut counts = vec![0usize; function.temps.len()];
@@ -114,9 +115,9 @@ fn verify_managed_temp_uses(function: &Function) -> Result<(), String> {
         }
     }
     for (index, ty) in function.temps.iter().enumerate() {
-        if *ty == TypeName::String && defined[index] && counts[index] != 1 {
+        if function.has_managed_fields(ty) && defined[index] && counts[index] != 1 {
             return Err(format!(
-                "MIR owned String temp %{index} must be consumed exactly once"
+                "MIR owned managed temp %{index} must be consumed exactly once"
             ));
         }
     }
@@ -194,18 +195,37 @@ fn instruction_uses(kind: &InstructionKind) -> Vec<TempId> {
     match kind {
         InstructionKind::Const(_)
         | InstructionKind::ArrayInit { .. }
+        | InstructionKind::NewClass(_)
+        | InstructionKind::NewCollection
         | InstructionKind::EndBorrow(_)
         | InstructionKind::DropCandidate(_) => vec![],
         InstructionKind::StringLen(value) | InstructionKind::StringFormat { value, .. } => {
             vec![*value]
         }
+        InstructionKind::BoxDynamic { value, .. }
+        | InstructionKind::UnboxDynamic { value, .. }
+        | InstructionKind::SnapshotCollection(value)
+        | InstructionKind::CollectionCount(value) => vec![*value],
+        InstructionKind::CollectionItem { collection, index }
+        | InstructionKind::CollectionRemove { collection, index } => vec![*collection, *index],
+        InstructionKind::CollectionAdd {
+            collection,
+            item,
+            before,
+        } => {
+            let mut uses = vec![*collection, *item];
+            uses.extend(before);
+            uses
+        }
         InstructionKind::StringConcat { left, right }
-        | InstructionKind::StringCompare { left, right, .. } => vec![*left, *right],
+        | InstructionKind::StringCompare { left, right, .. }
+        | InstructionKind::ReferenceIdentity { left, right, .. } => vec![*left, *right],
         InstructionKind::TupleInit(elements) => elements.clone(),
         InstructionKind::ArrayLen(place)
         | InstructionKind::SnapshotArray(place)
         | InstructionKind::Load(place)
         | InstructionKind::CloneString(place)
+        | InstructionKind::CloneManaged(place)
         | InstructionKind::Move(place)
         | InstructionKind::Drop(place)
         | InstructionKind::BorrowStart { place, .. } => place_uses(place),
@@ -247,6 +267,11 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 Constant::Double(_) => result.same_type(&TypeName::Double),
                 Constant::Boolean(_) => result.same_type(&TypeName::Boolean),
                 Constant::String(_) => result.same_type(&TypeName::String),
+                Constant::NullReference => {
+                    *result == TypeName::Variant
+                        || matches!(result, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+                        || function.classes.iter().any(|class| class.same_type(result))
+                }
             };
             if !valid {
                 return Err("MIR constant type is incorrect".into());
@@ -269,6 +294,74 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 return Err("MIR array initializer is invalid".into());
             }
         }
+        InstructionKind::NewClass(ty) => {
+            if !function.classes.iter().any(|class| class.same_type(ty))
+                || !result.is_some_and(|result| result.same_type(ty))
+            {
+                return Err("MIR Class allocation has an unresolved type".into());
+            }
+        }
+        InstructionKind::NewCollection => {
+            if !result.is_some_and(is_collection) {
+                return Err("MIR Collection allocation has wrong type".into());
+            }
+        }
+        InstructionKind::SnapshotCollection(value) => {
+            if !is_collection(temp_type(function, *value)?) || !result.is_some_and(is_collection) {
+                return Err("MIR Collection snapshot types are invalid".into());
+            }
+        }
+        InstructionKind::BoxDynamic { value, ty } => {
+            if !temp_type(function, *value)?.same_type(ty)
+                || !result.is_some_and(|ty| ty == &TypeName::Variant)
+            {
+                return Err("MIR dynamic box has wrong type".into());
+            }
+        }
+        InstructionKind::UnboxDynamic { value, ty } => {
+            if temp_type(function, *value)? != &TypeName::Variant
+                || !result.is_some_and(|result| result.same_type(ty))
+            {
+                return Err("MIR dynamic unbox has wrong type".into());
+            }
+        }
+        InstructionKind::CollectionCount(value) => {
+            if !is_collection(temp_type(function, *value)?)
+                || !result.is_some_and(|ty| *ty == TypeName::Int32)
+            {
+                return Err("MIR Collection.Count types are invalid".into());
+            }
+        }
+        InstructionKind::CollectionItem { collection, index } => {
+            if !is_collection(temp_type(function, *collection)?)
+                || !temp_type(function, *index)?.is_integral()
+                || !result.is_some_and(|ty| *ty == TypeName::Variant)
+            {
+                return Err("MIR Collection.Item types are invalid".into());
+            }
+        }
+        InstructionKind::CollectionAdd {
+            collection,
+            item,
+            before,
+        } => {
+            if !is_collection(temp_type(function, *collection)?)
+                || *temp_type(function, *item)? != TypeName::Variant
+                || before
+                    .is_some_and(|id| !temp_type(function, id).is_ok_and(TypeName::is_integral))
+                || result.is_some()
+            {
+                return Err("MIR Collection.Add types are invalid".into());
+            }
+        }
+        InstructionKind::CollectionRemove { collection, index } => {
+            if !is_collection(temp_type(function, *collection)?)
+                || !temp_type(function, *index)?.is_integral()
+                || result.is_some()
+            {
+                return Err("MIR Collection.Remove types are invalid".into());
+            }
+        }
         InstructionKind::ArrayLen(array) => {
             if !matches!(place_type(function, array)?, TypeName::Array(_))
                 || !result.is_some_and(|ty| ty.same_type(&TypeName::Int64))
@@ -286,8 +379,8 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
         }
         InstructionKind::Load(place) => {
             let ty = place_type(function, place)?;
-            if ty == TypeName::String {
-                return Err("MIR String load must use managed CloneString".into());
+            if function.has_managed_fields(&ty) {
+                return Err("MIR managed load must use semantic Clone".into());
             }
             if !result.is_some_and(|result| result.same_type(&ty)) {
                 return Err("MIR load type is incorrect".into());
@@ -298,6 +391,15 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 || !result.is_some_and(|ty| ty.same_type(&TypeName::String))
             {
                 return Err("MIR String clone requires String input and result".into());
+            }
+        }
+        InstructionKind::CloneManaged(place) => {
+            let ty = place_type(function, place)?;
+            if matches!(ty, TypeName::String | TypeName::Array(_))
+                || !function.has_managed_fields(&ty)
+                || !result.is_some_and(|result| result.same_type(&ty))
+            {
+                return Err("MIR managed aggregate clone has incorrect types".into());
             }
         }
         InstructionKind::StringConcat { left, right }
@@ -312,6 +414,15 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 || !result.is_some_and(|ty| ty.same_type(&expected))
             {
                 return Err("MIR String binary operation has incorrect types".into());
+            }
+        }
+        InstructionKind::ReferenceIdentity { left, right, .. } => {
+            let ty = temp_type(function, *left)?;
+            if !ty.same_type(temp_type(function, *right)?)
+                || !function.classes.iter().any(|class| class.same_type(ty))
+                || !result.is_some_and(|ty| ty.same_type(&TypeName::Boolean))
+            {
+                return Err("MIR reference identity types are invalid".into());
             }
         }
         InstructionKind::StringLen(value) => {
@@ -376,9 +487,9 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 return Err("MIR store type is incorrect".into());
             }
             if matches!(instruction.kind, InstructionKind::Replace { .. })
-                && (!place.projections.is_empty() || ty != TypeName::String)
+                && !function.has_managed_fields(&ty)
             {
-                return Err("MIR Replace currently requires a whole String local".into());
+                return Err("MIR Replace requires a managed Place".into());
             }
         }
         InstructionKind::Arithmetic { op, left, right } => {
@@ -478,6 +589,10 @@ fn temp_type(function: &Function, id: TempId) -> Result<&TypeName, String> {
         .temps
         .get(id.0)
         .ok_or_else(|| "MIR temp ID is invalid".into())
+}
+
+fn is_collection(ty: &TypeName) -> bool {
+    matches!(ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
 }
 
 fn place_type(function: &Function, place: &Place) -> Result<TypeName, String> {

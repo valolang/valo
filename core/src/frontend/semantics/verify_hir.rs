@@ -24,10 +24,11 @@ pub fn verify_body(body: &TypedBody) -> Result<(), Diagnostic> {
         if !body
             .structures
             .iter()
-            .any(|structure| structure.same_type(&field.owner))
+            .chain(&body.classes)
+            .any(|owner| owner.same_type(&field.owner))
         {
             return Err(invalid(
-                "HIR field owner is not a declared Structure",
+                "HIR field owner is not a declared value or reference type",
                 body.span,
             ));
         }
@@ -186,7 +187,9 @@ fn verify_statements(
                 }
                 verify_cleanup_chain(body, exited_scopes, cleanup_chain, *span)?;
             }
-            Statement::CallSub { .. } => {}
+            Statement::CallSub { .. }
+            | Statement::CollectionAdd { .. }
+            | Statement::CollectionRemove { .. } => {}
             Statement::If {
                 then_scope,
                 then_body,
@@ -408,7 +411,11 @@ fn has_nonlocal_exit(statements: &[Statement]) -> bool {
                 || has_nonlocal_exit(finally_body)
         }
         Statement::UsingDispose { body, .. } => has_nonlocal_exit(body),
-        Statement::Initialize { .. } | Statement::Store { .. } | Statement::CallSub { .. } => false,
+        Statement::Initialize { .. }
+        | Statement::Store { .. }
+        | Statement::CallSub { .. }
+        | Statement::CollectionAdd { .. }
+        | Statement::CollectionRemove { .. } => false,
     })
 }
 
@@ -526,6 +533,42 @@ fn verify_statement_expressions(
                 current,
             )
         }
+        Statement::CollectionAdd {
+            collection,
+            item,
+            before,
+            span,
+        } => {
+            verify_expression(body, collection, current)?;
+            verify_expression(body, item, current)?;
+            if let Some(before) = before.as_ref() {
+                verify_expression(body, before, current)?;
+            }
+            if !matches!(&collection.ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+                || item.ty != TypeName::Variant
+                || before
+                    .as_ref()
+                    .as_ref()
+                    .is_some_and(|value| value.ty != TypeName::Int64)
+            {
+                return Err(invalid("Collection.Add types are invalid", *span));
+            }
+            Ok(())
+        }
+        Statement::CollectionRemove {
+            collection,
+            index,
+            span,
+        } => {
+            verify_expression(body, collection, current)?;
+            verify_expression(body, index, current)?;
+            if !matches!(&collection.ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+                || index.ty != TypeName::Int64
+            {
+                return Err(invalid("Collection.Remove types are invalid", *span));
+            }
+            Ok(())
+        }
         Statement::Store { target, value, .. } => {
             verify_expression(body, target, current)?;
             verify_expression(body, value, current)?;
@@ -585,7 +628,10 @@ fn verify_statement_expressions(
             verify_local(body, *variable, current, *span)?;
             verify_expression(body, iterable, current)?;
             if !body.locals[variable.0].ty.same_type(element_type)
-                || !matches!(&iterable.ty, TypeName::Array(inner) if inner.same_type(element_type))
+                || !(matches!(&iterable.ty, TypeName::Array(inner) if inner.same_type(element_type))
+                    || (iterable.ty
+                        == TypeName::User(crate::runtime::well_known::COLLECTION.into())
+                        && *element_type == TypeName::Variant))
             {
                 return Err(invalid(
                     "For Each element type does not match its array and variable",
@@ -620,6 +666,71 @@ fn verify_expression(
 ) -> Result<(), Diagnostic> {
     match &expression.kind {
         ExpressionKind::Constant(_) | ExpressionKind::ArrayInit { .. } => Ok(()),
+        ExpressionKind::NewCollection => {
+            if matches!(&expression.ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+            {
+                Ok(())
+            } else {
+                Err(invalid(
+                    "Collection allocation has wrong type",
+                    expression.span,
+                ))
+            }
+        }
+        ExpressionKind::BoxDynamic(value) => {
+            verify_expression(body, value, current)?;
+            if expression.ty == TypeName::Variant && value.ty != TypeName::Variant {
+                Ok(())
+            } else {
+                Err(invalid("Dynamic box types are invalid", expression.span))
+            }
+        }
+        ExpressionKind::UnboxDynamic { value, target } => {
+            verify_expression(body, value, current)?;
+            if value.ty == TypeName::Variant && expression.ty.same_type(target) {
+                Ok(())
+            } else {
+                Err(invalid("Dynamic unbox types are invalid", expression.span))
+            }
+        }
+        ExpressionKind::CollectionCount(value) => {
+            verify_expression(body, value, current)?;
+            if expression.ty == TypeName::Int32
+                && matches!(&value.ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+            {
+                Ok(())
+            } else {
+                Err(invalid(
+                    "Collection.Count types are invalid",
+                    expression.span,
+                ))
+            }
+        }
+        ExpressionKind::CollectionItem { collection, index } => {
+            verify_expression(body, collection, current)?;
+            verify_expression(body, index, current)?;
+            if expression.ty == TypeName::Variant
+                && index.ty == TypeName::Int64
+                && matches!(&collection.ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+            {
+                Ok(())
+            } else {
+                Err(invalid(
+                    "Collection.Item types are invalid",
+                    expression.span,
+                ))
+            }
+        }
+        ExpressionKind::NewClass(ty) => {
+            if body.classes.iter().any(|class| class.same_type(ty)) && expression.ty.same_type(ty) {
+                Ok(())
+            } else {
+                Err(invalid(
+                    "Class allocation has an unresolved type",
+                    expression.span,
+                ))
+            }
+        }
         ExpressionKind::StringLen(value) => {
             verify_expression(body, value, current)?;
             if !value.ty.same_type(&TypeName::String) || !expression.ty.same_type(&TypeName::Int32)
@@ -663,6 +774,20 @@ fn verify_expression(
             {
                 return Err(invalid(
                     "String operation has incompatible types",
+                    expression.span,
+                ));
+            }
+            Ok(())
+        }
+        ExpressionKind::ReferenceIdentity { left, right, .. } => {
+            verify_expression(body, left, current)?;
+            verify_expression(body, right, current)?;
+            if !left.ty.same_type(&right.ty)
+                || !expression.ty.same_type(&TypeName::Boolean)
+                || !body.classes.iter().any(|class| class.same_type(&left.ty))
+            {
+                return Err(invalid(
+                    "Reference identity operands are invalid",
                     expression.span,
                 ));
             }

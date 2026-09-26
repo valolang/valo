@@ -131,6 +131,7 @@ fn check_instruction(
     match instruction {
         InstructionKind::Load(place)
         | InstructionKind::CloneString(place)
+        | InstructionKind::CloneManaged(place)
         | InstructionKind::ArrayLen(place)
         | InstructionKind::SnapshotArray(place) => {
             require_available(state, place)?;

@@ -55,6 +55,41 @@ fn format_instruction(kind: &InstructionKind) -> String {
         InstructionKind::SnapshotArray(array) => format!("array.snapshot {}", format_place(array)),
         InstructionKind::Load(place) => format!("load {}", format_place(place)),
         InstructionKind::CloneString(place) => format!("string.clone {}", format_place(place)),
+        InstructionKind::CloneManaged(place) => format!("managed.clone {}", format_place(place)),
+        InstructionKind::NewClass(ty) => format!("new.class {}", ty.display_name()),
+        InstructionKind::NewCollection => "new.collection".into(),
+        InstructionKind::SnapshotCollection(value) => format!("collection.snapshot %{}", value.0),
+        InstructionKind::BoxDynamic { value, ty } => {
+            format!("dynamic.box.{} %{}", ty.display_name(), value.0)
+        }
+        InstructionKind::UnboxDynamic { value, ty } => {
+            format!("dynamic.unbox.{} %{}", ty.display_name(), value.0)
+        }
+        InstructionKind::CollectionCount(value) => format!("collection.count %{}", value.0),
+        InstructionKind::CollectionItem { collection, index } => {
+            format!("collection.item %{}, %{}", collection.0, index.0)
+        }
+        InstructionKind::CollectionAdd {
+            collection,
+            item,
+            before,
+        } => format!(
+            "collection.add %{}, %{}, {:?}",
+            collection.0, item.0, before
+        ),
+        InstructionKind::CollectionRemove { collection, index } => {
+            format!("collection.remove %{}, %{}", collection.0, index.0)
+        }
+        InstructionKind::ReferenceIdentity {
+            left,
+            right,
+            negated,
+        } => format!(
+            "reference.{} %{}, %{}",
+            if *negated { "isnot" } else { "is" },
+            left.0,
+            right.0
+        ),
         InstructionKind::StringConcat { left, right } => {
             format!("string.concat %{}, %{}", left.0, right.0)
         }

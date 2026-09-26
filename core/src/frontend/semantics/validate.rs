@@ -632,8 +632,12 @@ fn validate_readonly_body(
             continue;
         }
         let plain_structure = matches!(&param.ty, TypeName::User(name) if types.types.get(&key(name)).is_some_and(|sig| sig.is_structure));
+        let managed_reference = matches!(&param.ty, TypeName::User(name)
+            if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION)
+                || types.get_class(name).is_some());
         let plain_tuple = matches!(&param.ty, TypeName::Tuple(elements) if elements.iter().all(|element| matches!(crate::frontend::semantics::type_properties::properties(program, &element.ty).copy, crate::frontend::semantics::type_properties::KnownProperty::Yes)));
         if !(plain_structure
+            || managed_reference
             || plain_tuple
             || param.ty.is_integral()
             || matches!(

@@ -30,6 +30,7 @@ pub struct Function {
     pub return_type: TypeName,
     pub locals: Vec<Local>,
     pub structures: Vec<TypeName>,
+    pub classes: Vec<TypeName>,
     pub fields: Vec<Field>,
     /// Resolved Dispose owners indexed by DisposeMethodId.
     pub disposers: Vec<TypeName>,
@@ -37,6 +38,49 @@ pub struct Function {
     pub blocks: Vec<BasicBlock>,
     pub entry: BlockId,
     pub span: Span,
+}
+
+impl Function {
+    /// Whether a value owns managed fields and therefore needs semantic clone
+    /// and destruction rather than a bitwise aggregate copy. Unknown user
+    /// types remain the native eligibility checker's responsibility.
+    pub fn has_managed_fields(&self, ty: &TypeName) -> bool {
+        self.has_managed_fields_inner(ty, &mut Vec::new())
+    }
+
+    fn has_managed_fields_inner(&self, ty: &TypeName, visiting: &mut Vec<usize>) -> bool {
+        match ty {
+            TypeName::String | TypeName::Variant => true,
+            TypeName::Tuple(elements) => elements
+                .iter()
+                .any(|element| self.has_managed_fields_inner(&element.ty, visiting)),
+            TypeName::Array(element) => self.has_managed_fields_inner(element, visiting),
+            TypeName::User(_) => {
+                if matches!(ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+                {
+                    return true;
+                }
+                if self.classes.iter().any(|item| item.same_type(ty)) {
+                    return true;
+                }
+                let Some(id) = self.structures.iter().position(|item| item.same_type(ty)) else {
+                    return false;
+                };
+                if visiting.contains(&id) {
+                    return false;
+                }
+                visiting.push(id);
+                let result = self
+                    .fields
+                    .iter()
+                    .filter(|field| field.owner.same_type(ty))
+                    .any(|field| self.has_managed_fields_inner(&field.ty, visiting));
+                visiting.pop();
+                result
+            }
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,6 +123,7 @@ pub enum Constant {
     Double(f64),
     Boolean(bool),
     String(String),
+    NullReference,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -121,12 +166,41 @@ pub enum InstructionKind {
     ArrayInit {
         upper: i64,
     },
+    NewClass(TypeName),
+    NewCollection,
+    /// Owned entry snapshot of an ordered Collection. Consumes the source share.
+    SnapshotCollection(TempId),
+    BoxDynamic {
+        value: TempId,
+        ty: TypeName,
+    },
+    UnboxDynamic {
+        value: TempId,
+        ty: TypeName,
+    },
+    CollectionCount(TempId),
+    CollectionItem {
+        collection: TempId,
+        index: TempId,
+    },
+    CollectionAdd {
+        collection: TempId,
+        item: TempId,
+        before: Option<TempId>,
+    },
+    CollectionRemove {
+        collection: TempId,
+        index: TempId,
+    },
     ArrayLen(Place),
     /// Copy the fixed array's element sequence once at For Each entry.
     SnapshotArray(Place),
     Load(Place),
     /// Retain a managed, immutable String reference from an addressable Place.
     CloneString(Place),
+    /// Semantic copy of a managed aggregate Place. Each managed field acquires
+    /// its own ownership share before the resulting value is transferred.
+    CloneManaged(Place),
     /// Consume two owned String temporaries and produce one owned String.
     StringConcat {
         left: TempId,
@@ -138,6 +212,11 @@ pub enum InstructionKind {
         left: TempId,
         right: TempId,
         text: bool,
+    },
+    ReferenceIdentity {
+        left: TempId,
+        right: TempId,
+        negated: bool,
     },
     /// Consume an owned String temporary and produce its scalar length.
     StringLen(TempId),

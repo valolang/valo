@@ -126,6 +126,39 @@ fn lower_callable_body(
                 },
                 name: field.name.clone(),
             })
+            .chain(
+                program
+                    .classes
+                    .iter()
+                    .flat_map(|class| {
+                        class.members.iter().flat_map(move |member| {
+                            let fields: Vec<&crate::ClassField> = match member {
+                                crate::ClassMember::Field(field) => vec![field],
+                                crate::ClassMember::Fields(fields) => fields.iter().collect(),
+                                _ => Vec::new(),
+                            };
+                            fields
+                                .into_iter()
+                                .filter(|field| !field.is_shared)
+                                .map(move |field| (TypeName::User(class.name.clone()), field))
+                        })
+                    })
+                    .enumerate()
+                    .map(|(offset, (owner, field))| h::ResolvedField {
+                        id: h::FieldId(
+                            program
+                                .types
+                                .iter()
+                                .filter(|ty| ty.kind == TypeKind::Structure)
+                                .map(|ty| ty.fields.len())
+                                .sum::<usize>()
+                                + offset,
+                        ),
+                        owner,
+                        ty: field.ty.clone().unwrap_or(TypeName::Variant),
+                        name: field.name.clone(),
+                    }),
+            )
             .collect(),
         disposers: program
             .classes
@@ -208,6 +241,11 @@ fn lower_callable_body(
             .filter(|decl| decl.kind == TypeKind::Structure)
             .map(|decl| TypeName::User(decl.name.clone()))
             .collect(),
+        classes: program
+            .classes
+            .iter()
+            .map(|class| TypeName::User(class.name.clone()))
+            .collect(),
         fields: builder.fields,
         disposers: builder.disposers,
         scopes: builder.scopes,
@@ -238,6 +276,40 @@ fn lower_statements(
         match statement {
             Stmt::Dim {
                 name,
+                ty: Some(ty),
+                array: None,
+                as_new: true,
+                new_args,
+                initializer: None,
+                collection_initializer: None,
+                member_initializer: None,
+                span,
+                ..
+            } => {
+                if !new_args.is_empty() {
+                    return Err(unsupported("native Class constructor arguments", *span));
+                }
+                if !is_collection(ty) {
+                    validate_native_class_creation(builder.program, ty, *span)?;
+                }
+                let id = builder.local(name, ty.clone(), None, h::LocalStorage::Value, *span)?;
+                statements.push(h::Statement::Initialize {
+                    target: id,
+                    value: h::Expression {
+                        kind: if is_collection(ty) {
+                            h::ExpressionKind::NewCollection
+                        } else {
+                            h::ExpressionKind::NewClass(ty.clone())
+                        },
+                        ty: ty.clone(),
+                        category: h::ValueCategory::Value,
+                        span: *span,
+                    },
+                    span: *span,
+                });
+            }
+            Stmt::Dim {
+                name,
                 ty,
                 array: None,
                 as_new: false,
@@ -248,7 +320,16 @@ fn lower_statements(
                 ..
             } => {
                 let value = if let Some(expr) = initializer {
-                    let value = builder.expression(expr)?;
+                    let value = if matches!(expr.kind, ExprKind::Nothing) {
+                        null_reference(
+                            builder.program,
+                            ty.as_ref()
+                                .ok_or_else(|| cannot_infer_variable(name, *span))?,
+                            expr.span,
+                        )?
+                    } else {
+                        builder.expression(expr)?
+                    };
                     if let Some(ty) = ty {
                         convert(value, ty, h::Conversion::NumericChecked)?
                     } else {
@@ -265,6 +346,7 @@ fn lower_statements(
                             TypeName::Single => h::Constant::Single(0.0),
                             TypeName::Double => h::Constant::Double(0.0),
                             TypeName::String => h::Constant::String(String::new()),
+                            TypeName::Variant => h::Constant::NullReference,
                             TypeName::User(_) | TypeName::Tuple(_) => h::Constant::ZeroAggregate,
                             _ => h::Constant::Integer(0),
                         }),
@@ -324,11 +406,12 @@ fn lower_statements(
             } => {
                 let id = builder.lookup(name, *target_span)?;
                 let target = builder.place(id, *target_span);
-                let value = convert(
-                    builder.expression(expr)?,
-                    &target.ty,
-                    h::Conversion::NumericChecked,
-                )?;
+                let source = if matches!(expr.kind, ExprKind::Nothing) {
+                    null_reference(builder.program, &target.ty, expr.span)?
+                } else {
+                    builder.expression(expr)?
+                };
+                let value = convert(source, &target.ty, h::Conversion::NumericChecked)?;
                 statements.push(h::Statement::Store {
                     target: Box::new(target),
                     value,
@@ -382,11 +465,12 @@ fn lower_statements(
                 });
             }
             Stmt::Return { expr, span } => {
-                let value = convert(
-                    builder.expression(expr)?,
-                    return_type,
-                    h::Conversion::NumericChecked,
-                )?;
+                let source = if matches!(expr.kind, ExprKind::Nothing) {
+                    null_reference(builder.program, return_type, expr.span)?
+                } else {
+                    builder.expression(expr)?
+                };
+                let value = convert(source, return_type, h::Conversion::NumericChecked)?;
                 let exited_scopes: Vec<_> = builder.active_scopes.iter().rev().copied().collect();
                 statements.push(h::Statement::Return {
                     value,
@@ -462,6 +546,72 @@ fn lower_statements(
                     arguments,
                     span: *span,
                 });
+            }
+            Stmt::MemberSubCall {
+                object,
+                method,
+                args,
+                span,
+            } => {
+                let collection = builder.expression(object)?;
+                if !is_collection(&collection.ty) {
+                    return Err(unsupported("native instance method calls", *span));
+                }
+                if method.eq_ignore_ascii_case("Add") {
+                    if args.is_empty() || args.len() > 4 {
+                        return Err(unsupported("Collection.Add argument count", *span));
+                    }
+                    if args
+                        .get(1)
+                        .is_some_and(|arg| !matches!(arg.kind, ExprKind::Missing))
+                    {
+                        return Err(unsupported("native Collection String keys", args[1].span));
+                    }
+                    if args
+                        .get(3)
+                        .is_some_and(|arg| !matches!(arg.kind, ExprKind::Missing))
+                    {
+                        return Err(unsupported(
+                            "native Collection After positioning",
+                            args[3].span,
+                        ));
+                    }
+                    let item = convert(
+                        builder.expression(&args[0])?,
+                        &TypeName::Variant,
+                        h::Conversion::NumericChecked,
+                    )?;
+                    let before = args
+                        .get(2)
+                        .filter(|arg| !matches!(arg.kind, ExprKind::Missing))
+                        .map(|arg| {
+                            convert(
+                                builder.expression(arg)?,
+                                &TypeName::Int64,
+                                h::Conversion::NumericChecked,
+                            )
+                        })
+                        .transpose()?;
+                    statements.push(h::Statement::CollectionAdd {
+                        collection,
+                        item,
+                        before: Box::new(before),
+                        span: *span,
+                    });
+                } else if method.eq_ignore_ascii_case("Remove") && args.len() == 1 {
+                    let index = convert(
+                        builder.expression(&args[0])?,
+                        &TypeName::Int64,
+                        h::Conversion::NumericChecked,
+                    )?;
+                    statements.push(h::Statement::CollectionRemove {
+                        collection,
+                        index,
+                        span: *span,
+                    });
+                } else {
+                    return Err(unsupported("this native Collection operation", *span));
+                }
             }
             Stmt::TryCatch {
                 try_body,
@@ -756,13 +906,19 @@ fn lower_statements(
             } => {
                 let variable = builder.lookup(variable, *span)?;
                 let iterable = builder.expression(iterable)?;
-                let TypeName::Array(element_type) = &iterable.ty else {
-                    return Err(unsupported("For Each over non-array values", iterable.span));
+                let element_type = match &iterable.ty {
+                    TypeName::Array(element) => (**element).clone(),
+                    ty if is_collection(ty) => TypeName::Variant,
+                    _ => {
+                        return Err(unsupported(
+                            "For Each over non-array/Collection values",
+                            iterable.span,
+                        ));
+                    }
                 };
-                if !builder.locals[variable.0].ty.same_type(element_type) {
+                if !builder.locals[variable.0].ty.same_type(&element_type) {
                     return Err(unsupported("For Each element conversions", *span));
                 }
-                let element_type = (**element_type).clone();
                 let (id, body_scope, body) =
                     lower_loop_body(builder, ContinueTarget::For, body, return_type, *span)?;
                 statements.push(h::Statement::ForEach {
@@ -798,6 +954,12 @@ fn lower_statements(
                     span: *span,
                 });
                 returns = true;
+            }
+            Stmt::SelectCase { subject, .. } => {
+                return Err(unsupported(
+                    "native Select Case control-flow lowering",
+                    subject.span,
+                ));
             }
             _ => {
                 return Err(unsupported(
@@ -909,7 +1071,11 @@ fn scalar(ty: &TypeName, span: Span) -> Result<(), Diagnostic> {
     if ty.is_integral()
         || matches!(
             ty,
-            TypeName::Single | TypeName::Double | TypeName::Boolean | TypeName::String
+            TypeName::Single
+                | TypeName::Double
+                | TypeName::Boolean
+                | TypeName::String
+                | TypeName::Variant
         )
     {
         Ok(())
@@ -917,8 +1083,16 @@ fn scalar(ty: &TypeName, span: Span) -> Result<(), Diagnostic> {
         Err(unsupported(&format!("type '{}'", ty.display_name()), span))
     }
 }
+fn is_collection(ty: &TypeName) -> bool {
+    matches!(ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+}
 fn hir_value_type(program: &Program, ty: &TypeName, span: Span) -> Result<(), Diagnostic> {
     match ty {
+        TypeName::User(name)
+            if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION) =>
+        {
+            Ok(())
+        }
         TypeName::User(name) if name.eq_ignore_ascii_case("Error") => Ok(()),
         TypeName::Array(element) => hir_value_type(program, element, span),
         TypeName::Tuple(elements) => {
@@ -944,6 +1118,80 @@ fn hir_value_type(program: &Program, ty: &TypeName, span: Span) -> Result<(), Di
         }
         _ => scalar(ty, span),
     }
+}
+
+fn validate_native_class_creation(
+    program: &Program,
+    ty: &TypeName,
+    span: Span,
+) -> Result<(), Diagnostic> {
+    let TypeName::User(name) = ty else {
+        return Err(unsupported("native creation of this type", span));
+    };
+    let class = program
+        .classes
+        .iter()
+        .find(|class| class.name.eq_ignore_ascii_case(name))
+        .ok_or_else(|| unsupported("native creation of an unresolved Class", span))?;
+    if class.base_class.is_some() || class.inheritance == crate::ClassInheritance::MustInherit {
+        return Err(unsupported(
+            "native Class inheritance or abstract allocation",
+            span,
+        ));
+    }
+    if class.members.iter().any(|member| match member {
+        crate::ClassMember::Sub(method) => {
+            method.procedure.name.eq_ignore_ascii_case("Initialize")
+                || method.procedure.name.eq_ignore_ascii_case("New")
+                || method.procedure.name.eq_ignore_ascii_case("Terminate")
+        }
+        crate::ClassMember::Field(field) => {
+            field.initializer.is_some() || field.as_new || field.collection_initializer.is_some()
+        }
+        crate::ClassMember::Fields(fields) => fields.iter().any(|field| {
+            field.initializer.is_some() || field.as_new || field.collection_initializer.is_some()
+        }),
+        _ => false,
+    }) {
+        return Err(unsupported(
+            "native Class constructor, Terminate finalizer, or field initializers",
+            span,
+        ));
+    }
+    Ok(())
+}
+
+fn null_reference(
+    program: &Program,
+    ty: &TypeName,
+    span: Span,
+) -> Result<h::Expression, Diagnostic> {
+    if *ty == TypeName::Variant
+        || matches!(ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+    {
+        return Ok(h::Expression {
+            kind: h::ExpressionKind::Constant(h::Constant::NullReference),
+            ty: ty.clone(),
+            category: h::ValueCategory::Value,
+            span,
+        });
+    }
+    let TypeName::User(name) = ty else {
+        return Err(unsupported("Nothing for a non-Class native value", span));
+    };
+    if !program
+        .classes
+        .iter()
+        .any(|class| class.name.eq_ignore_ascii_case(name))
+    {
+        return Err(unsupported("Nothing for an unresolved native Class", span));
+    }
+    Ok(h::Expression {
+        kind: h::ExpressionKind::Constant(h::Constant::NullReference),
+        ty: ty.clone(),
+        category: h::ValueCategory::Value,
+        span,
+    })
 }
 fn check_function(program: &Program, function: &Function) -> Result<(), Diagnostic> {
     if function.is_async || function.is_iterator || !function.type_params.is_empty() {
@@ -971,6 +1219,25 @@ fn convert(
 ) -> Result<h::Expression, Diagnostic> {
     if value.ty.same_type(target) {
         return Ok(value);
+    }
+    if *target == TypeName::Variant {
+        return Ok(h::Expression {
+            kind: h::ExpressionKind::BoxDynamic(Box::new(value.clone())),
+            ty: TypeName::Variant,
+            category: h::ValueCategory::Value,
+            span: value.span,
+        });
+    }
+    if value.ty == TypeName::Variant {
+        return Ok(h::Expression {
+            kind: h::ExpressionKind::UnboxDynamic {
+                value: Box::new(value.clone()),
+                target: target.clone(),
+            },
+            ty: target.clone(),
+            category: h::ValueCategory::Value,
+            span: value.span,
+        });
     }
     scalar(target, value.span)?;
     if matches!(target, TypeName::Boolean) || matches!(value.ty, TypeName::Boolean) {
@@ -1336,6 +1603,42 @@ impl Builder<'_> {
             ExprKind::Nothing => {
                 return Err(unsupported("Nothing values in native HIR", expr.span));
             }
+            ExprKind::New {
+                class_name,
+                args,
+                initializer,
+                member_initializer,
+            } => {
+                if !args.is_empty() || initializer.is_some() || member_initializer.is_some() {
+                    return Err(unsupported(
+                        "native Class constructor arguments or initializers",
+                        expr.span,
+                    ));
+                }
+                if is_collection(class_name) {
+                    (h::ExpressionKind::NewCollection, class_name.clone())
+                } else {
+                    validate_native_class_creation(self.program, class_name, expr.span)?;
+                    (
+                        h::ExpressionKind::NewClass(class_name.clone()),
+                        class_name.clone(),
+                    )
+                }
+            }
+            ExprKind::Convert {
+                expr: source,
+                target,
+                kind,
+            } => {
+                if *kind != crate::ConversionKind::Convert {
+                    return Err(unsupported(
+                        "native DirectCast/TryCast reference semantics",
+                        expr.span,
+                    ));
+                }
+                let value = self.expression(source)?;
+                return convert(value, target, h::Conversion::NumericChecked);
+            }
             ExprKind::Interpolated(parts) => return self.interpolation(parts, expr.span),
             ExprKind::TupleLiteral(elements) => {
                 let values = elements
@@ -1362,10 +1665,43 @@ impl Builder<'_> {
                 let ty = place.ty.clone();
                 (h::ExpressionKind::Load(Box::new(place)), ty)
             }
+            ExprKind::Unary {
+                op: crate::UnaryOp::LogicalNot,
+                expr: operand,
+            } => {
+                let value = boolean_condition(self.expression(operand)?)?;
+                let false_value = h::Expression {
+                    kind: h::ExpressionKind::Constant(h::Constant::Boolean(false)),
+                    ty: TypeName::Boolean,
+                    category: h::ValueCategory::Value,
+                    span: expr.span,
+                };
+                (
+                    h::ExpressionKind::Compare {
+                        operation: h::ComparisonOp::Equal,
+                        left: Box::new(value),
+                        right: Box::new(false_value),
+                    },
+                    TypeName::Boolean,
+                )
+            }
             ExprKind::Index { .. } => {
                 let place = self.source_place(expr)?;
                 let ty = place.ty.clone();
                 (h::ExpressionKind::Load(Box::new(place)), ty)
+            }
+            ExprKind::MemberAccess {
+                object,
+                field,
+                conditional: false,
+            } if field.eq_ignore_ascii_case("Count")
+                && matches!(&object.kind, ExprKind::Variable(name) if self.lookup(name, object.span).is_ok_and(|id| is_collection(&self.locals[id.0].ty))) =>
+            {
+                let collection = self.expression(object)?;
+                (
+                    h::ExpressionKind::CollectionCount(Box::new(collection)),
+                    TypeName::Int32,
+                )
             }
             ExprKind::MemberAccess {
                 conditional: false, ..
@@ -1375,6 +1711,47 @@ impl Builder<'_> {
                 (h::ExpressionKind::Load(Box::new(place)), ty)
             }
             ExprKind::Binary { left, op, right } => {
+                if matches!(op, crate::BinaryOp::Is | crate::BinaryOp::IsNot) {
+                    let left = if matches!(left.kind, ExprKind::Nothing) {
+                        let right_value = self.expression(right)?;
+                        let left_value = null_reference(self.program, &right_value.ty, left.span)?;
+                        return Ok(h::Expression {
+                            kind: h::ExpressionKind::ReferenceIdentity {
+                                left: Box::new(left_value),
+                                right: Box::new(right_value),
+                                negated: *op == crate::BinaryOp::IsNot,
+                            },
+                            ty: TypeName::Boolean,
+                            category: h::ValueCategory::Value,
+                            span: expr.span,
+                        });
+                    } else {
+                        self.expression(left)?
+                    };
+                    let right = if matches!(right.kind, ExprKind::Nothing) {
+                        null_reference(self.program, &left.ty, right.span)?
+                    } else {
+                        self.expression(right)?
+                    };
+                    if !left.ty.same_type(&right.ty)
+                        || !matches!(&left.ty, TypeName::User(name) if self.program.classes.iter().any(|class| class.name.eq_ignore_ascii_case(name)))
+                    {
+                        return Err(unsupported(
+                            "identity between these reference types",
+                            expr.span,
+                        ));
+                    }
+                    return Ok(h::Expression {
+                        kind: h::ExpressionKind::ReferenceIdentity {
+                            left: Box::new(left),
+                            right: Box::new(right),
+                            negated: *op == crate::BinaryOp::IsNot,
+                        },
+                        ty: TypeName::Boolean,
+                        category: h::ValueCategory::Value,
+                        span: expr.span,
+                    });
+                }
                 if matches!(op, crate::BinaryOp::Concat) {
                     let left = self.expression(left)?;
                     let right = self.expression(right)?;
@@ -1465,6 +1842,33 @@ impl Builder<'_> {
                 type_args,
                 args,
                 conditional: false,
+            } if method.eq_ignore_ascii_case("Item")
+                && type_args.is_empty()
+                && matches!(&object.kind, ExprKind::Variable(name) if self.lookup(name, object.span).is_ok_and(|id| is_collection(&self.locals[id.0].ty))) =>
+            {
+                if args.len() != 1 {
+                    return Err(unsupported("Collection.Item argument count", expr.span));
+                }
+                let collection = self.expression(object)?;
+                let index = convert(
+                    self.expression(&args[0])?,
+                    &TypeName::Int64,
+                    h::Conversion::NumericChecked,
+                )?;
+                (
+                    h::ExpressionKind::CollectionItem {
+                        collection: Box::new(collection),
+                        index: Box::new(index),
+                    },
+                    TypeName::Variant,
+                )
+            }
+            ExprKind::MemberCall {
+                object,
+                method,
+                type_args,
+                args,
+                conditional: false,
             } if matches!(&object.kind, ExprKind::Variable(_)) => {
                 let ExprKind::Variable(owner) = &object.kind else {
                     unreachable!()
@@ -1518,6 +1922,12 @@ impl Builder<'_> {
                         category: h::ValueCategory::Value,
                         span: expr.span,
                     });
+                }
+                if matches!(self.symbols.get(&key(name)), Some(VarType::Array(..))) {
+                    return Err(unsupported(
+                        "native module-level array storage and indexing",
+                        expr.span,
+                    ));
                 }
                 if !type_args.is_empty() {
                     return Err(unsupported("generic calls", expr.span));

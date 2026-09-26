@@ -190,6 +190,24 @@ fn check_statements(
                     states,
                 )?;
             }
+            Statement::CollectionAdd {
+                collection,
+                item,
+                before,
+                ..
+            } => {
+                check_expression(body, collection, states)?;
+                check_expression(body, item, states)?;
+                if let Some(before) = before.as_ref() {
+                    check_expression(body, before, states)?;
+                }
+            }
+            Statement::CollectionRemove {
+                collection, index, ..
+            } => {
+                check_expression(body, collection, states)?;
+                check_expression(body, index, states)?;
+            }
             Statement::If {
                 condition,
                 then_scope,
@@ -526,12 +544,23 @@ fn check_expression(
     states: &mut Vec<State>,
 ) -> Result<(), Diagnostic> {
     match &expression.kind {
-        ExpressionKind::Constant(_) | ExpressionKind::ArrayInit { .. } => Ok(()),
+        ExpressionKind::Constant(_)
+        | ExpressionKind::ArrayInit { .. }
+        | ExpressionKind::NewClass(_)
+        | ExpressionKind::NewCollection => Ok(()),
+        ExpressionKind::BoxDynamic(value)
+        | ExpressionKind::UnboxDynamic { value, .. }
+        | ExpressionKind::CollectionCount(value) => check_expression(body, value, states),
+        ExpressionKind::CollectionItem { collection, index } => {
+            check_expression(body, collection, states)?;
+            check_expression(body, index, states)
+        }
         ExpressionKind::StringLen(value) | ExpressionKind::StringFormat { value, .. } => {
             check_expression(body, value, states)
         }
         ExpressionKind::StringConcat { left, right }
-        | ExpressionKind::StringCompare { left, right, .. } => {
+        | ExpressionKind::StringCompare { left, right, .. }
+        | ExpressionKind::ReferenceIdentity { left, right, .. } => {
             check_expression(body, left, states)?;
             check_expression(body, right, states)
         }

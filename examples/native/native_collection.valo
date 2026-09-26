@@ -1,0 +1,35 @@
+' A tagged Collection owns copies of its values and shares Class identity.
+Class Particle
+    Public Name As String
+    Public Position As Integer
+End Class
+
+Function Main() As Integer
+    Dim particles As New Collection()
+    Dim first As New Particle()
+    first.Name = "Valo"
+    first.Position = 40
+    particles.Add(first)
+    particles.Add(2)
+
+    Dim item As Variant
+    Dim total As Integer = 0
+    For Each item In particles
+        If total = 0 Then
+            Dim current As Particle = CType(item, Particle)
+            current.Position += 2
+            total += current.Position
+        Else
+            total += CType(item, Integer)
+        End If
+    Next
+
+    If particles.Count = 2 Then
+        If first.Position = 42 Then
+            If total = 44 Then
+                Return 0
+            End If
+        End If
+    End If
+    Return 1
+End Function

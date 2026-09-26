@@ -385,7 +385,7 @@ fn qualified_overloads_in_one_namespace_execute_natively() {
 }
 
 #[test]
-fn unsupported_native_class_reports_eligibility_not_a_panic() {
+fn unsupported_native_class_initializer_reports_diagnostic_not_a_panic() {
     if LlvmTools::discover().is_err() {
         return;
     }
@@ -393,7 +393,7 @@ fn unsupported_native_class_reports_eligibility_not_a_panic() {
         std::env::temp_dir().join(format!("valo-cli-unsupported-{}.valo", std::process::id()));
     std::fs::write(
         &source,
-        "Class Resource\nEnd Class\nFunction Main() As Integer\nDim R As Resource\nReturn 0\nEnd Function",
+        "Class Resource\nPublic Sub Initialize()\nEnd Sub\nEnd Class\nFunction Main() As Integer\nDim R As New Resource()\nReturn 0\nEnd Function",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_valo"))
@@ -404,7 +404,7 @@ fn unsupported_native_class_reports_eligibility_not_a_panic() {
     std::fs::remove_file(&source).unwrap();
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("native eligibility"),
+        String::from_utf8_lossy(&output.stderr).contains("native Class constructor"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );

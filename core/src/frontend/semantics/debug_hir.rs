@@ -143,6 +143,28 @@ fn write_statement(output: &mut String, body: &TypedBody, statement: &Statement,
             arguments.len()
         )
         .unwrap(),
+        Statement::CollectionAdd {
+            collection,
+            item,
+            before,
+            ..
+        } => writeln!(
+            output,
+            "{indent}collection.add({}, {}, {:?})",
+            expression(collection),
+            expression(item),
+            before.as_ref().as_ref().map(expression)
+        )
+        .unwrap(),
+        Statement::CollectionRemove {
+            collection, index, ..
+        } => writeln!(
+            output,
+            "{indent}collection.remove({}, {})",
+            expression(collection),
+            expression(index)
+        )
+        .unwrap(),
         Statement::If {
             condition,
             then_scope,
@@ -318,6 +340,16 @@ fn expression(expression: &Expression) -> String {
             self::expression(left),
             self::expression(right)
         ),
+        ExpressionKind::ReferenceIdentity {
+            left,
+            right,
+            negated,
+        } => format!(
+            "reference.{}({}, {})",
+            if *negated { "isnot" } else { "is" },
+            self::expression(left),
+            self::expression(right)
+        ),
         ExpressionKind::StringLen(value) => format!("string.len({})", self::expression(value)),
         ExpressionKind::StringFormat { value, decimals } => {
             format!("string.format.{decimals:?}({})", self::expression(value))
@@ -331,6 +363,22 @@ fn expression(expression: &Expression) -> String {
                 .join(", ")
         ),
         ExpressionKind::ArrayInit { lower, upper } => format!("array[{lower}..={upper}]"),
+        ExpressionKind::NewClass(ty) => format!("new.class {}", ty.display_name()),
+        ExpressionKind::NewCollection => "new.collection".into(),
+        ExpressionKind::BoxDynamic(value) => format!("dynamic.box({})", self::expression(value)),
+        ExpressionKind::UnboxDynamic { value, target } => format!(
+            "dynamic.unbox.{}({})",
+            target.display_name(),
+            self::expression(value)
+        ),
+        ExpressionKind::CollectionCount(value) => {
+            format!("collection.count({})", self::expression(value))
+        }
+        ExpressionKind::CollectionItem { collection, index } => format!(
+            "collection.item({}, {})",
+            self::expression(collection),
+            self::expression(index)
+        ),
         ExpressionKind::Place(place) => {
             let mut rendered = format!("local #{}", place.root.0);
             for projection in &place.projections {

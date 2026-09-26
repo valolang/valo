@@ -3,7 +3,6 @@
 //! unconditionally or silently leaked.
 use crate::frontend::semantics::type_properties::KnownProperty;
 use crate::frontend::semantics::typed_hir::LocalStorage;
-use crate::frontend::type_model::TypeName;
 
 use super::analysis::{cfg::Cfg, dataflow::solve_forward};
 use super::ir::{Function, Instruction, InstructionKind, Place};
@@ -91,9 +90,9 @@ pub fn elaborate(function: &mut Function) -> Result<(), String> {
             let candidate = InstructionKind::DropCandidate(id);
             match local.properties.requires_drop {
                 KnownProperty::No | KnownProperty::Unknown => {}
-                KnownProperty::Yes if local.ty != TypeName::String => {
+                KnownProperty::Yes if !snapshot.has_managed_fields(&local.ty) => {
                     return Err(format!(
-                        "native Drop elaboration has no contract for {:?}",
+                        "native Drop elaboration has no managed contract for {:?}",
                         local.ty
                     ));
                 }

@@ -18,6 +18,26 @@ pub struct TypeProperties {
     pub requires_drop: KnownProperty,
 }
 
+/// Semantic Copy and its native implementation obligation are distinct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyKind {
+    Trivial,
+    Managed,
+    NonCopy,
+    Unknown,
+}
+
+impl TypeProperties {
+    pub fn copy_kind(self) -> CopyKind {
+        match (self.copy, self.requires_drop) {
+            (KnownProperty::Yes, KnownProperty::No) => CopyKind::Trivial,
+            (KnownProperty::Yes, KnownProperty::Yes) => CopyKind::Managed,
+            (KnownProperty::No, _) => CopyKind::NonCopy,
+            _ => CopyKind::Unknown,
+        }
+    }
+}
+
 impl TypeProperties {
     const PLAIN: Self = Self {
         copy: KnownProperty::Yes,
@@ -53,6 +73,10 @@ fn resolve(program: &Program, ty: &TypeName, visiting: &mut HashSet<String>) -> 
             copy: KnownProperty::Yes,
             requires_drop: KnownProperty::Yes,
         },
+        TypeName::Variant => TypeProperties {
+            copy: KnownProperty::Yes,
+            requires_drop: KnownProperty::Yes,
+        },
         TypeName::Nullable(inner) => resolve(program, inner, visiting),
         TypeName::Tuple(elements) => combine(
             elements
@@ -60,6 +84,25 @@ fn resolve(program: &Program, ty: &TypeName, visiting: &mut HashSet<String>) -> 
                 .map(|element| resolve(program, &element.ty, visiting)),
         ),
         TypeName::User(name) => {
+            if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION) {
+                return TypeProperties {
+                    copy: KnownProperty::Yes,
+                    requires_drop: KnownProperty::Yes,
+                };
+            }
+            // Class variables carry shared object identity. Copying a reference
+            // retains one share; destruction releases it. Collection uses a
+            // separate built-in native handle and the same ownership pattern.
+            if program
+                .classes
+                .iter()
+                .any(|class| class.name.eq_ignore_ascii_case(name))
+            {
+                return TypeProperties {
+                    copy: KnownProperty::Yes,
+                    requires_drop: KnownProperty::Yes,
+                };
+            }
             let Some(decl) = program
                 .types
                 .iter()
@@ -80,8 +123,8 @@ fn resolve(program: &Program, ty: &TypeName, visiting: &mut HashSet<String>) -> 
             visiting.remove(&name.to_ascii_lowercase());
             result
         }
-        // Class ownership, arrays, dynamic values, generics and
-        // runtime-specific scalars need explicit native layout/drop contracts.
+        // Arrays, generics and runtime-specific scalars need explicit
+        // native layout/drop contracts.
         _ => TypeProperties::UNKNOWN,
     }
 }

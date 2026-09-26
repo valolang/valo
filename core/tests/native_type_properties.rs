@@ -17,7 +17,7 @@ fn plain_scalars_and_structures_are_copy_without_drop() {
 }
 
 #[test]
-fn unresolved_native_ownership_is_not_assumed_copy_or_drop_free() {
+fn class_references_and_containing_structures_require_managed_copy_and_drop() {
     let program = parse_source("Structure Holder\nPublic Resource As FileHandle\nEnd Structure\nClass FileHandle\nEnd Class").unwrap();
     let string = properties(&program, &TypeName::String);
     assert_eq!(string.copy, KnownProperty::Yes);
@@ -27,9 +27,12 @@ fn unresolved_native_ownership_is_not_assumed_copy_or_drop_free() {
         TypeName::User("Holder".into()),
     ] {
         let result = properties(&program, &ty);
-        assert_eq!(result.copy, KnownProperty::Unknown, "{ty:?}");
-        assert_eq!(result.requires_drop, KnownProperty::Unknown, "{ty:?}");
+        assert_eq!(result.copy, KnownProperty::Yes, "{ty:?}");
+        assert_eq!(result.requires_drop, KnownProperty::Yes, "{ty:?}");
     }
+    let unknown = properties(&program, &TypeName::User("Unresolved".into()));
+    assert_eq!(unknown.copy, KnownProperty::Unknown);
+    assert_eq!(unknown.requires_drop, KnownProperty::Unknown);
 }
 
 #[test]

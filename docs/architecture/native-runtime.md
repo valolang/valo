@@ -1,4 +1,9 @@
-# Experimental native String runtime
+# Experimental native runtime
+
+The runtime now also provides private managed Class references, native Variant
+boxes, and ordered Collections. Their exact ownership and layouts are in
+[native-objects.md](native-objects.md). String remains the first managed type
+and retains the contract below.
 
 Valo's source interpreter stores immutable strings behind `Rc<String>` and
 copies handles on ordinary assignment. The native representation is independent
@@ -60,7 +65,7 @@ concatenation supports String and currently supported primitive-to-String
 rendering. Interpolation supports String holes, integer and Boolean default
 rendering, and `0.0` through `0.000000` fixed decimal formatting for floating
 holes. Other formats, alignment, default floating formatting, String indexing,
-String arrays, and managed aggregates remain unsupported natively. A Structure
-or tuple containing String has a managed drop obligation, but aggregate
-clone/drop elaboration is not implemented; native compilation rejects it.
+String arrays remain unsupported natively. Structures and tuples containing
+String now use recursive managed clone/drop; fixed arrays with managed elements
+still need an element ownership contract.
 Public `Move()` remains gated.

@@ -57,18 +57,26 @@ struct Signature {
 
 struct NativeTypes<'a> {
     structures: &'a [TypeName],
+    classes: &'a [TypeName],
     fields: &'a [m::Field],
 }
 
 impl NativeTypes<'_> {
     fn has_managed_field(&self, ty: &TypeName, visiting: &mut Vec<usize>) -> bool {
         match ty {
-            TypeName::String => true,
+            TypeName::String | TypeName::Variant => true,
             TypeName::Tuple(elements) => elements
                 .iter()
                 .any(|element| self.has_managed_field(&element.ty, visiting)),
             TypeName::Array(element) => self.has_managed_field(element, visiting),
             TypeName::User(_) => {
+                if matches!(ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+                {
+                    return true;
+                }
+                if self.class_id(ty).is_some() {
+                    return true;
+                }
                 let Some(id) = self.structure_id(ty) else {
                     return false;
                 };
@@ -89,9 +97,15 @@ impl NativeTypes<'_> {
 
     fn ty(&self, ty: &TypeName) -> Result<String, BackendError> {
         match ty {
+            TypeName::User(name)
+                if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION) =>
+            {
+                Ok("ptr".into())
+            }
             TypeName::User(_) => self
                 .structure_id(ty)
                 .map(|id| format!("%valo_t{id}"))
+                .or_else(|| self.class_id(ty).map(|_| "ptr".to_string()))
                 .ok_or_else(|| {
                     BackendError::new(
                         "native eligibility",
@@ -116,6 +130,12 @@ impl NativeTypes<'_> {
 
     fn structure_id(&self, owner: &TypeName) -> Option<usize> {
         self.structures
+            .iter()
+            .position(|candidate| candidate.same_type(owner))
+    }
+
+    fn class_id(&self, owner: &TypeName) -> Option<usize> {
+        self.classes
             .iter()
             .position(|candidate| candidate.same_type(owner))
     }
@@ -164,12 +184,28 @@ impl NativeTypes<'_> {
                 .collect::<Result<Vec<_>, _>>()?;
             writeln!(out, "%valo_t{id} = type {{ {} }}", members.join(", ")).unwrap();
         }
+        for (id, class) in self.classes.iter().enumerate() {
+            let members = self
+                .members(class)
+                .iter()
+                .map(|member| self.ty(&member.ty))
+                .collect::<Result<Vec<_>, _>>()?;
+            let suffix = if members.is_empty() {
+                String::new()
+            } else {
+                format!(", {}", members.join(", "))
+            };
+            writeln!(out, "%valo_c{id} = type {{ i64, ptr{suffix} }}").unwrap();
+        }
         Ok(out)
     }
 
     fn check_acyclic(&self, ty: &TypeName, path: &mut Vec<String>) -> Result<(), BackendError> {
         match ty {
             TypeName::User(name) => {
+                if self.class_id(ty).is_some() {
+                    return Ok(());
+                }
                 if path.iter().any(|item| item.eq_ignore_ascii_case(name)) {
                     return Err(BackendError::new(
                         "native eligibility",
@@ -208,7 +244,7 @@ fn native_type(ty: &TypeName) -> Result<&'static str, BackendError> {
         TypeName::Single => "float",
         TypeName::Double => "double",
         TypeName::Boolean => "i1",
-        TypeName::String => "ptr",
+        TypeName::String | TypeName::Variant => "ptr",
         _ => {
             return Err(BackendError::new(
                 "native eligibility",
@@ -286,14 +322,6 @@ fn signatures(
         verify::verify(f).map_err(|e| BackendError::new("MIR verification", e))?;
         ownership::analyze(f).map_err(|e| BackendError::new("MIR dataflow", e))?;
         types.ty(&f.return_type)?;
-        if f.return_type != TypeName::String
-            && types.has_managed_field(&f.return_type, &mut Vec::new())
-        {
-            return Err(BackendError::new(
-                "native eligibility",
-                "managed aggregate return requires copy/Drop elaboration",
-            ));
-        }
         if matches!(f.return_type, TypeName::Array(_)) {
             return Err(BackendError::new(
                 "native eligibility",
@@ -302,15 +330,17 @@ fn signatures(
         }
         for local in &f.locals {
             types.ty(&local.ty)?;
-            if local.ty != TypeName::String && types.has_managed_field(&local.ty, &mut Vec::new()) {
+            if matches!(local.ty, TypeName::Array(_))
+                && types.has_managed_field(&local.ty, &mut Vec::new())
+            {
                 return Err(BackendError::new(
                     "native eligibility",
-                    "managed aggregate containing String requires copy/Drop elaboration",
+                    "managed fixed arrays require element copy/Drop elaboration",
                 ));
             }
             if matches!(local.ty, TypeName::User(_) | TypeName::Tuple(_))
                 && (local.properties.copy != KnownProperty::Yes
-                    || local.properties.requires_drop != KnownProperty::No)
+                    || local.properties.requires_drop == KnownProperty::Unknown)
             {
                 return Err(BackendError::new(
                     "native eligibility",
@@ -320,10 +350,10 @@ fn signatures(
         }
         for ty in &f.temps {
             types.ty(ty)?;
-            if *ty != TypeName::String && types.has_managed_field(ty, &mut Vec::new()) {
+            if matches!(ty, TypeName::Array(_)) && types.has_managed_field(ty, &mut Vec::new()) {
                 return Err(BackendError::new(
                     "native eligibility",
-                    "managed aggregate temporary requires copy/Drop elaboration",
+                    "managed fixed-array temporary requires element copy/Drop elaboration",
                 ));
             }
         }
@@ -378,12 +408,23 @@ fn signatures(
 
 pub fn render_module(module: &m::Module, target: &Target) -> Result<String, BackendError> {
     let mut literals = BTreeMap::<String, usize>::new();
+    let mut dynamic_types = Vec::<TypeName>::new();
     for function in &module.functions {
         for block in &function.blocks {
             for instruction in &block.instructions {
                 if let m::InstructionKind::Const(m::Constant::String(value)) = &instruction.kind {
                     let next = literals.len();
                     literals.entry(value.clone()).or_insert(next);
+                }
+                let ty = match &instruction.kind {
+                    m::InstructionKind::BoxDynamic { ty, .. }
+                    | m::InstructionKind::UnboxDynamic { ty, .. } => Some(ty),
+                    _ => None,
+                };
+                if let Some(ty) = ty
+                    && !dynamic_types.iter().any(|existing| existing.same_type(ty))
+                {
+                    dynamic_types.push(ty.clone());
                 }
             }
         }
@@ -393,6 +434,10 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
             .functions
             .first()
             .map_or(&[], |f| f.structures.as_slice()),
+        classes: module
+            .functions
+            .first()
+            .map_or(&[], |f| f.classes.as_slice()),
         fields: module
             .functions
             .first()
@@ -425,6 +470,8 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
     .unwrap();
     writeln!(out, "declare void @llvm.trap()\n").unwrap();
     writeln!(out, "declare ptr @__valo_string_clone(ptr)\ndeclare void @__valo_string_release(ptr)\ndeclare ptr @__valo_string_concat_consume(ptr, ptr)\ndeclare i32 @__valo_string_compare_consume(ptr, ptr)\ndeclare i32 @__valo_string_len_consume(ptr)\ndeclare ptr @__valo_string_from_i64(i64)\ndeclare ptr @__valo_string_from_u64(i64)\ndeclare ptr @__valo_string_from_fixed(double, i32)\ndeclare ptr @__valo_string_from_bool(i32)\n").unwrap();
+    writeln!(out, "declare ptr @__valo_object_alloc(i64, ptr)\ndeclare ptr @__valo_object_retain(ptr)\ndeclare void @__valo_object_release(ptr)\n").unwrap();
+    writeln!(out, "declare ptr @__valo_dynamic_alloc(i64, ptr, ptr)\ndeclare ptr @__valo_dynamic_data(ptr)\ndeclare ptr @__valo_dynamic_tag(ptr)\ndeclare ptr @__valo_dynamic_retain(ptr)\ndeclare void @__valo_dynamic_release(ptr)\ndeclare ptr @__valo_collection_new()\ndeclare ptr @__valo_collection_retain(ptr)\ndeclare void @__valo_collection_release(ptr)\ndeclare void @__valo_collection_add_consume(ptr, ptr, i64)\ndeclare i32 @__valo_collection_count(ptr)\ndeclare ptr @__valo_collection_item(ptr, i64)\ndeclare void @__valo_collection_remove(ptr, i64)\ndeclare ptr @__valo_collection_snapshot(ptr)\n").unwrap();
     for (value, id) in &literals {
         if value.is_empty() {
             continue;
@@ -437,14 +484,50 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
         writeln!(out, "@.valo_string_{id} = private constant {{ i64, i64, i64, [{} x i8] }} {{ i64 -1, i64 {}, i64 {}, [{} x i8] c\"{}\" }}", bytes.len(), bytes.len(), value.chars().count(), bytes.len(), encoded).unwrap();
     }
     writeln!(out, "{}", types.definitions()?).unwrap();
+    for (id, ty) in dynamic_types.iter().enumerate() {
+        writeln!(out, "@.valo_type_tag_{id} = private global i8 0").unwrap();
+        writeln!(
+            out,
+            "define internal void @__valo_dynamic_drop_{id}(ptr %payload) {{\nentry:"
+        )
+        .unwrap();
+        let mut counter = 0;
+        drop_managed_value(&mut out, &types, ty, "%payload", &mut counter)?;
+        writeln!(out, "  ret void\n}}\n").unwrap();
+    }
+    for (id, class) in types.classes.iter().enumerate() {
+        writeln!(
+            out,
+            "define internal void @__valo_class_drop_{id}(ptr %object) {{\nentry:"
+        )
+        .unwrap();
+        let mut counter = 0;
+        for (index, field) in types.members(class).iter().enumerate().rev() {
+            if !types.has_managed_field(&field.ty, &mut Vec::new()) {
+                continue;
+            }
+            let ptr = format!("%field{index}");
+            writeln!(
+                out,
+                "  {ptr} = getelementptr inbounds %valo_c{id}, ptr %object, i32 0, i32 {}",
+                index + 2
+            )
+            .unwrap();
+            drop_managed_value(&mut out, &types, &field.ty, &ptr, &mut counter)?;
+        }
+        writeln!(out, "  ret void\n}}\n").unwrap();
+    }
     for f in &module.functions {
-        if f.fields != types.fields || f.structures != types.structures {
+        if f.fields != types.fields
+            || f.structures != types.structures
+            || f.classes != types.classes
+        {
             return Err(BackendError::new(
                 "native eligibility",
                 "functions disagree on resolved Structure fields",
             ));
         }
-        lower_function(&mut out, f, &declared, &types, &literals)?;
+        lower_function(&mut out, f, &declared, &types, &literals, &dynamic_types)?;
     }
     if main.return_type == TypeName::Void {
         writeln!(
@@ -465,6 +548,7 @@ fn lower_function(
     declared: &[Option<Signature>],
     types: &NativeTypes<'_>,
     literals: &BTreeMap<String, usize>,
+    dynamic_types: &[TypeName],
 ) -> Result<(), BackendError> {
     let arrays = ArrayShapes::analyze(f)?;
     let signature = declared[f.id.0].as_ref().expect("collected");
@@ -532,7 +616,7 @@ fn lower_function(
                 instruction,
                 &mut values,
                 declared,
-                (types, &arrays, literals),
+                (types, &arrays, literals, dynamic_types),
                 &mut guard_counter,
             )?;
         }
@@ -634,6 +718,21 @@ fn place_ptr(
         };
         let name = format!("%place{}", *counter);
         *counter += 1;
+        if let Some(class) = types.class_id(&ty) {
+            let id = *counter;
+            *counter += 1;
+            writeln!(out, "  %object{id} = load ptr, ptr {ptr}\n  %objectnull{id} = icmp eq ptr %object{id}, null\n  br i1 %objectnull{id}, label %objecttrap{id}, label %objectok{id}\nobjecttrap{id}:\n  call void @llvm.trap()\n  unreachable\nobjectok{id}:").unwrap();
+            ptr = format!("%object{id}");
+            writeln!(
+                out,
+                "  {name} = getelementptr inbounds %valo_c{class}, ptr {ptr}, i32 0, i32 {}",
+                index + 2
+            )
+            .unwrap();
+            ptr = name;
+            ty = next;
+            continue;
+        }
         writeln!(
             out,
             "  {name} = getelementptr inbounds {}, ptr {ptr}, i32 0, i32 {index}",
@@ -646,16 +745,191 @@ fn place_ptr(
     Ok(ptr)
 }
 
+/// Clone one owned value. Trivial fields stay in the original SSA aggregate;
+/// managed fields are replaced with their freshly retained counterparts.
+fn clone_managed_value(
+    out: &mut String,
+    types: &NativeTypes<'_>,
+    ty: &TypeName,
+    source: &str,
+    counter: &mut usize,
+) -> Result<String, BackendError> {
+    if *ty == TypeName::Variant {
+        let id = *counter;
+        *counter += 1;
+        writeln!(
+            out,
+            "  %managed{id} = call ptr @__valo_dynamic_retain(ptr {source})"
+        )
+        .unwrap();
+        return Ok(format!("%managed{id}"));
+    }
+    if matches!(ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+    {
+        let id = *counter;
+        *counter += 1;
+        writeln!(
+            out,
+            "  %managed{id} = call ptr @__valo_collection_retain(ptr {source})"
+        )
+        .unwrap();
+        return Ok(format!("%managed{id}"));
+    }
+    if types.class_id(ty).is_some() {
+        let id = *counter;
+        *counter += 1;
+        writeln!(
+            out,
+            "  %managed{id} = call ptr @__valo_object_retain(ptr {source})"
+        )
+        .unwrap();
+        return Ok(format!("%managed{id}"));
+    }
+    if *ty == TypeName::String {
+        let id = *counter;
+        *counter += 1;
+        writeln!(
+            out,
+            "  %managed{id} = call ptr @__valo_string_clone(ptr {source})"
+        )
+        .unwrap();
+        return Ok(format!("%managed{id}"));
+    }
+    let fields: Vec<(usize, TypeName)> = match ty {
+        TypeName::User(_) => types
+            .members(ty)
+            .iter()
+            .enumerate()
+            .map(|(index, field)| (index, field.ty.clone()))
+            .collect(),
+        TypeName::Tuple(elements) => elements
+            .iter()
+            .enumerate()
+            .map(|(index, field)| (index, field.ty.clone()))
+            .collect(),
+        TypeName::Array(_) => {
+            return Err(BackendError::new(
+                "native eligibility",
+                "managed fixed-array copy requires element elaboration",
+            ));
+        }
+        _ => return Ok(source.to_string()),
+    };
+    let mut current = source.to_string();
+    for (index, field) in fields {
+        if !types.has_managed_field(&field, &mut Vec::new()) {
+            continue;
+        }
+        let id = *counter;
+        *counter += 1;
+        writeln!(
+            out,
+            "  %managedfield{id} = extractvalue {} {source}, {index}",
+            types.ty(ty)?
+        )
+        .unwrap();
+        let retained =
+            clone_managed_value(out, types, &field, &format!("%managedfield{id}"), counter)?;
+        let next = *counter;
+        *counter += 1;
+        writeln!(
+            out,
+            "  %managed{next} = insertvalue {} {current}, {} {retained}, {index}",
+            types.ty(ty)?,
+            types.ty(&field)?
+        )
+        .unwrap();
+        current = format!("%managed{next}");
+    }
+    Ok(current)
+}
+
+/// Destroy managed fields in reverse declaration order. The caller owns the
+/// pointed-to value and must have proved it initialized before this operation.
+fn drop_managed_value(
+    out: &mut String,
+    types: &NativeTypes<'_>,
+    ty: &TypeName,
+    ptr: &str,
+    counter: &mut usize,
+) -> Result<(), BackendError> {
+    if *ty == TypeName::Variant
+        || matches!(ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+    {
+        let helper = if *ty == TypeName::Variant {
+            "dynamic"
+        } else {
+            "collection"
+        };
+        let id = *counter;
+        *counter += 1;
+        writeln!(out, "  %managedold{id} = load ptr, ptr {ptr}\n  call void @__valo_{helper}_release(ptr %managedold{id})\n  store ptr null, ptr {ptr}").unwrap();
+        return Ok(());
+    }
+    if types.class_id(ty).is_some() {
+        let id = *counter;
+        *counter += 1;
+        writeln!(out, "  %managedold{id} = load ptr, ptr {ptr}\n  call void @__valo_object_release(ptr %managedold{id})\n  store ptr null, ptr {ptr}").unwrap();
+        return Ok(());
+    }
+    if *ty == TypeName::String {
+        let id = *counter;
+        *counter += 1;
+        writeln!(out, "  %managedold{id} = load ptr, ptr {ptr}\n  call void @__valo_string_release(ptr %managedold{id})\n  store ptr null, ptr {ptr}").unwrap();
+        return Ok(());
+    }
+    let fields: Vec<(usize, TypeName)> = match ty {
+        TypeName::User(_) => types
+            .members(ty)
+            .iter()
+            .enumerate()
+            .map(|(index, field)| (index, field.ty.clone()))
+            .collect(),
+        TypeName::Tuple(elements) => elements
+            .iter()
+            .enumerate()
+            .map(|(index, field)| (index, field.ty.clone()))
+            .collect(),
+        TypeName::Array(_) => {
+            return Err(BackendError::new(
+                "native eligibility",
+                "managed fixed-array Drop requires element elaboration",
+            ));
+        }
+        _ => return Ok(()),
+    };
+    for (index, field) in fields.into_iter().rev() {
+        if !types.has_managed_field(&field, &mut Vec::new()) {
+            continue;
+        }
+        let id = *counter;
+        *counter += 1;
+        writeln!(
+            out,
+            "  %managedptr{id} = getelementptr inbounds {}, ptr {ptr}, i32 0, i32 {index}",
+            types.ty(ty)?
+        )
+        .unwrap();
+        drop_managed_value(out, types, &field, &format!("%managedptr{id}"), counter)?;
+    }
+    Ok(())
+}
+
 fn lower_instruction(
     out: &mut String,
     f: &m::Function,
     ins: &m::Instruction,
     values: &mut [Option<String>],
     declared: &[Option<Signature>],
-    layout: (&NativeTypes<'_>, &ArrayShapes, &BTreeMap<String, usize>),
+    layout: (
+        &NativeTypes<'_>,
+        &ArrayShapes,
+        &BTreeMap<String, usize>,
+        &[TypeName],
+    ),
     guard_counter: &mut usize,
 ) -> Result<(), BackendError> {
-    let (types, arrays, literals) = layout;
+    let (types, arrays, literals, dynamic_types) = layout;
     let result = ins.result.map(|id| format!("%t{}", id.0));
     let result_ty = ins.result.map(|id| &f.temps[id.0]);
     match &ins.kind {
@@ -673,9 +947,95 @@ fn lower_instruction(
                         format!("@.valo_string_{}", literals[value])
                     }
                 }
+                m::Constant::NullReference => "null".into(),
             };
             values[ins.result.expect("verified").0] = Some(text);
             return Ok(());
+        }
+        m::InstructionKind::NewClass(ty) => {
+            let id = types.class_id(ty).ok_or_else(|| {
+                BackendError::new(
+                    "native eligibility",
+                    "Class allocation has no resolved layout",
+                )
+            })?;
+            writeln!(out, "  {} = call ptr @__valo_object_alloc(i64 ptrtoint (ptr getelementptr (%valo_c{id}, ptr null, i32 1) to i64), ptr @__valo_class_drop_{id})", result.as_ref().expect("verified")).unwrap();
+        }
+        m::InstructionKind::NewCollection => {
+            writeln!(
+                out,
+                "  {} = call ptr @__valo_collection_new()",
+                result.as_ref().expect("verified")
+            )
+            .unwrap();
+        }
+        m::InstructionKind::SnapshotCollection(source) => {
+            let handle = value(values, *source)?.to_string();
+            writeln!(out, "  {} = call ptr @__valo_collection_snapshot(ptr {handle})\n  call void @__valo_collection_release(ptr {handle})", result.as_ref().expect("verified")).unwrap();
+        }
+        m::InstructionKind::BoxDynamic { value: source, ty } => {
+            let tag = dynamic_types
+                .iter()
+                .position(|item| item.same_type(ty))
+                .ok_or_else(|| BackendError::new("LLVM lowering", "dynamic type tag is missing"))?;
+            let id = *guard_counter;
+            *guard_counter += 1;
+            let boxed = result.as_ref().expect("verified");
+            let llvm_ty = types.ty(ty)?;
+            writeln!(out, "  {boxed} = call ptr @__valo_dynamic_alloc(i64 ptrtoint (ptr getelementptr ({llvm_ty}, ptr null, i32 1) to i64), ptr @.valo_type_tag_{tag}, ptr @__valo_dynamic_drop_{tag})\n  %dynamicdata{id} = call ptr @__valo_dynamic_data(ptr {boxed})\n  store {llvm_ty} {}, ptr %dynamicdata{id}", value(values, *source)?).unwrap();
+        }
+        m::InstructionKind::UnboxDynamic { value: source, ty } => {
+            let tag = dynamic_types
+                .iter()
+                .position(|item| item.same_type(ty))
+                .ok_or_else(|| BackendError::new("LLVM lowering", "dynamic type tag is missing"))?;
+            let id = *guard_counter;
+            *guard_counter += 1;
+            let boxed = value(values, *source)?.to_string();
+            writeln!(out, "  %dynamictag{id} = call ptr @__valo_dynamic_tag(ptr {boxed})\n  %dynamicmatch{id} = icmp eq ptr %dynamictag{id}, @.valo_type_tag_{tag}\n  br i1 %dynamicmatch{id}, label %dynamicok{id}, label %dynamictrap{id}\ndynamictrap{id}:\n  call void @llvm.trap()\n  unreachable\ndynamicok{id}:\n  %dynamicdata{id} = call ptr @__valo_dynamic_data(ptr {boxed})\n  %dynamicload{id} = load {}, ptr %dynamicdata{id}", types.ty(ty)?).unwrap();
+            let cloned =
+                clone_managed_value(out, types, ty, &format!("%dynamicload{id}"), guard_counter)?;
+            writeln!(out, "  call void @__valo_dynamic_release(ptr {boxed})").unwrap();
+            values[ins.result.expect("verified").0] = Some(cloned);
+            return Ok(());
+        }
+        m::InstructionKind::CollectionCount(collection) => {
+            let handle = value(values, *collection)?.to_string();
+            writeln!(out, "  {} = call i32 @__valo_collection_count(ptr {handle})\n  call void @__valo_collection_release(ptr {handle})", result.as_ref().expect("verified")).unwrap();
+        }
+        m::InstructionKind::CollectionItem { collection, index } => {
+            let handle = value(values, *collection)?.to_string();
+            let id = *guard_counter;
+            *guard_counter += 1;
+            let index_ty = types.ty(&f.temps[index.0])?;
+            let index_value = if index_ty == "i64" {
+                value(values, *index)?.to_string()
+            } else {
+                writeln!(
+                    out,
+                    "  %collectionindex{id} = sext {index_ty} {} to i64",
+                    value(values, *index)?
+                )
+                .unwrap();
+                format!("%collectionindex{id}")
+            };
+            writeln!(out, "  {} = call ptr @__valo_collection_item(ptr {handle}, i64 {index_value})\n  call void @__valo_collection_release(ptr {handle})", result.as_ref().expect("verified")).unwrap();
+        }
+        m::InstructionKind::CollectionAdd {
+            collection,
+            item,
+            before,
+        } => {
+            let handle = value(values, *collection)?.to_string();
+            let position = before
+                .map(|id| value(values, id))
+                .transpose()?
+                .unwrap_or("0");
+            writeln!(out, "  call void @__valo_collection_add_consume(ptr {handle}, ptr {}, i64 {position})\n  call void @__valo_collection_release(ptr {handle})", value(values, *item)?).unwrap();
+        }
+        m::InstructionKind::CollectionRemove { collection, index } => {
+            let handle = value(values, *collection)?.to_string();
+            writeln!(out, "  call void @__valo_collection_remove(ptr {handle}, i64 {})\n  call void @__valo_collection_release(ptr {handle})", value(values, *index)?).unwrap();
         }
         m::InstructionKind::TupleInit(elements) => {
             let temp = ins.result.expect("verified").0;
@@ -728,6 +1088,26 @@ fn lower_instruction(
             *guard_counter += 1;
             writeln!(out, "  %stringload{id} = load ptr, ptr {ptr}\n  {} = call ptr @__valo_string_clone(ptr %stringload{id})", result.as_ref().expect("verified")).unwrap();
         }
+        m::InstructionKind::CloneManaged(place) => {
+            let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
+            let id = *guard_counter;
+            *guard_counter += 1;
+            writeln!(
+                out,
+                "  %managedload{id} = load {}, ptr {ptr}",
+                types.ty(&place.ty)?
+            )
+            .unwrap();
+            let cloned = clone_managed_value(
+                out,
+                types,
+                &place.ty,
+                &format!("%managedload{id}"),
+                guard_counter,
+            )?;
+            values[ins.result.expect("verified").0] = Some(cloned);
+            return Ok(());
+        }
         m::InstructionKind::StringConcat { left, right } => {
             writeln!(
                 out,
@@ -761,6 +1141,22 @@ fn lower_instruction(
                 ComparisonOp::GreaterEqual => "sge",
             };
             writeln!(out, "  %stringcmp{id} = call i32 @__valo_string_compare_consume(ptr {}, ptr {})\n  {} = icmp {predicate} i32 %stringcmp{id}, 0", value(values, *left)?, value(values, *right)?, result.as_ref().expect("verified")).unwrap();
+        }
+        m::InstructionKind::ReferenceIdentity {
+            left,
+            right,
+            negated,
+        } => {
+            let predicate = if *negated { "ne" } else { "eq" };
+            writeln!(
+                out,
+                "  {} = icmp {predicate} ptr {}, {}",
+                result.as_ref().expect("verified"),
+                value(values, *left)?,
+                value(values, *right)?
+            )
+            .unwrap();
+            writeln!(out, "  call void @__valo_object_release(ptr {})\n  call void @__valo_object_release(ptr {})", value(values, *left)?, value(values, *right)?).unwrap();
         }
         m::InstructionKind::StringLen(source) => {
             writeln!(
@@ -839,9 +1235,14 @@ fn lower_instruction(
             value: source,
         } => {
             let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
-            let id = *guard_counter;
-            *guard_counter += 1;
-            writeln!(out, "  %stringold{id} = load ptr, ptr {ptr}\n  call void @__valo_string_release(ptr %stringold{id})\n  store ptr {}, ptr {ptr}", value(values, *source)?).unwrap();
+            drop_managed_value(out, types, &place.ty, &ptr, guard_counter)?;
+            writeln!(
+                out,
+                "  store {} {}, ptr {ptr}",
+                types.ty(&place.ty)?,
+                value(values, *source)?
+            )
+            .unwrap();
         }
         m::InstructionKind::Arithmetic { op, left, right } => {
             let ty = result_ty.expect("verified");
@@ -1104,16 +1505,14 @@ fn lower_instruction(
             writeln!(out, "  %snapdesc{id} = load {{ i64, ptr }}, ptr {ptr}\n  %snapdata{id} = extractvalue {{ i64, ptr }} %snapdesc{id}, 1\n  %snapvalue{id} = load {aggregate}, ptr %snapdata{id}\n  store {aggregate} %snapvalue{id}, ptr %arraytemp{temp}\n  %t{temp} = insertvalue {{ i64, ptr }} {{ i64 {length}, ptr null }}, ptr %arraytemp{temp}, 1").unwrap();
         }
         m::InstructionKind::Drop(place) => {
-            if place.ty != TypeName::String {
+            if !f.has_managed_fields(&place.ty) {
                 return Err(BackendError::new(
                     "native eligibility",
-                    "native Drop is only defined for String",
+                    "Drop has no supported native destructor for this type",
                 ));
             }
             let ptr = place_ptr(out, f, place, types, values, guard_counter)?;
-            let id = *guard_counter;
-            *guard_counter += 1;
-            writeln!(out, "  %stringdrop{id} = load ptr, ptr {ptr}\n  call void @__valo_string_release(ptr %stringdrop{id})\n  store ptr null, ptr {ptr}").unwrap();
+            drop_managed_value(out, types, &place.ty, &ptr, guard_counter)?;
         }
         m::InstructionKind::DropCandidate(_) => {
             return Err(BackendError::new(
@@ -1295,7 +1694,7 @@ mod tests {
         ] {
             assert_eq!(native_type(&source).unwrap(), llvm);
         }
-        assert!(native_type(&TypeName::Variant).is_err());
+        assert_eq!(native_type(&TypeName::Variant).unwrap(), "ptr");
         assert!(native_type(&TypeName::User("ClassName".into())).is_err());
     }
 

@@ -40,3 +40,10 @@ A future manifest can replace the present directory-based discovery policy
 with explicit source roots, entry, dependencies, native libraries and target.
 It need not change HIR/MIR or the LLVM backend. Separate object compilation
 and incremental source invalidation remain future work.
+
+Stage 3.4C native managed values do not alter source discovery or Compilation
+identity. Class, Collection and Variant values cross files through resolved
+HIR/MIR types and the private native ABI; LLVM still never reads Imports or
+source files. Whole-unit eligibility means an unsupported method or
+module-level storage construct anywhere in a project can stop a native build
+before other functions are emitted.

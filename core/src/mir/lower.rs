@@ -59,6 +59,7 @@ struct Builder<'a> {
     function: m::Function,
     current: Option<m::BlockId>,
     loops: Vec<LoopFrame>,
+    collection_snapshots: Vec<(h::LoopId, h::ScopeId, m::LocalId)>,
     finally_bodies: HashMap<h::ScopeId, &'a [h::Statement]>,
 }
 
@@ -86,6 +87,7 @@ impl<'a> Builder<'a> {
                     })
                     .collect(),
                 structures: body.structures.clone(),
+                classes: body.classes.clone(),
                 fields: body
                     .fields
                     .iter()
@@ -112,6 +114,7 @@ impl<'a> Builder<'a> {
             },
             current: Some(m::BlockId(0)),
             loops: Vec::new(),
+            collection_snapshots: Vec::new(),
             finally_bodies,
         }
     }
@@ -189,7 +192,7 @@ impl<'a> Builder<'a> {
             } => {
                 let place = self.place_expr(target)?;
                 let value = self.expr(value)?;
-                if place.ty == TypeName::String && place.projections.is_empty() {
+                if self.function.has_managed_fields(&place.ty) {
                     self.emit(m::InstructionKind::Replace { place, value }, None, *span);
                 } else {
                     self.store(place, value, *span);
@@ -230,6 +233,42 @@ impl<'a> Builder<'a> {
                         parameter_modes: signature.parameter_modes.clone(),
                         return_type: None,
                     },
+                    None,
+                    *span,
+                );
+            }
+            h::Statement::CollectionAdd {
+                collection,
+                item,
+                before,
+                span,
+            } => {
+                let collection = self.expr(collection)?;
+                let item = self.expr(item)?;
+                let before = before
+                    .as_ref()
+                    .as_ref()
+                    .map(|expr| self.expr(expr))
+                    .transpose()?;
+                self.emit(
+                    m::InstructionKind::CollectionAdd {
+                        collection,
+                        item,
+                        before,
+                    },
+                    None,
+                    *span,
+                );
+            }
+            h::Statement::CollectionRemove {
+                collection,
+                index,
+                span,
+            } => {
+                let collection = self.expr(collection)?;
+                let index = self.expr(index)?;
+                self.emit(
+                    m::InstructionKind::CollectionRemove { collection, index },
                     None,
                     *span,
                 );
@@ -300,7 +339,7 @@ impl<'a> Builder<'a> {
                 } else {
                     frame.continue_at
                 };
-                self.exit_cleanup(exited_scopes, cleanup_chain, *span)?;
+                self.exit_cleanup_skipping(exited_scopes, cleanup_chain, *span, Some(*loop_id))?;
                 self.goto(target, *span);
             }
             h::Statement::TryFinally {
@@ -649,6 +688,10 @@ impl<'a> Builder<'a> {
             return Err(LowerError::InvalidHir("expected For Each statement".into()));
         };
         let (id, variable, body_scope, span) = (*id, *variable, *body_scope, *span);
+        if matches!(&iterable.ty, TypeName::User(name) if name.eq_ignore_ascii_case(crate::runtime::well_known::COLLECTION))
+        {
+            return self.lower_collection_foreach(id, variable, iterable, body_scope, body, span);
+        }
         let h::ExpressionKind::Load(source) = &iterable.kind else {
             return Err(LowerError::Unsupported {
                 feature: "For Each over a non-addressable array",
@@ -786,11 +829,180 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
+    fn lower_collection_foreach(
+        &mut self,
+        id: h::LoopId,
+        variable: h::LocalId,
+        iterable: &h::Expression,
+        body_scope: h::ScopeId,
+        body: &[h::Statement],
+        span: Span,
+    ) -> Result<(), LowerError> {
+        use crate::frontend::semantics::type_properties::{KnownProperty, TypeProperties};
+        let source = self.expr(iterable)?;
+        let snapshot = self.value(
+            m::InstructionKind::SnapshotCollection(source),
+            iterable.ty.clone(),
+            span,
+        );
+        let snapshot_local = m::LocalId(self.function.locals.len());
+        self.function.locals.push(m::Local {
+            id: snapshot_local,
+            ty: iterable.ty.clone(),
+            properties: TypeProperties {
+                copy: KnownProperty::Yes,
+                requires_drop: KnownProperty::Yes,
+            },
+            storage: h::LocalStorage::Value,
+            parameter_index: None,
+            span,
+        });
+        let snapshot_place = m::Place {
+            root: snapshot_local,
+            projections: Vec::new(),
+            ty: iterable.ty.clone(),
+        };
+        self.store(snapshot_place.clone(), snapshot, span);
+        let index_local = m::LocalId(self.function.locals.len());
+        self.function.locals.push(m::Local {
+            id: index_local,
+            ty: TypeName::Int32,
+            properties: TypeProperties {
+                copy: KnownProperty::Yes,
+                requires_drop: KnownProperty::No,
+            },
+            storage: h::LocalStorage::Value,
+            parameter_index: None,
+            span,
+        });
+        let index_place = m::Place {
+            root: index_local,
+            projections: Vec::new(),
+            ty: TypeName::Int32,
+        };
+        let one = self.integer(1, &TypeName::Int32, span);
+        self.store(index_place.clone(), one, span);
+        let test = self.block("collection.foreach.test");
+        let loop_body = self.block("collection.foreach.body");
+        let advance = self.block("collection.foreach.step");
+        let exit = self.block("collection.foreach.exit");
+        self.goto(test, span);
+        self.current = Some(test);
+        let snapshot_copy = self.value(
+            m::InstructionKind::CloneManaged(snapshot_place.clone()),
+            iterable.ty.clone(),
+            span,
+        );
+        let length = self.value(
+            m::InstructionKind::CollectionCount(snapshot_copy),
+            TypeName::Int32,
+            span,
+        );
+        let index = self.value(
+            m::InstructionKind::Load(index_place.clone()),
+            TypeName::Int32,
+            span,
+        );
+        let in_range = self.value(
+            m::InstructionKind::Compare {
+                op: h::ComparisonOp::LessEqual,
+                left: index,
+                right: length,
+            },
+            TypeName::Boolean,
+            span,
+        );
+        self.terminate(
+            m::TerminatorKind::Branch {
+                condition: in_range,
+                then_block: loop_body,
+                else_block: exit,
+            },
+            span,
+        );
+        self.loops.push(LoopFrame {
+            id,
+            exit,
+            continue_at: advance,
+        });
+        self.collection_snapshots
+            .push((id, body_scope, snapshot_local));
+        self.current = Some(loop_body);
+        let snapshot_copy = self.value(
+            m::InstructionKind::CloneManaged(snapshot_place),
+            iterable.ty.clone(),
+            span,
+        );
+        let index = self.value(
+            m::InstructionKind::Load(index_place.clone()),
+            TypeName::Int32,
+            span,
+        );
+        let value = self.value(
+            m::InstructionKind::CollectionItem {
+                collection: snapshot_copy,
+                index,
+            },
+            TypeName::Variant,
+            span,
+        );
+        self.emit(
+            m::InstructionKind::Replace {
+                place: self.local_place(variable),
+                value,
+            },
+            None,
+            span,
+        );
+        self.lower_statements(body)?;
+        if self.current.is_some() {
+            self.exit_cleanup_skipping(&[body_scope], &[], span, Some(id))?;
+            self.goto(advance, span);
+        }
+        self.current = Some(advance);
+        let index = self.value(
+            m::InstructionKind::Load(index_place.clone()),
+            TypeName::Int32,
+            span,
+        );
+        let one = self.integer(1, &TypeName::Int32, span);
+        let next = self.value(
+            m::InstructionKind::Arithmetic {
+                op: ArithmeticOp::Add,
+                left: index,
+                right: one,
+            },
+            TypeName::Int32,
+            span,
+        );
+        self.store(index_place, next, span);
+        self.goto(test, span);
+        self.collection_snapshots.pop();
+        self.loops.pop();
+        self.current = Some(exit);
+        self.emit(
+            m::InstructionKind::DropCandidate(snapshot_local),
+            None,
+            span,
+        );
+        Ok(())
+    }
+
     fn exit_cleanup(
         &mut self,
         scopes: &[h::ScopeId],
         chain: &[h::CleanupStep],
         span: Span,
+    ) -> Result<(), LowerError> {
+        self.exit_cleanup_skipping(scopes, chain, span, None)
+    }
+
+    fn exit_cleanup_skipping(
+        &mut self,
+        scopes: &[h::ScopeId],
+        chain: &[h::CleanupStep],
+        span: Span,
+        skip_snapshot: Option<h::LoopId>,
     ) -> Result<(), LowerError> {
         for scope in scopes {
             let owned_steps = chain
@@ -808,6 +1020,15 @@ impl<'a> Builder<'a> {
                         span,
                     );
                 }
+            }
+            let snapshots = self
+                .collection_snapshots
+                .iter()
+                .filter(|(id, owner, _)| owner == scope && Some(*id) != skip_snapshot)
+                .map(|(_, _, local)| *local)
+                .collect::<Vec<_>>();
+            for local in snapshots.into_iter().rev() {
+                self.emit(m::InstructionKind::DropCandidate(local), None, span);
             }
         }
         Ok(())
@@ -908,6 +1129,7 @@ impl<'a> Builder<'a> {
                 h::Constant::Double(value) => m::Constant::Double(*value),
                 h::Constant::Boolean(value) => m::Constant::Boolean(*value),
                 h::Constant::String(value) => m::Constant::String(value.clone()),
+                h::Constant::NullReference => m::Constant::NullReference,
             }),
             h::ExpressionKind::StringConcat { left, right } => m::InstructionKind::StringConcat {
                 left: self.expr(left)?,
@@ -923,6 +1145,15 @@ impl<'a> Builder<'a> {
                 left: self.expr(left)?,
                 right: self.expr(right)?,
                 text: *text,
+            },
+            h::ExpressionKind::ReferenceIdentity {
+                left,
+                right,
+                negated,
+            } => m::InstructionKind::ReferenceIdentity {
+                left: self.expr(left)?,
+                right: self.expr(right)?,
+                negated: *negated,
             },
             h::ExpressionKind::StringLen(value) => m::InstructionKind::StringLen(self.expr(value)?),
             h::ExpressionKind::StringFormat { value, decimals } => {
@@ -940,6 +1171,25 @@ impl<'a> Builder<'a> {
             h::ExpressionKind::ArrayInit { lower: 0, upper } => {
                 m::InstructionKind::ArrayInit { upper: *upper }
             }
+            h::ExpressionKind::NewClass(ty) => m::InstructionKind::NewClass(ty.clone()),
+            h::ExpressionKind::NewCollection => m::InstructionKind::NewCollection,
+            h::ExpressionKind::BoxDynamic(value) => m::InstructionKind::BoxDynamic {
+                value: self.expr(value)?,
+                ty: value.ty.clone(),
+            },
+            h::ExpressionKind::UnboxDynamic { value, target } => m::InstructionKind::UnboxDynamic {
+                value: self.expr(value)?,
+                ty: target.clone(),
+            },
+            h::ExpressionKind::CollectionCount(value) => {
+                m::InstructionKind::CollectionCount(self.expr(value)?)
+            }
+            h::ExpressionKind::CollectionItem { collection, index } => {
+                m::InstructionKind::CollectionItem {
+                    collection: self.expr(collection)?,
+                    index: self.expr(index)?,
+                }
+            }
             h::ExpressionKind::ArrayInit { .. } => {
                 return Err(LowerError::Unsupported {
                     feature: "non-zero-based arrays",
@@ -948,6 +1198,9 @@ impl<'a> Builder<'a> {
             }
             h::ExpressionKind::Load(place) if expr.ty == TypeName::String => {
                 m::InstructionKind::CloneString(self.place_expr(place)?)
+            }
+            h::ExpressionKind::Load(place) if self.function.has_managed_fields(&expr.ty) => {
+                m::InstructionKind::CloneManaged(self.place_expr(place)?)
             }
             h::ExpressionKind::Load(place) => m::InstructionKind::Load(self.place_expr(place)?),
             h::ExpressionKind::Convert { value, conversion } => m::InstructionKind::Cast {

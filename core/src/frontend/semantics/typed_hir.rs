@@ -210,6 +210,8 @@ pub struct TypedBody {
     pub locals: Vec<Local>,
     /// Declared value types, including empty Structures, in source declaration order.
     pub structures: Vec<TypeName>,
+    /// Native Class identities; fields share the resolved FieldId table.
+    pub classes: Vec<TypeName>,
     pub fields: Vec<ResolvedField>,
     pub disposers: Vec<ResolvedDispose>,
     pub scopes: Vec<Scope>,
@@ -286,6 +288,17 @@ pub enum Statement {
         function: BodyFunctionId,
         signature: CallSignature,
         arguments: Vec<CallArgument>,
+        span: Span,
+    },
+    CollectionAdd {
+        collection: Expression,
+        item: Expression,
+        before: Box<Option<Expression>>,
+        span: Span,
+    },
+    CollectionRemove {
+        collection: Expression,
+        index: Expression,
         span: Span,
     },
     If {
@@ -402,6 +415,7 @@ pub enum Constant {
     Double(f64),
     Boolean(bool),
     String(String),
+    NullReference,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComparisonOp {
@@ -439,6 +453,12 @@ pub enum ExpressionKind {
         right: Box<Expression>,
         text: bool,
     },
+    /// Object identity; consumes the two owned reference temporaries.
+    ReferenceIdentity {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        negated: bool,
+    },
     StringLen(Box<Expression>),
     /// Render a primitive interpolation hole; `decimals` is a resolved fixed
     /// decimal format (e.g. `0.0`), not source format syntax for the backend.
@@ -452,6 +472,20 @@ pub enum ExpressionKind {
     ArrayInit {
         lower: i64,
         upper: i64,
+    },
+    /// Allocate a resolved native Class. Constructor dispatch is represented
+    /// separately and is not inferred by LLVM.
+    NewClass(TypeName),
+    NewCollection,
+    BoxDynamic(Box<Expression>),
+    UnboxDynamic {
+        value: Box<Expression>,
+        target: TypeName,
+    },
+    CollectionCount(Box<Expression>),
+    CollectionItem {
+        collection: Box<Expression>,
+        index: Box<Expression>,
     },
     Place(Place),
     Load(Box<Expression>),

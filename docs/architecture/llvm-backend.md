@@ -9,6 +9,13 @@ runtime described in [native-runtime.md](native-runtime.md). Native String
 values are LLVM `ptr` handles, not ordinary bitwise-copy aggregates. MIR
 `CloneString`, `Replace`, and explicit `Drop` determine retain/release points.
 
+Stage 3.4C adds managed Structure/tuple copy and Drop, restricted ARC Class
+references, exact-tag native Variant boxes, and ordered numeric Collections.
+The backend lowers resolved MIR operations; it never invokes interpreter
+objects. See [native-objects.md](native-objects.md) for the private ABI and
+current ownership limitations. The native example
+`examples/native/native_collection.valo` exercises the supported subset.
+
 ## Toolchain and target
 
 The first integration uses the **official LLVM command-line tools** (`clang`,
@@ -158,27 +165,35 @@ handle enters HIR or MIR.
 | Fixed array of plain Structure | Yes | Yes / Yes | Yes, indexed access |
 | Fixed-array For Each | Yes | Yes / Yes | Yes, entry snapshot |
 | Whole-array scalar assignment, array argument/return | Restricted | No / partial | No |
-| Try/Finally without exception dispatch | Yes | Yes / Yes | Yes for primitive bodies |
+| Try/Finally without exception dispatch | Yes | Yes / Yes | Yes for supported bodies |
 | Using with Class Dispose | Yes | Partial / Yes | No |
 | Catch and exception unwind | Yes | Partial / No dispatch | No |
 | Structure methods, aggregate constructors, dynamic arrays | Yes | Partial | No |
 | String literals, copy, ByVal/ByRef, return, `&`, comparison, `Len` | Yes | Yes / Yes | Yes, Binary comparison |
 | Fixed numeric interpolation formats | Yes | Yes / Yes | Yes, restricted formats |
 | Option Compare Text String comparison | Yes | Yes / Yes | Controlled unsupported |
-| String in Structure/tuple/fixed array | Yes | Partial | No managed aggregate contract |
-| Class, Variant/dynamic, async | Yes | Partial | No |
+| String in Structure or tuple | Yes | Yes / Yes | Managed clone and Drop |
+| Managed fixed array | Yes | Partial | No |
+| Restricted Class reference, fields, Nothing, Is | Yes | Partial / Yes | Yes, no constructors or methods |
+| Class/Collection ByVal, ByRef, ByRef ReadOnly, return | Yes | Yes / Yes for subset | Yes, ARC handle ABI |
+| Class constructors, methods, inheritance, interfaces | Yes | Partial | No |
+| Exact-tag Variant box | Yes | Partial / Yes | Yes, no general dynamic coercion |
+| Collection Add, Count, numeric Item/Remove, For Each | Yes | Partial / Yes | Yes, entry snapshot |
+| Collection keys and After position | Yes | No | Controlled unsupported |
+| Async | Yes | Partial | No |
 | Public Move, unique resources | Not public | Internal only | No |
-| Compiler-managed String Drop | Interpreter Rc | Yes / Yes | Yes, normal CFG only |
+| Managed String/aggregate/Class/Collection Drop | Interpreter Rc | Yes / Yes | Yes, normal CFG only |
 
 The current eligibility policy is **whole compilation unit**: every function
 must lower to MIR and be native-eligible, even if unreachable from Main.
 Unsupported features return stage-specific diagnostics before LLVM object
 emission. Native tests are unconditional Rust tests but skip toolchain-dependent
 execution when `clang`, `opt`, or `llc` cannot be discovered; frontend and MIR
-tests always run. The next backend milestone should add checked narrowing and
-float-to-integer conversions, native call-graph eligibility and more
-aggregate initialization coverage. Native exceptions, general ownership/Drop, and
-general reference lifetimes remain separate semantic work.
+tests always run. The next project milestones need module-level storage,
+`Select Case` MIR lowering, resolved Class constructors/methods and interface
+dispatch before the games reach their SDL/FFI calls. Native exceptions,
+conditional Drop flags, managed arrays and general reference lifetimes remain
+separate semantic work.
 
 `valo build` now shares `Project` source discovery and import-scoped validation
 with `check` and `run`. The frontend then constructs a deterministic combined

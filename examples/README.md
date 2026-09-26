@@ -1,6 +1,6 @@
 # Valo Examples
 
-This directory contains VB.NET-style Valo examples, native FFI and transitional runtime fixtures. Native compilation, ownership checking and GPU execution are planned.
+This directory contains VB.NET-style Valo examples, native FFI and transitional runtime fixtures. The experimental LLVM backend can compile the restricted examples in `native/`, including managed Strings, Structures, Classes and numeric Collections. Full ownership, exceptions and GPU execution remain future work.
 
 Run an example with:
 

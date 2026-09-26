@@ -85,8 +85,9 @@ The join is the union of possible states, so `Available + Moved` is
 `MaybeUnavailable`, and reading, borrowing, moving or dropping it is rejected.
 The same applies to partial initialization at a branch or loop join.
 Reassignment of a known droppable available local requires an explicit
-replacement operation or Drop after RHS evaluation. String uses `Replace`;
-other managed types remain unsupported.
+replacement operation or Drop after RHS evaluation. String, managed
+Structures/tuples, Class references, Variant boxes and Collections use
+`Replace` at supported mutable Places.
 
 Internal `Move`, `Drop`, `BorrowStart` and `EndBorrow` are separate MIR
 instructions. They currently support compiler/test-only ownership scenarios;
@@ -101,9 +102,9 @@ borrows, native unwind paths or conditional Drop flags. Unknown ownership
 contracts are not silently classified as Copy or native droppable.
 
 Current order: verified HIR, HIR ownership checks, MIR lowering,
-String Drop elaboration, structural MIR verification, CFG/dataflow analysis.
+type-driven Drop elaboration, structural MIR verification, CFG/dataflow analysis.
 Future work includes backward local liveness, projected move paths,
-conditional and aggregate Drop elaboration, reference escape, exceptional
+conditional Drop flags and managed-array Drop elaboration, reference escape, exceptional
 edges and stronger lifetime analysis. The restricted LLVM backend consumes
 this verified MIR; ownership-sensitive calls and exceptional cleanup still
 need work.
@@ -111,10 +112,11 @@ need work.
 Typed HIR Catch is **not MIR-lowerable** because native exception dispatch and
 unwind edges do not exist. `lower_body` returns an explicit unsupported error
 instead of inventing a normal edge. Internal HIR Move likewise remains gated
-on truthful ownership semantics. Class values and resolved Dispose calls can
-appear as opaque MIR values/calls for CFG tests; their native layout and ABI
-are not specified. MIR is not executable, and the source interpreter remains
-the existing execution path. No LLVM or machine-code dependency exists in MIR.
+on truthful ownership semantics. Restricted Class references and native
+Collection/Variant operations now have backend-neutral MIR forms; their native
+layout lives entirely in LLVM/runtime. Resolved Dispose calls still lack a
+native implementation. MIR itself is not executable and contains no LLVM or
+machine-code dependency.
 
 Native backends must consume verified MIR and accept only semantics their
 current subset can lower. LLVM types, exception ABI and object format must not
@@ -123,6 +125,6 @@ define Valo semantics.
 An experimental backend now consumes the **eligible subset** of
 verified MIR. Its local allocas, SSA temporaries, target data layout and
 LLVM tool invocations live entirely in `backend/llvm`, not in MIR. Internal
-Ownership-sensitive Move and managed aggregates remain gated; String Drop
-on normal paths is supported. See
+Ownership-sensitive public Move and managed arrays remain gated. Managed
+String/aggregate/reference Drop on normal paths is supported. See
 [llvm-backend.md](llvm-backend.md).

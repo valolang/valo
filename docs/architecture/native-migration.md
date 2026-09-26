@@ -779,3 +779,22 @@ still transitional; it is not separate object compilation or a stable public
 ABI. Stage 2 ownership, native Class/String/runtime semantics, Drop and
 exception gaps remain open. Stage 3 still needs deeper ownership/liveness,
 conditional Drop, projected moves and exception CFG.
+
+## Stage 3.4C: managed values and restricted native references (partial)
+
+Managed copy and Drop now recurse through Structures and tuples. A restricted
+Class handle preserves shared identity and uses ARC, including String fields,
+but constructor bodies, instance methods, inheritance and interface dispatch
+remain outside this native subset. An exact-tag native Variant box supports an
+ordered, heterogeneous Collection with numeric Add/Before, Count, Item, Remove
+and entry-snapshot For Each. The native runtime is linked automatically and
+test mode asserts that acyclic managed allocations are released. Keys and
+general dynamic conversions are still gated.
+
+Raycaster and Breakout now pass their former generic Collection HIR rejection.
+The next observed boundaries are module-level array storage/access in
+Raycaster and `Select Case` HIR lowering in Breakout. These require separate
+frontend/MIR work before the games can reach their Class methods, interfaces
+and SDL calls. See [native-objects.md](native-objects.md) for the ownership and
+ABI contract. Stage 2 lifetime/escape work and Stage 3 conditional Drop,
+projected moves, full object dispatch and exception CFG remain open.

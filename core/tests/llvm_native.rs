@@ -164,13 +164,194 @@ fn native_string_early_return_skips_later_uninitialized_drop() {
 }
 
 #[test]
-fn native_managed_aggregates_are_rejected_before_llvm_lowering() {
-    let program = parse_source("Structure Person\nPublic Name As String\nEnd Structure\nFunction Main() As Integer\nDim P As Person\nReturn 0\nEnd Function").unwrap();
-    let body = lower_function_body(&program, 0).unwrap();
-    let error = valo_core::mir::lower_body(&body).unwrap_err();
+fn native_managed_structure_clone_replacement_and_drop() {
+    execute(
+        "Structure Person\nPublic Name As String\nPublic Age As Integer\nEnd Structure\nFunction Main() As Integer\nDim A As Person\nA.Name = \"Kane\" & \"ki\"\nA.Age = 18\nDim B As Person = A\nA.Name = A.Name & \"!\"\nIf B.Name <> \"Kaneki\" Then\nReturn 1\nEnd If\nIf A.Name <> \"Kaneki!\" Then\nReturn 2\nEnd If\nA = B\nA = A\nIf A.Name = B.Name Then\nIf A.Age = 18 Then\nReturn 0\nEnd If\nEnd If\nReturn 3\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_nested_managed_structure_byval_return_and_readonly() {
+    execute(
+        "Structure Profile\nPublic Name As String\nEnd Structure\nStructure Player\nPublic Profile As Profile\nPublic Score As Integer\nEnd Structure\nFunction Make() As Player\nDim P As Player\nP.Profile.Name = \"Valo\" & \"!\"\nP.Score = 42\nReturn P\nEnd Function\nFunction Check(ByRef ReadOnly P As Player) As Integer\nIf P.Profile.Name = \"Valo!\" Then\nReturn P.Score\nEnd If\nReturn 1\nEnd Function\nFunction Main() As Integer\nDim P As Player = Make()\nDim Q As Player = P\nIf Check(Q) = 42 Then\nReturn 0\nEnd If\nReturn 2\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_class_references_alias_and_release_string_fields() {
+    execute(
+        "Class Person\nPublic Name As String\nPublic Age As Integer\nEnd Class\nFunction Main() As Integer\nDim A As Person = New Person()\nA.Name = \"Kane\" & \"ki\"\nA.Age = 18\nDim B As Person = A\nB.Age = 19\nIf A.Age <> 19 Then\nReturn 1\nEnd If\nIf B.Name <> \"Kaneki\" Then\nReturn 2\nEnd If\nB = B\nIf A.Name = \"Kaneki\" Then\nReturn 0\nEnd If\nReturn 3\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_class_return_and_byval_keep_object_alive() {
+    execute(
+        "Class Person\nPublic Name As String\nEnd Class\nFunction Make() As Person\nDim P As Person = New Person()\nP.Name = \"Va\" & \"lo\"\nReturn P\nEnd Function\nFunction Check(P As Person) As Integer\nIf P.Name = \"Valo\" Then\nReturn 42\nEnd If\nReturn 1\nEnd Function\nFunction Main() As Integer\nDim P As Person = Make()\nIf Check(P) = 42 Then\nReturn 0\nEnd If\nReturn 2\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_as_new_class_and_reference_replacement_are_safe() {
+    execute(
+        "Class Box\nPublic Value As Integer\nEnd Class\nFunction Main() As Integer\nDim A As New Box()\nA.Value = 20\nDim B As New Box()\nB.Value = 22\nA = B\nA = A\nIf A.Value + B.Value = 44 Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_class_nothing_and_identity_are_pointer_based() {
+    execute(
+        "Class Person\nEnd Class\nFunction Main() As Integer\nDim A As Person = Nothing\nIf A IsNot Nothing Then\nReturn 1\nEnd If\nA = New Person()\nDim B As Person = A\nDim C As Person = New Person()\nIf A Is B Then\nIf A IsNot C Then\nIf C IsNot Nothing Then\nReturn 0\nEnd If\nEnd If\nEnd If\nReturn 2\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_nested_class_fields_and_managed_structure_copy() {
+    execute(
+        "Class Person\nPublic Name As String\nEnd Class\nClass Holder\nPublic Person As Person\nEnd Class\nStructure Wrapper\nPublic Ref As Holder\nEnd Structure\nFunction Main() As Integer\nDim H As New Holder()\nH.Person = New Person()\nH.Person.Name = \"Va\" & \"lo\"\nDim W As Wrapper\nW.Ref = H\nDim C As Wrapper = W\nIf C.Ref.Person.Name = \"Valo\" Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_collection_stores_tagged_string_and_integer_values() {
+    execute(
+        "Function Main() As Integer\nDim Items As New Collection()\nItems.Add(\"Va\" & \"lo\")\nItems.Add(42)\nIf Items.Count <> 2 Then\nReturn 1\nEnd If\nDim Name As String = CType(Items.Item(1), String)\nDim Number As Integer = CType(Items.Item(2), Integer)\nItems.Remove(1)\nIf Items.Count <> 1 Then\nReturn 2\nEnd If\nIf Name = \"Valo\" Then\nIf Number = 42 Then\nReturn 0\nEnd If\nEnd If\nReturn 3\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_collection_retains_class_and_copies_value_structure() {
+    execute(
+        "Class Person\nPublic Age As Integer\nEnd Class\nStructure Point\nPublic X As Integer\nEnd Structure\nFunction Main() As Integer\nDim Items As New Collection()\nDim P As New Person()\nP.Age = 18\nDim V As Point\nV.X = 42\nItems.Add(P)\nItems.Add(V, , 1)\nP = Nothing\nDim Q As Person = CType(Items.Item(2), Person)\nDim W As Point = CType(Items.Item(1), Point)\nIf Q.Age = 18 Then\nIf W.X = 42 Then\nReturn 0\nEnd If\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_collection_foreach_snapshots_order_and_mutation() {
+    execute(
+        "Function Main() As Integer\nDim Items As New Collection()\nItems.Add(1)\nItems.Add(2)\nDim Item As Variant\nDim Total As Integer = 0\nFor Each Item In Items\nTotal += CType(Item, Integer)\nItems.Add(9)\nNext\nIf Total = 3 Then\nIf Items.Count = 4 Then\nReturn 0\nEnd If\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_collection_foreach_return_releases_snapshot_and_items() {
+    execute(
+        "Function Main() As Integer\nDim Items As New Collection()\nItems.Add(42)\nDim Item As Variant\nFor Each Item In Items\nReturn CType(Item, Integer)\nNext\nReturn 1\nEnd Function",
+        42,
+    );
+}
+
+#[test]
+fn native_collection_foreach_empty_exit_and_continue_cleanup() {
+    execute(
+        "Function Main() As Integer\nDim Items As New Collection()\nDim Item As Variant\nDim Total As Integer = 0\nFor Each Item In Items\nTotal += 100\nNext\nItems.Add(1)\nItems.Add(2)\nItems.Add(3)\nFor Each Item In Items\nIf CType(Item, Integer) = 1 Then\nContinue For\nEnd If\nTotal += CType(Item, Integer)\nIf Total = 2 Then\nExit For\nEnd If\nNext\nReturn Total\nEnd Function",
+        2,
+    );
+}
+
+#[test]
+fn managed_values_propagate_copy_and_drop_properties() {
+    use valo_core::TypeName;
+    use valo_core::frontend::semantics::type_properties::{CopyKind, KnownProperty, properties};
+    let program = parse_source(
+        "Class Person\nPublic Name As String\nEnd Class\nStructure Profile\nPublic Name As String\nEnd Structure\nStructure Player\nPublic Data As Profile\nPublic Owner As Person\nEnd Structure",
+    ).unwrap();
+    for ty in [
+        TypeName::String,
+        TypeName::Variant,
+        TypeName::User("Collection".into()),
+        TypeName::User("Person".into()),
+        TypeName::User("Profile".into()),
+        TypeName::User("Player".into()),
+    ] {
+        let found = properties(&program, &ty);
+        assert_eq!(found.copy_kind(), CopyKind::Managed, "{ty:?}");
+        assert_eq!(found.requires_drop, KnownProperty::Yes, "{ty:?}");
+    }
+    assert_eq!(
+        properties(&program, &TypeName::Int32).copy_kind(),
+        CopyKind::Trivial
+    );
+}
+
+#[test]
+fn native_collection_return_byval_and_temporary_class_lifetime() {
+    execute(
+        "Class Person\nPublic Age As Integer\nEnd Class\nFunction MakeItems() As Collection\nDim Items As New Collection()\nItems.Add(New Person())\nReturn Items\nEnd Function\nFunction CountItems(ByVal Items As Collection) As Integer\nReturn Items.Count\nEnd Function\nFunction Main() As Integer\nDim Items As Collection = MakeItems()\nIf CountItems(Items) = 1 Then\nDim PersonValue As Person = CType(Items.Item(1), Person)\nIf PersonValue.Age = 0 Then\nReturn 0\nEnd If\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_collection_byref_replacement_and_readonly_borrow() {
+    execute(
+        "Function ReplaceItems(ByRef Items As Collection) As Integer\nItems = New Collection()\nItems.Add(42)\nReturn 0\nEnd Function\nFunction ReadCount(ByRef ReadOnly Items As Collection) As Integer\nReturn Items.Count\nEnd Function\nFunction Main() As Integer\nDim Items As New Collection()\nItems.Add(1)\nItems.Add(2)\nDim Ignored As Integer = ReplaceItems(Items)\nIf ReadCount(Items) = 1 Then\nReturn CType(Items.Item(1), Integer)\nEnd If\nReturn 1\nEnd Function",
+        42,
+    );
+}
+
+#[test]
+fn native_class_byref_replacement_and_readonly_field_access() {
+    execute(
+        "Class Person\nPublic Age As Integer\nEnd Class\nFunction ReplacePerson(ByRef P As Person) As Integer\nP = New Person()\nP.Age = 42\nReturn 0\nEnd Function\nFunction ReadAge(ByRef ReadOnly P As Person) As Integer\nReturn P.Age\nEnd Function\nFunction Main() As Integer\nDim P As New Person()\nP.Age = 10\nDim Ignored As Integer = ReplacePerson(P)\nReturn ReadAge(P)\nEnd Function",
+        42,
+    );
+}
+
+#[test]
+fn native_collection_key_restriction_has_specific_hir_diagnostic() {
+    let program = parse_source("Function Main() As Integer\nDim Items As New Collection()\nItems.Add(1, \"one\")\nReturn 0\nEnd Function").unwrap();
+    let error = lower_function_body(&program, 0).unwrap_err();
+    assert!(error.message.contains("Collection String keys"), "{error}");
+}
+
+#[test]
+fn separate_project_boundaries_name_module_arrays_and_select_case() {
+    let array = parse_source("Private Depth(0 To 1) As Integer\nFunction Main() As Integer\nReturn Depth(0)\nEnd Function").unwrap();
+    let error = lower_function_body(&array, 0).unwrap_err();
     assert!(
-        format!("{error:?}").contains("native Drop elaboration has no contract"),
-        "{error:?}"
+        error.message.contains("module-level array storage"),
+        "{error}"
+    );
+
+    let selection = parse_source("Function Main() As Integer\nSelect Case 1\nCase 1\nReturn 0\nCase Else\nReturn 1\nEnd Select\nEnd Function").unwrap();
+    let error = lower_function_body(&selection, 0).unwrap_err();
+    assert!(error.message.contains("Select Case"), "{error}");
+}
+
+#[test]
+fn managed_fixed_array_is_rejected_before_codegen() {
+    let Some(tools) = tools() else { return };
+    let program = module(
+        "Function Main() As Integer\nDim Names(1) As String\nNames(0) = \"Valo\"\nReturn 0\nEnd Function",
+    );
+    let error = render_module(&program, &tools.target).unwrap_err();
+    assert_eq!(error.stage, "native eligibility");
+    assert!(error.message.contains("managed fixed arrays"), "{error}");
+}
+
+#[test]
+fn native_class_with_user_termination_is_rejected_before_allocation() {
+    let program = parse_source("Class Resource\nPublic Sub Terminate()\nEnd Sub\nEnd Class\nFunction Main() As Integer\nDim R As New Resource()\nReturn 0\nEnd Function").unwrap();
+    let error = lower_function_body(&program, 0).unwrap_err();
+    assert!(error.message.contains("Terminate finalizer"), "{error}");
+}
+
+#[test]
+fn native_managed_tuple_clone_and_drop() {
+    execute(
+        "Function Main() As Integer\nDim A = (\"Va\" & \"lo\", 42)\nDim B = A\nIf B.Item1 = \"Valo\" Then\nIf B.Item2 = 42 Then\nReturn 0\nEnd If\nEnd If\nReturn 1\nEnd Function",
+        0,
     );
 }
 
@@ -190,7 +371,7 @@ fn mir_verifier_rejects_reuse_of_owned_string_temp() {
         *right = *left;
     }
     let error = valo_core::mir::verify::verify(function).unwrap_err();
-    assert!(error.contains("owned String temp"), "{error}");
+    assert!(error.contains("owned managed temp"), "{error}");
 }
 
 #[test]
@@ -335,7 +516,7 @@ fn unsupported_checked_narrowing_is_a_controlled_backend_error() {
 }
 
 #[test]
-fn class_dynamic_and_native_drop_remain_explicitly_unsupported() {
+fn unresolved_layout_invalid_entry_and_native_drop_report_precise_errors() {
     use valo_core::frontend::semantics::type_properties::{KnownProperty, TypeProperties};
     let Some(tools) = tools() else {
         return;
@@ -347,12 +528,9 @@ fn class_dynamic_and_native_drop_remain_explicitly_unsupported() {
     assert!(error.message.contains("native value layout"));
 
     program.functions[0].locals[0].ty = valo_core::TypeName::Variant;
-    assert!(
-        render_module(&program, &tools.target)
-            .unwrap_err()
-            .message
-            .contains("native primitive ABI")
-    );
+    let error = render_module(&program, &tools.target).unwrap_err();
+    assert_eq!(error.stage, "native eligibility");
+    assert!(error.message.contains("entry point must be"), "{error}");
 
     let mut program =
         module("Function Main() As Integer\nDim X As Integer = 1\nReturn X\nEnd Function");
@@ -385,9 +563,7 @@ fn class_dynamic_and_native_drop_remain_explicitly_unsupported() {
     let error = render_module(&program, &tools.target).unwrap_err();
     assert_eq!(error.stage, "native eligibility");
     assert!(
-        error
-            .message
-            .contains("native Drop is only defined for String"),
+        error.message.contains("no supported native destructor"),
         "{error}"
     );
 }
@@ -502,14 +678,11 @@ fn empty_structure_has_distinct_native_identity() {
 }
 
 #[test]
-fn structure_with_class_field_is_not_assumed_copy_or_dropless() {
-    let Some(tools) = tools() else { return };
-    let program = module(
-        "Class Resource\nEnd Class\nStructure Holder\nPublic Value As Resource\nEnd Structure\nFunction Main() As Integer\nDim H As Holder\nReturn 0\nEnd Function",
+fn structure_with_class_field_uses_managed_copy_and_drop() {
+    execute(
+        "Class Resource\nPublic Value As Integer\nEnd Class\nStructure Holder\nPublic Ref As Resource\nEnd Structure\nFunction Main() As Integer\nDim R As New Resource()\nR.Value = 42\nDim H As Holder\nH.Ref = R\nDim Copy As Holder = H\nR = Nothing\nIf Copy.Ref.Value = 42 Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
     );
-    let error = render_module(&program, &tools.target).unwrap_err();
-    assert_eq!(error.stage, "native eligibility");
-    assert!(error.message.contains("ownership requirements"), "{error}");
 }
 
 #[test]
