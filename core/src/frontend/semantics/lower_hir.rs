@@ -4,7 +4,7 @@ use crate::TypeKind;
 use crate::frontend::semantics::arithmetic::{self, ArithmeticOp};
 use crate::frontend::semantics::typed_hir as h;
 use crate::runtime::{DiagnosticCode, Span};
-use crate::{ContinueTarget, ElseIfBranch};
+use crate::{CaseBranch, CaseCompareOp, CaseItem, ContinueTarget, ElseIfBranch};
 
 /// Lower one function from a Program. Unsupported native constructs are errors;
 /// they remain available through the existing source interpreter.
@@ -955,11 +955,44 @@ fn lower_statements(
                 });
                 returns = true;
             }
-            Stmt::SelectCase { subject, .. } => {
-                return Err(unsupported(
-                    "native Select Case control-flow lowering",
-                    subject.span,
-                ));
+            Stmt::SelectCase {
+                subject,
+                branches,
+                else_body,
+                span,
+            } => {
+                let value = builder.expression(subject)?;
+                // The selector is evaluated exactly once. This first lowering
+                // supports only trivial scalar values: a managed selector
+                // needs a distinct lexical cleanup scope.
+                if !value.ty.is_integral()
+                    && !matches!(
+                        value.ty,
+                        TypeName::Boolean | TypeName::Single | TypeName::Double
+                    )
+                {
+                    return Err(unsupported(
+                        "native Select Case over this selector type",
+                        subject.span,
+                    ));
+                }
+                let hidden = format!("@select{}", builder.locals.len());
+                let id = builder.local(
+                    &hidden,
+                    value.ty.clone(),
+                    None,
+                    h::LocalStorage::Value,
+                    *span,
+                )?;
+                statements.push(h::Statement::Initialize {
+                    target: id,
+                    value,
+                    span: *span,
+                });
+                let decision = select_decision_tree(&hidden, branches, else_body, *span);
+                let (lowered, exits) = lower_statements(builder, &decision, return_type, *span)?;
+                statements.extend(lowered);
+                returns = exits;
             }
             _ => {
                 return Err(unsupported(
@@ -970,6 +1003,106 @@ fn lower_statements(
         }
     }
     Ok((statements, returns))
+}
+
+/// Desugar source Case tests into ordinary typed If branches. The hidden
+/// selector local is initialized above, so repeated tests never reevaluate
+/// the selector. Each branch body is lowered independently into its own HIR
+/// scope; MIR/LLVM only receive resolved control flow and comparison values.
+fn select_decision_tree(
+    selector: &str,
+    branches: &[CaseBranch],
+    else_body: &[Stmt],
+    span: Span,
+) -> Vec<Stmt> {
+    let mut continuation = else_body.to_vec();
+    let mut range_number = 0;
+    for branch in branches.iter().rev() {
+        for item in branch.items.iter().rev() {
+            let test = |op, right: &Expr| Expr {
+                kind: ExprKind::Binary {
+                    left: Box::new(Expr {
+                        kind: ExprKind::Variable(selector.to_string()),
+                        span: right.span,
+                    }),
+                    op,
+                    right: Box::new(right.clone()),
+                },
+                span: right.span,
+            };
+            let choose = |condition, yes: Vec<Stmt>, no: Vec<Stmt>| Stmt::If {
+                condition,
+                then_body: yes,
+                elseif_branches: Vec::new(),
+                else_body: no,
+                span,
+            };
+            continuation = match item {
+                CaseItem::Value(value) => vec![choose(
+                    test(crate::BinaryOp::Equal, value),
+                    branch.body.clone(),
+                    continuation,
+                )],
+                CaseItem::Compare { op, expr } => {
+                    let operation = match op {
+                        CaseCompareOp::Equal => crate::BinaryOp::Equal,
+                        CaseCompareOp::NotEqual => crate::BinaryOp::NotEqual,
+                        CaseCompareOp::Less => crate::BinaryOp::Less,
+                        CaseCompareOp::Greater => crate::BinaryOp::Greater,
+                        CaseCompareOp::LessEqual => crate::BinaryOp::LessEqual,
+                        CaseCompareOp::GreaterEqual => crate::BinaryOp::GreaterEqual,
+                    };
+                    vec![choose(
+                        test(operation, expr),
+                        branch.body.clone(),
+                        continuation,
+                    )]
+                }
+                CaseItem::Range { start, end } => {
+                    // The interpreter evaluates both range endpoints before
+                    // testing either bound, even when the lower bound fails.
+                    // Capture each endpoint once before the branch.
+                    let number = range_number;
+                    range_number += 1;
+                    let lower_name = format!("{selector}@range{number}lower");
+                    let upper_name = format!("{selector}@range{number}upper");
+                    let capture = |name: &str, value: &Expr| Stmt::Dim {
+                        name: name.to_string(),
+                        ty: None,
+                        array: None,
+                        as_new: false,
+                        new_args: Vec::new(),
+                        initializer: Some(value.clone()),
+                        collection_initializer: None,
+                        member_initializer: None,
+                        span: value.span,
+                    };
+                    let lower = Expr {
+                        kind: ExprKind::Variable(lower_name.clone()),
+                        span: start.span,
+                    };
+                    let upper = Expr {
+                        kind: ExprKind::Variable(upper_name.clone()),
+                        span: end.span,
+                    };
+                    vec![
+                        capture(&lower_name, start),
+                        capture(&upper_name, end),
+                        choose(
+                            test(crate::BinaryOp::GreaterEqual, &lower),
+                            vec![choose(
+                                test(crate::BinaryOp::LessEqual, &upper),
+                                branch.body.clone(),
+                                continuation.clone(),
+                            )],
+                            continuation,
+                        ),
+                    ]
+                }
+            };
+        }
+    }
+    continuation
 }
 
 fn lower_scoped(

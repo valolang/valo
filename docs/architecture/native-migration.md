@@ -792,9 +792,15 @@ test mode asserts that acyclic managed allocations are released. Keys and
 general dynamic conversions are still gated.
 
 Raycaster and Breakout now pass their former generic Collection HIR rejection.
-The next observed boundaries are module-level array storage/access in
-Raycaster and `Select Case` HIR lowering in Breakout. These require separate
-frontend/MIR work before the games can reach their Class methods, interfaces
-and SDL calls. See [native-objects.md](native-objects.md) for the ownership and
+Numeric/Boolean `Select Case` with multiple items, ranges and `Case Is` now
+lowers through typed HIR to native execution. Its selector is evaluated once;
+both range endpoints are evaluated before either bound is tested, as in the
+interpreter. Managed selector types remain gated until a lexical selector
+cleanup scope exists. The next observed boundary in **both** games is
+module-level storage: Raycaster reaches `Depth(column)` in `Render.valo`, and
+Breakout reaches the module variable `Phase_` in `StatusLine`. A real global
+Place/storage and initialization model is required before the games can reach
+their Class methods, interfaces and SDL calls. See
+[native-objects.md](native-objects.md) for the ownership and
 ABI contract. Stage 2 lifetime/escape work and Stage 3 conditional Drop,
 projected moves, full object dispatch and exception CFG remain open.

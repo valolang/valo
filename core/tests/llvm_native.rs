@@ -316,17 +316,60 @@ fn native_collection_key_restriction_has_specific_hir_diagnostic() {
 }
 
 #[test]
-fn separate_project_boundaries_name_module_arrays_and_select_case() {
+fn module_array_boundary_remains_explicit() {
     let array = parse_source("Private Depth(0 To 1) As Integer\nFunction Main() As Integer\nReturn Depth(0)\nEnd Function").unwrap();
     let error = lower_function_body(&array, 0).unwrap_err();
     assert!(
         error.message.contains("module-level array storage"),
         "{error}"
     );
+}
 
-    let selection = parse_source("Function Main() As Integer\nSelect Case 1\nCase 1\nReturn 0\nCase Else\nReturn 1\nEnd Select\nEnd Function").unwrap();
-    let error = lower_function_body(&selection, 0).unwrap_err();
-    assert!(error.message.contains("Select Case"), "{error}");
+#[test]
+fn native_select_case_evaluates_selector_once_and_checks_cases_in_order() {
+    let source = "Function NextValue(ByRef N As Integer) As Integer\nN = N + 1\nReturn N\nEnd Function\nFunction Main() As Integer\nDim N As Integer = 0\nSelect Case NextValue(N)\nCase 0\nReturn 1\nCase 2 To 4\nReturn 2\nCase Is > 4\nReturn 3\nCase 1, 5\nIf N = 1 Then\nReturn 0\nEnd If\nReturn 4\nCase Else\nReturn 5\nEnd Select\nEnd Function";
+    execute(source, 0);
+    let interpreted = source.replace("Function Main() As Integer", "Function Result() As Integer")
+        + "\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub";
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["0"]);
+}
+
+#[test]
+fn native_select_case_range_and_compare_execute() {
+    execute(
+        "Function Main() As Integer\nDim X As Integer = 7\nSelect Case X\nCase 0 To 6\nReturn 1\nCase Is > 6\nReturn 0\nCase Else\nReturn 2\nEnd Select\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_select_case_evaluates_both_range_bounds_even_when_lower_fails() {
+    let source = "Function Tick(ByRef N As Integer) As Integer\nN = N + 1\nReturn N\nEnd Function\nFunction Main() As Integer\nDim N As Integer = 0\nSelect Case 0\nCase 2 To Tick(N)\nReturn 1\nCase Else\nReturn N - 1\nEnd Select\nEnd Function";
+    execute(source, 0);
+    let interpreted = source.replace("Function Main() As Integer", "Function Result() As Integer")
+        + "\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub";
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["0"]);
+}
+
+#[test]
+fn native_select_case_managed_selector_has_precise_boundary() {
+    let source = "Function Main() As Integer\nSelect Case \"A\"\nCase \"A\"\nReturn 0\nCase Else\nReturn 1\nEnd Select\nEnd Function";
+    let program = parse_source(source).unwrap();
+    let error = lower_function_body(&program, 0).unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("Select Case over this selector type"),
+        "{error}"
+    );
+}
+
+#[test]
+fn native_select_case_preserves_loop_exit_and_continue_targets() {
+    execute(
+        "Function Main() As Integer\nDim I As Integer = 0\nWhile I < 5\nI = I + 1\nSelect Case I\nCase 1\nContinue While\nCase 3\nExit While\nCase Else\nI = I\nEnd Select\nWend\nReturn I - 3\nEnd Function",
+        0,
+    );
 }
 
 #[test]

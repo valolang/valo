@@ -164,6 +164,9 @@ handle enters HIR or MIR.
 | Fixed primitive array index and mutation | Yes | Yes / Yes | Yes, checked bounds |
 | Fixed array of plain Structure | Yes | Yes / Yes | Yes, indexed access |
 | Fixed-array For Each | Yes | Yes / Yes | Yes, entry snapshot |
+| Numeric/Boolean `Select Case` (`Case` values, ranges, `Case Is`) | Yes | Yes / Yes | Yes, selector evaluated once |
+| Managed `Select Case` selector (including String) | Yes | No | Controlled unsupported pending lexical selector cleanup |
+| Module-level mutable values and arrays | Yes | No | No native global Place/storage model yet |
 | Whole-array scalar assignment, array argument/return | Restricted | No / partial | No |
 | Try/Finally without exception dispatch | Yes | Yes / Yes | Yes for supported bodies |
 | Using with Class Dispose | Yes | Partial / Yes | No |
@@ -189,8 +192,10 @@ must lower to MIR and be native-eligible, even if unreachable from Main.
 Unsupported features return stage-specific diagnostics before LLVM object
 emission. Native tests are unconditional Rust tests but skip toolchain-dependent
 execution when `clang`, `opt`, or `llc` cannot be discovered; frontend and MIR
-tests always run. The next project milestones need module-level storage,
-`Select Case` MIR lowering, resolved Class constructors/methods and interface
+tests always run. `Select Case` now resolves numeric and Boolean selectors into
+typed HIR branches before MIR; both range endpoints are evaluated before the
+range comparison, matching the interpreter. The next project milestones need
+module-level storage, resolved Class constructors/methods and interface
 dispatch before the games reach their SDL/FFI calls. Native exceptions,
 conditional Drop flags, managed arrays and general reference lifetimes remain
 separate semantic work.
