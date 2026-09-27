@@ -799,10 +799,21 @@ interpreter. A lexical HIR Block now releases managed String selectors and
 reached range bounds on normal and Return paths. Native Text comparison remains
 gated. Trivial module-level scalar storage and zero-based fixed arrays now have
 explicit Global Places in HIR/MIR and shared, zero-initialized LLVM storage.
-This advances Raycaster past `Depth(column)` to unsupported `CLng(Fix(...))`
-builtin lowering in `Render.valo`. Breakout advances past `Phase_` and its
-qualified Enum `Case` values to the lazy `IIf(...)` expression in
-`StatusLine`; native expression-level branching is not yet represented.
+Native HIR/MIR now represent lazy conditional expressions (`IIf`, `AndAlso`,
+`OrElse`), eager Boolean `And`/`Or`, `Fix`, integral `CLng`, and scalar
+`Abs`/`Sin`/`Cos`. LLVM lowers the conditional branches as CFG, checked signed
+narrowing as guarded casts, and floating `Fix` through a saturating conversion
+that truncates toward zero. Simple module constants are expanded under their declared
+types before MIR. These additions advance Breakout to Class inheritance in
+`MakePaddle` and Raycaster to the `Vec2` Structure constructor in
+`Things.valo`. Native method and constructor bodies are not yet represented;
+the compiler must not treat positional constructor arguments as fields.
+The CLI lowers large project HIR/MIR on a bounded 16 MiB worker stack so
+deeply nested valid source reports a compiler diagnostic instead of overflowing
+the default Windows main-thread stack.
+The builtin registry now declares `Fix` and `Int` as `Int64`, matching the
+interpreter values they already produce; the previous `Int32` declarations
+could mislead frontend type inference.
 Managed globals, explicit initializers and dynamic arrays remain gated until
 module initialization and cleanup are defined. See
 [native-objects.md](native-objects.md) for the ownership and

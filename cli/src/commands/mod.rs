@@ -138,30 +138,44 @@ pub fn build(args: impl Iterator<Item = String>, color: ColorChoice) -> Result<(
             e.render_colored(&project.source_map, color.enabled())
         )
     })?;
-    let mut bodies = (0..program.functions.len())
-        .map(|index| {
-            compilation.lower_function_body(index).map_err(|e| {
-                format!(
-                    "typed HIR: {}",
-                    e.render_colored(&project.source_map, color.enabled())
-                )
+    // Windows gives the process main thread a small default stack. HIR and MIR
+    // traverse nested source control flow recursively; compile on a bounded,
+    // explicitly sized worker stack so ordinary nested Select Case bodies do
+    // not terminate the process before they can produce a diagnostic.
+    let mut mir = std::thread::scope(|scope| {
+        let worker = std::thread::Builder::new()
+            .name("valo-native-lowering".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn_scoped(scope, || {
+                let mut bodies = (0..program.functions.len())
+                    .map(|index| {
+                        compilation.lower_function_body(index).map_err(|e| {
+                            format!(
+                                "typed HIR: {}",
+                                e.render_colored(&project.source_map, color.enabled())
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                bodies.extend(
+                    (0..program.procedures.len())
+                        .map(|index| {
+                            compilation.lower_procedure_body(index).map_err(|e| {
+                                format!(
+                                    "typed HIR: {}",
+                                    e.render_colored(&project.source_map, color.enabled())
+                                )
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+                valo_core::mir::lower_module(&bodies).map_err(|e| format!("MIR lowering: {e:?}"))
             })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    bodies.extend(
-        (0..program.procedures.len())
-            .map(|index| {
-                compilation.lower_procedure_body(index).map_err(|e| {
-                    format!(
-                        "typed HIR: {}",
-                        e.render_colored(&project.source_map, color.enabled())
-                    )
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-    );
-    let mut mir =
-        valo_core::mir::lower_module(&bodies).map_err(|e| format!("MIR lowering: {e:?}"))?;
+            .map_err(|error| format!("native lowering worker: {error}"))?;
+        worker
+            .join()
+            .map_err(|_| "native lowering worker panicked".to_string())?
+    })?;
     mir.entry = Some(entry_point.body_id(program.functions.len()));
     let tools = LlvmTools::discover().map_err(|e| e.to_string())?;
     let output = output.unwrap_or_else(|| {

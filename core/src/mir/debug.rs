@@ -49,6 +49,7 @@ pub fn format_function(function: &Function) -> String {
 fn format_instruction(kind: &InstructionKind) -> String {
     match kind {
         InstructionKind::Const(value) => format!("const {value:?}"),
+        InstructionKind::MathUnary { op, value } => format!("math.{op:?} %{}", value.0),
         InstructionKind::TupleInit(values) => format!("tuple.init {values:?}"),
         InstructionKind::ArrayInit { upper } => format!("array.init 0..={upper}"),
         InstructionKind::ArrayLen(array) => format!("array.len {}", format_place(array)),
@@ -118,6 +119,9 @@ fn format_instruction(kind: &InstructionKind) -> String {
         }
         InstructionKind::Arithmetic { op, left, right } => {
             format!("{op:?} %{}, %{}", left.0, right.0)
+        }
+        InstructionKind::Logical { op, left, right } => {
+            format!("logical.{op:?} %{}, %{}", left.0, right.0)
         }
         InstructionKind::Compare { op, left, right } => {
             format!("cmp.{op:?} %{}, %{}", left.0, right.0)

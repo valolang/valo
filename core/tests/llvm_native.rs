@@ -67,6 +67,14 @@ fn execute(source: &str, expected: i32) {
 }
 
 #[test]
+fn native_module_constants_keep_declared_types() {
+    execute(
+        "Public Const KEY_W As Int32 = 26\nPublic Const KEY_UP As Int32 = 82\nFunction Main() As Integer\nDim W As Int32 = KEY_W\nIf W = 26 And KEY_UP = 82 Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
 fn native_string_identity_copy_return_and_unicode_length() {
     execute(
         "Function Identity(Value As String) As String\nReturn Value\nEnd Function\nFunction Main() As Integer\nDim A As String = \"Valo 🦊\"\nDim B As String = Identity(A)\nIf A = B Then\nIf Len(B) = 6 Then\nReturn 0\nEnd If\nEnd If\nReturn 1\nEnd Function",
@@ -340,14 +348,58 @@ fn native_select_case_enum_members_use_numeric_values() {
 }
 
 #[test]
-fn native_lazy_iif_reports_its_missing_control_flow_lowering() {
-    let program =
-        parse_source("Function Main() As Integer\nReturn IIf(True, 0, 1)\nEnd Function").unwrap();
-    let error = lower_function_body(&program, 0).unwrap_err();
-    assert!(
-        error.message.contains("lazy IIf expression branching"),
-        "{error}"
+fn native_iif_evaluates_only_the_selected_branch() {
+    let source = "Function Tick(ByRef N As Integer, Value As Integer) As Integer\nN = N + 1\nReturn Value\nEnd Function\nFunction Main() As Integer\nDim N As Integer = 0\nDim Result As Integer = IIf(True, Tick(N, 42), Tick(N, 0))\nIf N = 1 Then\nReturn Result - 42\nEnd If\nReturn 1\nEnd Function";
+    execute(source, 0);
+    let interpreted = source.replace(
+        "Function Main() As Integer",
+        "Function NativeResult() As Integer",
+    ) + "\nSub Main()\nConsole.WriteLine(NativeResult())\nEnd Sub";
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["0"]);
+}
+
+#[test]
+fn native_iif_string_branch_owns_only_the_chosen_value() {
+    execute(
+        "Function Main() As Integer\nDim S As String = IIf(True, \"A\" & \"B\", \"C\" & \"D\")\nIf S = \"AB\" Then\nReturn 0\nEnd If\nReturn 1\nEnd Function",
+        0,
     );
+}
+
+#[test]
+fn native_fix_truncates_toward_zero_and_clng_preserves_integer_value() {
+    let source = "Function Main() As Integer\nDim A As Integer = CLng(Fix(-3.9))\nDim B As Integer = CLng(Fix(3.9))\nReturn A + B\nEnd Function";
+    execute(source, 0);
+    let interpreted = source.replace("Function Main() As Integer", "Function Result() As Integer")
+        + "\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub";
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["0"]);
+}
+
+#[test]
+fn native_math_abs_sin_cos_match_interpreter_for_simple_inputs() {
+    let source = "Function Main() As Integer\nIf Abs(-3.5) = 3.5 Then\nIf Sin(0) = 0 Then\nIf Cos(0) = 1 Then\nReturn 0\nEnd If\nEnd If\nEnd If\nReturn 1\nEnd Function";
+    execute(source, 0);
+    let interpreted = source.replace("Function Main() As Integer", "Function Result() As Integer")
+        + "\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub";
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["0"]);
+}
+
+#[test]
+fn native_boolean_and_is_eager_while_andalso_short_circuits() {
+    let source = "Function Tick(ByRef N As Integer) As Boolean\nN = N + 1\nReturn True\nEnd Function\nFunction Main() As Integer\nDim N As Integer = 0\nDim Eager As Boolean = False And Tick(N)\nDim Lazy As Boolean = False AndAlso Tick(N)\nIf N = 1 Then\nReturn 0\nEnd If\nReturn 1\nEnd Function";
+    execute(source, 0);
+    let interpreted = source.replace("Function Main() As Integer", "Function Result() As Integer")
+        + "\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub";
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["0"]);
+}
+
+#[test]
+fn native_boolean_or_is_eager_while_orelse_short_circuits() {
+    let source = "Function Tick(ByRef N As Integer) As Boolean\nN = N + 1\nReturn False\nEnd Function\nFunction Main() As Integer\nDim N As Integer = 0\nDim Eager As Boolean = True Or Tick(N)\nDim Lazy As Boolean = True OrElse Tick(N)\nIf N = 1 Then\nReturn 0\nEnd If\nReturn 1\nEnd Function";
+    execute(source, 0);
+    let interpreted = source.replace("Function Main() As Integer", "Function Result() As Integer")
+        + "\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub";
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["0"]);
 }
 
 #[test]
@@ -593,16 +645,21 @@ fn while_do_exit_continue_and_negative_for_step_run_natively() {
 }
 
 #[test]
-fn unsupported_checked_narrowing_is_a_controlled_backend_error() {
+fn checked_signed_narrowing_emits_range_guards_and_trap() {
     let Some(tools) = tools() else {
         return;
     };
     let program = module(
         "Function Main() As Integer\nDim X As Integer = 1000\nDim Y As Short = X\nReturn Y\nEnd Function",
     );
-    let error = render_module(&program, &tools.target).unwrap_err();
-    assert_eq!(error.stage, "native eligibility");
-    assert!(error.message.contains("checked conversion"), "{error}");
+    let ir = render_module(&program, &tools.target).unwrap();
+    assert!(ir.contains("icmp slt i32"), "{ir}");
+    assert!(ir.contains("icmp sgt i32"), "{ir}");
+    assert!(ir.contains("call void @llvm.trap()"), "{ir}");
+    execute(
+        "Function Main() As Integer\nDim X As Integer = 1000\nDim Y As Short = X\nReturn Y - 1000\nEnd Function",
+        0,
+    );
 }
 
 #[test]

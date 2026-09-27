@@ -330,6 +330,28 @@ fn write_statement(output: &mut String, body: &TypedBody, statement: &Statement,
 fn expression(expression: &Expression) -> String {
     let content = match &expression.kind {
         ExpressionKind::Constant(value) => format!("{value:?}"),
+        ExpressionKind::Conditional {
+            condition,
+            when_true,
+            when_false,
+        } => format!(
+            "conditional({}, {}, {})",
+            self::expression(condition),
+            self::expression(when_true),
+            self::expression(when_false)
+        ),
+        ExpressionKind::MathUnary { operation, value } => {
+            format!("math.{operation:?}({})", self::expression(value))
+        }
+        ExpressionKind::Logical {
+            operation,
+            left,
+            right,
+        } => format!(
+            "logical.{operation:?}({}, {})",
+            self::expression(left),
+            self::expression(right)
+        ),
         ExpressionKind::StringConcat { left, right } => format!(
             "string.concat({}, {})",
             self::expression(left),

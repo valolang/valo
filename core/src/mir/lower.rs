@@ -1144,6 +1144,14 @@ impl<'a> Builder<'a> {
     }
 
     fn expr(&mut self, expr: &h::Expression) -> Result<m::TempId, LowerError> {
+        if let h::ExpressionKind::Conditional {
+            condition,
+            when_true,
+            when_false,
+        } = &expr.kind
+        {
+            return self.conditional_expr(condition, when_true, when_false, expr);
+        }
         let kind = match &expr.kind {
             h::ExpressionKind::Constant(value) => m::InstructionKind::Const(match value {
                 h::Constant::ZeroAggregate => m::Constant::ZeroAggregate,
@@ -1154,6 +1162,20 @@ impl<'a> Builder<'a> {
                 h::Constant::String(value) => m::Constant::String(value.clone()),
                 h::Constant::NullReference => m::Constant::NullReference,
             }),
+            h::ExpressionKind::Conditional { .. } => unreachable!("lowered above"),
+            h::ExpressionKind::MathUnary { operation, value } => m::InstructionKind::MathUnary {
+                op: *operation,
+                value: self.expr(value)?,
+            },
+            h::ExpressionKind::Logical {
+                operation,
+                left,
+                right,
+            } => m::InstructionKind::Logical {
+                op: *operation,
+                left: self.expr(left)?,
+                right: self.expr(right)?,
+            },
             h::ExpressionKind::StringConcat { left, right } => m::InstructionKind::StringConcat {
                 left: self.expr(left)?,
                 right: self.expr(right)?,
@@ -1279,6 +1301,74 @@ impl<'a> Builder<'a> {
             }
         };
         Ok(self.value(kind, expr.ty.clone(), expr.span))
+    }
+
+    fn conditional_expr(
+        &mut self,
+        condition: &h::Expression,
+        when_true: &h::Expression,
+        when_false: &h::Expression,
+        whole: &h::Expression,
+    ) -> Result<m::TempId, LowerError> {
+        let choice = self.expr(condition)?;
+        let true_block = self.block("conditional.true");
+        let false_block = self.block("conditional.false");
+        let join_block = self.block("conditional.join");
+        let id = m::LocalId(self.function.locals.len());
+        self.function.locals.push(m::Local {
+            id,
+            ty: whole.ty.clone(),
+            properties: crate::frontend::semantics::type_properties::TypeProperties {
+                copy: crate::frontend::semantics::type_properties::KnownProperty::Yes,
+                requires_drop: if whole.ty == TypeName::String {
+                    crate::frontend::semantics::type_properties::KnownProperty::Yes
+                } else {
+                    crate::frontend::semantics::type_properties::KnownProperty::No
+                },
+            },
+            storage: h::LocalStorage::Value,
+            parameter_index: None,
+            span: whole.span,
+        });
+        let result_place = m::Place {
+            root: m::PlaceRoot::Local(id),
+            projections: Vec::new(),
+            ty: whole.ty.clone(),
+        };
+        self.terminate(
+            m::TerminatorKind::Branch {
+                condition: choice,
+                then_block: true_block,
+                else_block: false_block,
+            },
+            whole.span,
+        );
+        self.current = Some(true_block);
+        let value = self.expr(when_true)?;
+        self.store(result_place.clone(), value, when_true.span);
+        self.goto(join_block, whole.span);
+        self.current = Some(false_block);
+        let value = self.expr(when_false)?;
+        self.store(result_place.clone(), value, when_false.span);
+        self.goto(join_block, whole.span);
+        self.current = Some(join_block);
+        if whole.ty == TypeName::String {
+            // The hidden slot owns the branch result. Clone into the
+            // expression result, then release the slot's share exactly once.
+            let result = self.value(
+                m::InstructionKind::CloneString(result_place.clone()),
+                whole.ty.clone(),
+                whole.span,
+            );
+            self.emit(m::InstructionKind::Drop(result_place), None, whole.span);
+            Ok(result)
+        } else {
+            Ok(self.value(
+                m::InstructionKind::Load(result_place),
+                whole.ty.clone(),
+                whole.span,
+            ))
+        }
     }
 
     fn call_arguments(

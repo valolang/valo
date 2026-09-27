@@ -635,6 +635,24 @@ fn check_expression(
             Ok(())
         }
         ExpressionKind::Convert { value, .. } => check_expression(body, value, states),
+        ExpressionKind::MathUnary { value, .. } => check_expression(body, value, states),
+        ExpressionKind::Logical { left, right, .. } => {
+            check_expression(body, left, states)?;
+            check_expression(body, right, states)
+        }
+        ExpressionKind::Conditional {
+            condition,
+            when_true,
+            when_false,
+        } => {
+            check_expression(body, condition, states)?;
+            let mut true_state = states.to_vec();
+            let mut false_state = states.to_vec();
+            check_expression(body, when_true, &mut true_state)?;
+            check_expression(body, when_false, &mut false_state)?;
+            merge(states, &true_state, &false_state);
+            Ok(())
+        }
         ExpressionKind::Arithmetic { left, right, .. }
         | ExpressionKind::Compare { left, right, .. } => {
             check_expression(body, left, states)?;

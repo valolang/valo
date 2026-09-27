@@ -199,7 +199,9 @@ fn instruction_uses(kind: &InstructionKind) -> Vec<TempId> {
         | InstructionKind::NewCollection
         | InstructionKind::EndBorrow(_)
         | InstructionKind::DropCandidate(_) => vec![],
-        InstructionKind::StringLen(value) | InstructionKind::StringFormat { value, .. } => {
+        InstructionKind::StringLen(value)
+        | InstructionKind::StringFormat { value, .. }
+        | InstructionKind::MathUnary { value, .. } => {
             vec![*value]
         }
         InstructionKind::BoxDynamic { value, .. }
@@ -234,7 +236,8 @@ fn instruction_uses(kind: &InstructionKind) -> Vec<TempId> {
             used.push(*value);
             used
         }
-        InstructionKind::Arithmetic { left, right, .. }
+        InstructionKind::Logical { left, right, .. }
+        | InstructionKind::Arithmetic { left, right, .. }
         | InstructionKind::Compare { left, right, .. } => vec![*left, *right],
         InstructionKind::Cast { value, .. } => vec![*value],
         InstructionKind::Call { arguments, .. } => arguments
@@ -275,6 +278,13 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
             };
             if !valid {
                 return Err("MIR constant type is incorrect".into());
+            }
+        }
+        InstructionKind::MathUnary { value, .. } => {
+            if !temp_type(function, *value)?.same_type(&TypeName::Double)
+                || !result.is_some_and(|ty| ty.same_type(&TypeName::Double))
+            {
+                return Err("MIR math builtin requires Double operand and result".into());
             }
         }
         InstructionKind::TupleInit(values) => {
@@ -500,6 +510,14 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
                 && !function.has_managed_fields(&ty)
             {
                 return Err("MIR Replace requires a managed Place".into());
+            }
+        }
+        InstructionKind::Logical { left, right, .. } => {
+            if !temp_type(function, *left)?.same_type(&TypeName::Boolean)
+                || !temp_type(function, *right)?.same_type(&TypeName::Boolean)
+                || !result.is_some_and(|ty| ty.same_type(&TypeName::Boolean))
+            {
+                return Err("MIR logical operation requires Boolean operands and result".into());
             }
         }
         InstructionKind::Arithmetic { op, left, right } => {

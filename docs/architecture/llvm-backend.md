@@ -166,6 +166,10 @@ handle enters HIR or MIR.
 | Fixed-array For Each | Yes | Yes / Yes | Yes, entry snapshot |
 | Numeric/Boolean `Select Case` (`Case` values, ranges, `Case Is`) | Yes | Yes / Yes | Yes, selector evaluated once |
 | String `Select Case` value/range/`Case Is` tests | Yes | Yes / Yes | Yes, selector and reached bounds have lexical Drop scope; Binary comparison |
+| `IIf`, `AndAlso`, `OrElse` | Yes | Yes / Yes | Yes, CFG preserves short-circuit evaluation |
+| Boolean `And` / `Or` | Yes | Yes / Yes | Yes, both operands evaluated |
+| `Fix`, integral `CLng`, `Abs`, `Sin`, `Cos` | Yes | Yes / Yes | Yes for supported numeric inputs; float `CLng` remains gated |
+| Simple module constants | Yes | Yes / Yes | Yes, literal/unary/binary expressions under declared type |
 | Module-level mutable trivial values and zero-based fixed arrays of trivial values | Yes | Yes / Yes | Yes, zero-initialized shared native globals |
 | Module-level managed, initialized, dynamic or non-zero-based storage | Yes | Partial | Controlled unsupported |
 | Whole-array scalar assignment, array argument/return | Restricted | No / partial | No |
@@ -203,6 +207,14 @@ storage. This initial global contract supports default-zero trivial values;
 explicit initializers and managed global cleanup require a separate
 initialization/finalization model. Enum members used as values lower to their
 validated integral constants in HIR, including in `Select Case`.
+Native HIR also expands simple module constants before MIR. Lazy conditional
+expressions become ordinary MIR branches, with managed results cloned and
+released through the existing ownership operations. LLVM uses
+`llvm.fptosi.sat` for floating `Fix` with truncation toward zero, and guarded signed
+narrowing for checked integer conversions. Floating `CLng` is still rejected
+until its rounding contract is implemented. The CLI uses a bounded 16 MiB
+worker stack for HIR/MIR lowering of large nested source; this does not change
+the compiler's semantic limits.
 The next project milestones need
 resolved Class constructors/methods and interface
 dispatch before the games reach their SDL/FFI calls. Native exceptions,

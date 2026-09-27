@@ -468,7 +468,8 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
         target.data_layout, target.triple
     )
     .unwrap();
-    writeln!(out, "declare void @llvm.trap()\n").unwrap();
+    writeln!(out, "declare void @llvm.trap()\ndeclare i32 @llvm.fptosi.sat.i32.f32(float)\ndeclare i32 @llvm.fptosi.sat.i32.f64(double)\ndeclare i64 @llvm.fptosi.sat.i64.f32(float)\ndeclare i64 @llvm.fptosi.sat.i64.f64(double)\n").unwrap();
+    writeln!(out, "declare double @llvm.fabs.f64(double)\ndeclare double @llvm.sin.f64(double)\ndeclare double @llvm.cos.f64(double)\n").unwrap();
     writeln!(out, "declare ptr @__valo_string_clone(ptr)\ndeclare void @__valo_string_release(ptr)\ndeclare ptr @__valo_string_concat_consume(ptr, ptr)\ndeclare i32 @__valo_string_compare_consume(ptr, ptr)\ndeclare i32 @__valo_string_len_consume(ptr)\ndeclare ptr @__valo_string_from_i64(i64)\ndeclare ptr @__valo_string_from_u64(i64)\ndeclare ptr @__valo_string_from_fixed(double, i32)\ndeclare ptr @__valo_string_from_bool(i32)\n").unwrap();
     writeln!(out, "declare ptr @__valo_object_alloc(i64, ptr)\ndeclare ptr @__valo_object_retain(ptr)\ndeclare void @__valo_object_release(ptr)\n").unwrap();
     writeln!(out, "declare ptr @__valo_dynamic_alloc(i64, ptr, ptr)\ndeclare ptr @__valo_dynamic_data(ptr)\ndeclare ptr @__valo_dynamic_tag(ptr)\ndeclare ptr @__valo_dynamic_retain(ptr)\ndeclare void @__valo_dynamic_release(ptr)\ndeclare ptr @__valo_collection_new()\ndeclare ptr @__valo_collection_retain(ptr)\ndeclare void @__valo_collection_release(ptr)\ndeclare void @__valo_collection_add_consume(ptr, ptr, i64)\ndeclare i32 @__valo_collection_count(ptr)\ndeclare ptr @__valo_collection_item(ptr, i64)\ndeclare void @__valo_collection_remove(ptr, i64)\ndeclare ptr @__valo_collection_snapshot(ptr)\n").unwrap();
@@ -1422,31 +1423,80 @@ fn lower_instruction(
             )
             .unwrap();
         }
+        m::InstructionKind::Logical { op, left, right } => {
+            let opcode = match op {
+                crate::frontend::semantics::typed_hir::LogicalOp::And => "and",
+                crate::frontend::semantics::typed_hir::LogicalOp::Or => "or",
+            };
+            writeln!(
+                out,
+                "  {} = {opcode} i1 {}, {}",
+                result.as_ref().expect("verified"),
+                value(values, *left)?,
+                value(values, *right)?
+            )
+            .unwrap();
+        }
+        m::InstructionKind::MathUnary { op, value: source } => {
+            let intrinsic = match op {
+                crate::frontend::semantics::typed_hir::MathUnaryOp::Abs => "fabs",
+                crate::frontend::semantics::typed_hir::MathUnaryOp::Sin => "sin",
+                crate::frontend::semantics::typed_hir::MathUnaryOp::Cos => "cos",
+            };
+            writeln!(
+                out,
+                "  {} = call double @llvm.{intrinsic}.f64(double {})",
+                result.as_ref().expect("verified"),
+                value(values, *source)?
+            )
+            .unwrap();
+        }
         m::InstructionKind::Cast {
             value: source,
             conversion,
         } => {
             let from = &f.temps[source.0];
             let to = result_ty.expect("verified");
-            let (opcode, guard) = safe_cast(from, to, *conversion)?;
-            let source_value = value(values, *source)?.to_string();
-            if let Some(guard) = guard {
-                emit_cast_guard(out, from, &source_value, guard, guard_counter)?;
-            }
-            if let Some(opcode) = opcode {
+            if *conversion == Conversion::TruncateToInteger
+                && floating(from)
+                && matches!(to, TypeName::Int32 | TypeName::Int64)
+            {
+                let from_suffix = if *from == TypeName::Single {
+                    "f32"
+                } else {
+                    "f64"
+                };
+                let to_suffix = if *to == TypeName::Int32 { "i32" } else { "i64" };
                 writeln!(
                     out,
-                    "  {} = {opcode} {} {} to {}",
+                    "  {} = call {} @llvm.fptosi.sat.{to_suffix}.{from_suffix}({} {})",
                     result.as_ref().expect("verified"),
+                    types.ty(to)?,
                     types.ty(from)?,
-                    source_value,
-                    types.ty(to)?
+                    value(values, *source)?
                 )
                 .unwrap();
             } else {
-                // A same-width, same-representation conversion needs no code.
-                values[ins.result.expect("verified").0] = Some(source_value);
-                return Ok(());
+                let (opcode, guard) = safe_cast(from, to, *conversion)?;
+                let source_value = value(values, *source)?.to_string();
+                if let Some(guard) = guard {
+                    emit_cast_guard(out, from, &source_value, guard, guard_counter)?;
+                }
+                if let Some(opcode) = opcode {
+                    writeln!(
+                        out,
+                        "  {} = {opcode} {} {} to {}",
+                        result.as_ref().expect("verified"),
+                        types.ty(from)?,
+                        source_value,
+                        types.ty(to)?
+                    )
+                    .unwrap();
+                } else {
+                    // A same-width, same-representation conversion needs no code.
+                    values[ins.result.expect("verified").0] = Some(source_value);
+                    return Ok(());
+                }
             }
         }
         m::InstructionKind::Call {
@@ -1610,6 +1660,7 @@ fn float_literal(n: f64) -> String {
 enum CastGuard {
     NonNegative,
     AtMost(i64),
+    SignedRange { min: i64, max: i64 },
 }
 
 fn safe_cast(
@@ -1655,6 +1706,11 @@ fn safe_cast(
                 guard,
             ));
         }
+        if b < a && signed(from) && signed(to) {
+            let min = -(1i64 << (b - 1));
+            let max = (1i64 << (b - 1)) - 1;
+            return Ok((Some("trunc"), Some(CastGuard::SignedRange { min, max })));
+        }
     }
     if *from == TypeName::Single && *to == TypeName::Double {
         return Ok((Some("fpext"), None));
@@ -1684,6 +1740,9 @@ fn emit_cast_guard(
         }
         CastGuard::AtMost(max) => {
             writeln!(out, "  %castbad{id} = icmp ugt {ty} {value}, {max}").unwrap()
+        }
+        CastGuard::SignedRange { min, max } => {
+            writeln!(out, "  %castlow{id} = icmp slt {ty} {value}, {min}\n  %casthigh{id} = icmp sgt {ty} {value}, {max}\n  %castbad{id} = or i1 %castlow{id}, %casthigh{id}").unwrap()
         }
     }
     writeln!(out, "  br i1 %castbad{id}, label %casttrap{id}, label %castok{id}\ncasttrap{id}:\n  call void @llvm.trap()\n  unreachable\ncastok{id}:").unwrap();
@@ -1791,13 +1850,19 @@ mod tests {
             ),
             Ok((None, Some(CastGuard::AtMost(_))))
         ));
-        assert!(
+        assert!(matches!(
             safe_cast(
                 &TypeName::Int64,
                 &TypeName::Int32,
                 Conversion::NumericChecked
-            )
-            .is_err()
-        );
+            ),
+            Ok((
+                Some("trunc"),
+                Some(CastGuard::SignedRange {
+                    min: -2147483648,
+                    max: 2147483647
+                })
+            ))
+        ));
     }
 }

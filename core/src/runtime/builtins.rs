@@ -202,8 +202,8 @@ pub const BUILTINS: &[Builtin] = &[
     f("Atn", 1, 1, BuiltinReturn::Double),
     f("Cos", 1, 1, BuiltinReturn::Double),
     f("Exp", 1, 1, BuiltinReturn::Double),
-    f("Fix", 1, 1, BuiltinReturn::Integer),
-    f("Int", 1, 1, BuiltinReturn::Integer),
+    f("Fix", 1, 1, BuiltinReturn::Long),
+    f("Int", 1, 1, BuiltinReturn::Long),
     f("Log", 1, 1, BuiltinReturn::Double),
     s("Randomize", 0, 1, BuiltinReturn::Variant),
     f("Rnd", 0, 1, BuiltinReturn::Double),
@@ -533,6 +533,13 @@ mod tests {
         assert!(lookup("UCase").is_some());
         assert!(lookup("VBA.UCase").is_some());
         assert!(lookup("NotABuiltin").is_none());
+    }
+
+    #[test]
+    fn truncating_math_builtins_match_the_interpreter_integer_width() {
+        for name in ["Fix", "Int"] {
+            assert_eq!(lookup(name).unwrap().returns.type_name(), TypeName::Int64);
+        }
     }
 
     #[test]

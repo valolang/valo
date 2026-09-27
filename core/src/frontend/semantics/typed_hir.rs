@@ -485,6 +485,21 @@ impl ComparisonOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionKind {
     Constant(Constant),
+    /// Lazy value selection: only the chosen branch is evaluated.
+    Conditional {
+        condition: Box<Expression>,
+        when_true: Box<Expression>,
+        when_false: Box<Expression>,
+    },
+    MathUnary {
+        operation: MathUnaryOp,
+        value: Box<Expression>,
+    },
+    Logical {
+        operation: LogicalOp,
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
     StringConcat {
         left: Box<Expression>,
         right: Box<Expression>,
@@ -555,4 +570,17 @@ pub enum ExpressionKind {
         signature: CallSignature,
         arguments: Vec<CallArgument>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathUnaryOp {
+    Abs,
+    Sin,
+    Cos,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogicalOp {
+    And,
+    Or,
 }

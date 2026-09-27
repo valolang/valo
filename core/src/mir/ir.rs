@@ -2,6 +2,7 @@ use crate::frontend::semantics::arithmetic::ArithmeticOp;
 use crate::frontend::semantics::type_properties::TypeProperties;
 use crate::frontend::semantics::typed_hir::{
     ArgumentMode, BodyFunctionId, ComparisonOp, Conversion, DisposeMethodId, FieldId, LocalStorage,
+    LogicalOp, MathUnaryOp,
 };
 use crate::frontend::type_model::TypeName;
 use crate::runtime::Span;
@@ -188,6 +189,15 @@ pub enum BorrowKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstructionKind {
     Const(Constant),
+    MathUnary {
+        op: MathUnaryOp,
+        value: TempId,
+    },
+    Logical {
+        op: LogicalOp,
+        left: TempId,
+        right: TempId,
+    },
     TupleInit(Vec<TempId>),
     /// Fixed, zero-based array allocation. Bounds checks remain required.
     ArrayInit {

@@ -1236,6 +1236,21 @@ fn boolean_condition(condition: h::Expression) -> Result<h::Expression, Diagnost
     }
 }
 
+fn native_const_expr(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Integer(_)
+        | ExprKind::Long(_)
+        | ExprKind::LongLong(_)
+        | ExprKind::Single(_)
+        | ExprKind::Double(_)
+        | ExprKind::Boolean(_)
+        | ExprKind::String(_) => true,
+        ExprKind::Unary { expr, .. } => native_const_expr(expr),
+        ExprKind::Binary { left, right, .. } => native_const_expr(left) && native_const_expr(right),
+        _ => false,
+    }
+}
+
 fn statement_span(statement: &Stmt, fallback: Span) -> Span {
     match statement {
         Stmt::Dim { span, .. }
@@ -1766,6 +1781,63 @@ impl Builder<'_> {
             .map(Some)
             .ok_or_else(|| unsupported(&format!("unknown Enum member '{name}.{field}'"), span))
     }
+    fn module_constant(&self, name: &str, span: Span) -> Result<Option<h::Expression>, Diagnostic> {
+        let candidates = self
+            .program
+            .module_consts
+            .iter()
+            .filter(|decl| {
+                decl.name.eq_ignore_ascii_case(name)
+                    || self.program.owners.get(&decl.span).is_some_and(|owner| {
+                        format!("{owner}.{}", decl.name).eq_ignore_ascii_case(name)
+                    })
+            })
+            .collect::<Vec<_>>();
+        let same_owner = candidates
+            .iter()
+            .copied()
+            .filter(|decl| {
+                self.program
+                    .owners
+                    .get(&decl.span)
+                    .is_some_and(|owner| owner.eq_ignore_ascii_case(&self.owner))
+            })
+            .collect::<Vec<_>>();
+        let same_file = candidates
+            .iter()
+            .copied()
+            .filter(|decl| decl.span.file_id == self.source_file_id)
+            .collect::<Vec<_>>();
+        let matches = if !name.contains('.') && !same_owner.is_empty() {
+            same_owner
+        } else if !name.contains('.') && !same_file.is_empty() {
+            same_file
+        } else {
+            candidates
+        };
+        let [decl] = matches.as_slice() else {
+            if matches.is_empty() {
+                return Ok(None);
+            }
+            return Err(unsupported(
+                &format!("ambiguous module constant '{name}'"),
+                span,
+            ));
+        };
+        if !native_const_expr(&decl.value) {
+            return Err(unsupported(
+                "module constant expression requiring runtime evaluation",
+                decl.span,
+            ));
+        }
+        let value = self.expression(&decl.value)?;
+        let value = if let Some(ty) = &decl.ty {
+            convert(value, ty, h::Conversion::NumericChecked)?
+        } else {
+            value
+        };
+        Ok(Some(h::Expression { span, ..value }))
+    }
     fn place(&self, id: h::LocalId, span: Span) -> h::Expression {
         h::Expression {
             kind: h::ExpressionKind::Place(h::Place::local(id)),
@@ -1923,8 +1995,14 @@ impl Builder<'_> {
                 member_initializer,
             } => {
                 if !args.is_empty() || initializer.is_some() || member_initializer.is_some() {
+                    let kind = if matches!(class_name, TypeName::User(name) if self.program.types.iter().any(|decl| decl.kind == TypeKind::Structure && decl.name.eq_ignore_ascii_case(name)))
+                    {
+                        "Structure"
+                    } else {
+                        "Class"
+                    };
                     return Err(unsupported(
-                        "native Class constructor arguments or initializers",
+                        &format!("native {kind} constructor arguments or initializers"),
                         expr.span,
                     ));
                 }
@@ -1973,6 +2051,11 @@ impl Builder<'_> {
                 (h::ExpressionKind::Tuple(values), ty)
             }
             ExprKind::Variable(name) => {
+                if self.lookup(name, expr.span).is_err()
+                    && let Some(value) = self.module_constant(name, expr.span)?
+                {
+                    return Ok(value);
+                }
                 let place = self.named_place(name, expr.span)?;
                 let ty = place.ty.clone();
                 (h::ExpressionKind::Load(Box::new(place)), ty)
@@ -1995,6 +2078,36 @@ impl Builder<'_> {
                         right: Box::new(false_value),
                     },
                     TypeName::Boolean,
+                )
+            }
+            ExprKind::Unary {
+                op: crate::UnaryOp::Negate,
+                expr: operand,
+            } => {
+                let right = self.expression(operand)?;
+                let zero = match right.ty {
+                    TypeName::Single => h::Constant::Single(0.0),
+                    TypeName::Double => h::Constant::Double(0.0),
+                    TypeName::Int16 | TypeName::Int32 | TypeName::Int64 => h::Constant::Integer(0),
+                    _ => return Err(unsupported("unary negation of this native type", expr.span)),
+                };
+                let left = h::Expression {
+                    kind: h::ExpressionKind::Constant(zero),
+                    ty: right.ty.clone(),
+                    category: h::ValueCategory::Value,
+                    span: expr.span,
+                };
+                let signature = arithmetic::signature(ArithmeticOp::Subtract, &left.ty, &right.ty)
+                    .ok_or_else(|| unsupported("unary numeric negation", expr.span))?;
+                let ty = signature.result_type.clone();
+                (
+                    h::ExpressionKind::Arithmetic {
+                        operation: ArithmeticOp::Subtract,
+                        signature,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    ty,
                 )
             }
             ExprKind::Index { .. } => {
@@ -2022,6 +2135,13 @@ impl Builder<'_> {
             } => {
                 if let ExprKind::Variable(name) = &object.kind
                     && self.lookup(name, object.span).is_err()
+                    && let Some(value) =
+                        self.module_constant(&format!("{name}.{field}"), expr.span)?
+                {
+                    return Ok(value);
+                }
+                if let ExprKind::Variable(name) = &object.kind
+                    && self.lookup(name, object.span).is_err()
                     && let Some(value) = self.enum_member_value(name, field, expr.span)?
                 {
                     return Ok(h::Expression {
@@ -2036,6 +2156,51 @@ impl Builder<'_> {
                 (h::ExpressionKind::Load(Box::new(place)), ty)
             }
             ExprKind::Binary { left, op, right } => {
+                if matches!(
+                    op,
+                    crate::BinaryOp::LogicalAnd
+                        | crate::BinaryOp::LogicalOr
+                        | crate::BinaryOp::LogicalAndAlso
+                        | crate::BinaryOp::LogicalOrElse
+                ) {
+                    let left = boolean_condition(self.expression(left)?)?;
+                    let right = boolean_condition(self.expression(right)?)?;
+                    let constant = |value| h::Expression {
+                        kind: h::ExpressionKind::Constant(h::Constant::Boolean(value)),
+                        ty: TypeName::Boolean,
+                        category: h::ValueCategory::Value,
+                        span: expr.span,
+                    };
+                    let kind = match op {
+                        crate::BinaryOp::LogicalAnd => h::ExpressionKind::Logical {
+                            operation: h::LogicalOp::And,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        crate::BinaryOp::LogicalOr => h::ExpressionKind::Logical {
+                            operation: h::LogicalOp::Or,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        crate::BinaryOp::LogicalAndAlso => h::ExpressionKind::Conditional {
+                            condition: Box::new(left),
+                            when_true: Box::new(right),
+                            when_false: Box::new(constant(false)),
+                        },
+                        crate::BinaryOp::LogicalOrElse => h::ExpressionKind::Conditional {
+                            condition: Box::new(left),
+                            when_true: Box::new(constant(true)),
+                            when_false: Box::new(right),
+                        },
+                        _ => unreachable!(),
+                    };
+                    return Ok(h::Expression {
+                        kind,
+                        ty: TypeName::Boolean,
+                        category: h::ValueCategory::Value,
+                        span: expr.span,
+                    });
+                }
                 if matches!(op, crate::BinaryOp::Is | crate::BinaryOp::IsNot) {
                     let left = if matches!(left.kind, ExprKind::Nothing) {
                         let right_value = self.expression(right)?;
@@ -2216,6 +2381,76 @@ impl Builder<'_> {
                 type_args,
                 args,
             } => {
+                if type_args.is_empty()
+                    && args.len() == 1
+                    && !self.signatures.functions.contains_key(&key(name))
+                    && !self
+                        .signatures
+                        .functions
+                        .contains_key(&key(&format!("{}.{}", self.owner, name)))
+                {
+                    let operation = if name.eq_ignore_ascii_case("Abs") {
+                        Some(h::MathUnaryOp::Abs)
+                    } else if name.eq_ignore_ascii_case("Sin") {
+                        Some(h::MathUnaryOp::Sin)
+                    } else if name.eq_ignore_ascii_case("Cos") {
+                        Some(h::MathUnaryOp::Cos)
+                    } else {
+                        None
+                    };
+                    if let Some(operation) = operation {
+                        let value = self.expression(&args[0])?;
+                        if !(value.ty.is_integral()
+                            || matches!(value.ty, TypeName::Single | TypeName::Double))
+                        {
+                            return Err(unsupported(
+                                "native math builtin for this input type",
+                                expr.span,
+                            ));
+                        }
+                        let value =
+                            convert(value, &TypeName::Double, h::Conversion::NumericChecked)?;
+                        return Ok(h::Expression {
+                            kind: h::ExpressionKind::MathUnary {
+                                operation,
+                                value: Box::new(value),
+                            },
+                            ty: TypeName::Double,
+                            category: h::ValueCategory::Value,
+                            span: expr.span,
+                        });
+                    }
+                }
+                if type_args.is_empty()
+                    && args.len() == 1
+                    && !self.signatures.functions.contains_key(&key(name))
+                    && !self
+                        .signatures
+                        .functions
+                        .contains_key(&key(&format!("{}.{}", self.owner, name)))
+                    && (name.eq_ignore_ascii_case("Fix") || name.eq_ignore_ascii_case("CLng"))
+                {
+                    let value = self.expression(&args[0])?;
+                    if name.eq_ignore_ascii_case("Fix")
+                        && (value.ty.is_integral()
+                            || matches!(value.ty, TypeName::Single | TypeName::Double))
+                    {
+                        let conversion = if matches!(value.ty, TypeName::Single | TypeName::Double)
+                        {
+                            h::Conversion::TruncateToInteger
+                        } else {
+                            h::Conversion::NumericChecked
+                        };
+                        return convert(value, &TypeName::Int64, conversion);
+                    }
+                    if name.eq_ignore_ascii_case("CLng") && value.ty.is_integral() {
+                        return convert(value, &TypeName::Int64, h::Conversion::NumericChecked);
+                    }
+                    return Err(unsupported(
+                        "native Fix/CLng conversion for this input type",
+                        expr.span,
+                    ));
+                }
                 if name.eq_ignore_ascii_case("Len")
                     && type_args.is_empty()
                     && args.len() == 1
@@ -2396,8 +2631,37 @@ impl Builder<'_> {
                     function.return_type.clone(),
                 )
             }
-            ExprKind::IIf { .. } => {
-                return Err(unsupported("lazy IIf expression branching", expr.span));
+            ExprKind::IIf {
+                condition,
+                true_expr,
+                false_expr,
+            } => {
+                let condition = boolean_condition(self.expression(condition)?)?;
+                let when_true = self.expression(true_expr)?;
+                let when_false = self.expression(false_expr)?;
+                if !when_true.ty.same_type(&when_false.ty)
+                    || !(when_true.ty.is_integral()
+                        || matches!(
+                            when_true.ty,
+                            TypeName::Boolean
+                                | TypeName::Single
+                                | TypeName::Double
+                                | TypeName::String
+                        ))
+                {
+                    return Err(unsupported(
+                        "IIf branches with different or non-scalar native types",
+                        expr.span,
+                    ));
+                }
+                (
+                    h::ExpressionKind::Conditional {
+                        condition: Box::new(condition),
+                        when_true: Box::new(when_true.clone()),
+                        when_false: Box::new(when_false),
+                    },
+                    when_true.ty,
+                )
             }
             _ => return Err(unsupported("this expression", expr.span)),
         };

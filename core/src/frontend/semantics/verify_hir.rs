@@ -931,6 +931,50 @@ fn verify_expression(
             }
             Ok(())
         }
+        ExpressionKind::Conditional {
+            condition,
+            when_true,
+            when_false,
+        } => {
+            verify_expression(body, condition, current)?;
+            verify_expression(body, when_true, current)?;
+            verify_expression(body, when_false, current)?;
+            if condition.ty != TypeName::Boolean
+                || !when_true.ty.same_type(&when_false.ty)
+                || !expression.ty.same_type(&when_true.ty)
+                || expression.category != ValueCategory::Value
+            {
+                return Err(invalid(
+                    "Conditional expression has incompatible types",
+                    expression.span,
+                ));
+            }
+            Ok(())
+        }
+        ExpressionKind::MathUnary { value, .. } => {
+            verify_expression(body, value, current)?;
+            if value.ty != TypeName::Double || expression.ty != TypeName::Double {
+                return Err(invalid(
+                    "Resolved math builtin requires Double",
+                    expression.span,
+                ));
+            }
+            Ok(())
+        }
+        ExpressionKind::Logical { left, right, .. } => {
+            verify_expression(body, left, current)?;
+            verify_expression(body, right, current)?;
+            if left.ty != TypeName::Boolean
+                || right.ty != TypeName::Boolean
+                || expression.ty != TypeName::Boolean
+            {
+                return Err(invalid(
+                    "Logical expression requires Boolean operands",
+                    expression.span,
+                ));
+            }
+            Ok(())
+        }
         ExpressionKind::Arithmetic {
             signature,
             left,
