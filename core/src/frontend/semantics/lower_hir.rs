@@ -105,7 +105,52 @@ fn lower_callable_body(
         options: program_options(source),
         option_compare: source.option_compare,
         owner: program.owners.get(&span).cloned().unwrap_or_default(),
+        source_file_id: span.file_id,
         locals: Vec::new(),
+        globals: program
+            .module_vars
+            .iter()
+            .enumerate()
+            .map(|(index, var)| {
+                let array_upper = match &var.array {
+                    Some(ArrayDecl::Fixed(bounds)) if bounds.len() == 1 && bounds[0].lower == 0 => {
+                        Some(bounds[0].upper)
+                    }
+                    _ => None,
+                };
+                let element_ty = var.ty.clone().unwrap_or(TypeName::Variant);
+                let ty = if var.array.is_some() {
+                    TypeName::Array(Box::new(element_ty.clone()))
+                } else {
+                    element_ty.clone()
+                };
+                // A fixed, zero-based global is a value aggregate. The general
+                // Array type stays conservative because it also covers dynamic
+                // and non-zero-based arrays with different lifetime rules.
+                let properties = if array_upper.is_some() {
+                    crate::frontend::semantics::type_properties::properties(program, &element_ty)
+                } else {
+                    crate::frontend::semantics::type_properties::properties(program, &ty)
+                };
+                let owner = program
+                    .owners
+                    .get(&var.span)
+                    .map(String::as_str)
+                    .unwrap_or("");
+                h::Global {
+                    id: h::GlobalId(index),
+                    name: var.name.clone(),
+                    symbol_name: format!("{owner}::{}", var.name).to_ascii_lowercase(),
+                    properties,
+                    ty,
+                    array_upper,
+                    has_initializer: var.initializer.is_some()
+                        || var.as_new
+                        || var.collection_initializer.is_some(),
+                    span: var.span,
+                }
+            })
+            .collect(),
         fields: program
             .types
             .iter()
@@ -235,6 +280,7 @@ fn lower_callable_body(
         },
         return_type,
         locals: builder.locals,
+        globals: builder.globals,
         structures: program
             .types
             .iter()
@@ -404,8 +450,7 @@ fn lower_statements(
                 expr,
                 span,
             } => {
-                let id = builder.lookup(name, *target_span)?;
-                let target = builder.place(id, *target_span);
+                let target = builder.named_place(name, *target_span)?;
                 let source = if matches!(expr.kind, ExprKind::Nothing) {
                     null_reference(builder.program, &target.ty, expr.span)?
                 } else {
@@ -428,7 +473,7 @@ fn lower_statements(
                 expr,
                 span,
             } => {
-                let base = builder.place(builder.lookup(name, *target_span)?, *target_span);
+                let base = builder.named_place(name, *target_span)?;
                 let target = builder.indexed_place(base, indices, *target_span)?;
                 let value = convert(
                     builder.expression(expr)?,
@@ -961,14 +1006,14 @@ fn lower_statements(
                 else_body,
                 span,
             } => {
+                let scope = builder.enter_scope(*span);
                 let value = builder.expression(subject)?;
-                // The selector is evaluated exactly once. This first lowering
-                // supports only trivial scalar values: a managed selector
-                // needs a distinct lexical cleanup scope.
+                // The selector is evaluated exactly once inside a lexical
+                // scope whose cleanup also covers a managed String selector.
                 if !value.ty.is_integral()
                     && !matches!(
                         value.ty,
-                        TypeName::Boolean | TypeName::Single | TypeName::Double
+                        TypeName::Boolean | TypeName::Single | TypeName::Double | TypeName::String
                     )
                 {
                     return Err(unsupported(
@@ -984,14 +1029,20 @@ fn lower_statements(
                     h::LocalStorage::Value,
                     *span,
                 )?;
-                statements.push(h::Statement::Initialize {
+                let mut block = vec![h::Statement::Initialize {
                     target: id,
                     value,
                     span: *span,
-                });
+                }];
                 let decision = select_decision_tree(&hidden, branches, else_body, *span);
                 let (lowered, exits) = lower_statements(builder, &decision, return_type, *span)?;
-                statements.extend(lowered);
+                block.extend(lowered);
+                builder.leave_scope();
+                statements.push(h::Statement::Block {
+                    scope,
+                    body: block,
+                    span: *span,
+                });
                 returns = exits;
             }
             _ => {
@@ -1399,7 +1450,9 @@ struct Builder<'a> {
     options: Options,
     option_compare: crate::OptionCompare,
     owner: String,
+    source_file_id: crate::runtime::FileId,
     locals: Vec<h::Local>,
+    globals: Vec<h::Global>,
     fields: Vec<h::ResolvedField>,
     disposers: Vec<h::ResolvedDispose>,
     scopes: Vec<h::Scope>,
@@ -1586,6 +1639,133 @@ impl Builder<'_> {
             .and_then(|stack| stack.last().copied())
             .ok_or_else(|| unsupported(&format!("non-local place '{name}'"), span))
     }
+    fn named_place(&self, name: &str, span: Span) -> Result<h::Expression, Diagnostic> {
+        if let Ok(local) = self.lookup(name, span) {
+            return Ok(self.place(local, span));
+        }
+        let candidates = self
+            .globals
+            .iter()
+            .filter(|global| {
+                global.name.eq_ignore_ascii_case(name)
+                    || global.symbol_name.eq_ignore_ascii_case(name)
+                    || global
+                        .symbol_name
+                        .replace("::", ".")
+                        .eq_ignore_ascii_case(name)
+            })
+            .collect::<Vec<_>>();
+        let same_owner = candidates
+            .iter()
+            .copied()
+            .filter(|global| {
+                self.program
+                    .owners
+                    .get(&global.span)
+                    .is_some_and(|owner| owner.eq_ignore_ascii_case(&self.owner))
+            })
+            .collect::<Vec<_>>();
+        let same_file = candidates
+            .iter()
+            .copied()
+            .filter(|global| global.span.file_id == self.source_file_id)
+            .collect::<Vec<_>>();
+        let matches = if !name.contains('.') && !same_owner.is_empty() {
+            same_owner
+        } else if !name.contains('.') && !same_file.is_empty() {
+            same_file
+        } else {
+            candidates
+        };
+        let [global] = matches.as_slice() else {
+            if matches.is_empty() {
+                return Err(unsupported(&format!("non-local place '{name}'"), span));
+            }
+            return Err(unsupported(
+                &format!("ambiguous module-level place '{name}'"),
+                span,
+            ));
+        };
+        if global.has_initializer {
+            return Err(unsupported(
+                "native module-level value initializer",
+                global.span,
+            ));
+        }
+        if global.properties.copy != crate::frontend::semantics::type_properties::KnownProperty::Yes
+            || global.properties.requires_drop
+                != crate::frontend::semantics::type_properties::KnownProperty::No
+        {
+            return Err(unsupported(
+                "native module-level managed value storage",
+                global.span,
+            ));
+        }
+        if matches!(global.ty, TypeName::Array(_)) && global.array_upper.is_none() {
+            return Err(unsupported(
+                "native dynamic or nonzero-based module array",
+                global.span,
+            ));
+        }
+        Ok(h::Expression {
+            kind: h::ExpressionKind::Place(h::Place::global(global.id)),
+            ty: global.ty.clone(),
+            category: h::ValueCategory::Place,
+            span,
+        })
+    }
+    fn enum_member_value(
+        &self,
+        name: &str,
+        field: &str,
+        span: Span,
+    ) -> Result<Option<i64>, Diagnostic> {
+        let candidates = self.program.enums.iter().filter(|decl| {
+            decl.name.eq_ignore_ascii_case(name)
+                || (!name.contains('.')
+                    && decl
+                        .name
+                        .rsplit('.')
+                        .next()
+                        .is_some_and(|simple| simple.eq_ignore_ascii_case(name)))
+        });
+        let same_owner = candidates
+            .clone()
+            .filter(|decl| {
+                self.program
+                    .owners
+                    .get(&decl.span)
+                    .is_some_and(|owner| owner.eq_ignore_ascii_case(&self.owner))
+            })
+            .collect::<Vec<_>>();
+        let same_file = candidates
+            .clone()
+            .filter(|decl| decl.span.file_id == self.source_file_id)
+            .collect::<Vec<_>>();
+        let matches = if !name.contains('.') && !same_owner.is_empty() {
+            same_owner
+        } else if !name.contains('.') && !same_file.is_empty() {
+            same_file
+        } else {
+            candidates.collect::<Vec<_>>()
+        };
+        let [decl] = matches.as_slice() else {
+            if matches.is_empty() {
+                return Ok(None);
+            }
+            return Err(unsupported(&format!("ambiguous Enum name '{name}'"), span));
+        };
+        let enum_sig = self
+            .types
+            .get_enum(&decl.name)
+            .ok_or_else(|| unsupported(&format!("unresolved Enum '{name}'"), span))?;
+        enum_sig
+            .members
+            .get(&key(field))
+            .copied()
+            .map(Some)
+            .ok_or_else(|| unsupported(&format!("unknown Enum member '{name}.{field}'"), span))
+    }
     fn place(&self, id: h::LocalId, span: Span) -> h::Expression {
         h::Expression {
             kind: h::ExpressionKind::Place(h::Place::local(id)),
@@ -1675,7 +1855,7 @@ impl Builder<'_> {
     }
     fn source_place(&self, expr: &Expr) -> Result<h::Expression, Diagnostic> {
         match &expr.kind {
-            ExprKind::Variable(name) => Ok(self.place(self.lookup(name, expr.span)?, expr.span)),
+            ExprKind::Variable(name) => self.named_place(name, expr.span),
             ExprKind::Index { target, args } => {
                 self.indexed_place(self.source_place(target)?, args, expr.span)
             }
@@ -1689,16 +1869,16 @@ impl Builder<'_> {
                 type_args,
                 args,
             } if type_args.is_empty()
-                && self
+                && (self
                     .lookup(name, expr.span)
                     .ok()
-                    .is_some_and(|id| matches!(self.locals[id.0].ty, TypeName::Array(_))) =>
+                    .is_some_and(|id| matches!(self.locals[id.0].ty, TypeName::Array(_)))
+                    || self.globals.iter().any(|global| {
+                        global.name.eq_ignore_ascii_case(name)
+                            && matches!(global.ty, TypeName::Array(_))
+                    })) =>
             {
-                self.indexed_place(
-                    self.place(self.lookup(name, expr.span)?, expr.span),
-                    args,
-                    expr.span,
-                )
+                self.indexed_place(self.named_place(name, expr.span)?, args, expr.span)
             }
             _ => Err(unsupported("this addressable place", expr.span)),
         }
@@ -1793,8 +1973,7 @@ impl Builder<'_> {
                 (h::ExpressionKind::Tuple(values), ty)
             }
             ExprKind::Variable(name) => {
-                let id = self.lookup(name, expr.span)?;
-                let place = self.place(id, expr.span);
+                let place = self.named_place(name, expr.span)?;
                 let ty = place.ty.clone();
                 (h::ExpressionKind::Load(Box::new(place)), ty)
             }
@@ -1837,8 +2016,21 @@ impl Builder<'_> {
                 )
             }
             ExprKind::MemberAccess {
-                conditional: false, ..
+                object,
+                field,
+                conditional: false,
             } => {
+                if let ExprKind::Variable(name) = &object.kind
+                    && self.lookup(name, object.span).is_err()
+                    && let Some(value) = self.enum_member_value(name, field, expr.span)?
+                {
+                    return Ok(h::Expression {
+                        kind: h::ExpressionKind::Constant(h::Constant::Integer(value)),
+                        ty: TypeName::Int16,
+                        category: h::ValueCategory::Value,
+                        span: expr.span,
+                    });
+                }
                 let place = self.source_place(expr)?;
                 let ty = place.ty.clone();
                 (h::ExpressionKind::Load(Box::new(place)), ty)
@@ -2044,10 +2236,17 @@ impl Builder<'_> {
                     }
                 }
                 if type_args.is_empty()
-                    && let Ok(id) = self.lookup(name, expr.span)
-                    && matches!(self.locals[id.0].ty, TypeName::Array(_))
+                    && (self
+                        .lookup(name, expr.span)
+                        .ok()
+                        .is_some_and(|id| matches!(self.locals[id.0].ty, TypeName::Array(_)))
+                        || self.globals.iter().any(|global| {
+                            global.name.eq_ignore_ascii_case(name)
+                                && matches!(global.ty, TypeName::Array(_))
+                        }))
                 {
-                    let place = self.indexed_place(self.place(id, expr.span), args, expr.span)?;
+                    let place =
+                        self.indexed_place(self.named_place(name, expr.span)?, args, expr.span)?;
                     let ty = place.ty.clone();
                     return Ok(h::Expression {
                         kind: h::ExpressionKind::Load(Box::new(place)),
@@ -2055,12 +2254,6 @@ impl Builder<'_> {
                         category: h::ValueCategory::Value,
                         span: expr.span,
                     });
-                }
-                if matches!(self.symbols.get(&key(name)), Some(VarType::Array(..))) {
-                    return Err(unsupported(
-                        "native module-level array storage and indexing",
-                        expr.span,
-                    ));
                 }
                 if !type_args.is_empty() {
                     return Err(unsupported("generic calls", expr.span));
@@ -2202,6 +2395,9 @@ impl Builder<'_> {
                     },
                     function.return_type.clone(),
                 )
+            }
+            ExprKind::IIf { .. } => {
+                return Err(unsupported("lazy IIf expression branching", expr.span));
             }
             _ => return Err(unsupported("this expression", expr.span)),
         };

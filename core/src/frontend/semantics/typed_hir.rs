@@ -12,6 +12,21 @@ pub struct BodyFunctionId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GlobalId(pub usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PlaceRoot {
+    Local(LocalId),
+    Global(GlobalId),
+}
+impl PlaceRoot {
+    pub fn local(self) -> Option<LocalId> {
+        match self {
+            Self::Local(id) => Some(id),
+            Self::Global(_) => None,
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LoopId(pub usize);
@@ -57,7 +72,7 @@ pub struct ResolvedField {
 /// identities and bounds have been resolved by the frontend.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Place {
-    pub root: LocalId,
+    pub root: PlaceRoot,
     pub projections: Vec<Projection>,
 }
 
@@ -100,7 +115,14 @@ pub enum PlaceOverlap {
 impl Place {
     pub fn local(root: LocalId) -> Self {
         Self {
-            root,
+            root: PlaceRoot::Local(root),
+            projections: Vec::new(),
+        }
+    }
+
+    pub fn global(root: GlobalId) -> Self {
+        Self {
+            root: PlaceRoot::Global(root),
             projections: Vec::new(),
         }
     }
@@ -201,6 +223,18 @@ pub struct Local {
     pub span: Span,
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct Global {
+    pub id: GlobalId,
+    pub name: String,
+    pub symbol_name: String,
+    pub ty: TypeName,
+    pub properties: TypeProperties,
+    /// Inclusive upper bound for the current zero-based fixed-array subset.
+    pub array_upper: Option<i64>,
+    pub has_initializer: bool,
+    pub span: Span,
+}
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypedBody {
     pub function: BodyFunctionId,
     pub name: String,
@@ -208,6 +242,7 @@ pub struct TypedBody {
     pub symbol_name: String,
     pub return_type: TypeName,
     pub locals: Vec<Local>,
+    pub globals: Vec<Global>,
     /// Declared value types, including empty Structures, in source declaration order.
     pub structures: Vec<TypeName>,
     /// Native Class identities; fields share the resolved FieldId table.
@@ -263,6 +298,13 @@ impl TypedBody {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
+    /// A lexical region with normal and transfer cleanup, independent of
+    /// source control-flow syntax.
+    Block {
+        scope: ScopeId,
+        body: Vec<Statement>,
+        span: Span,
+    },
     Initialize {
         target: LocalId,
         value: Expression,

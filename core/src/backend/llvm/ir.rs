@@ -484,6 +484,56 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
         writeln!(out, "@.valo_string_{id} = private constant {{ i64, i64, i64, [{} x i8] }} {{ i64 -1, i64 {}, i64 {}, [{} x i8] c\"{}\" }}", bytes.len(), bytes.len(), value.chars().count(), bytes.len(), encoded).unwrap();
     }
     writeln!(out, "{}", types.definitions()?).unwrap();
+    if let Some(first) = module.functions.first() {
+        for global in &first.globals {
+            if global.has_initializer
+                || global.properties.copy != KnownProperty::Yes
+                || global.properties.requires_drop != KnownProperty::No
+            {
+                return Err(BackendError::new(
+                    "native eligibility",
+                    format!(
+                        "module variable '{}' needs unsupported managed or explicit initialization",
+                        global.symbol_name
+                    ),
+                ));
+            }
+            match &global.ty {
+                TypeName::Array(element) => {
+                    let length = global
+                        .array_upper
+                        .and_then(|upper| upper.checked_add(1))
+                        .and_then(|length| usize::try_from(length).ok())
+                        .filter(|length| *length <= 1_000_000)
+                        .ok_or_else(|| {
+                            BackendError::new(
+                                "native eligibility",
+                                format!(
+                                    "module array '{}' needs a supported zero-based fixed bound",
+                                    global.symbol_name
+                                ),
+                            )
+                        })?;
+                    writeln!(
+                        out,
+                        "@.valo_global_data{} = internal global [{} x {}] zeroinitializer",
+                        global.id.0,
+                        length,
+                        types.ty(element)?
+                    )
+                    .unwrap();
+                    writeln!(out, "@.valo_global{} = internal global {{ i64, ptr }} {{ i64 {}, ptr @.valo_global_data{} }}", global.id.0, length, global.id.0).unwrap();
+                }
+                _ => writeln!(
+                    out,
+                    "@.valo_global{} = internal global {} zeroinitializer",
+                    global.id.0,
+                    types.ty(&global.ty)?
+                )
+                .unwrap(),
+            }
+        }
+    }
     for (id, ty) in dynamic_types.iter().enumerate() {
         writeln!(out, "@.valo_type_tag_{id} = private global i8 0").unwrap();
         writeln!(
@@ -518,7 +568,8 @@ pub fn render_module(module: &m::Module, target: &Target) -> Result<String, Back
         writeln!(out, "  ret void\n}}\n").unwrap();
     }
     for f in &module.functions {
-        if f.fields != types.fields
+        if f.globals != module.functions[0].globals
+            || f.fields != types.fields
             || f.structures != types.structures
             || f.classes != types.classes
         {
@@ -669,13 +720,18 @@ fn place_ptr(
     values: &[Option<String>],
     counter: &mut usize,
 ) -> Result<String, BackendError> {
-    let local = &f.locals[place.root.0];
-    let mut ptr = if local.storage == LocalStorage::Value {
-        format!("%l{}", place.root.0)
-    } else {
-        format!("%p{}", local.parameter_index.expect("borrowed parameter"))
+    let (mut ptr, mut ty) = match place.root {
+        m::PlaceRoot::Local(id) => {
+            let local = &f.locals[id.0];
+            let ptr = if local.storage == LocalStorage::Value {
+                format!("%l{}", id.0)
+            } else {
+                format!("%p{}", local.parameter_index.expect("borrowed parameter"))
+            };
+            (ptr, local.ty.clone())
+        }
+        m::PlaceRoot::Global(id) => (format!("@.valo_global{}", id.0), f.globals[id.0].ty.clone()),
     };
-    let mut ty = local.ty.clone();
     for projection in &place.projections {
         if let m::Projection::Index(index) = projection {
             let TypeName::Array(element) = &ty else {
@@ -1059,7 +1115,10 @@ fn lower_instruction(
         }
         m::InstructionKind::Load(place) | m::InstructionKind::Move(place) => {
             if matches!(ins.kind, m::InstructionKind::Move(_))
-                && f.locals[place.root.0].properties.copy != KnownProperty::Yes
+                && place
+                    .root
+                    .local()
+                    .is_none_or(|id| f.locals[id.0].properties.copy != KnownProperty::Yes)
             {
                 return Err(BackendError::new(
                     "native eligibility",
@@ -1208,7 +1267,7 @@ fn lower_instruction(
                         "projected array assignment is not supported",
                     ));
                 }
-                let length = arrays.locals[place.root.0].expect("array shape checked");
+                let length = arrays.root(place.root).expect("array shape checked");
                 if arrays.temps[source.0] != Some(length) {
                     return Err(BackendError::new(
                         "native eligibility",
@@ -1484,7 +1543,7 @@ fn lower_instruction(
             writeln!(out, "  store {aggregate} zeroinitializer, ptr %arraytemp{temp}\n  %t{temp} = insertvalue {{ i64, ptr }} {{ i64 {length}, ptr null }}, ptr %arraytemp{temp}, 1").unwrap();
         }
         m::InstructionKind::ArrayLen(place) => {
-            let length = arrays.locals[place.root.0].expect("fixed array shape");
+            let length = arrays.root(place.root).expect("fixed array shape");
             writeln!(
                 out,
                 "  {} = add i64 0, {length}",

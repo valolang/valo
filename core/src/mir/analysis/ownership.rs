@@ -104,14 +104,25 @@ fn apply(state: &mut State, instruction: &InstructionKind, function: &Function) 
         InstructionKind::Store { place, .. } | InstructionKind::Replace { place, .. }
             if place.projections.is_empty() =>
         {
-            state.locals[place.root.0] = AVAILABLE
+            if let Some(local) = place.root.local() {
+                state.locals[local.0] = AVAILABLE;
+            }
         }
         InstructionKind::Move(place)
-            if function.locals[place.root.0].properties.copy == KnownProperty::No =>
+            if place
+                .root
+                .local()
+                .is_some_and(|id| function.locals[id.0].properties.copy == KnownProperty::No) =>
         {
-            state.locals[place.root.0] = MOVED
+            if let Some(local) = place.root.local() {
+                state.locals[local.0] = MOVED;
+            }
         }
-        InstructionKind::Drop(place) => state.locals[place.root.0] = DROPPED,
+        InstructionKind::Drop(place) => {
+            if let Some(local) = place.root.local() {
+                state.locals[local.0] = DROPPED;
+            }
+        }
         InstructionKind::BorrowStart { id, .. } => {
             state.borrows.insert(*id);
         }
@@ -139,7 +150,10 @@ fn check_instruction(
         }
         InstructionKind::Move(place) => {
             require_available(state, place)?;
-            let consuming = function.locals[place.root.0].properties.copy == KnownProperty::No;
+            let consuming = place
+                .root
+                .local()
+                .is_some_and(|id| function.locals[id.0].properties.copy == KnownProperty::No);
             check_active_borrows(function, state, origins, place, consuming)?;
         }
         InstructionKind::Drop(place) => {
@@ -149,12 +163,14 @@ fn check_instruction(
         InstructionKind::Store { place, .. } => {
             check_active_borrows(function, state, origins, place, true)?;
             if place.projections.is_empty()
-                && state.locals[place.root.0] == AVAILABLE
-                && function.locals[place.root.0].properties.requires_drop == KnownProperty::Yes
+                && place.root.local().is_some_and(|id| {
+                    state.locals[id.0] == AVAILABLE
+                        && function.locals[id.0].properties.requires_drop == KnownProperty::Yes
+                })
             {
                 return Err(format!(
                     "replacement of local #{} requires Drop after RHS evaluation",
-                    place.root.0
+                    place.root.local().expect("local checked").0
                 ));
             }
             if !place.projections.is_empty() {
@@ -205,10 +221,12 @@ fn check_instruction(
 }
 
 fn require_available(state: &State, place: &Place) -> Result<(), String> {
-    if state.locals[place.root.0] != AVAILABLE {
+    if let Some(local) = place.root.local()
+        && state.locals[local.0] != AVAILABLE
+    {
         return Err(format!(
             "local #{} is uninitialized, moved, dropped, or unavailable on some path",
-            place.root.0
+            local.0
         ));
     }
     Ok(())

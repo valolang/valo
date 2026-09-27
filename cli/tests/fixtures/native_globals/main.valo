@@ -1,0 +1,14 @@
+Imports State
+
+Function Main() As Integer
+    If ReadInitial() <> 0 Then
+        Return 1
+    End If
+    If Update() <> 42 Then
+        Return 2
+    End If
+    If ReadState() <> 42 Then
+        Return 3
+    End If
+    Return 0
+End Function

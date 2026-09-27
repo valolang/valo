@@ -523,11 +523,11 @@ fn hir_verifier_rejects_call_passing_mode_mismatch() {
 fn place_overlap_is_conservative_for_fields_and_indices() {
     let root = Place::local(LocalId(0));
     let field = |id| Place {
-        root: LocalId(0),
+        root: valo_core::semantics::typed_hir::PlaceRoot::Local(LocalId(0)),
         projections: vec![Projection::Field(FieldId(id))],
     };
     let index = |key| Place {
-        root: LocalId(0),
+        root: valo_core::semantics::typed_hir::PlaceRoot::Local(LocalId(0)),
         projections: vec![Projection::Index(IndexProjection {
             index: Box::new(Expression {
                 kind: match key {
@@ -598,7 +598,7 @@ fn hir_verifier_rejects_unresolved_projected_places() {
         panic!()
     };
     place.kind = ExpressionKind::Place(Place {
-        root: LocalId(0),
+        root: valo_core::semantics::typed_hir::PlaceRoot::Local(LocalId(0)),
         projections: vec![Projection::Field(FieldId(0))],
     });
     assert!(
@@ -621,7 +621,10 @@ fn array_element_reads_and_writes_lower_to_typed_index_places() {
     let ExpressionKind::Place(place) = &target.kind else {
         panic!()
     };
-    assert_eq!(place.root, LocalId(0));
+    assert_eq!(
+        place.root,
+        valo_core::semantics::typed_hir::PlaceRoot::Local(LocalId(0))
+    );
     assert_eq!(target.ty, TypeName::Int32);
     assert!(
         matches!(&place.projections[..], [Projection::Index(index)] if index.key() == IndexKey::Constant(1) && index.element_type == TypeName::Int32)

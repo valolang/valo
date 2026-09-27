@@ -122,6 +122,12 @@ Native backends must consume verified MIR and accept only semantics their
 current subset can lower. LLVM types, exception ABI and object format must not
 define Valo semantics.
 
+Places may now have a stable Local or Global root. A Global is compilation-wide
+storage with a resolved type and ownership properties; its fixed-array bound is
+recorded in MIR. Ownership dataflow tracks local availability while the initial
+native Global subset is restricted to trivial Copy/no-Drop values. MIR does not
+encode LLVM global addresses or source-file discovery.
+
 An experimental backend now consumes the **eligible subset** of
 verified MIR. Its local allocas, SSA temporaries, target data layout and
 LLVM tool invocations live entirely in `backend/llvm`, not in MIR. Internal

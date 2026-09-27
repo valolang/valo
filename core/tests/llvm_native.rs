@@ -316,11 +316,46 @@ fn native_collection_key_restriction_has_specific_hir_diagnostic() {
 }
 
 #[test]
-fn module_array_boundary_remains_explicit() {
-    let array = parse_source("Private Depth(0 To 1) As Integer\nFunction Main() As Integer\nReturn Depth(0)\nEnd Function").unwrap();
-    let error = lower_function_body(&array, 0).unwrap_err();
+fn native_module_scalar_and_fixed_array_share_storage_across_functions() {
+    execute(
+        "Private Counter As Integer\nPrivate Depth(0 To 2) As Integer\nFunction Update() As Integer\nCounter = Counter + 1\nDepth(Counter) = 40 + Counter\nReturn Depth(Counter)\nEnd Function\nFunction Main() As Integer\nIf Counter <> 0 Then\nReturn 1\nEnd If\nIf Depth(0) <> 0 Then\nReturn 2\nEnd If\nDim V As Integer = Update()\nIf V = 41 Then\nIf Depth(1) = 41 Then\nReturn 0\nEnd If\nEnd If\nReturn 3\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_module_structure_and_array_of_structures_have_distinct_storage() {
+    execute(
+        "Structure Point\nPublic X As Integer\nPublic Y As Integer\nEnd Structure\nPrivate Current As Point\nPrivate Points(0 To 1) As Point\nFunction SetPoints() As Integer\nCurrent.X = 3\nCurrent.Y = 4\nPoints(0).X = Current.X\nPoints(1).Y = Current.Y\nReturn 0\nEnd Function\nFunction Main() As Integer\nDim Ignored As Integer = SetPoints()\nIf Points(0).X = 3 Then\nIf Points(1).Y = 4 Then\nReturn 0\nEnd If\nEnd If\nReturn 1\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_select_case_enum_members_use_numeric_values() {
+    execute(
+        "Public Enum Phase\nPlaying\nWon\nLost\nEnd Enum\nPrivate Phase_ As Int32\nFunction Main() As Integer\nPhase_ = Phase.Won\nSelect Case Phase_\nCase Phase.Won\nReturn 0\nCase Else\nReturn 1\nEnd Select\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_lazy_iif_reports_its_missing_control_flow_lowering() {
+    let program =
+        parse_source("Function Main() As Integer\nReturn IIf(True, 0, 1)\nEnd Function").unwrap();
+    let error = lower_function_body(&program, 0).unwrap_err();
     assert!(
-        error.message.contains("module-level array storage"),
+        error.message.contains("lazy IIf expression branching"),
+        "{error}"
+    );
+}
+
+#[test]
+fn native_managed_module_global_is_rejected_before_codegen() {
+    let program = parse_source("Private Name As String\nFunction Main() As Integer\nIf Name = \"\" Then\nReturn 0\nEnd If\nReturn 1\nEnd Function").unwrap();
+    let error = lower_function_body(&program, 0).unwrap_err();
+    assert!(
+        error.message.contains("module-level managed value"),
         "{error}"
     );
 }
@@ -352,16 +387,28 @@ fn native_select_case_evaluates_both_range_bounds_even_when_lower_fails() {
 }
 
 #[test]
-fn native_select_case_managed_selector_has_precise_boundary() {
-    let source = "Function Main() As Integer\nSelect Case \"A\"\nCase \"A\"\nReturn 0\nCase Else\nReturn 1\nEnd Select\nEnd Function";
-    let program = parse_source(source).unwrap();
-    let error = lower_function_body(&program, 0).unwrap_err();
-    assert!(
-        error
-            .message
-            .contains("Select Case over this selector type"),
-        "{error}"
+fn native_select_case_string_selector_drops_on_return() {
+    execute(
+        "Function Main() As Integer\nDim S As String = \"A\" & \"B\"\nSelect Case S\nCase \"A\"\nReturn 1\nCase \"AB\"\nReturn 0\nCase Else\nReturn 2\nEnd Select\nEnd Function",
+        0,
     );
+}
+
+#[test]
+fn native_select_case_string_selector_drops_on_normal_exit() {
+    execute(
+        "Function Main() As Integer\nDim S As String = \"A\" & \"B\"\nSelect Case S\nCase \"AB\"\nS = \"C\" & \"D\"\nCase Else\nReturn 1\nEnd Select\nIf S = \"CD\" Then\nReturn 0\nEnd If\nReturn 2\nEnd Function",
+        0,
+    );
+}
+
+#[test]
+fn native_select_case_string_range_evaluates_bounds_and_releases_them() {
+    let source = "Function High(ByRef N As Integer) As String\nN = N + 1\nReturn \"Z\" & \"\"\nEnd Function\nFunction Main() As Integer\nDim N As Integer = 0\nSelect Case \"A\" & \"\"\nCase \"M\" To High(N)\nReturn 1\nCase Else\nReturn N - 1\nEnd Select\nEnd Function";
+    execute(source, 0);
+    let interpreted = source.replace("Function Main() As Integer", "Function Result() As Integer")
+        + "\nSub Main()\nConsole.WriteLine(Result())\nEnd Sub";
+    assert_eq!(valo_core::run_source(&interpreted).unwrap(), ["0"]);
 }
 
 #[test]
@@ -583,7 +630,7 @@ fn unresolved_layout_invalid_entry_and_native_drop_report_precise_errors() {
         requires_drop: KnownProperty::Yes,
     };
     let place = ir::Place {
-        root: ir::LocalId(0),
+        root: ir::PlaceRoot::Local(ir::LocalId(0)),
         projections: vec![],
         ty: valo_core::TypeName::Int32,
     };

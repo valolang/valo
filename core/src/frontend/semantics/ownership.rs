@@ -100,6 +100,17 @@ fn check_statements(
             break;
         }
         match statement {
+            Statement::Block {
+                scope,
+                body: inner,
+                span,
+            } => {
+                let ends = check_statements(body, inner, states, report)?;
+                if !ends {
+                    record_exit(body, ExitKind::Normal, &[*scope], *span, states, report);
+                }
+                terminated = ends;
+            }
             Statement::Initialize {
                 target,
                 value,
@@ -120,7 +131,10 @@ fn check_statements(
                     && let (Some(destination), Some(source)) =
                         (semantic_place(target), semantic_place(source))
                     && destination.overlap(source) != PlaceOverlap::Disjoint
-                    && body.locals[source.root.0].properties.copy == KnownProperty::No
+                    && source
+                        .root
+                        .local()
+                        .is_some_and(|id| body.locals[id.0].properties.copy == KnownProperty::No)
                 {
                     return Err(error(
                         "Cannot assign a non-Copy place from Move of itself",
@@ -131,25 +145,29 @@ fn check_statements(
                 let place = semantic_place(target)
                     .ok_or_else(|| error("Store target is not a resolved place", *span))?;
                 check_place_indices(body, place, states)?;
-                let local = place.root;
-                if body.locals[local.0].storage == LocalStorage::BorrowedImmutable {
-                    return Err(error("Cannot assign through a ReadOnly reference", *span));
-                }
-                let old_value = if place.projections.is_empty() {
-                    cleanup_action(body, local, states[local.0])
+                let old_value = if let Some(local) = place.root.local() {
+                    if body.locals[local.0].storage == LocalStorage::BorrowedImmutable {
+                        return Err(error("Cannot assign through a ReadOnly reference", *span));
+                    }
+                    let old_value = if place.projections.is_empty() {
+                        cleanup_action(body, local, states[local.0])
+                    } else {
+                        CleanupAction::Unresolved
+                    };
+                    if !place.projections.is_empty() {
+                        require_initialized(states[local.0], &body.locals[local.0].name, *span)?;
+                    } else {
+                        states[local.0] = State::Initialized;
+                    }
+                    old_value
                 } else {
-                    CleanupAction::Unresolved
+                    CleanupAction::NoDrop
                 };
                 report.replacements.push(ReplacementCleanup {
                     span: *span,
                     place: place.clone(),
                     old_value,
                 });
-                if !place.projections.is_empty() {
-                    require_initialized(states[local.0], &body.locals[local.0].name, *span)?;
-                } else {
-                    states[local.0] = State::Initialized;
-                }
             }
             Statement::Return {
                 value,
@@ -581,15 +599,16 @@ fn check_expression(
                 )
             })?;
             check_place_indices(body, place, states)?;
-            let local = place.root;
-            require_initialized(states[local.0], &body.locals[local.0].name, expression.span)?;
-            if matches!(expression.kind, ExpressionKind::BorrowMutable(_))
-                && body.locals[local.0].storage == LocalStorage::BorrowedImmutable
-            {
-                return Err(error(
-                    "Cannot mutably borrow a ReadOnly reference",
-                    expression.span,
-                ));
+            if let Some(local) = place.root.local() {
+                require_initialized(states[local.0], &body.locals[local.0].name, expression.span)?;
+                if matches!(expression.kind, ExpressionKind::BorrowMutable(_))
+                    && body.locals[local.0].storage == LocalStorage::BorrowedImmutable
+                {
+                    return Err(error(
+                        "Cannot mutably borrow a ReadOnly reference",
+                        expression.span,
+                    ));
+                }
             }
             Ok(())
         }
@@ -654,7 +673,7 @@ fn check_expression(
 fn local_place(expression: &Expression) -> Option<LocalId> {
     semantic_place(expression)
         .filter(|place| place.projections.is_empty())
-        .map(|place| place.root)
+        .and_then(|place| place.root.local())
 }
 
 fn semantic_place(expression: &Expression) -> Option<&Place> {

@@ -8,12 +8,11 @@ use super::typed_hir::{
 pub fn format_ownership_report(report: &super::ownership::OwnershipReport) -> String {
     let mut output = String::new();
     for replacement in &report.replacements {
-        writeln!(
-            output,
-            "replace local #{}: old {:?}",
-            replacement.place.root.0, replacement.old_value
-        )
-        .unwrap();
+        let root = match replacement.place.root {
+            super::typed_hir::PlaceRoot::Local(id) => format!("local #{}", id.0),
+            super::typed_hir::PlaceRoot::Global(id) => format!("global #{}", id.0),
+        };
+        writeln!(output, "replace {root}: old {:?}", replacement.old_value).unwrap();
     }
     for exit in &report.exits {
         writeln!(
@@ -98,6 +97,12 @@ fn write_block(
 fn write_statement(output: &mut String, body: &TypedBody, statement: &Statement, depth: usize) {
     let indent = "  ".repeat(depth);
     match statement {
+        Statement::Block {
+            scope, body: inner, ..
+        } => {
+            writeln!(output, "{indent}block").unwrap();
+            write_block(output, body, *scope, inner, depth + 1);
+        }
         Statement::Initialize { target, value, .. } => {
             writeln!(output, "{indent}init #{} = {}", target.0, expression(value)).unwrap()
         }
@@ -380,7 +385,10 @@ fn expression(expression: &Expression) -> String {
             self::expression(index)
         ),
         ExpressionKind::Place(place) => {
-            let mut rendered = format!("local #{}", place.root.0);
+            let mut rendered = match place.root {
+                super::typed_hir::PlaceRoot::Local(id) => format!("local #{}", id.0),
+                super::typed_hir::PlaceRoot::Global(id) => format!("global #{}", id.0),
+            };
             for projection in &place.projections {
                 match projection {
                     super::typed_hir::Projection::Field(id) => {

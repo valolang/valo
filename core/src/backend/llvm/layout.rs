@@ -7,13 +7,33 @@ use super::BackendError;
 
 pub(super) struct ArrayShapes {
     pub locals: Vec<Option<usize>>,
+    pub globals: Vec<Option<usize>>,
     pub temps: Vec<Option<usize>>,
+}
+
+impl ArrayShapes {
+    pub fn root(&self, root: m::PlaceRoot) -> Option<usize> {
+        match root {
+            m::PlaceRoot::Local(id) => self.locals[id.0],
+            m::PlaceRoot::Global(id) => self.globals[id.0],
+        }
+    }
 }
 
 impl ArrayShapes {
     pub fn analyze(function: &m::Function) -> Result<Self, BackendError> {
         let mut shapes = Self {
             locals: vec![None; function.locals.len()],
+            globals: function
+                .globals
+                .iter()
+                .map(|global| {
+                    global
+                        .array_upper
+                        .and_then(|upper| upper.checked_add(1))
+                        .and_then(|length| usize::try_from(length).ok())
+                })
+                .collect(),
             temps: vec![None; function.temps.len()],
         };
         // Stores and snapshots can be connected through a loop in the CFG.
@@ -47,7 +67,7 @@ impl ArrayShapes {
                             if matches!(place.ty, TypeName::Array(_))
                                 && place.projections.is_empty() =>
                         {
-                            if let Some(length) = shapes.locals[place.root.0] {
+                            if let Some(length) = shapes.root(place.root) {
                                 changed |=
                                     set(&mut shapes.temps[result.expect("verified")], length)?;
                             }
@@ -57,7 +77,14 @@ impl ArrayShapes {
                                 && place.projections.is_empty() =>
                         {
                             if let Some(length) = shapes.temps[value.0] {
-                                changed |= set(&mut shapes.locals[place.root.0], length)?;
+                                match place.root {
+                                    m::PlaceRoot::Local(id) => {
+                                        changed |= set(&mut shapes.locals[id.0], length)?
+                                    }
+                                    m::PlaceRoot::Global(id) => {
+                                        changed |= set(&mut shapes.globals[id.0], length)?
+                                    }
+                                }
                             }
                         }
                         _ => {}

@@ -11,6 +11,21 @@ pub struct BlockId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GlobalId(pub usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PlaceRoot {
+    Local(LocalId),
+    Global(GlobalId),
+}
+impl PlaceRoot {
+    pub fn local(self) -> Option<LocalId> {
+        match self {
+            Self::Local(id) => Some(id),
+            Self::Global(_) => None,
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TempId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BorrowId(pub usize);
@@ -29,6 +44,7 @@ pub struct Function {
     pub symbol_name: String,
     pub return_type: TypeName,
     pub locals: Vec<Local>,
+    pub globals: Vec<Global>,
     pub structures: Vec<TypeName>,
     pub classes: Vec<TypeName>,
     pub fields: Vec<Field>,
@@ -99,6 +115,17 @@ pub struct Local {
     pub parameter_index: Option<usize>,
     pub span: Span,
 }
+#[derive(Debug, Clone, PartialEq)]
+pub struct Global {
+    pub id: GlobalId,
+    pub name: String,
+    pub symbol_name: String,
+    pub ty: TypeName,
+    pub properties: TypeProperties,
+    pub array_upper: Option<i64>,
+    pub has_initializer: bool,
+    pub span: Span,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BasicBlock {
@@ -128,7 +155,7 @@ pub enum Constant {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Place {
-    pub root: LocalId,
+    pub root: PlaceRoot,
     pub projections: Vec<Projection>,
     pub ty: TypeName,
 }

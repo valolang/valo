@@ -86,6 +86,20 @@ impl<'a> Builder<'a> {
                         span: local.span,
                     })
                     .collect(),
+                globals: body
+                    .globals
+                    .iter()
+                    .map(|global| m::Global {
+                        id: m::GlobalId(global.id.0),
+                        name: global.name.clone(),
+                        symbol_name: global.symbol_name.clone(),
+                        ty: global.ty.clone(),
+                        properties: global.properties,
+                        array_upper: global.array_upper,
+                        has_initializer: global.has_initializer,
+                        span: global.span,
+                    })
+                    .collect(),
                 structures: body.structures.clone(),
                 classes: body.classes.clone(),
                 fields: body
@@ -177,6 +191,12 @@ impl<'a> Builder<'a> {
 
     fn lower_statement(&mut self, statement: &h::Statement) -> Result<(), LowerError> {
         match statement {
+            h::Statement::Block { scope, body, span } => {
+                self.lower_statements(body)?;
+                if self.current.is_some() {
+                    self.exit_cleanup(&[*scope], &self.body.cleanup_chain(&[*scope]), *span)?;
+                }
+            }
             h::Statement::Initialize {
                 target,
                 value,
@@ -724,7 +744,7 @@ impl<'a> Builder<'a> {
             span,
         });
         let array = m::Place {
-            root: snapshot_local,
+            root: m::PlaceRoot::Local(snapshot_local),
             projections: Vec::new(),
             ty: array.ty,
         };
@@ -747,7 +767,7 @@ impl<'a> Builder<'a> {
             span,
         });
         let index_place = m::Place {
-            root: index_local,
+            root: m::PlaceRoot::Local(index_local),
             projections: Vec::new(),
             ty: TypeName::Int64,
         };
@@ -858,7 +878,7 @@ impl<'a> Builder<'a> {
             span,
         });
         let snapshot_place = m::Place {
-            root: snapshot_local,
+            root: m::PlaceRoot::Local(snapshot_local),
             projections: Vec::new(),
             ty: iterable.ty.clone(),
         };
@@ -876,7 +896,7 @@ impl<'a> Builder<'a> {
             span,
         });
         let index_place = m::Place {
-            root: index_local,
+            root: m::PlaceRoot::Local(index_local),
             projections: Vec::new(),
             ty: TypeName::Int32,
         };
@@ -1083,7 +1103,7 @@ impl<'a> Builder<'a> {
 
     fn local_place(&self, id: h::LocalId) -> m::Place {
         m::Place {
-            root: m::LocalId(id.0),
+            root: m::PlaceRoot::Local(m::LocalId(id.0)),
             projections: Vec::new(),
             ty: self.function.locals[id.0].ty.clone(),
         }
@@ -1102,7 +1122,10 @@ impl<'a> Builder<'a> {
             });
         }
         Ok(m::Place {
-            root: m::LocalId(place.root.0),
+            root: match place.root {
+                h::PlaceRoot::Local(id) => m::PlaceRoot::Local(m::LocalId(id.0)),
+                h::PlaceRoot::Global(id) => m::PlaceRoot::Global(m::GlobalId(id.0)),
+            },
             projections,
             ty: expr.ty.clone(),
         })
@@ -1299,6 +1322,7 @@ fn collect_finally<'a>(
 ) {
     for statement in statements {
         match statement {
+            h::Statement::Block { body, .. } => collect_finally(body, bodies),
             h::Statement::TryFinally {
                 try_body,
                 finally_scope,

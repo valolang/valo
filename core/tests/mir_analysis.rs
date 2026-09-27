@@ -15,7 +15,7 @@ fn fixture() -> ir::Function {
 
 fn place(id: usize) -> ir::Place {
     ir::Place {
-        root: ir::LocalId(id),
+        root: ir::PlaceRoot::Local(ir::LocalId(id)),
         projections: vec![],
         ty: TypeName::Int32,
     }
@@ -525,7 +525,7 @@ fn place_overlap_is_conservative_for_fields_and_indices() {
     let mut f = fixture();
     let whole = place(0);
     let field = |id| ir::Place {
-        root: ir::LocalId(0),
+        root: ir::PlaceRoot::Local(ir::LocalId(0)),
         projections: vec![ir::Projection::Field(
             valo_core::semantics::typed_hir::FieldId(id),
         )],
@@ -548,7 +548,7 @@ fn place_overlap_is_conservative_for_fields_and_indices() {
         instruction(f.span, Some(2), ir::InstructionKind::Load(whole)),
     ];
     let indexed = |id| ir::Place {
-        root: ir::LocalId(0),
+        root: ir::PlaceRoot::Local(ir::LocalId(0)),
         projections: vec![ir::Projection::Index(ir::TempId(id))],
         ty: TypeName::Int32,
     };

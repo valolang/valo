@@ -447,7 +447,11 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
         }
         InstructionKind::Move(place) => {
             let ty = place_type(function, place)?;
-            let local = &function.locals[place.root.0];
+            let local = place
+                .root
+                .local()
+                .and_then(|id| function.locals.get(id.0))
+                .ok_or("MIR Move requires a local Place")?;
             if !place.projections.is_empty()
                 || local.storage != LocalStorage::Value
                 || local.properties.copy == KnownProperty::Unknown
@@ -458,7 +462,11 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
         }
         InstructionKind::Drop(place) => {
             place_type(function, place)?;
-            let local = &function.locals[place.root.0];
+            let local = place
+                .root
+                .local()
+                .and_then(|id| function.locals.get(id.0))
+                .ok_or("MIR Drop requires a local Place")?;
             if result.is_some()
                 || !place.projections.is_empty()
                 || local.storage != LocalStorage::Value
@@ -471,7 +479,9 @@ fn verify_instruction(function: &Function, instruction: &Instruction) -> Result<
             place_type(function, place)?;
             if result.is_some()
                 || (*kind == BorrowKind::Mutable
-                    && function.locals[place.root.0].storage == LocalStorage::BorrowedImmutable)
+                    && place.root.local().is_some_and(|id| {
+                        function.locals[id.0].storage == LocalStorage::BorrowedImmutable
+                    }))
             {
                 return Err("MIR mutable borrow targets a ReadOnly Place".into());
             }
@@ -596,12 +606,27 @@ fn is_collection(ty: &TypeName) -> bool {
 }
 
 fn place_type(function: &Function, place: &Place) -> Result<TypeName, String> {
-    let mut ty = function
-        .locals
-        .get(place.root.0)
-        .ok_or("MIR Place root is invalid")?
-        .ty
-        .clone();
+    let mut ty = match place.root {
+        crate::mir::ir::PlaceRoot::Local(id) => function
+            .locals
+            .get(id.0)
+            .ok_or("MIR Place root is invalid")?
+            .ty
+            .clone(),
+        crate::mir::ir::PlaceRoot::Global(id) => {
+            let global = function
+                .globals
+                .get(id.0)
+                .ok_or("MIR global Place root is invalid")?;
+            if global.id != id
+                || global.properties.copy != KnownProperty::Yes
+                || global.properties.requires_drop != KnownProperty::No
+            {
+                return Err("MIR global Place requires trivial Copy storage".into());
+            }
+            global.ty.clone()
+        }
+    };
     for projection in &place.projections {
         ty = match projection {
             Projection::Field(id) => {

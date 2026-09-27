@@ -145,7 +145,10 @@ fn format_instruction(kind: &InstructionKind) -> String {
 }
 
 fn format_place(place: &Place) -> String {
-    let mut output = format!("${}", place.root.0);
+    let mut output = match place.root {
+        super::ir::PlaceRoot::Local(id) => format!("${}", id.0),
+        super::ir::PlaceRoot::Global(id) => format!("@{}", id.0),
+    };
     for projection in &place.projections {
         match projection {
             Projection::Field(id) => write!(output, ".field#{}", id.0).unwrap(),

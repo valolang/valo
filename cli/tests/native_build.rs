@@ -82,6 +82,34 @@ fn cli_builds_and_executes_multifile_native_project() {
 }
 
 #[test]
+fn cli_builds_cross_file_global_state_and_enum_cases() {
+    if LlvmTools::discover().is_err() {
+        return;
+    }
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let source = manifest.join("tests/fixtures/native_globals/main.valo");
+    let output = std::env::temp_dir().join(format!(
+        "valo-cli-native-globals-{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    ));
+    let build = Command::new(env!("CARGO_BIN_EXE_valo"))
+        .arg("build")
+        .arg(&source)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert_eq!(Command::new(&output).status().unwrap().code(), Some(0));
+    std::fs::remove_file(output).unwrap();
+}
+
+#[test]
 fn native_build_accepts_mixed_source_option_settings() {
     if LlvmTools::discover().is_err() {
         return;

@@ -150,6 +150,14 @@ fn verify_statements(
     for statement in statements {
         verify_statement_expressions(body, statement, current)?;
         match statement {
+            Statement::Block {
+                scope,
+                body: inner,
+                span,
+            } => {
+                visit_child(body, *scope, current, *span, visited)?;
+                verify_statements(body, inner, *scope, loops, visited)?;
+            }
             Statement::Initialize { target, span, .. } => {
                 if body
                     .locals
@@ -382,6 +390,7 @@ fn verify_statements(
 
 fn has_nonlocal_exit(statements: &[Statement]) -> bool {
     statements.iter().any(|statement| match statement {
+        Statement::Block { body, .. } => has_nonlocal_exit(body),
         Statement::Return { .. }
         | Statement::ReturnVoid { .. }
         | Statement::ExitLoop { .. }
@@ -422,6 +431,7 @@ fn has_nonlocal_exit(statements: &[Statement]) -> bool {
 fn collect_handler_scopes(statements: &[Statement], found: &mut HashSet<ScopeId>) {
     for statement in statements {
         match statement {
+            Statement::Block { body, .. } => collect_handler_scopes(body, found),
             Statement::UsingDispose {
                 body_scope, body, ..
             } => {
@@ -478,6 +488,7 @@ fn verify_statement_expressions(
     current: ScopeId,
 ) -> Result<(), Diagnostic> {
     match statement {
+        Statement::Block { .. } => Ok(()),
         Statement::Initialize { target, value, .. } => {
             verify_expression(body, value, current)?;
             if body
@@ -815,9 +826,29 @@ fn verify_expression(
             Ok(())
         }
         ExpressionKind::Place(place) => {
-            let local = place.root;
-            verify_local(body, local, current, expression.span)?;
-            let mut place_type = body.locals[local.0].ty.clone();
+            let mut place_type = match place.root {
+                super::typed_hir::PlaceRoot::Local(local) => {
+                    verify_local(body, local, current, expression.span)?;
+                    body.locals[local.0].ty.clone()
+                }
+                super::typed_hir::PlaceRoot::Global(global) => {
+                    let item = body
+                        .globals
+                        .get(global.0)
+                        .ok_or_else(|| invalid("Invalid global Place identity", expression.span))?;
+                    if item.id != global
+                        || item.properties.copy != super::type_properties::KnownProperty::Yes
+                        || item.properties.requires_drop
+                            != super::type_properties::KnownProperty::No
+                    {
+                        return Err(invalid(
+                            "Native global Place requires a trivial Copy value",
+                            expression.span,
+                        ));
+                    }
+                    item.ty.clone()
+                }
+            };
             for projection in &place.projections {
                 match projection {
                     super::typed_hir::Projection::Field(id) => {

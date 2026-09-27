@@ -27,7 +27,7 @@ current behaviour explicit, so an example that quietly changed what it prints
 fails instead of passing, which is what makes them a safety net for work on the
 interpreter.
 
-The four experimental `native/*.valo` examples have a
+The six experimental `native/*.valo` examples have a
 `Function Main() As Integer` native entry and cover control flow, Structures,
 fixed arrays with For Each, and tuples. Build one with
 `valo build examples/native/native_control_flow.valo --release`. They are tested

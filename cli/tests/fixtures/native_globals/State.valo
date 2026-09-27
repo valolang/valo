@@ -1,0 +1,26 @@
+Public Enum Phase
+    Waiting
+    Ready
+End Enum
+
+Private Counter As Integer
+Private Depth(0 To 2) As Integer
+
+Public Function ReadInitial() As Integer
+    Return Counter + Depth(1)
+End Function
+
+Public Function Update() As Integer
+    Counter = Counter + 1
+    Depth(Counter) = 41 + Counter
+    Return Depth(Counter)
+End Function
+
+Public Function ReadState() As Integer
+    Select Case Phase.Ready
+        Case Phase.Ready
+            Return Depth(Counter)
+        Case Else
+            Return 0
+    End Select
+End Function

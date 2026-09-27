@@ -165,8 +165,9 @@ handle enters HIR or MIR.
 | Fixed array of plain Structure | Yes | Yes / Yes | Yes, indexed access |
 | Fixed-array For Each | Yes | Yes / Yes | Yes, entry snapshot |
 | Numeric/Boolean `Select Case` (`Case` values, ranges, `Case Is`) | Yes | Yes / Yes | Yes, selector evaluated once |
-| Managed `Select Case` selector (including String) | Yes | No | Controlled unsupported pending lexical selector cleanup |
-| Module-level mutable values and arrays | Yes | No | No native global Place/storage model yet |
+| String `Select Case` value/range/`Case Is` tests | Yes | Yes / Yes | Yes, selector and reached bounds have lexical Drop scope; Binary comparison |
+| Module-level mutable trivial values and zero-based fixed arrays of trivial values | Yes | Yes / Yes | Yes, zero-initialized shared native globals |
+| Module-level managed, initialized, dynamic or non-zero-based storage | Yes | Partial | Controlled unsupported |
 | Whole-array scalar assignment, array argument/return | Restricted | No / partial | No |
 | Try/Finally without exception dispatch | Yes | Yes / Yes | Yes for supported bodies |
 | Using with Class Dispose | Yes | Partial / Yes | No |
@@ -194,8 +195,16 @@ emission. Native tests are unconditional Rust tests but skip toolchain-dependent
 execution when `clang`, `opt`, or `llc` cannot be discovered; frontend and MIR
 tests always run. `Select Case` now resolves numeric and Boolean selectors into
 typed HIR branches before MIR; both range endpoints are evaluated before the
-range comparison, matching the interpreter. The next project milestones need
-module-level storage, resolved Class constructors/methods and interface
+range comparison, matching the interpreter. A lexical HIR Block owns the
+selector; managed String selectors are released on normal and Return paths.
+MIR Places now have explicit Local or Global roots. Fixed global arrays use the
+same length-plus-data descriptor as fixed local arrays, with static backing
+storage. This initial global contract supports default-zero trivial values;
+explicit initializers and managed global cleanup require a separate
+initialization/finalization model. Enum members used as values lower to their
+validated integral constants in HIR, including in `Select Case`.
+The next project milestones need
+resolved Class constructors/methods and interface
 dispatch before the games reach their SDL/FFI calls. Native exceptions,
 conditional Drop flags, managed arrays and general reference lifetimes remain
 separate semantic work.

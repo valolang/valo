@@ -17,14 +17,25 @@ fn transfer(state: &mut [u8], kind: &InstructionKind, function: &Function) {
         InstructionKind::Store { place, .. } | InstructionKind::Replace { place, .. }
             if place.projections.is_empty() =>
         {
-            state[place.root.0] = AVAILABLE
+            if let Some(local) = place.root.local() {
+                state[local.0] = AVAILABLE;
+            }
         }
         InstructionKind::Move(place)
-            if function.locals[place.root.0].properties.copy == KnownProperty::No =>
+            if place
+                .root
+                .local()
+                .is_some_and(|id| function.locals[id.0].properties.copy == KnownProperty::No) =>
         {
-            state[place.root.0] = MOVED;
+            if let Some(local) = place.root.local() {
+                state[local.0] = MOVED;
+            }
         }
-        InstructionKind::Drop(place) => state[place.root.0] = DROPPED,
+        InstructionKind::Drop(place) => {
+            if let Some(local) = place.root.local() {
+                state[local.0] = DROPPED;
+            }
+        }
         InstructionKind::DropCandidate(id)
             if function.locals[id.0].properties.requires_drop == KnownProperty::Yes =>
         {
@@ -99,7 +110,7 @@ pub fn elaborate(function: &mut Function) -> Result<(), String> {
                 KnownProperty::Yes if state[id.0] == AVAILABLE => lowered.push(Instruction {
                     result: None,
                     kind: InstructionKind::Drop(Place {
-                        root: id,
+                        root: super::ir::PlaceRoot::Local(id),
                         projections: Vec::new(),
                         ty: local.ty.clone(),
                     }),
